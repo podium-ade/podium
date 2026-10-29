@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -68,6 +69,10 @@ type TaskSpec struct {
 	// WorkspacePublishBase stores this task's workspace as the shared base for
 	// WorkspaceRepo. It requires WorkspaceRepo.
 	WorkspacePublishBase bool `yaml:"workspace_publish_base,omitempty" json:"workspace_publish_base,omitempty"`
+	// WorkspaceReadOnly restores the session's snapshot and stores nothing when the task
+	// exits: what it changed is thrown away with the volume. It requires WorkspaceSession,
+	// and it does not publish a base.
+	WorkspaceReadOnly bool `yaml:"workspace_readonly,omitempty" json:"workspace_readonly,omitempty"`
 	// WorkspaceWarm is how long a runtime should stay up after a turn, waiting for the
 	// next instruction. Zero means leave when the turn ends. The node publishes it as
 	// PODIUM_WORKSPACE_WARM_SECONDS; the runtime is what waits.
@@ -78,7 +83,46 @@ type TaskSpec struct {
 	// Sandbox runs the task in a cloud sandbox instead of a container on the node. See
 	// docs/task-spec.md.
 	Sandbox *Sandbox `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+	// Mounts are directories of text files the node writes before the task starts and
+	// mounts read-only. See FileMount.
+	Mounts []FileMount `yaml:"mounts,omitempty" json:"mounts,omitempty"`
 }
+
+// FileMount is one read-only directory a task gets, carried whole on the spec.
+//
+// It is how content too large for an environment variable reaches a task: Linux caps a
+// single environment string at MAX_ARG_STRLEN, 128 KiB, and past it the container cannot
+// exec at all. A file has no such cap, so the limit here is MaxMountBytes, which is about
+// what a spec can reasonably carry through the control plane.
+type FileMount struct {
+	// Target is the absolute directory it is mounted at, under FilesMount.
+	Target string `yaml:"target" json:"target"`
+	// Files maps a path relative to Target onto that file's content. Text only: nothing
+	// here is executable, and nothing can be a link.
+	Files map[string]string `yaml:"files" json:"files"`
+}
+
+// FilesMount is where every FileMount lands. A target anywhere else is refused: a task run
+// as a process has these written by root, so a target is a place root writes to.
+const FilesMount = "/podium/files"
+
+// The caps on Mounts.
+const (
+	// MaxMounts is how many directories one task may be given.
+	MaxMounts = 16
+	// MaxMountFiles is how many files one task may be given, across every mount.
+	MaxMountFiles = 1024
+	// MaxMountBytes caps the content of every file of every mount, together.
+	MaxMountBytes = 80 << 20
+	// MaxMountPathLen and MaxMountPathDepth bound one path inside a mount.
+	MaxMountPathLen   = 255
+	MaxMountPathDepth = 8
+)
+
+// mountSegmentRE is what one path component inside a mount may look like, the target's
+// own components included. Narrow on purpose: `..`, a dotfile, a backslash and a NUL are
+// all refused by the one rule rather than by a list of special cases.
+var mountSegmentRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Sandbox is a task's cloud sandbox. With a Snapshot the task's command runs directly in a
 // sandbox made from that provider snapshot, and Image is not used.
@@ -387,6 +431,12 @@ func (s *TaskSpec) Validate() error {
 	errs = append(errs, s.Hardening.validate()...)
 	errs = append(errs, s.validateSecrets()...)
 	errs = append(errs, s.validateSidecars()...)
+	if s.WorkspaceReadOnly && strings.TrimSpace(s.WorkspaceSession) == "" {
+		errs = append(errs, errors.New("workspace_readonly requires workspace_session"))
+	}
+	if s.WorkspaceReadOnly && s.WorkspacePublishBase {
+		errs = append(errs, errors.New("workspace_readonly stores nothing, so it cannot workspace_publish_base"))
+	}
 	if s.WorkspacePublishBase && strings.TrimSpace(s.WorkspaceRepo) == "" {
 		errs = append(errs, errors.New("workspace_publish_base requires workspace_repo"))
 	}
@@ -395,7 +445,95 @@ func (s *TaskSpec) Validate() error {
 	}
 	errs = append(errs, s.validateExpose()...)
 	errs = append(errs, s.Sandbox.validate()...)
+	errs = append(errs, s.validateMounts()...)
 	return errors.Join(errs...)
+}
+
+func (s *TaskSpec) validateMounts() []error {
+	if len(s.Mounts) == 0 {
+		return nil
+	}
+	var errs []error
+	if len(s.Mounts) > MaxMounts {
+		errs = append(errs, fmt.Errorf("mounts: %d directories; the limit is %d", len(s.Mounts), MaxMounts))
+	}
+	files, total := 0, 0
+	targets := map[string]int{}
+	for i, m := range s.Mounts {
+		field := fmt.Sprintf("mounts[%d]", i)
+		if err := CheckMountTarget(m.Target); err != nil {
+			errs = append(errs, fmt.Errorf("%s.target: %w", field, err))
+		} else {
+			// Nested targets would mount one directory over part of another.
+			for _, other := range sortedKeys(targets) {
+				j := targets[other]
+				if other == m.Target || strings.HasPrefix(other, m.Target+"/") || strings.HasPrefix(m.Target, other+"/") {
+					errs = append(errs, fmt.Errorf("%s.target %s overlaps mounts[%d].target %s", field, m.Target, j, other))
+				}
+			}
+			targets[m.Target] = i
+		}
+		if len(m.Files) == 0 {
+			errs = append(errs, fmt.Errorf("%s has no files", field))
+		}
+		for _, rel := range sortedKeys(m.Files) {
+			if err := CheckMountPath(rel); err != nil {
+				errs = append(errs, fmt.Errorf("%s.files: %w", field, err))
+				continue
+			}
+			if !utf8.ValidString(m.Files[rel]) {
+				errs = append(errs, fmt.Errorf("%s.files: %s is not UTF-8 text", field, rel))
+			}
+			files++
+			total += len(m.Files[rel])
+		}
+		// A file and a directory cannot share a path: `a` and `a/b` in one mount.
+		for _, rel := range sortedKeys(m.Files) {
+			if CheckMountPath(rel) != nil {
+				continue // already reported, and path.Dir of an absolute path never reaches "."
+			}
+			for dir := path.Dir(rel); dir != "."; dir = path.Dir(dir) {
+				if _, clash := m.Files[dir]; clash {
+					errs = append(errs, fmt.Errorf("%s.files: %s is a file and also the directory of %s", field, dir, rel))
+				}
+			}
+		}
+	}
+	if files > MaxMountFiles {
+		errs = append(errs, fmt.Errorf("mounts: %d files; the limit is %d", files, MaxMountFiles))
+	}
+	if total > MaxMountBytes {
+		errs = append(errs, fmt.Errorf("mounts: %d bytes of files; the limit is %d", total, MaxMountBytes))
+	}
+	return errs
+}
+
+// CheckMountTarget reports whether target is a directory a FileMount may be mounted at.
+func CheckMountTarget(target string) error {
+	rel, ok := strings.CutPrefix(target, FilesMount+"/")
+	if !ok || CheckMountPath(rel) != nil {
+		return fmt.Errorf("%q must be a directory under %s, each component matching %s",
+			target, FilesMount, mountSegmentRE)
+	}
+	return nil
+}
+
+// CheckMountPath is the traversal guard for a path inside a mount, or a target below
+// FilesMount: every component an ordinary name.
+func CheckMountPath(rel string) error {
+	if rel == "" || len(rel) > MaxMountPathLen {
+		return fmt.Errorf("a path must be 1 to %d characters, got %d", MaxMountPathLen, len(rel))
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) > MaxMountPathDepth {
+		return fmt.Errorf("%s is more than %d components deep", rel, MaxMountPathDepth)
+	}
+	for _, part := range parts {
+		if !mountSegmentRE.MatchString(part) {
+			return fmt.Errorf("%q has a component %q outside %s", rel, part, mountSegmentRE)
+		}
+	}
+	return nil
 }
 
 func (s *TaskSpec) validateExpose() []error {

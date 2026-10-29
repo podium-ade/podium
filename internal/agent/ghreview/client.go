@@ -59,11 +59,15 @@ type Comment struct {
 	Body      string    `json:"body"`
 	HTMLURL   string    `json:"html_url"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	Path      string    `json:"path"`
 	Line      int       `json:"line"`
-	DiffHunk  string    `json:"diff_hunk"`
-	InReplyTo int64     `json:"in_reply_to_id"`
-	User      User      `json:"user"`
+	// OriginalLine is where the comment was made. Line is where that line is now, and zero
+	// once the code under it changed.
+	OriginalLine int    `json:"original_line"`
+	DiffHunk     string `json:"diff_hunk"`
+	InReplyTo    int64  `json:"in_reply_to_id"`
+	User         User   `json:"user"`
 }
 
 // Review is a submitted pull-request review.
@@ -229,23 +233,34 @@ type pullInfo struct {
 	Files     int
 	Additions int
 	Deletions int
+	// Fork is a pull request whose head branch is in another repository. Locked is a fork
+	// whose author has not let maintainers push to that branch, so nothing here can.
+	Fork   bool
+	Locked bool
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
 // and the counts are what the status comment shows.
 func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo string, number int) (pullInfo, error) {
 	var out struct {
-		Title        string `json:"title"`
-		Commits      int    `json:"commits"`
-		Additions    int    `json:"additions"`
-		Deletions    int    `json:"deletions"`
-		ChangedFiles int    `json:"changed_files"`
-		Head         struct {
-			Ref string `json:"ref"`
-			SHA string `json:"sha"`
+		Title               string `json:"title"`
+		Commits             int    `json:"commits"`
+		Additions           int    `json:"additions"`
+		Deletions           int    `json:"deletions"`
+		ChangedFiles        int    `json:"changed_files"`
+		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		Head                struct {
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo *struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 		Base struct {
-			Ref string `json:"ref"`
+			Ref  string `json:"ref"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"base"`
 	}
 	err := c.do(ctx, installID, http.MethodGet,
@@ -253,6 +268,9 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 	if err != nil {
 		return pullInfo{}, err
 	}
+	// A head repository that was deleted reads as null: still a fork, and nobody can push.
+	fork := out.Head.Repo == nil ||
+		(out.Base.Repo.FullName != "" && !strings.EqualFold(out.Head.Repo.FullName, out.Base.Repo.FullName))
 	return pullInfo{
 		Title:     out.Title,
 		Head:      out.Head.Ref,
@@ -262,6 +280,8 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Files:     out.ChangedFiles,
 		Additions: out.Additions,
 		Deletions: out.Deletions,
+		Fork:      fork,
+		Locked:    fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
 	}, nil
 }
 
@@ -291,6 +311,139 @@ func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, own
 		fmt.Sprintf("/repos/%s/%s/pulls/%d/comments", owner, repo, number),
 		map[string]any{"body": body, "in_reply_to": inReplyTo}, &out)
 	return out, err
+}
+
+// Role is login's role on the repository: read, triage, write, maintain or admin, or "" for
+// none. role_name is the finer of GitHub's two answers. An organisation's custom role is
+// named by its owner, so it falls back to the base permission it was built on.
+func (c *restClient) Role(ctx context.Context, installID int64, owner, repo, login string) (string, error) {
+	var out struct {
+		Permission string `json:"permission"`
+		RoleName   string `json:"role_name"`
+	}
+	err := c.do(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/collaborators/%s/permission", owner, repo, url.PathEscape(login)), nil, &out)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range []string{out.RoleName, out.Permission} {
+		switch r {
+		case "read", "triage", "write", "maintain", "admin":
+			return r, nil
+		}
+	}
+	return "", nil
+}
+
+// graphqlURL is where GraphQL is: /graphql beside the REST root, and /api/graphql on a GitHub
+// Enterprise Server whose REST root is /api/v3.
+func (c *restClient) graphqlURL() string {
+	if base, ok := strings.CutSuffix(c.baseURL, "/api/v3"); ok {
+		return base + "/api/graphql"
+	}
+	return c.baseURL + "/graphql"
+}
+
+// graphql runs one query. GitHub answers a GraphQL error with 200 and an errors array.
+func (c *restClient) graphql(ctx context.Context, installID int64, query string, vars map[string]any, out any) error {
+	var res struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := c.do(ctx, installID, http.MethodPost, c.graphqlURL(),
+		map[string]any{"query": query, "variables": vars}, &res); err != nil {
+		return err
+	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("github: graphql: %s", res.Errors[0].Message)
+	}
+	if out == nil || len(res.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(res.Data, out)
+}
+
+const reviewThreadsQuery = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`
+
+const resolveThreadMutation = `mutation($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) { thread { id } }
+}`
+
+// maxThreadPages bounds the thread walk: a pull request with more than this many hundred
+// review threads leaves the rest unresolved rather than paging for ever.
+const maxThreadPages = 5
+
+// ResolveThread resolves the review thread whose first comment is rootID. A thread already
+// resolved is left alone; one that cannot be found is an error.
+func (c *restClient) ResolveThread(ctx context.Context, installID int64, owner, repo string, number int, rootID int64) error {
+	var after any
+	for range maxThreadPages {
+		var page struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		err := c.graphql(ctx, installID, reviewThreadsQuery,
+			map[string]any{"owner": owner, "repo": repo, "number": number, "after": after}, &page)
+		if err != nil {
+			return err
+		}
+		threads := page.Repository.PullRequest.ReviewThreads
+		for _, t := range threads.Nodes {
+			if len(t.Comments.Nodes) == 0 || t.Comments.Nodes[0].DatabaseID != rootID {
+				continue
+			}
+			if t.IsResolved {
+				return nil
+			}
+			return c.graphql(ctx, installID, resolveThreadMutation, map[string]any{"id": t.ID}, nil)
+		}
+		if !threads.PageInfo.HasNextPage {
+			break
+		}
+		after = threads.PageInfo.EndCursor
+	}
+	return fmt.Errorf("github: no review thread starts with comment %d", rootID)
+}
+
+// reactionSeen is the reaction a comment gets when a turn starts on it.
+const reactionSeen = "eyes"
+
+// CreateReaction reacts to one comment. kind is KindIssueComment for the conversation tab
+// and KindReviewComment for the diff: GitHub keeps the two under different paths.
+func (c *restClient) CreateReaction(ctx context.Context, installID int64, owner, repo, kind string, commentID int64, content string) error {
+	path := fmt.Sprintf("/repos/%s/%s/issues/comments/%d/reactions", owner, repo, commentID)
+	if kind == KindReviewComment {
+		path = fmt.Sprintf("/repos/%s/%s/pulls/comments/%d/reactions", owner, repo, commentID)
+	}
+	return c.do(ctx, installID, http.MethodPost, path, map[string]string{"content": content}, nil)
 }
 
 // ReviewComment reads one inline review comment. A reply's in_reply_to_id is the first
@@ -330,6 +483,44 @@ func (c *restClient) ListReviewComments(ctx context.Context, installID int64, ow
 		return len(page), nil
 	})
 	return all, err
+}
+
+// PullFile is one file a pull request changes. Patch is its part of the diff, empty for a
+// binary file or one GitHub thinks too large to show.
+type PullFile struct {
+	Filename  string `json:"filename"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Patch     string `json:"patch"`
+}
+
+// PullFiles pages the files a pull request changes.
+func (c *restClient) PullFiles(ctx context.Context, installID int64, owner, repo string, number int) ([]PullFile, error) {
+	var all []PullFile
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/files", owner, repo, number)
+	err := c.pages(ctx, installID, path, func(raw []byte) (int, error) {
+		var page []PullFile
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return 0, err
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
+	return all, err
+}
+
+// FileAt is one file's contents at ref.
+func (c *restClient) FileAt(ctx context.Context, installID int64, owner, repo, path, ref string) ([]byte, error) {
+	escaped := make([]string, 0, 4)
+	for _, part := range strings.Split(strings.Trim(path, "/"), "/") {
+		escaped = append(escaped, url.PathEscape(part))
+	}
+	var raw []byte
+	err := c.doAccept(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", owner, repo, strings.Join(escaped, "/"), url.QueryEscape(ref)),
+		"application/vnd.github.raw", nil, &raw)
+	return raw, err
 }
 
 // ListReviews pages submitted reviews.
@@ -415,6 +606,11 @@ func (c *restClient) jwt() (string, error) {
 }
 
 func (c *restClient) do(ctx context.Context, installID int64, method, path string, body, out any) error {
+	return c.doAccept(ctx, installID, method, path, "application/vnd.github+json", body, out)
+}
+
+// doAccept is do with another media type. out as a *[]byte takes the body as it came.
+func (c *restClient) doAccept(ctx context.Context, installID int64, method, path, accept string, body, out any) error {
 	var auth string
 	var err error
 	if installID > 0 {
@@ -434,11 +630,15 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		}
 		rdr = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
+	target := c.baseURL + path
+	if strings.HasPrefix(path, "https://") || strings.HasPrefix(path, "http://") {
+		target = path
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, rdr)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("Authorization", "Bearer "+auth)
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	if body != nil {
@@ -470,6 +670,10 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		return fmt.Errorf("github: %s %s: response exceeds %d bytes", method, path, restSuccessBody)
 	}
 	if out == nil || len(raw) == 0 || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	if b, ok := out.(*[]byte); ok {
+		*b = raw
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {

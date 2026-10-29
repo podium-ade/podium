@@ -3,9 +3,9 @@
 -- relabel every delegation that ever ran under it.
 -- name: CreateDelegation :one
 insert into delegations (id, session_id, turn_id, trigger_ref, playbook, instruction, status,
-                         created_at, agent, model, effort, provider)
+                         created_at, agent, model, effort, provider, read_only)
 values (@id, @session_id, @turn_id, @trigger_ref, @playbook, @instruction, @status,
-        @created_at, @agent, @model, @effort, @provider)
+        @created_at, @agent, @model, @effort, @provider, @read_only)
 returning *;
 
 -- name: SetDelegationTask :exec

@@ -37,6 +37,8 @@ type Delegation struct {
 	// turns: the assistant answers on the host and the container does the work.
 	NumTurns *int
 	CostUSD  *float64
+	// ReadOnly is a task that restores the conversation's workspace and stores nothing back.
+	ReadOnly bool
 }
 
 // NewDelegation is what a caller has to know to record one.
@@ -51,6 +53,8 @@ type NewDelegation struct {
 	// model is a default, and editing it would otherwise relabel every delegation that ever
 	// ran under it.
 	Backend Backend
+	// ReadOnly records that the task keeps nothing it changes in the workspace.
+	ReadOnly bool
 }
 
 // CreateDelegation records a delegation before its task exists, so a task the control plane
@@ -69,6 +73,7 @@ func (s *Store) CreateDelegation(ctx context.Context, want NewDelegation) (Deleg
 		Model:       nilIfEmpty(want.Backend.Model),
 		Effort:      nilIfEmpty(want.Backend.Effort),
 		Provider:    nilIfEmpty(want.Backend.Provider),
+		ReadOnly:    want.ReadOnly,
 	})
 	if err != nil {
 		return Delegation{}, fmt.Errorf("create delegation for turn %s: %w", want.TurnID, err)
@@ -205,6 +210,7 @@ func delegationFromRow(r db.Delegation) Delegation {
 		},
 		NumTurns: intPtr(r.NumTurns),
 		CostUSD:  r.CostUsd,
+		ReadOnly: r.ReadOnly,
 	}
 }
 

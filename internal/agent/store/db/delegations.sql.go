@@ -12,10 +12,10 @@ import (
 
 const createDelegation = `-- name: CreateDelegation :one
 insert into delegations (id, session_id, turn_id, trigger_ref, playbook, instruction, status,
-                         created_at, agent, model, effort, provider)
+                         created_at, agent, model, effort, provider, read_only)
 values ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12)
-returning id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider
+        $8, $9, $10, $11, $12, $13)
+returning id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only
 `
 
 type CreateDelegationParams struct {
@@ -31,6 +31,7 @@ type CreateDelegationParams struct {
 	Model       *string
 	Effort      *string
 	Provider    *string
+	ReadOnly    bool
 }
 
 // CreateDelegation records the backend as the row is written, for the same reason a turn
@@ -50,6 +51,7 @@ func (q *Queries) CreateDelegation(ctx context.Context, arg CreateDelegationPara
 		arg.Model,
 		arg.Effort,
 		arg.Provider,
+		arg.ReadOnly,
 	)
 	var i Delegation
 	err := row.Scan(
@@ -70,6 +72,7 @@ func (q *Queries) CreateDelegation(ctx context.Context, arg CreateDelegationPara
 		&i.Model,
 		&i.Effort,
 		&i.Provider,
+		&i.ReadOnly,
 	)
 	return i, err
 }
@@ -106,7 +109,7 @@ func (q *Queries) FinishDelegation(ctx context.Context, arg FinishDelegationPara
 }
 
 const getDelegation = `-- name: GetDelegation :one
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations where id = $1
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations where id = $1
 `
 
 func (q *Queries) GetDelegation(ctx context.Context, id string) (Delegation, error) {
@@ -130,12 +133,13 @@ func (q *Queries) GetDelegation(ctx context.Context, id string) (Delegation, err
 		&i.Model,
 		&i.Effort,
 		&i.Provider,
+		&i.ReadOnly,
 	)
 	return i, err
 }
 
 const listDelegationsForTurn = `-- name: ListDelegationsForTurn :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations where turn_id = $1 order by created_at, id
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations where turn_id = $1 order by created_at, id
 `
 
 func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]Delegation, error) {
@@ -165,6 +169,7 @@ func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.ReadOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -177,7 +182,7 @@ func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]
 }
 
 const listFinishedDelegationsForSession = `-- name: ListFinishedDelegationsForSession :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations
 where session_id = $1 and status <> 'running' and task_id is not null
   and finished_at > $2
 order by finished_at desc
@@ -219,6 +224,7 @@ func (q *Queries) ListFinishedDelegationsForSession(ctx context.Context, arg Lis
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.ReadOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -231,7 +237,7 @@ func (q *Queries) ListFinishedDelegationsForSession(ctx context.Context, arg Lis
 }
 
 const listRunningDelegations = `-- name: ListRunningDelegations :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations where status = 'running' order by created_at
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations where status = 'running' order by created_at
 `
 
 func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, error) {
@@ -261,6 +267,7 @@ func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, err
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.ReadOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -273,7 +280,7 @@ func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, err
 }
 
 const listRunningDelegationsForRef = `-- name: ListRunningDelegationsForRef :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations
 where trigger_ref = $1 and status = 'running'
 order by created_at
 `
@@ -305,6 +312,7 @@ func (q *Queries) ListRunningDelegationsForRef(ctx context.Context, triggerRef s
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.ReadOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -317,7 +325,7 @@ func (q *Queries) ListRunningDelegationsForRef(ctx context.Context, triggerRef s
 }
 
 const listRunningDelegationsForSession = `-- name: ListRunningDelegationsForSession :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only from delegations
 where session_id = $1 and status = 'running'
 order by created_at
 `
@@ -352,6 +360,7 @@ func (q *Queries) ListRunningDelegationsForSession(ctx context.Context, sessionI
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.ReadOnly,
 		); err != nil {
 			return nil, err
 		}

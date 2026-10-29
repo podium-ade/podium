@@ -39,6 +39,19 @@ type Outbound struct {
 	// footer naming it, and its fallback attachment link points at the task's page. It is
 	// NOT part of Text: whether it is shown at all is the source's decision.
 	TaskID string
+	// Speaker is who said it. A source that posts everything the same way ignores it.
+	Speaker
+}
+
+// Speaker is the playbook behind one Outbound. The zero Speaker is the assistant, or the
+// conductor speaking on its own behalf.
+type Speaker struct {
+	// Playbook is the playbook whose task said this.
+	Playbook string
+	// SourcePlaybook is true when Playbook is the one this source runs on its own: the
+	// github: true playbook on a pull request. A source posts that playbook's answer as the
+	// work it exists for — a review — and anybody else's as a reply.
+	SourcePlaybook bool
 }
 
 // InboundEvent is one thing a human said, normalised. A source produces these and nothing
@@ -82,6 +95,15 @@ type InboundEvent struct {
 	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
 	// by the assistant and runs no playbook at all.
 	Playbook string
+	// Role is the speaker's role on what the conversation is about, when the source knows it:
+	// their access to a pull request's repository — read, triage, write, maintain or admin.
+	// A pull request offers a playbook only to a speaker whose role its github_requires
+	// allows. Empty is no role, and offers none of them.
+	Role string
+	// Automatic is an event nobody said: the source saw something happen — a pull request
+	// opened, or marked ready — and wants its own playbook run on it. The conductor delegates
+	// that playbook directly, with no assistant turn, because there is nothing to decide.
+	Automatic bool
 	// Override is a per-turn choice of backend, model and effort, from a source whose human
 	// can make one — the web chat's picker, which moves what ANSWERS the conversation. Empty
 	// everywhere else: Slack and Linear have no surface to choose on, so their turns run on

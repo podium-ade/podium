@@ -386,10 +386,16 @@ type Playbook struct {
 	// so at start-up, where the key is known.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
-	// GitHub marks the one playbook a pull-request review runs. A review is one piece of
-	// work on one repository, so the session does not get the assistant's menu. At most
-	// one playbook may set it. Zero means a review is refused until one does.
+	// GitHub marks the one playbook a pull-request review runs. It is always on a pull
+	// request's menu, and only its answer becomes the review. At most one playbook may set
+	// it. Zero means a review is refused until one does.
 	GitHub bool `yaml:"github" json:"github,omitempty"`
+
+	// GitHubRequires offers this playbook on a pull request, to a commenter whose role on the
+	// repository is at least this: read, triage, write, maintain or admin. Empty is not
+	// offered there at all. Anybody the GitHub triggers allow can comment on a pull request,
+	// so a playbook that pushes asks for write.
+	GitHubRequires string `yaml:"github_requires" json:"github_requires,omitempty"`
 
 	// Interactive lets a turn ask a human a question and wait for the answer in the same
 	// container, instead of ending the turn. Off by default: a waiting container still
@@ -750,11 +756,6 @@ func (s Playbook) validate(path string) error {
 	errs = append(errs, s.Git.validate()...)
 	errs = append(errs, gitEnvConflicts(s.Env, s.Git)...)
 	for key := range s.Env {
-		if strings.HasPrefix(key, skills.EnvPrefix) {
-			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
-				"variable per skill it delivers", key, skills.EnvPrefix))
-			continue
-		}
 		if strings.HasPrefix(key, mcp.EnvPrefix) {
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
 				"variable per MCP server it delivers", key, mcp.EnvPrefix))
@@ -901,6 +902,7 @@ func (p *Profile) validate(path string) error {
 			"because a pull-request review has no choice of playbook",
 			strings.Join(github, ", ")))
 	}
+	errs = append(errs, p.validateGitHubMenu()...)
 	// Two playbooks claiming one channel is ambiguous routing, and ambiguous routing that
 	// resolves by map iteration order is worse than a refusal at start-up.
 	claimed := map[string]string{}
@@ -917,6 +919,51 @@ func (p *Profile) validate(path string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
+}
+
+// GitHubRoles are the roles a person can hold on a GitHub repository, weakest first.
+var GitHubRoles = []string{"read", "triage", "write", "maintain", "admin"}
+
+// GitHubRoleAtLeast reports whether role is want or stronger. An unknown role is no role.
+func GitHubRoleAtLeast(role, want string) bool {
+	have, need := slices.Index(GitHubRoles, role), slices.Index(GitHubRoles, want)
+	return have >= 0 && need >= 0 && have >= need
+}
+
+// validateGitHubMenu checks what a pull request may be offered. Every playbook on that menu
+// works in the session's one workspace snapshot, which is laid out around its first
+// repository, so each must name the same first repository as the review playbook.
+func (p *Profile) validateGitHubMenu() []error {
+	var errs []error
+	review := p.GitHubPlaybook()
+	for _, name := range p.PlaybookNames() {
+		s := p.Playbooks[name]
+		if s.GitHubRequires == "" {
+			continue
+		}
+		if !slices.Contains(GitHubRoles, s.GitHubRequires) {
+			errs = append(errs, fmt.Errorf("playbook %q: github_requires %q must be one of %s",
+				name, s.GitHubRequires, strings.Join(GitHubRoles, ", ")))
+			continue
+		}
+		if s.GitHub {
+			errs = append(errs, fmt.Errorf("playbook %q: github_requires is for other playbooks; "+
+				"the review playbook is always offered on a pull request", name))
+			continue
+		}
+		if review != "" && firstRepo(s) != firstRepo(p.Playbooks[review]) {
+			errs = append(errs, fmt.Errorf("playbook %q: github_requires needs the same first repository "+
+				"as the review playbook %q, because both work in the pull request's one workspace", name, review))
+		}
+	}
+	return errs
+}
+
+func firstRepo(s Playbook) string {
+	if len(s.Repos) == 0 {
+		return ""
+	}
+	return s.Repos[0].URL
 }
 
 // LinearPlaybook is the name of the playbook Linear tickets run, or "" when no playbook claims

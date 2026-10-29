@@ -65,6 +65,7 @@ type Delegation struct {
 	Model       *string
 	Effort      *string
 	Provider    *string
+	ReadOnly    bool
 }
 
 type GithubAccount struct {

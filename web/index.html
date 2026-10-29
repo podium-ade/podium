@@ -6,6 +6,10 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#060708" />
     <title>Podium</title>
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <script>
       try {
         var stored = localStorage.getItem("podium-relay-theme");
@@ -17,7 +21,7 @@
               : "light";
         document.documentElement.dataset.theme = theme;
         var themeColor = document.querySelector('meta[name="theme-color"]');
-        if (themeColor) themeColor.setAttribute("content", "#060708");
+        if (themeColor) themeColor.setAttribute("content", theme === "dark" ? "#060708" : "#f2f4f6");
       } catch (e) {
         document.documentElement.dataset.theme = "light";
       }

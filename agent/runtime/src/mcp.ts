@@ -78,6 +78,13 @@ export const tools: ToolDefinition[] = [
           type: "string",
           description: "The complete brief for the task: what to do, and how you will know it worked.",
         },
+        read_only: {
+          type: "boolean",
+          description:
+            "True when the task only reads — to answer a question about the code. It starts " +
+            "from this conversation's workspace and keeps nothing it changes, so it never waits " +
+            "for, or interrupts, a task that is changing that workspace.",
+        },
       },
       required: ["playbook", "instruction"],
       additionalProperties: false,
@@ -203,7 +210,7 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
       case "delegate": {
         const playbook = requireString(args, "playbook");
         const instruction = requireString(args, "instruction");
-        const { delegation } = await client.delegate(playbook, instruction);
+        const { delegation } = await client.delegate(playbook, instruction, args.read_only === true);
         return ok(
           `Delegated to \`${delegation.playbook}\`.\n` +
             `delegation_id: ${delegation.id}\ntask: ${delegation.task_id ?? "(starting)"}\n\n` +

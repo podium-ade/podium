@@ -14,9 +14,10 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
-A conversation runs **no playbook**. A Slack mention and a Linear ticket do, and run as tasks,
-because each of those really is one piece of work. A GitHub pull-request review does too: the
-one playbook marked `github: true`, one session per pull request.
+A conversation runs **no playbook**. A Linear ticket does, and runs as a task, because it
+really is one piece of work. A GitHub pull request is a conversation, one session per pull
+request: the assistant answers what people write on it, and the review is a task of the one
+playbook marked `github: true`.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -216,8 +217,9 @@ skill list, and the conductor gives it:
   playbook at all: it has no image, no repositories and no sidecars because there are none to
   have, and not because something stripped them afterwards. That distinction is the whole
   reason the two are separate types in the code.
-- **A `HOME` of its own**, because the runtime installs Agent Skills under
-  `$HOME/.config/opencode/skills` and the operator's own harness configuration lives there.
+- **A `HOME` of its own**, because the harness reads its global configuration and skills from
+  under `$HOME`, and the operator's own live there. The conductor writes the turn's Agent
+  Skills into it, at `$HOME/.podium/skills`, since there is no node to mount them.
 - **An environment built from empty.** Inheriting the conductor's would hand a model
   `PODIUM_API_TOKEN` and the agent database URL.
 - **A prompt that says so.** `runs_on: host` in the brief is what stops the runtime telling a
@@ -270,10 +272,14 @@ The rules that matter:
   turn ends. It is not the operator bearer: `TurnService` is a separate service on the same
   loopback listener, and `podium-server` proxies `/podium.agent.v1.AgentService/` and nothing
   else, so nothing outside this host can reach it.
-- **The menu is the allow-list, and it is the whole profile.** Every playbook is delegable.
-  Nothing narrows it per conversation and nothing ever did: the turn picks a playbook per piece
-  of work, and may pick several in one answer. A name that is not on the menu is refused rather
-  than resolved.
+- **The menu is the allow-list, and it is the whole profile.** Every playbook is delegable,
+  except on a pull request, whose menu depends on who is asking (see
+  [GitHub App reviews](#github-app-reviews)). The turn picks a playbook per piece of work, and
+  may pick several in one answer. A name that is not on the menu is refused rather than
+  resolved.
+- **A task may only read.** `podium_delegate` takes `read_only`: the task restores the
+  conversation's workspace and stores nothing back (`workspace_readonly` on its spec), for
+  reading the code to answer a question. It is recorded on the `delegations` row.
 - **A delegated task keeps its own playbook's model.** The chat's model picker moves what
   *answers*; it does not reach into a container. "Answer me on Grok" is a statement about the
   conversation, not about how a container should do its job.
@@ -529,6 +535,7 @@ repos: []                                                    # [{name, url, defa
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
 github: false                                                # this is the playbook pull-request reviews run
+github_requires: ""                                          # offered on a pull request to commenters with this role or more
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
@@ -558,9 +565,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   credential a turn gets, from the agent the playbook runs on — see *Which agent, which model,
   how hard it thinks*.
 - **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`,
-  `OPENAI_API_KEY`, `GOOGLE_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or
-  `PODIUM_MCP_`.** The first is the brief, the next four come from the secrets, and the last two are where a skill's
-  bundle and an MCP server's token travel.
+  `OPENAI_API_KEY`, `GOOGLE_API_KEY` or anything starting `PODIUM_MCP_`.** The first is the
+  brief, the next four come from the secrets, and the last is where an MCP server's token
+  travels.
 - **No MCP server token may appear in `secrets:` or `user_secrets:`.** Anything starting
   `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
   `mcp_servers` is what grants a server to a playbook, and naming its secret directly
@@ -570,6 +577,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
 - **At most one playbook may set `github: true`.** That playbook is the whole of a pull-request
   review. Two is a start-up error. Zero means a review is refused until one is marked.
+- **`github_requires` is `read`, `triage`, `write`, `maintain` or `admin`**, and the review
+  playbook may not set it: it is always offered. A playbook that sets it names the same first
+  repository as the review playbook, because both work in the pull request's one workspace.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
@@ -779,24 +789,32 @@ the order that finds bugs, and a rule for what counts as a finding. A turn redis
 of that spends turns on it, which is the whole argument for writing a procedure down instead
 of putting it in a prompt.
 
-**Where they land.** Just before the harness starts, the runtime writes each skill to
-`$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
-in Podium's images, which is the harness's own global skill directory. It then writes the
-permission map:
+**Where they land.** Each skill is a **read-only mount** at `/podium/files/skills/<name>/` in
+the task container, written by the node before the container starts. The runtime checks every
+one against the brief, then points the harness at the directory and writes the permission map:
 
 ```json
-{ "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } } }
+{
+  "skills": { "paths": ["/podium/files/skills"] },
+  "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } }
+}
 ```
 
 The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
 does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
 
 **How the bytes get there.** The conductor resolves the playbook's names against the directory
-at the start of every turn, packs each bundle, and puts it on the task spec as one environment
-variable per skill: `PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the
-name, a sha256 digest and the name of that variable, the same way it carries the *name* of a
-credential's variable and never the value. The runtime verifies the digest before it writes
-anything.
+at the start of every turn and puts each skill on the task spec as a `mounts:` entry (see
+[task-spec.md](task-spec.md)): the target and a map of path to content. The node writes the
+files under the task's state directory and bind-mounts each skill read-only at its target, the
+same way it delivers a `target: file` secret. The brief carries only each skill's name and a
+sha256 digest of its files, plus `skills_dir`, the directory they are in. Before the harness
+starts, the runtime hashes what it finds there and fails the turn if a skill is missing or does
+not match. A missing skill is what an older node causes, because it drops `mounts:` without
+saying so.
+
+A host turn has no node. The conductor writes the same files into the turn's own `HOME`, and
+the brief's `skills_dir` is `.podium/skills`, relative to that `HOME`.
 
 Resolving per turn rather than at start-up is deliberate: a skill you have just edited is the
 one the next turn gets, with no restart, and a skill that has gone wrong fails the playbook
@@ -809,8 +827,7 @@ the turn with a message naming what it was:
 | --- | --- |
 | Skills per playbook | 8 |
 | Files per skill | 64 |
-| Bytes per skill, unpacked | 128 KiB |
-| Bytes per skill, as delivered | 64 KiB |
+| Bytes per skill | 10 MiB |
 | Path components | `[A-Za-z0-9][A-Za-z0-9._-]*`, at most 8 deep, no `..` and nothing absolute |
 | File contents | UTF-8 text only |
 | `SKILL.md` | required, and its frontmatter `name` must equal the directory name |
@@ -819,28 +836,19 @@ the turn with a message naming what it was:
 
 Two consequences worth stating plainly:
 
-- **Nothing in a bundle is executable.** Files land mode 0644 and the wire format has no room for
-  a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
-  absent rather than defended against. A skill's script is run through its interpreter
-  (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
-- **Podium carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
-  environment variable on the task spec, and Linux caps a single environment string at 128 KiB —
-  past that the container cannot `exec` at all, before Podium runs to say so. The 64 KiB
-  delivery cap is half of that margin; for markdown, which compresses about threefold, the
-  unpacked 128 KiB cap is what you hit first. Either way it is a directory of prose and small
-  scripts, not a skill that ships a binary, a wheel or an image.
+- **Nothing in a skill is executable, and nothing in it can be changed.** Files land mode 0444
+  on a read-only mount, and a `mounts:` entry has no room for a mode bit, a symlink or a device
+  node, so that whole class of archive-unpacking attack does not exist here. A skill's script
+  is run through its interpreter (`bash scripts/x.sh`), which is what the harness's own prompt
+  tells the model to do anyway.
+- **10 MiB is a spec budget, not a kernel limit.** Skills used to travel as one environment
+  variable each, and Linux caps a single environment string at 128 KiB. Mounted files have no
+  such cap. What bounds them now is the task spec, which the control plane stores and sends
+  to a node whole: eight skills at 10 MiB is exactly the spec's 80 MiB `mounts:` budget. It is
+  still a directory of prose and small scripts, not a skill that ships a binary, a wheel or
+  an image.
 
-  **The cap cannot be raised here.** The bytes have to reach a task container, and there are
-  exactly three ways anything does: an environment string, a read-only bind mount of a file
-  the node wrote, and the image itself. The workspace volume is created empty; nothing calls
-  `CopyToContainer`. A task has no object-store credential and no API token, and the node has
-  no way to fetch a blob from the control plane — `NodeService` is `Enroll`, `Stream` and
-  `UploadArtifact`, and nothing else. So lifting the cap means teaching the control plane to
-  carry a file to a node and the node to bind-mount it, exactly as it already does for a
-  `target: file` secret. That is a `podium.v1` wire change, a `podium-server` change and a
-  `podium-node` change; it is not a number that can be raised here.
-
-**Where the caps are enforced.** All of them, when the conductor packs a directory for a turn.
+**Where the caps are enforced.** All of them, when the conductor reads a directory for a turn.
 A skill that trips a rule fails the playbook that named it, with the number in the message.
 
 `profiles.Load` deliberately does not check that a named skill exists, because a playbook file
@@ -1669,13 +1677,41 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
-open a pull request that is not a draft, mark a draft ready for review, or tag Podium
-in Slack with that PR's URL, and it starts **one** review of that pull request. A draft
-stays quiet until it is marked ready. GitHub does not let you request the App as a
-reviewer, so `review_requested` does not start one. The review runs the playbook marked
-`github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
-The App posts on GitHub; bound Slack threads get the same answer.
+A pull request is a **conversation**, one session per pull request (`github:owner/repo#N`).
+
+- **Opening a pull request** that is not a draft, or marking a draft ready for review, runs
+  the review. Nobody asked anything, so there is no assistant turn: the conductor delegates
+  the playbook marked `github: true` itself. A draft stays quiet until it is marked ready.
+  GitHub does not let you request the App as a reviewer, so `review_requested` does not
+  start one.
+- **Anything a person writes** — `@slug` on the pull request (the App's slug from its
+  settings, or `@slug[bot]`), a reply in a thread the App started, or a Slack mention with
+  that PR's URL — is answered by the **assistant**, on the host, as a Slack thread is. It
+  answers a question about the code or the review itself, from the conversation — the
+  review, its inline notes and the diff they quote — and from the pull request itself,
+  through the conductor's own `pull-request` MCP server: `files`, `diff`, and `file` (one
+  file at the head commit, with line numbers), each cut at 64 KB. That server is on the
+  turn listener at `/mcp/pull-request`, answers only a live turn's own token, and only
+  about that turn's pull request; it reads and nothing else. A question that needs more —
+  running the code — goes to a task with `read_only`. Asked to review, or to review again,
+  it delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
+  `pull-request` is a reserved MCP server name.
+
+**The menu on a pull request depends on who is asking.** Anybody the triggers allow can comment,
+so the menu is the review playbook, plus each playbook whose `github_requires` the commenter's
+role on the repository meets — a playbook that pushes asks for `write`. The role is read from
+GitHub (`role_name`, or the base permission for an organisation's custom role) and remembered
+for five minutes. A pull request from a fork whose author has not let maintainers push to it
+caps the role at `triage`, and the turn is told why. A role that cannot be read is no role, and
+so is a Slack mention's: the review playbook alone. The menu is what the turn's token accepts,
+so a comment that talks the assistant into anything else is still refused.
+
+The turn is told who wrote what, where — the conversation tab, a review thread with the file,
+line and quoted diff, or Slack — and, once there is a review, the commit it covered and the head
+now. The App posts on GitHub; bound Slack threads get every answer.
+
+With no host runtime (`PODIUM_AGENT_HOST_RUNTIME` empty) there is no assistant, and every
+GitHub event runs the `github: true` playbook as a task, as it did before.
 
 **Each deployment creates its own GitHub App.** Podium ships
 [`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
@@ -1706,19 +1742,66 @@ Then `@your-app review this` on a PR, or in Slack:
 ```
 
 Those are the same session (`github:acme/repo#12`). Mark the review playbook with `github: true`
-before any of this runs. With none marked, the turn is refused.
+before any of this runs. With none marked, an opened pull request is refused, and the assistant
+says it has nothing to review with.
 
-A follow-up while that task is still up, including the warm window after it answers, is injected
-into the same container. After it exits, the next message is a new task on the same session
-workspace, restored from the snapshot, and it updates the review already on the pull request.
-A killed task's files are in that snapshot. The restored checkout is kept when it is not on
-the default branch, so a review that left the pull-request head checked out starts there again.
-A follow-up reviews only the commits and files changed since the last review. The turn is told
-the commit that review was submitted against and the head now, and the snapshot keeps
-`.podium/review.json` with that commit and the verdict. When the head has not moved, the turn
-is told to repeat the previous verdict and add no comments. When that delta fixes the earlier
-findings and adds nothing that should block a merge, the verdict is an approval. A `/other`
-prefix in the comment does not change the playbook.
+Every task on a pull request runs on the same session workspace, and **one task at a time
+changes it**: a task that writes replaces the snapshot when it exits, and two at once would race
+to. A delegation that writes, while another writing task of the pull request has not answered
+yet, is refused with `FailedPrecondition` and the running task's name and id, so the assistant
+can inject into it instead or say what is running. One that has answered and is only waiting in
+its warm window is released — cancelled, and recorded as succeeded, because its work is done and
+was said — and the new task starts once it has gone. The node stores a task's snapshot before it
+reports it exited, so the new task restores what the released one left. Until then the new
+delegation is running with no task, and `podium_delegate` returns at once without one. A task
+that never lets go within ten minutes fails the waiting delegation. Read-only tasks hold nothing:
+they start at once beside the writer. A review the conductor starts itself — a pull request
+marked ready, or new commits it pushed — does not get refused: it queues behind the task still
+working, for up to four hours, and starts once that task has answered and been released.
+
+After a review exits, the next review is a new task restored from the snapshot, and it updates
+the review already on the pull request. A killed task's files are in that snapshot. The
+restored checkout is kept when it is not on the default branch, so a review that left the
+pull-request head checked out starts there again. A pull request marked ready again reviews only
+the commits and files changed since the last review: the task is told the commit that review was
+submitted against and the head now, and the snapshot keeps `.podium/review.json` with that commit
+and the verdict. When the head has not moved, it is told to repeat the previous verdict and add
+no comments. When that delta fixes the earlier findings and adds nothing that should block a
+merge, the verdict is an approval. A re-review the assistant delegates passes on the same two
+commits.
+
+### Fixing what the review found
+
+"Fix your comments" is a playbook like any other on a pull request's menu. Give it
+`github_requires: write`, the review playbook's first repository, and a GitHub token that can
+push to the pull request's branch:
+
+```yaml
+# playbooks/fixer.yaml
+system_prompt: |
+  Fix what the review on this pull request found. Read .podium/review.json and the
+  review in the conversation, change the code, run the tests, and push to the pull
+  request's head branch.
+allowed_tools: [read, edit, write, bash, grep, glob]
+github_requires: write
+repos:
+  - {name: api, url: https://github.com/acme/api.git, default_branch: main}
+```
+
+It runs on the pull request's workspace, so it starts where the review left off: the head
+checked out and `.podium/review.json` beside it. Its task is told it is on a pull request that
+is not its review: push to the head branch, open no other pull request, comment on nothing
+itself, and answer each finding under that finding. A fenced `resolved` or `reply` block
+naming the finding's `path:line` — the same location the review's own `inline` note named — is
+posted as a reply in that finding's thread, and `resolved` also resolves it (GraphQL
+`resolveReviewThread`). A thread is the App's own inline comment at that path and line, where
+it was made or where that line is now. A block whose thread is not found stays in the answer,
+under its location. The rest of the answer is one comment on the pull request.
+
+A push the App makes to a pull request it has reviewed is reviewed again by itself, from where
+the last review stopped: the `synchronize` delivery is the App's own, so no trigger filter is
+asked. A push by a person is not — that would be a review per commit — and a person asks with a
+mention. A playbook that pushes as the asker's own GitHub account is a person's push.
 
 ### What starts a turn, and what does not
 
@@ -1726,16 +1809,19 @@ prefix in the comment does not change the playbook.
 |---|---|
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
-| `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
-| `pull_request` / `opened` | start when the pull request is not a draft. A draft's open is dropped |
-| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
+| `@app` on a PR (conversation comment, review comment, or review body) | an assistant turn |
+| `pull_request` / `opened` | the review, delegated directly, when the pull request is not a draft. A draft's open is dropped |
+| `pull_request` / `ready_for_review` | the review, delegated directly. This is a draft marked ready |
+| `pull_request` / `synchronize` pushed by this App | the review again, of what changed, delegated directly — when the pull request has a review. This is a playbook's fix landing |
+| `pull_request` / `synchronize` pushed by anybody else, `review_requested`, and other pull request actions | dropped |
 | a trigger phrase in a top-level comment or review body | as `@app` |
-| a reply in an inline review thread the App started | start or continue, no mention needed (the default reply mode) |
+| a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed (the default reply mode) |
+| a conversation-tab comment right after the App's own, within 30 minutes | an assistant turn, no mention needed, when **Answer a reply on the conversation tab** is on |
 | a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |
-| `lgtm` / other conversation-tab comments without a mention | dropped |
+| `lgtm` / other conversation-tab comments without a mention | dropped, unless they follow the App as above |
 | anything from a login the triggers do not allow | dropped, `@app` or not |
-| a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
-| a second mention in a bound Slack thread, URL or not | continue |
+| a Slack `@Podium` that names exactly one PR URL | an assistant turn on that PR's session; the Slack thread is bound to it |
+| a second mention in a bound Slack thread, URL or not | an assistant turn on the same session |
 | two PR URLs in one Slack mention, or a different PR in a bound thread | refused in Slack; not a second session |
 
 Unrelated webhook deliveries still return 200 so GitHub does not retry.
@@ -1753,18 +1839,30 @@ restart. They live in the settings row `connection.github.filters`.
 - **Trigger phrases**: plain text that starts a turn from a top-level comment or a review body,
   next to the `@app` mention, which always works. Matched as whole words, ignoring case and
   extra whitespace. The phrase is taken out of the text the turn sees, as the mention is.
-- **Replies without a mention**: a conversation-tab comment has no threads on GitHub, so it always
-  needs the mention or a phrase. An inline review reply follows the mode:
+- **Replies without a mention**: an inline review reply follows the mode:
   `bot_threads` (the default) lets a reply through when the App wrote the thread's first
-  comment, `any_thread` lets any reply through once the pull request has a session (the old
-  rule), and `always` asks for the trigger every time. Who started a thread is read once from
-  GitHub and remembered. A thread that cannot be read needs the trigger.
-- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still starts
-  a review.
+  comment or has replied in the thread since, `any_thread` lets any reply through once the pull
+  request has a session (the old rule), and `always` asks for the trigger every time. Who started
+  a thread is read once from GitHub and remembered; whether the App has replied in a person's
+  thread is read until it has, and then remembered. A thread that cannot be read needs the
+  trigger.
+- **Answer a reply on the conversation tab**: the tab has no threads, so a comment there needs
+  the mention or a phrase — unless this is on and the comment directly follows the App's own,
+  within 30 minutes of it being written or last edited. Off by default: two people talking right
+  after the App answered would wake it.
+- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still
+  reaches the assistant, which can delegate a review.
+- **Excluded branches**: pull requests into these base branches start nothing, mentions
+  included. One pattern per line, case sensitive. A plain name matches only itself; a glob
+  follows GitHub Actions, so `feature/*` matches `feature/login` but not `feature/login/ui`,
+  and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is a regular
+  expression that may match any part of the name unless anchored. `issue_comment` does not carry
+  the base, so with any branch excluded the conductor reads the pull request for it.
 
 The log line for a dropped delivery names why: `actor not allowed`, `ignored actor`,
-`bot sender`, `auto review off`, `not mentioned`. If the filters cannot be read, the delivery is
-dropped with `filters unavailable` rather than let an allowlist lapse.
+`bot sender`, `auto review off`, `not mentioned`, `excluded branch`. If the filters cannot be
+read, the delivery is dropped with `filters unavailable` rather than let an allowlist lapse; the
+same holds for `base branch unavailable` when branches are excluded and GitHub does not answer.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.
@@ -1773,7 +1871,15 @@ bound Slack thread.
 container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
 
-A pull request gets two GitHub posts. When the turn starts, the App posts one
+**Who speaks decides where it goes.** The review playbook's work is the review, below. Anybody
+else — the assistant, the conductor itself — is replying, and the reply goes where the question
+was asked: in the review thread a reply came from, on the conversation tab, or only in Slack when
+Slack is where it was asked. The comment a turn answers gets a 👀 reaction when the turn starts;
+a review body has no comment to react on. Nothing else about a reply's progress is posted. A
+reply that fails says `❌ I could not answer that.` and nothing more: the failure text and the
+task id stay in the operator's log.
+
+A review gets two GitHub posts. When the review starts, the App posts one
 conversation comment: a status callout titled **Review in progress**, then the
 pull request title, linked head and base branches, the head commit, and a table
 of files, additions, deletions, and commits. Later progress leaves that comment
@@ -1787,8 +1893,8 @@ comment review. The review id is stored on the session. A later answer that stil
 agrees with that review updates it. A follow-up that approves for the first time
 submits a new approval. A follow-up that withdraws an approval submits a new
 review requesting changes, because rewriting the approval would leave the pull
-request approved and this App cannot dismiss a review. A reply in an inline thread
-is answered in that thread and leaves both posts in place. A turn that fails
+request approved and this App cannot dismiss a review. A review asked for from an inline
+thread is still the review, not a reply in that thread. A review that fails
 changes the status comment's title to **Review did not finish** when that comment
 already exists. The failure text and the task id are not written on the pull request.
 
@@ -2187,7 +2293,7 @@ env:
   brief that does not fit even with an empty transcript fails the turn with "this conversation is
   too large" — start a new thread with just the question.
 
-  The number comes from the same place the 64 KiB skill cap does. A brief travels as **one
+  The number comes from where it travels. A brief goes as **one
   environment string** on the task spec, and Linux caps a single environment string at
   `MAX_ARG_STRLEN` — 32 pages, so 128 KiB on any 4 KiB-page kernel. Past it the container cannot
   `exec` at all, which is the worst failure Podium has: it happens before the runtime's
@@ -2196,11 +2302,10 @@ env:
   encoded is 72 KiB of JSON, and a 32 KiB chat message has to stay answerable beside two system
   prompts and some history.
 
-  `MAX_ARG_STRLEN` is **per string, not per environment**, which is why eight 64 KiB skill
-  bundles ride beside a full-sized brief. The whole of `argv` plus `environ` is bounded
-  separately, at a quarter of `RLIMIT_STACK` — about 2 MiB at the usual 8 MiB, against the
-  608 KiB a maximal turn spends. A playbook's `env:` is **not** counted against that, and
-  nothing checks it.
+  `MAX_ARG_STRLEN` is **per string, not per environment**. The whole of `argv` plus `environ`
+  is bounded separately, at a quarter of `RLIMIT_STACK`, so about 2 MiB at the usual 8 MiB.
+  Agent Skills are files and not variables, so they count against neither. A playbook's
+  `env:` is **not** counted against that, and nothing checks it.
 - **One turn per session at a time.** A busy thread queues rather than parallelises; the web
   chat refuses the second message outright, because a browser can be told before it tries.
 - **32 KiB per chat message** from a human. The whole conversation has to fit the brief.

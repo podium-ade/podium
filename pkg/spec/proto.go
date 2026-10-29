@@ -23,6 +23,7 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		WorkspaceSession:     s.WorkspaceSession,
 		WorkspaceRepo:        s.WorkspaceRepo,
 		WorkspacePublishBase: s.WorkspacePublishBase,
+		WorkspaceReadonly:    s.WorkspaceReadOnly,
 		Resources:            s.Resources.toProto(),
 		Hardening:            s.Hardening.toProto(),
 	}
@@ -59,6 +60,9 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 			p.Sandbox.Modal = &podiumv1.ModalSandbox{Runtime: m.Runtime, Environment: m.Environment}
 		}
 	}
+	for _, m := range s.Mounts {
+		p.Mounts = append(p.Mounts, &podiumv1.FileMount{Target: m.Target, Files: maps.Clone(m.Files)})
+	}
 	return p
 }
 
@@ -77,6 +81,7 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		WorkspaceSession:     p.GetWorkspaceSession(),
 		WorkspaceRepo:        p.GetWorkspaceRepo(),
 		WorkspacePublishBase: p.GetWorkspacePublishBase(),
+		WorkspaceReadOnly:    p.GetWorkspaceReadonly(),
 		Resources:            resourcesFromProto(p.GetResources()),
 		Hardening:            hardeningFromProto(p.GetHardening()),
 	}
@@ -112,6 +117,9 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		if m := sb.GetModal(); m != nil {
 			s.Sandbox.Modal = &ModalSandbox{Runtime: m.GetRuntime(), Environment: m.GetEnvironment()}
 		}
+	}
+	for _, m := range p.GetMounts() {
+		s.Mounts = append(s.Mounts, FileMount{Target: m.GetTarget(), Files: maps.Clone(m.GetFiles())})
 	}
 	return s
 }

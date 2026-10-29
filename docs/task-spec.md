@@ -17,9 +17,11 @@ retry_on_node_loss: false          # default: see below
 workspace_session: ""              # empty: the volume is ephemeral
 workspace_repo: ""                 # repository base, used when the session has no snapshot
 workspace_publish_base: false      # also store this workspace as that repo's base
+workspace_readonly: false          # restore the session's workspace and store nothing back
 workspace_warm: 0s                 # how long the runtime waits for a follow-up
 
 secrets: []                        # see below
+mounts: []                         # see below
 sidecars: {}                       # see below
 resources: {}                      # see below
 hardening: {}                      # see below
@@ -121,6 +123,12 @@ not published as a base unless this is set. The conductor sets it when the playb
 `PODIUM_PUBLISH_BASE=1` and the playbook names a repository. That task's workspace, after
 it has installed and built, becomes the tree the next session starts from.
 
+`workspace_readonly: true` restores the session's snapshot as usual and uploads nothing
+when the task exits, so what it changed goes away with the volume and the session's snapshot
+is the one the last writing task left. It requires `workspace_session` and cannot be combined
+with `workspace_publish_base`. Several read-only tasks of one session, and one writing task
+beside them, never race for the snapshot.
+
 `workspace_warm` is how long the runtime should stay up after a turn, waiting for the next
 instruction. The node forwards it as `PODIUM_WORKSPACE_WARM_SECONDS`. Zero means exit when
 the turn ends. The snapshot is taken when the process exits, not while it is waiting.
@@ -210,6 +218,43 @@ Two limits worth knowing:
 - **A task adopted after a node restart loses its redactor**, because the values were in the
   previous incarnation's memory. The container keeps working — its environment and mounted
   files are untouched — but anything it prints from then on reaches the server unredacted.
+
+## Mounts
+
+A mount is a directory of text files that travels on the spec itself. The node writes the
+files before the task starts and bind-mounts the directory **read-only** at its `target`:
+
+```yaml
+mounts:
+  - target: /podium/files/skills/pr-review
+    files:
+      SKILL.md: |
+        ---
+        name: pr-review
+        description: Use when reviewing a pull request.
+        ---
+      reference/checklist.md: "- read the diff\n"
+```
+
+It is how something too big for `env:` reaches a task. Linux caps a single environment
+string at 128 KiB, and past that the container cannot `exec` at all. The conductor delivers a
+turn's Agent Skills this way.
+
+- **`target` must be under `/podium/files/`**, and each component, like each path in `files`,
+  must match `[A-Za-z0-9][A-Za-z0-9._-]*`. That rules out `..`, absolute paths, dotfiles and
+  backslashes. Two targets may not overlap, and one path may not be both a file and the
+  directory of another.
+- **Text only, and nothing executable.** Files land mode 0444 and directories 0755. A mount
+  cannot express a symlink, a mode bit or a device node.
+- **Limits:** 16 mounts, 1024 files across all of them, and 80 MiB of content in total. Paths
+  are at most 255 characters and 8 components deep.
+- **Unlike a secret, the content is part of the spec.** It is stored in `tasks.spec` and
+  returned by the API, so never put a credential in a mount. Use a `target: file` secret.
+- **An older node ignores `mounts:`**, because it does not know the field. Anything that
+  depends on a mount should check that it is there, as the agent runtime does.
+
+On a sandbox, which runs the task as a process, root copies each mount into place owned by
+root. The task's user can read it and cannot change it.
 
 ## Sidecars
 
@@ -554,7 +599,7 @@ sandbox:
 With `snapshot`, `image` is not used and may be left out. The command runs as an unprivileged
 `podium` account under `podium-runner`, with `/workspace`, `/podium/secrets`, `PODIUM_*`,
 artifacts, workspace sessions and `expose` as in a container. Sidecars run under the sandbox's
-own Docker, reachable by name. `hardening` does not apply — the task is a process with no
+own Docker, reachable by name. `mounts` land at their targets owned by root. `hardening` does not apply — the task is a process with no
 privileges to drop — and a spec that sets it is refused. File secrets go under
 `/podium/secrets` only, and a `working_dir` other than `/workspace` is created as the task's
 user: neither can name a path the task could not have written itself.

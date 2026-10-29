@@ -430,8 +430,8 @@ function GitHubDialog({
 const replyModes = [
   {
     value: "bot_threads",
-    label: "Threads the App started",
-    detail: "A reply under one of the App's review comments needs no mention. A reply in a thread a person started does.",
+    label: "Threads the App is in",
+    detail: "A reply in a thread the App started, or has replied in, needs no mention. A reply in any other thread does.",
   },
   {
     value: "any_thread",
@@ -474,6 +474,8 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
   const [phrases, setPhrases] = useState((filters?.triggerPhrases ?? []).join("\n"));
   const [replyMode, setReplyMode] = useState(filters?.replyMode || "bot_threads");
   const [autoReview, setAutoReview] = useState(filters?.autoReview ?? true);
+  const [conversationReplies, setConversationReplies] = useState(filters?.conversationReplies ?? false);
+  const [branches, setBranches] = useState((filters?.excludedBranches ?? []).join("\n"));
   const [error, setError] = useState("");
 
   const save = useMutation({
@@ -486,6 +488,9 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
           triggerPhrases: phrases.split("\n").map((v) => v.trim()).filter(Boolean),
           replyMode,
           autoReview,
+          conversationReplies,
+          // Not splitList: a regular expression may hold a comma.
+          excludedBranches: branches.split("\n").map((v) => v.trim()).filter(Boolean),
         },
       }),
     onSuccess: async () => {
@@ -536,6 +541,21 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
         detail="Drop everything sent by a bot, such as Dependabot or Renovate."
       />
       <Field
+        label="Excluded branches"
+        htmlFor="github-excluded-branches"
+        hint="Pull requests into these base branches never start a review. One per line: a name, a glob such as feature/* (** crosses slashes), or a regular expression between slashes."
+      >
+        <Textarea
+          id="github-excluded-branches"
+          value={branches}
+          onChange={(e) => setBranches(e.target.value)}
+          className="min-h-16 font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={"dev\nfeature/*"}
+        />
+      </Field>
+      <Field
         label="Trigger phrases"
         htmlFor="github-trigger-phrases"
         hint="One per line. A top-level comment that contains one starts a review, as an @mention of the App does. Matched as whole words, ignoring case."
@@ -569,6 +589,13 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
           </label>
         ))}
       </fieldset>
+      <CheckRow
+        id="github-conversation-replies"
+        checked={conversationReplies}
+        onChange={setConversationReplies}
+        label="Answer a reply on the conversation tab"
+        detail="A comment right after the App's own, within 30 minutes, needs no mention. People talking to each other there after it may wake the App."
+      />
       <CheckRow
         id="github-auto-review"
         checked={autoReview}

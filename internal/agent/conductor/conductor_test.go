@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
@@ -19,7 +20,7 @@ import (
 func TestAConversationIsAnsweredHereForChatAndSlack(t *testing.T) {
 	assert.True(t, aConversation(SourceChat))
 	assert.True(t, aConversation(SourceSlack))
-	assert.False(t, aConversation(SourceGitHub), "a pull-request review runs the github playbook, not the assistant")
+	assert.True(t, aConversation(SourceGitHub), "a pull request is talked about; the review is a delegation")
 	assert.True(t, aConversation(KindDev), "the dev source is how a conversation is tested")
 	assert.False(t, aConversation("linear"), "a ticket is one piece of work, not a conversation")
 }
@@ -105,4 +106,34 @@ func TestReactionForEveryEnding(t *testing.T) {
 	} {
 		assert.Equal(t, want, reactionFor(status), status)
 	}
+}
+
+// Anybody the GitHub triggers allow can comment on a pull request, so a turn there is
+// offered the review playbook, and another playbook only when the speaker's role meets its
+// github_requires. Every other source gets the whole profile.
+func TestAPullRequestOffersPlaybooksByTheSpeakersRole(t *testing.T) {
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name: "podium", Model: "claude-opus-5",
+		Playbooks: map[string]profiles.Playbook{
+			"coder":  {Name: "coder", SystemPrompt: "reviews pull requests", GitHub: true},
+			"deploy": {Name: "deploy", SystemPrompt: "ships to production"},
+			"fixer":  {Name: "fixer", SystemPrompt: "fixes the review", GitHubRequires: "write"},
+		},
+	})}
+	names := func(menu []DelegablePlaybook) []string { return playbookNames(menu) }
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "")),
+		"no role, as from Slack: the review alone")
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "triage")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "write")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "admin")),
+		"a playbook that names no role is never offered on a pull request")
+	assert.True(t, c.menuFor(kindSource{SourceGitHub}, "")[0].GitHub)
+
+	assert.Len(t, c.menuFor(kindSource{SourceSlack}, ""), 3)
+
+	assert.Equal(t, Speaker{Playbook: "coder", SourcePlaybook: true}, c.speakerFor(kindSource{SourceGitHub}, "coder"))
+	assert.Equal(t, Speaker{Playbook: "deploy"}, c.speakerFor(kindSource{SourceGitHub}, "deploy"))
+	assert.Equal(t, Speaker{Playbook: "coder"}, c.speakerFor(kindSource{SourceSlack}, "coder"),
+		"only a pull request has a playbook of its own")
+	assert.Equal(t, Speaker{}, c.speakerFor(kindSource{SourceGitHub}, ""), "the assistant runs no playbook")
 }

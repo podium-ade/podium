@@ -31,6 +31,14 @@ func TestProtoRoundTrip(t *testing.T) {
 	assert.Equal(t, want, FromProto(p))
 }
 
+func TestProtoRoundTripReadOnlyWorkspace(t *testing.T) {
+	want := &TaskSpec{Image: "alpine:3", WorkspaceSession: "sess_1", WorkspaceReadOnly: true}
+	want.ApplyDefaults()
+	p := want.ToProto()
+	assert.True(t, p.GetWorkspaceReadonly())
+	assert.Equal(t, want, FromProto(p))
+}
+
 func TestProtoRoundTripDefaults(t *testing.T) {
 	want := &TaskSpec{Image: "alpine:3"}
 	want.ApplyDefaults()

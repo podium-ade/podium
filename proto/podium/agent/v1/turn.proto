@@ -75,6 +75,10 @@ message DelegateRequest {
   // told beyond the conversation it belongs to, so a turn that writes two words gets a task
   // that knows two words.
   string instruction = 2;
+  // read_only starts the task on the conversation's workspace and keeps nothing it changes:
+  // for reading the code to answer a question. A read-only task never waits for, or
+  // stops, another task working in that workspace.
+  bool read_only = 3;
 }
 
 message DelegateResponse {
