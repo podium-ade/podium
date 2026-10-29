@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel, type Viewer } from "../lib/identity";
 import { Avatar } from "./Avatar";
+import { PodiumMark } from "./PodiumMark";
 import {
   groupOf,
   navGroupsFor,
@@ -188,9 +189,7 @@ function Wordmark({ collapsed }: { collapsed: boolean }) {
         collapsed && "md:justify-center md:px-0",
       )}
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-sm bg-accent font-mono text-[1.15rem] font-[800] text-primary-foreground">
-        P
-      </span>
+      <PodiumMark className="size-9" />
       <span className={cn("ml-3 text-[1.35rem] font-[760] text-fg", collapsed && "md:hidden")}>
         podium<span className="text-accent">.</span>
       </span>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Podium">
+  <rect width="64" height="64" rx="8" fill="#181b1f"/>
+  <!-- sessions waiting behind the live one -->
+  <rect x="20" y="12" width="24" height="4" rx="2" fill="#f2f4f6" opacity=".45"/>
+  <rect x="16" y="18" width="32" height="4" rx="2" fill="#f2f4f6" opacity=".7"/>
+  <!-- live session: prompt, then an agent's output streaming in -->
+  <rect x="12" y="24" width="40" height="28" rx="4" fill="#f2f4f6"/>
+  <path d="M18.4 33l6 5-6 5" fill="none" stroke="#181b1f" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#181b1f">
+    <rect x="28.8" y="38.5" width="5" height="4.5" rx="1.2"/>
+    <rect x="35.4" y="38.5" width="5" height="4.5" rx="1.2" opacity=".6"/>
+    <rect x="42" y="38.5" width="5" height="4.5" rx="1.2" opacity=".3"/>
+  </g>
+</svg>
