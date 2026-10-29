@@ -80,10 +80,10 @@ COPY package.json /opt/podium-agent/package.json
 #
 # It refuses a model its own catalog does not list, before any request: 1.18.29 did not know
 # claude-opus-5-5 or claude-sonnet-5-5, so every turn on the default model failed with
-# "Unexpected server error", and 1.18.35 did not know claude-haiku-5-5 or gemini-4-argon.
-# Move this pin with internal/agent/profiles/agents.go.
+# "Unexpected server error", and 1.18.35 did not know claude-haiku-5-5, gemini-4-argon or
+# gpt-6.1-terra. Move this pin with internal/agent/profiles/agents.go.
 RUN set -eux; \
-    npm install --global opencode-ai@1.19.4; \
+    npm install --global opencode-ai@1.19.5; \
     opencode --version
 
 # Build-time assertion: if optional dependencies were skipped, or the wrong platform's
