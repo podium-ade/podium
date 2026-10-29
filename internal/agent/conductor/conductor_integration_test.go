@@ -900,11 +900,10 @@ func withReviewHost(p *profiles.Profile) func(*conductor.Options) {
 	}
 }
 
-// TestAGitHubReviewRunsItsPlaybookAndReusesTheTask is the review guardrail and the resume.
-// A host runtime is configured, which is what would answer a conversation. The review still
-// runs the playbook marked github: true. A follow-up while that task is warm is injected,
-// and one after it exits is a new task on the same workspace.
-func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
+// TestWithNoHostRuntimeAPullRequestRunsItsReviewPlaybook is a conductor with no assistant to
+// ask: every GitHub event runs the playbook marked github: true as a task, a follow-up while
+// that task is warm is injected, and one after it exits is a new task on the same workspace.
+func TestWithNoHostRuntimeAPullRequestRunsItsReviewPlaybook(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	release := fake.HoldTasks()
@@ -915,12 +914,15 @@ func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
 	t.Cleanup(src.Close)
 
 	ctx := context.Background()
-	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Profiles = profiles.NewLive(reviewProfile(t)) })
 	require.NoError(t, src.Send(ctx, githubInbound("please review")))
 	waitFor(t, 30*time.Second, "the review", func() bool {
 		return len(posts(src.Records(), conductor.OutFinal)) >= 1
 	})
 	require.Len(t, fake.Specs(), 1)
+	final := posts(src.Records(), conductor.OutFinal)[0]
+	assert.Equal(t, "coder", final.Playbook)
+	assert.True(t, final.SourcePlaybook, "the review playbook's answer is the review")
 	sess, err := st.GetSessionByKey(ctx, "github:acme/repo#12")
 	require.NoError(t, err)
 	assert.Equal(t, "coder", sess.Playbook)
@@ -941,21 +943,97 @@ func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
 	require.NoError(t, src.Send(ctx, githubInbound("and once more")))
 	waitFor(t, 60*time.Second, "the restored review", func() bool { return len(fake.Specs()) == 2 })
 	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
-	sess, err = st.GetSessionByKey(ctx, "github:acme/repo#12")
-	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Playbook)
 }
 
-// TestAGitHubReviewWithoutAPlaybookIsRefused refuses the turn rather than letting the
-// assistant pick a job. A host runtime is configured so that path is available.
-func TestAGitHubReviewWithoutAPlaybookIsRefused(t *testing.T) {
+// TestAnOpenedPullRequestIsReviewedWithNoAssistantTurn: nobody asked anything, so there is
+// nothing for the assistant to decide. The review playbook is delegated directly, on the
+// session's workspace, and its answer is posted as the review.
+func TestAnOpenedPullRequestIsReviewedWithNoAssistantTurn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := githubInbound("alice opened https://github.com/acme/repo/pull/12 for review")
+	ev.Automatic = true
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the review", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) >= 1
+	})
+	require.Len(t, fake.Specs(), 1, "the review is the only task")
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook, "a pull request is a conversation and is pinned to no playbook")
+	assert.Equal(t, sess.ID, fake.Specs()[0].GetWorkspaceSession())
+
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "coder", brief.Playbook.Name)
+	assert.Equal(t, ev.Text, brief.Instruction)
+
+	final := posts(src.Records(), conductor.OutFinal)[0]
+	assert.True(t, final.SourcePlaybook)
+	progress := posts(src.Records(), conductor.OutProgress)
+	require.NotEmpty(t, progress, "the review is announced, which is what opens the status comment")
+	assert.True(t, progress[0].SourcePlaybook)
+
+	waitFor(t, 30*time.Second, "the delegation to finish", func() bool {
+		dlgs := delegationsOf(t, st, ev.SourceKey)
+		return len(dlgs) == 1 && dlgs[0].Status == store.TurnSucceeded
+	})
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	assert.Equal(t, "coder", dlgs[0].Playbook)
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Equal(t, store.TurnSucceeded, turn.Status)
+	assert.Empty(t, turn.TaskID, "the event's turn ran nothing itself")
+}
+
+// TestACommentOnAPullRequestIsTheAssistants: what a person writes on a pull request is
+// answered on this host, not run as a review.
+func TestACommentOnAPullRequestIsTheAssistants(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	// A runtime that exits at once: what is under test is where the turn runs, not what it
+	// says. The fake runtime cannot be used, because only the dev source passes it its env.
+	host := hostRuntime(t, "sk-test")
+	host.Node = "/usr/bin/true"
+	startWith(t, st, fake, src, func(o *conductor.Options) {
+		o.Profiles = profiles.NewLive(reviewProfile(t))
+		o.Host = host
+	})
+	ev := githubInbound("why is this a race?")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the turn to reach a terminal status", func() bool {
+		s := turnStatus(st, ev.SourceKey)
+		return s != "" && s != store.TurnRunning
+	})
+	assert.Empty(t, fake.Specs(), "a question is answered here, not run as a review")
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook)
+}
+
+// TestAnOpenedPullRequestWithNoReviewPlaybookIsRefused refuses the event rather than asking
+// the assistant to make up a review.
+func TestAnOpenedPullRequestWithNoReviewPlaybookIsRefused(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	src := fakesource.New(conductor.SourceGitHub)
 	t.Cleanup(src.Close)
 
 	startWith(t, st, fake, src, withReviewHost(testProfile(t)))
-	require.NoError(t, src.Send(context.Background(), githubInbound("deploy production")))
+	ev := githubInbound("alice opened https://github.com/acme/repo/pull/12 for review")
+	ev.Automatic = true
+	require.NoError(t, src.Send(context.Background(), ev))
 	waitFor(t, 30*time.Second, "the refusal", func() bool {
 		return len(posts(src.Records(), conductor.OutFailure)) >= 1
 	})

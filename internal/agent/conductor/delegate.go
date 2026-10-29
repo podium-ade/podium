@@ -129,7 +129,25 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Browser: p.Browser,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
+			GitHub:  p.GitHub,
 		})
+	}
+	return out
+}
+
+// menuFor is the playbooks a turn from src may delegate to. Every playbook, except on a pull
+// request: anybody the GitHub triggers allow can comment there, so it is offered the review
+// playbook alone.
+func (c *Conductor) menuFor(src Source) []DelegablePlaybook {
+	all := c.DelegablePlaybooks()
+	if src == nil || src.Kind() != SourceGitHub {
+		return all
+	}
+	out := make([]DelegablePlaybook, 0, 1)
+	for _, p := range all {
+		if p.GitHub {
+			out = append(out, p)
+		}
 	}
 	return out
 }
@@ -145,6 +163,9 @@ type DelegablePlaybook struct {
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`
+	// GitHub says this is the playbook that reviews pull requests. Only its answer becomes
+	// the review on one.
+	GitHub bool `json:"github,omitempty"`
 }
 
 // playbookSummary is the one line a menu entry carries. A playbook has no description field,
@@ -185,6 +206,12 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		return store.Delegation{}, fmt.Errorf("%w: %q; this turn was offered %v",
 			ErrPlaybookNotOffered, playbookName, g.playbooks)
 	}
+	return c.delegate(ctx, g, playbookName, instruction)
+}
+
+// delegate starts playbookName for the conversation g names. Delegate has already checked
+// the token and the menu. acceptAutomatic has no token: it is the conductor's own decision.
+func (c *Conductor) delegate(ctx context.Context, g turnGrant, playbookName, instruction string) (store.Delegation, error) {
 	profile := c.profiles.Current()
 	playbook, ok := profile.Playbooks[playbookName]
 	if !ok {
@@ -269,6 +296,7 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		taskID: dlg.TaskID,
 		text: fmt.Sprintf("Working on this in a `%s` task: %s",
 			playbookName, firstLine(instruction, maxAnnouncedRunes)),
+		speaker: c.speakerFor(g.src, playbookName),
 	})
 
 	c.followDelegation(ctx, g.src, dlg, playbook, 0)
@@ -324,6 +352,9 @@ type announcement struct {
 	ref    string
 	taskID string
 	text   string
+	// speaker is the delegated playbook. The announcement is the first thing said about
+	// its task, so a source that posts by speaker places it with the task's own words.
+	speaker Speaker
 }
 
 // holdAnnouncement records that a task was started without saying so yet.
@@ -369,7 +400,7 @@ func (c *Conductor) sayAnnouncementsFor(ctx context.Context, turnID string) {
 // session behind one slow conversation.
 func (c *Conductor) sayHeld(ctx context.Context, match func(announcement) bool) {
 	for _, a := range c.takeHeld(match) {
-		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Text: a.text})
+		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Speaker: a.speaker, Text: a.text})
 	}
 }
 
@@ -485,7 +516,8 @@ func (c *Conductor) followDelegation(
 			ref: dlg.TriggerRef,
 			// No placeholder: the conversation has nothing of this task's on screen to
 			// replace, so its progress arrives as its own messages.
-			taskID: dlg.TaskID,
+			taskID:  dlg.TaskID,
+			speaker: c.speakerFor(src, dlg.Playbook),
 		},
 		dlg:      dlg,
 		playbook: playbook,
@@ -683,7 +715,7 @@ func (r *delegationRun) run(ctx context.Context) {
 	if err != nil {
 		c.logger.ErrorContext(ctx, "reading a delegated task back failed",
 			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: fmt.Sprintf(
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: fmt.Sprintf(
 			"I lost track of the `%s` task I started for this. Task `%s`.", r.dlg.Playbook, r.dlg.TaskID)})
 		r.finish(ctx, store.TurnFailed)
 		return
@@ -696,10 +728,10 @@ func (r *delegationRun) run(ctx context.Context) {
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: result.Post})
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post})
 	}
 	if note := previewNote(task, true); note != "" {
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Text: note})
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: note})
 	}
 	r.finish(ctx, result.Status)
 }

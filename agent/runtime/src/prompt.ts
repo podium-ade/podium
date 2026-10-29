@@ -31,6 +31,9 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
     sections.push(slackPlaybookBlock(brief));
   }
+  if (onHost(brief) && brief.source.kind === "github") {
+    sections.push(pullRequestBlock(brief));
+  }
   if (titledConversation(brief) && firstChatTurn(brief)) {
     sections.push(chatTitleBlock(brief));
   }
@@ -153,6 +156,9 @@ function delegationBlock(brief: TurnBrief): string {
     if (p.preview) {
       has.push("a preview that stays up after it finishes");
     }
+    if (p.github) {
+      has.push("the pull-request review");
+    }
     const carries = has.length > 0 ? ` — has ${has.join(", ")}` : "";
     const summary = p.summary && p.summary !== "" ? `: ${p.summary}` : "";
     return `- \`${p.name}\`${carries}${summary}`;
@@ -255,6 +261,31 @@ There is no default playbook. The instruction above to delegate on your first to
 - ${preference}
 - When the message and the channel description, taken together, do not make one playbook clearly right, ask. Name each playbook and the one line you were given about it, then stop. Do not call \`podium_delegate\` until they answer, and do not pick the first name on the menu in order to keep moving.
 - A question you can answer from this conversation, from memory, or from a page you can fetch still needs no playbook. Ask only when the work needs a machine and the playbook is the part you cannot tell.`;
+}
+
+/**
+ * pullRequestBlock is how a host turn behaves on a pull request. The review is a playbook's
+ * job and only its answer becomes the review; the assistant answers questions and routes work.
+ */
+function pullRequestBlock(brief: TurnBrief): string {
+  const review = (brief.delegation?.playbooks ?? []).find((p) => p.github)?.name;
+  const reviewLine = review
+    ? `- Asked to review, or to review again — new commits, "take another look": delegate to \`${review}\`. Pass on the commits the message names. That playbook reads what it reviewed last and looks only at what changed.`
+    : `- No playbook reviews pull requests here. If you are asked for a review, say so.`;
+  return `# This pull request
+
+The message is a comment on a GitHub pull request. The review, its inline notes and the
+replies so far are in the conversation below. Your answer is posted as a comment — in the
+same review thread when the message was a reply in one.
+
+${reviewLine}
+- A question about the code, the review or one of its findings: answer it from the
+  conversation — the review, the inline notes and the diff they quote — in a few sentences.
+  Delegate only when the answer needs the repository itself.
+- Never write a verdict yourself. "Approve", "Request changes" and inline notes are the
+  review playbook's; yours is a reply.
+- Asked to change the code: delegate to a playbook on the menu that can push to this pull
+  request. If none can, say that you cannot change code here and stop.`;
 }
 
 function memoryBlock(): string {

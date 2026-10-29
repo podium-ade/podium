@@ -293,6 +293,19 @@ func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, own
 	return out, err
 }
 
+// reactionSeen is the reaction a comment gets when a turn starts on it.
+const reactionSeen = "eyes"
+
+// CreateReaction reacts to one comment. kind is KindIssueComment for the conversation tab
+// and KindReviewComment for the diff: GitHub keeps the two under different paths.
+func (c *restClient) CreateReaction(ctx context.Context, installID int64, owner, repo, kind string, commentID int64, content string) error {
+	path := fmt.Sprintf("/repos/%s/%s/issues/comments/%d/reactions", owner, repo, commentID)
+	if kind == KindReviewComment {
+		path = fmt.Sprintf("/repos/%s/%s/pulls/comments/%d/reactions", owner, repo, commentID)
+	}
+	return c.do(ctx, installID, http.MethodPost, path, map[string]string{"content": content}, nil)
+}
+
 // ReviewComment reads one inline review comment. A reply's in_reply_to_id is the first
 // comment of its thread, so this is how a reply learns who started the thread.
 func (c *restClient) ReviewComment(ctx context.Context, installID int64, owner, repo string, commentID int64) (Comment, error) {

@@ -38,6 +38,7 @@ const (
 	reviewingText    = "Reviewing this pull request."
 	reviewedNote     = "Review posted."
 	reviewFailedText = "The review did not finish."
+	replyFailedText  = "❌ I could not answer that."
 	// statusMarker hides in the rendered comment and is how a later turn finds
 	// the one status comment after a restart. The visible line is the title.
 	statusMarker       = "<!-- podium-review-status -->"
@@ -301,11 +302,7 @@ func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
 		return errors.New("github: ingest: a pull request is required")
 	}
 	key := SourceKeyPR(m.PR)
-	_, known := s.session(ctx, key)
-	text := strings.TrimSpace(m.Text)
-	if !known {
-		text = reviewInstruction(m.Author, m.PR.URL, text)
-	}
+	text := slackInstruction(m.Author, m.PR.URL, m.Text)
 	install, err := s.client.RepoInstallation(ctx, m.PR.Owner, m.PR.Repo)
 	if err != nil && !errors.Is(err, ErrNotInstalled) {
 		s.logger.WarnContext(ctx, "github: looking up the installation for a slack-started review failed",
@@ -481,48 +478,46 @@ func mergeTranscripts(a, b []conductor.BriefEntry) []conductor.BriefEntry {
 	return out
 }
 
-// Post says something new. A pull request gets two GitHub posts and no running
-// commentary: one status comment, then the review. Progress is not posted and
-// is not edited into that comment. Slack threads still hear the answer.
+// Post says something new. Who says it decides where it goes.
 //
-// A failure changes the status comment's title and is not itself a comment.
+// The review playbook's work is the review: one status comment, then one submitted review
+// under it. Its progress is not posted and is not edited into that comment, and a failure
+// changes the status comment's title rather than adding a comment.
+//
+// Everybody else — the assistant, another playbook, the conductor itself — is replying to
+// whoever asked. That reply goes where they asked it: the review thread a reply came from,
+// the conversation tab, or only the Slack thread when Slack is where the question was.
+// Progress is not posted for them either. Bound Slack threads still hear every answer.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	p, err := ParseRef(ref)
 	if err != nil {
 		return "", err
 	}
-	if out.Type == conductor.OutFailure {
+	if out.SourcePlaybook {
+		return s.postReviewWork(ctx, p, out)
+	}
+	return s.postReply(ctx, p, out)
+}
+
+func (s *Source) postReviewWork(ctx context.Context, p Parsed, out conductor.Outbound) (string, error) {
+	switch out.Type {
+	case conductor.OutFailure:
 		s.showStatus(ctx, p, statusDidNotFinish, false)
 		if s.fanoutSlack(out) {
 			s.postSlack(ctx, p, out)
 		}
 		return "", nil
-	}
-	inline := p.Kind == KindReviewComment && p.CommentID > 0
-	if out.Type == conductor.OutProgress {
-		if inline {
-			return "", nil
-		}
-		id := s.showStatus(ctx, p, statusInProgress, true)
-		return id, nil
-	}
-	body := out.Text
-
-	// The answer is one submitted review under the status comment. A later answer
-	// updates it. A reply in an inline thread stays in that thread, except an
-	// approval: replying "approved" on the notes does not approve the pull request,
-	// so that verdict is still submitted as a review.
-	if out.Type == conductor.OutFinal && (!inline || reviewEvent(body) == eventApprove) {
-		event := s.reviewAction(ctx, p, body)
+	case conductor.OutProgress:
+		return s.showStatus(ctx, p, statusInProgress, true), nil
+	case conductor.OutFinal:
+		event := s.reviewAction(ctx, p, out.Text)
 		s.showStatus(ctx, p, statusTitle(event), true)
-		id, gerr := s.postReview(ctx, p, body)
+		id, gerr := s.postReview(ctx, p, out.Text)
 		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
 			s.logger.WarnContext(ctx, "github: posting the review failed",
 				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
 		}
-		if s.fanoutSlack(out) {
-			s.postSlack(ctx, p, out)
-		}
+		s.postSlack(ctx, p, out)
 		if id != "" {
 			return id, nil
 		}
@@ -530,29 +525,38 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 			return "", gerr
 		}
 		return "", nil
-	}
-	if out.Type == conductor.OutQuestion {
-		if s.fanoutSlack(out) {
-			s.postSlack(ctx, p, out)
-		}
+	case conductor.OutQuestion:
+		s.postSlack(ctx, p, out)
+		return "", nil
+	default:
 		return "", nil
 	}
+}
 
-	id, gerr := s.postGitHub(ctx, p, body)
-	if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
-		s.logger.WarnContext(ctx, "github: posting a comment failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
+func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound) (string, error) {
+	body := out.Text
+	switch out.Type {
+	case conductor.OutFinal, conductor.OutQuestion:
+	case conductor.OutFailure:
+		// The failure's own words can carry a task id. A pull request is often public, so
+		// it hears that the answer did not come, and the operator has the log.
+		body = replyFailedText
+	default:
+		return "", nil
 	}
 	if s.fanoutSlack(out) {
 		s.postSlack(ctx, p, out)
 	}
-	if id != "" {
-		return id, nil
+	if p.Kind == KindSlack {
+		return "", nil
 	}
+	id, gerr := s.postGitHub(ctx, p, body)
 	if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
+		s.logger.WarnContext(ctx, "github: posting a comment failed",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
 		return "", gerr
 	}
-	return "", nil
+	return id, nil
 }
 
 func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string, error) {
@@ -1082,20 +1086,21 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 	return err
 }
 
-// React sets the Slack reaction on every bound thread. GitHub does not get a
-// reaction comment: the status comment's title is the whole of that signal,
-// and it is written when the turn starts and when the answer or the failure lands.
+// React marks the comment a turn answers with 👀 when the turn starts, so the person who
+// asked sees it was heard before the answer lands. GitHub gets nothing else: how the work
+// went is in the answer, or in the status comment's title for a review. Bound Slack threads
+// get every reaction.
 func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction) error {
 	p, err := ParseRef(ref)
 	if err != nil {
 		return err
 	}
 	switch kind {
-	case conductor.ReactionWorking, conductor.ReactionDone:
+	case conductor.ReactionWorking:
+		s.reactSeen(ctx, p)
+	case conductor.ReactionDone, conductor.ReactionFailed:
 	case conductor.ReactionAwaiting:
 		return nil
-	case conductor.ReactionFailed:
-		s.showStatus(ctx, p, statusDidNotFinish, false)
 	default:
 		return fmt.Errorf("github: %q is not a reaction", kind)
 	}
@@ -1108,6 +1113,22 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		}
 	}
 	return nil
+}
+
+// reactSeen puts 👀 on the triggering comment. A review body and a pull request have no
+// comment to react on.
+func (s *Source) reactSeen(ctx context.Context, p Parsed) {
+	if p.CommentID <= 0 || (p.Kind != KindIssueComment && p.Kind != KindReviewComment) {
+		return
+	}
+	install, err := s.installation(ctx, p)
+	if err != nil {
+		return
+	}
+	if err := s.client.CreateReaction(ctx, install, p.Owner, p.Repo, p.Kind, p.CommentID, reactionSeen); err != nil {
+		s.logger.WarnContext(ctx, "github: reacting to the comment failed",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "comment", p.CommentID, "error", err)
+	}
 }
 
 func (s *Source) installation(ctx context.Context, p Parsed) (int64, error) {

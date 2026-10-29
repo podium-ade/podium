@@ -121,6 +121,8 @@ const delegablePlaybookSchema = z.strictObject({
   repos: z.array(z.string()).optional(),
   // The task stays up afterwards as a preview.
   preview: z.boolean().optional(),
+  // This playbook reviews pull requests. Only its answer becomes the review on one.
+  github: z.boolean().optional(),
 });
 
 // One MCP server the turn may use. An address and, when the server needs one, the NAME of

@@ -40,6 +40,8 @@ type stub struct {
 	// threadRoots is who wrote an inline review comment, by id, for GET pulls/comments/{id}.
 	threadRoots map[int64]User
 	threadReads int
+	// reactions is every reaction posted, as "<path> <content>".
+	reactions []string
 }
 
 func newStub(t *testing.T) *stub {
@@ -61,6 +63,12 @@ func newStub(t *testing.T) *stub {
 }
 
 func (s *stub) url() string { return s.srv.URL }
+
+func (s *stub) postedReactions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.reactions...)
+}
 
 func (s *stub) getApp(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/app" {
@@ -94,6 +102,14 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
+	case strings.HasSuffix(path, "/reactions") && r.Method == http.MethodPost:
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]string
+		_ = json.Unmarshal(raw, &body)
+		s.mu.Lock()
+		s.reactions = append(s.reactions, strings.TrimPrefix(path, "/repos/acme/repo")+" "+body["content"])
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
 	case strings.Contains(path, "/issues/") && strings.HasSuffix(path, "/comments") && r.Method == http.MethodPost:
 		s.writeComment(w, r, &s.issuePosts)
 	case strings.Contains(path, "/issues/comments/") && r.Method == http.MethodPatch:
