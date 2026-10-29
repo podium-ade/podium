@@ -17,7 +17,7 @@
               : "light";
         document.documentElement.dataset.theme = theme;
         var themeColor = document.querySelector('meta[name="theme-color"]');
-        if (themeColor) themeColor.setAttribute("content", "#060708");
+        if (themeColor) themeColor.setAttribute("content", theme === "dark" ? "#060708" : "#f2f4f6");
       } catch (e) {
         document.documentElement.dataset.theme = "light";
       }
