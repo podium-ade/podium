@@ -75,10 +75,21 @@ export const OPENAI: Provider = {
   },
 };
 
+export const GOOGLE: Provider = {
+  id: "google",
+  name: "Google",
+  backendID: "gemini",
+  models: "Gemini",
+  how: "API key",
+  secretName: "podium.agent.google_api_key",
+  keyPlaceholder: "AIza…",
+  consoleURL: "https://aistudio.google.com/apikey",
+};
+
 /** providerName is the company for a wire id, for a sentence that already has the backend. */
 export function providerName(id: string): string {
   return PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 
 /** The providers Settings shows, in order. */
-export const PROVIDERS: Provider[] = [ANTHROPIC, XAI, OPENAI];
+export const PROVIDERS: Provider[] = [ANTHROPIC, XAI, OPENAI, GOOGLE];

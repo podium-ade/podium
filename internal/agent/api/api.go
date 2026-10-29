@@ -147,6 +147,8 @@ type AgentServiceOptions struct {
 	// sign-in. An empty client id means API keys only.
 	OpenAIOAuthIssuer   string
 	OpenAIOAuthClientID string
+	// GoogleBaseURL is where SetProviderKey validates a Gemini API key.
+	GoogleBaseURL string
 	// GitHubURL and GitHubAPIURL are where a person's GitHub account is connected. Empty
 	// means github.com.
 	GitHubURL    string
@@ -215,6 +217,7 @@ type AgentService struct {
 	xaiBaseURL         string
 	openaiBaseURL      string
 	openaiCodexBaseURL string
+	googleBaseURL      string
 	githubURL          string
 	githubAPIURL       string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
@@ -289,6 +292,9 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if opts.OpenAIOAuthIssuer == "" {
 		opts.OpenAIOAuthIssuer = config.DefaultOpenAIOAuthIssuer
 	}
+	if opts.GoogleBaseURL == "" {
+		opts.GoogleBaseURL = config.DefaultGoogleBaseURL
+	}
 	if opts.GitHubURL == "" {
 		opts.GitHubURL = defaultGitHubURL
 	}
@@ -319,6 +325,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		githubAPIURL:       strings.TrimSuffix(opts.GitHubAPIURL, "/"),
 		openaiBaseURL:      opts.OpenAIBaseURL,
 		openaiCodexBaseURL: opts.OpenAICodexBaseURL,
+		googleBaseURL:      opts.GoogleBaseURL,
 		oauth:              oauth,
 		http:               opts.HTTPClient,
 		memory:             opts.Memory,

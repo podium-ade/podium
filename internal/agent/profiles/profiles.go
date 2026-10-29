@@ -78,6 +78,15 @@ const OpenAIKeySecret = "podium.agent.openai_api_key"
 // OpenAIKeyEnv is where that secret lands in the task container.
 const OpenAIKeyEnv = "OPENAI_API_KEY"
 
+// GoogleKeySecret is the same reservation for a Gemini turn: a Gemini API key. There is no
+// subscription sign-in for it, so there is no refresh token beside it.
+const GoogleKeySecret = "podium.agent.google_api_key"
+
+// GoogleKeyEnv is where that secret lands in the task container. It is the first of the
+// names the harness looks for; the runtime names it in the harness config explicitly,
+// because a provider with more than one candidate variable is not handed its key otherwise.
+const GoogleKeyEnv = "GOOGLE_API_KEY"
+
 // OpenAIRefreshSecret is the refresh token of a ChatGPT / Codex sign-in. Same rule as
 // XAIRefreshSecret: reserved, never attached to a turn, never a playbook's to name.
 const OpenAIRefreshSecret = "podium.agent.openai_refresh_token"
@@ -675,7 +684,7 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 	for _, ref := range refs {
 		switch ref.Name {
 		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret,
-			OpenAIKeySecret, OpenAIRefreshSecret, MemoryKeySecret:
+			OpenAIKeySecret, OpenAIRefreshSecret, GoogleKeySecret, MemoryKeySecret:
 			errs = append(errs, fmt.Errorf("%s may not name %s: the conductor decides what "+
 				"credential a turn gets, from the agent the playbook runs on", field, ref.Name))
 		}
@@ -763,6 +772,9 @@ func (s Playbook) validate(path string) error {
 		case OpenAIKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				OpenAIKeyEnv, OpenAIKeySecret))
+		case GoogleKeyEnv:
+			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
+				GoogleKeyEnv, GoogleKeySecret))
 		case MemoryKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				MemoryKeyEnv, MemoryKeySecret))
