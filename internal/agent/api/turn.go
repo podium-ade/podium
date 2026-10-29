@@ -35,7 +35,7 @@ const TurnTokenHeader = "X-Podium-Turn"
 // concrete type so the handler can be tested without a turn loop, a database or a control
 // plane behind it.
 type Delegator interface {
-	Delegate(ctx context.Context, token, playbook, instruction string) (store.Delegation, error)
+	Delegate(ctx context.Context, token, playbook, instruction string, opts conductor.DelegateOptions) (store.Delegation, error)
 	GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error)
 	Delegations(ctx context.Context, token string) ([]store.Delegation, error)
 	CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error)
@@ -75,7 +75,8 @@ func (s *TurnService) Delegate(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(
 			"instruction is required: it is the whole brief the delegated task gets"))
 	}
-	dlg, err := s.delegator.Delegate(ctx, token, playbook, instruction)
+	dlg, err := s.delegator.Delegate(ctx, token, playbook, instruction,
+		conductor.DelegateOptions{ReadOnly: req.Msg.GetReadOnly()})
 	if err != nil {
 		return nil, delegationError(err)
 	}
@@ -227,6 +228,8 @@ func delegationError(err error) error {
 	case errors.Is(err, conductor.ErrNoPreview):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrNoDelegation):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, conductor.ErrWorkspaceBusy):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

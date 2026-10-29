@@ -45,7 +45,7 @@ func TestAnUnknownTokenIsRefusedByEveryCall(t *testing.T) {
 	c := &Conductor{}
 	ctx := context.Background()
 
-	_, err := c.Delegate(ctx, "not-a-token", "podium", "do it")
+	_, err := c.Delegate(ctx, "not-a-token", "podium", "do it", DelegateOptions{})
 	assert.ErrorIs(t, err, ErrNoTurn)
 
 	_, _, err = c.GetDelegation(ctx, "not-a-token", "dlg_01")
@@ -65,7 +65,7 @@ func TestDelegateRefusesAPlaybookTheTurnWasNotOffered(t *testing.T) {
 
 	// The menu is the allow-list. A playbook that exists but was not offered is refused
 	// exactly as one that does not exist: a turn may not reach a playbook by guessing.
-	_, err = c.Delegate(context.Background(), token, "release", "ship it")
+	_, err = c.Delegate(context.Background(), token, "release", "ship it", DelegateOptions{})
 	assert.ErrorIs(t, err, ErrPlaybookNotOffered)
 	assert.Contains(t, err.Error(), "release")
 	assert.Contains(t, err.Error(), "podium", "the message says what this turn may ask for")
@@ -76,7 +76,7 @@ func TestDelegateNeedsAnInstruction(t *testing.T) {
 	token, err := c.mintTurnToken(turnGrant{turnID: "turn_01", playbooks: []string{"podium"}})
 	require.NoError(t, err)
 
-	_, err = c.Delegate(context.Background(), token, "podium", "")
+	_, err = c.Delegate(context.Background(), token, "podium", "", DelegateOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "instruction")
 }

@@ -115,6 +115,17 @@ func TestValidate(t *testing.T) {
 			func(s *TaskSpec) { s.WorkspacePublishBase = true },
 			"workspace_publish_base requires workspace_repo",
 		},
+		"read-only without a session": {
+			func(s *TaskSpec) { s.WorkspaceReadOnly = true },
+			"workspace_readonly requires workspace_session",
+		},
+		"read-only that publishes": {
+			func(s *TaskSpec) {
+				s.WorkspaceSession, s.WorkspaceRepo = "sess_1", "https://github.com/acme/app.git"
+				s.WorkspaceReadOnly, s.WorkspacePublishBase = true, true
+			},
+			"workspace_readonly stores nothing",
+		},
 		"negative workspace warm": {
 			func(s *TaskSpec) { s.WorkspaceWarm = Duration(-time.Second) },
 			"workspace_warm must not be negative",

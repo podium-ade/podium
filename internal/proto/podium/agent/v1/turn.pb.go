@@ -141,7 +141,11 @@ type DelegateRequest struct {
 	// instruction is the whole brief for the delegated task: it is the only thing the task is
 	// told beyond the conversation it belongs to, so a turn that writes two words gets a task
 	// that knows two words.
-	Instruction   string `protobuf:"bytes,2,opt,name=instruction,proto3" json:"instruction,omitempty"`
+	Instruction string `protobuf:"bytes,2,opt,name=instruction,proto3" json:"instruction,omitempty"`
+	// read_only starts the task on the conversation's workspace and keeps nothing it changes:
+	// for reading the code to answer a question. A read-only task never waits for, or
+	// stops, another task working in that workspace.
+	ReadOnly      bool `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -188,6 +192,13 @@ func (x *DelegateRequest) GetInstruction() string {
 		return x.Instruction
 	}
 	return ""
+}
+
+func (x *DelegateRequest) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
 }
 
 type DelegateResponse struct {
@@ -837,10 +848,11 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
 	"\vfinished_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"O\n" +
+	"finishedAt\"l\n" +
 	"\x0fDelegateRequest\x12\x1a\n" +
 	"\bplaybook\x18\x01 \x01(\tR\bplaybook\x12 \n" +
-	"\vinstruction\x18\x02 \x01(\tR\vinstruction\"O\n" +
+	"\vinstruction\x18\x02 \x01(\tR\vinstruction\x12\x1b\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\"O\n" +
 	"\x10DelegateResponse\x12;\n" +
 	"\n" +
 	"delegation\x18\x01 \x01(\v2\x1b.podium.agent.v1.DelegationR\n" +

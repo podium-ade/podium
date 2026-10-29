@@ -136,9 +136,12 @@ func hostFakeDelegate(brief map[string]any) delegateReport {
 	}
 
 	playbook, instruction, _ := strings.Cut(os.Getenv(hostFakeDelegateEnv), "|")
-	status, body := turnCall(report.URL, token, "Delegate", map[string]string{
-		"playbook": playbook, "instruction": instruction,
-	})
+	instruction, mode, _ := strings.Cut(instruction, "|")
+	req := map[string]any{"playbook": playbook, "instruction": instruction}
+	if mode == "ro" {
+		req["read_only"] = true
+	}
+	status, body := turnCall(report.URL, token, "Delegate", req)
 	report.Status = status
 	if status != http.StatusOK {
 		report.Code, report.Message = connectError(body)
@@ -233,7 +236,7 @@ func hostFakeFollowUp(report delegateReport, token, text string) delegateReport 
 }
 
 // turnCall is one Connect JSON call, exactly as agent/runtime/src/delegate.ts makes it.
-func turnCall(url, token, method string, body map[string]string) (int, []byte) {
+func turnCall[V any](url, token, method string, body map[string]V) (int, []byte) {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return 0, []byte(err.Error())

@@ -1513,3 +1513,109 @@ func (m *recordingMirror) rows(chatID string) []store.ChatMessage {
 	defer m.mu.Unlock()
 	return m.seen[chatID]
 }
+
+// openedPR is the automatic review event: the delegation path with no assistant turn, so a
+// test can drive a pull request's workspace rule without a model.
+func openedPR() conductor.InboundEvent {
+	ev := githubInbound("alice marked https://github.com/acme/repo/pull/12 ready for review")
+	ev.Automatic = true
+	return ev
+}
+
+// TestAPullRequestsWorkspaceHasOneWriterAtATime: a review still working keeps the pull
+// request's workspace, and the next task is refused rather than started beside it, where the
+// two would race to replace the one snapshot.
+func TestAPullRequestsWorkspaceHasOneWriterAtATime(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the first review to start", func() bool { return len(fake.Specs()) == 1 })
+
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the second to be refused", func() bool {
+		for _, p := range posts(src.Records(), conductor.OutFinal) {
+			if strings.Contains(p.Text, "another task is still working on this pull request") {
+				return true
+			}
+		}
+		return false
+	})
+	assert.Len(t, fake.Specs(), 1, "nothing started beside the review that is still working")
+	assert.Empty(t, fake.Cancels(), "and the one working was left alone")
+}
+
+// TestAWaitingTaskHandsThePullRequestsWorkspaceOn: a review that has answered and is only
+// waiting for a follow-up is released, quietly, and the next task starts once it has gone —
+// which is after its snapshot is stored.
+func TestAWaitingTaskHandsThePullRequestsWorkspaceOn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	// What a node reports for a task it was told to stop.
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the first review to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	first := fake.TaskIDs()[0]
+
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the second review to start", func() bool { return len(fake.Specs()) == 2 })
+	require.Len(t, fake.Cancels(), 1)
+	assert.Equal(t, first, fake.Cancels()[0].GetTaskId(), "the waiting review was released")
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
+
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 2)
+	var firstDlg store.Delegation
+	for _, d := range dlgs {
+		if d.TaskID == first {
+			firstDlg = d
+		}
+	}
+	assert.Equal(t, store.TurnSucceeded, firstDlg.Status, "it had answered; being released is not a failure")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure), "and nothing says it failed")
+}
+
+// TestAReadOnlyDelegationStoresNothing: a task asked for read-only starts from the
+// conversation's workspace and its spec says to store nothing back. It is recorded as such,
+// which is what lets it run beside a pull request's writing task.
+func TestAReadOnlyDelegationStoresNothing(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	ev := inbound("C1/40.1", "why is this racy?")
+	ev.Env = hostEnv(map[string]string{hostFakeDelegateEnv: "dogfood|read the handler and explain the race|ro"})
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 60*time.Second, "the read-only task", func() bool { return len(fake.Specs()) == 1 })
+	assert.True(t, fake.Specs()[0].GetWorkspaceReadonly())
+	assert.NotEmpty(t, fake.Specs()[0].GetWorkspaceSession(), "it still starts from the conversation's files")
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 1)
+	assert.True(t, dlgs[0].ReadOnly)
+}

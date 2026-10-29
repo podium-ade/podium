@@ -185,6 +185,9 @@ type TaskSpec struct {
 	WorkspaceRepo string `protobuf:"bytes,14,opt,name=workspace_repo,json=workspaceRepo,proto3" json:"workspace_repo,omitempty"`
 	// Also store this task's workspace as the shared base for workspace_repo.
 	WorkspacePublishBase bool `protobuf:"varint,15,opt,name=workspace_publish_base,json=workspacePublishBase,proto3" json:"workspace_publish_base,omitempty"`
+	// Restore the session's snapshot and store nothing when the task exits. Requires
+	// workspace_session; cannot be combined with workspace_publish_base.
+	WorkspaceReadonly bool `protobuf:"varint,20,opt,name=workspace_readonly,json=workspaceReadonly,proto3" json:"workspace_readonly,omitempty"`
 	// How long the runtime stays up after a turn, waiting for the next instruction on the
 	// inbox. Zero means exit when the turn ends. The node forwards it as
 	// PODIUM_WORKSPACE_WARM_SECONDS; it does not itself keep the container alive.
@@ -332,6 +335,13 @@ func (x *TaskSpec) GetWorkspaceRepo() string {
 func (x *TaskSpec) GetWorkspacePublishBase() bool {
 	if x != nil {
 		return x.WorkspacePublishBase
+	}
+	return false
+}
+
+func (x *TaskSpec) GetWorkspaceReadonly() bool {
+	if x != nil {
+		return x.WorkspaceReadonly
 	}
 	return false
 }
@@ -1233,7 +1243,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xdf\a\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\x8e\b\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -1251,7 +1261,8 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\x12retry_on_node_loss\x18\f \x01(\bR\x0fretryOnNodeLoss\x12+\n" +
 	"\x11workspace_session\x18\r \x01(\tR\x10workspaceSession\x12%\n" +
 	"\x0eworkspace_repo\x18\x0e \x01(\tR\rworkspaceRepo\x124\n" +
-	"\x16workspace_publish_base\x18\x0f \x01(\bR\x14workspacePublishBase\x12@\n" +
+	"\x16workspace_publish_base\x18\x0f \x01(\bR\x14workspacePublishBase\x12-\n" +
+	"\x12workspace_readonly\x18\x14 \x01(\bR\x11workspaceReadonly\x12@\n" +
 	"\x0eworkspace_warm\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\rworkspaceWarm\x12)\n" +
 	"\x06expose\x18\x11 \x01(\v2\x11.podium.v1.ExposeR\x06expose\x120\n" +
 	"\asandbox\x18\x12 \x01(\v2\x16.podium.v1.TaskSandboxR\asandbox\x12,\n" +

@@ -204,6 +204,9 @@ type Conductor struct {
 	// The durable half is the delegations table; this is only how a turn asking for
 	// progress finds the last thing its task said.
 	liveDelegations map[string]*delegationRun
+	// workspaceMu makes claiming a pull request's workspace and recording the delegation
+	// that claimed it one step. See delegate.
+	workspaceMu sync.Mutex
 	// baseCtx is the conductor's own lifetime, set by Run.
 	//
 	// It exists because following a delegated task is the conductor's work, not the work of
@@ -619,13 +622,19 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		ref:       ev.Ref,
 		src:       src,
 		playbooks: []string{ev.Playbook},
-	}, ev.Playbook, ev.Text)
+	}, ev.Playbook, ev.Text, DelegateOptions{})
 	if err != nil {
 		status = store.TurnFailed
 		c.logger.WarnContext(ctx, "starting the source's own playbook failed",
 			"session_id", sess.ID, "playbook", ev.Playbook, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
-			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)})
+		out := Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)}
+		if errors.Is(err, ErrWorkspaceBusy) {
+			// Not the review failing: said as a reply, so the pull request hears why.
+			out = Outbound{Type: OutFinal, Text: fmt.Sprintf(
+				"I did not start the `%s` playbook: another task is still working on this pull request.", ev.Playbook)}
+		}
+		c.post(ctx, src, ev.Ref, out)
 	}
 	none, free := 0, 0.0
 	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
