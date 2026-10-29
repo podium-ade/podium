@@ -1900,8 +1900,8 @@ type GitHubWebhookFilters struct {
 	// text, matched without case as whole words.
 	TriggerPhrases []string `protobuf:"bytes,4,rep,name=trigger_phrases,json=triggerPhrases,proto3" json:"trigger_phrases,omitempty"`
 	// reply_mode is when a reply in an inline review thread needs no trigger:
-	// "bot_threads" (the default) when the App started the thread, "any_thread" in any
-	// thread on a pull request with a session, "always" never.
+	// "bot_threads" (the default) when the App started the thread or has replied in it,
+	// "any_thread" in any thread on a pull request with a session, "always" never.
 	ReplyMode string `protobuf:"bytes,5,opt,name=reply_mode,json=replyMode,proto3" json:"reply_mode,omitempty"`
 	// auto_review starts a review when a pull request opens ready or is marked ready.
 	AutoReview bool                   `protobuf:"varint,6,opt,name=auto_review,json=autoReview,proto3" json:"auto_review,omitempty"`
@@ -1911,8 +1911,11 @@ type GitHubWebhookFilters struct {
 	// ("dev", "feature/*", "release/**") or a regular expression between slashes
 	// ("/^hotfix-\d+$/").
 	ExcludedBranches []string `protobuf:"bytes,9,rep,name=excluded_branches,json=excludedBranches,proto3" json:"excluded_branches,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// conversation_replies lets a conversation-tab comment through without the trigger when
+	// the comment right before it is the App's, posted within the last 30 minutes.
+	ConversationReplies bool `protobuf:"varint,10,opt,name=conversation_replies,json=conversationReplies,proto3" json:"conversation_replies,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GitHubWebhookFilters) Reset() {
@@ -2006,6 +2009,13 @@ func (x *GitHubWebhookFilters) GetExcludedBranches() []string {
 		return x.ExcludedBranches
 	}
 	return nil
+}
+
+func (x *GitHubWebhookFilters) GetConversationReplies() bool {
+	if x != nil {
+		return x.ConversationReplies
+	}
+	return false
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved
@@ -10705,7 +10715,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x10restart_required\x18\v \x01(\bR\x0frestartRequired\x12\x1b\n" +
 	"\tclient_id\x18\f \x01(\tR\bclientId\x12*\n" +
 	"\x11client_secret_set\x18\r \x01(\bR\x0fclientSecretSet\x12?\n" +
-	"\afilters\x18\x0e \x01(\v2%.podium.agent.v1.GitHubWebhookFiltersR\afilters\"\xe5\x02\n" +
+	"\afilters\x18\x0e \x01(\v2%.podium.agent.v1.GitHubWebhookFiltersR\afilters\"\x98\x03\n" +
 	"\x14GitHubWebhookFilters\x12%\n" +
 	"\x0eallowed_actors\x18\x01 \x03(\tR\rallowedActors\x12%\n" +
 	"\x0eignored_actors\x18\x02 \x03(\tR\rignoredActors\x12\x1f\n" +
@@ -10718,7 +10728,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"autoReview\x12\x15\n" +
 	"\x06set_by\x18\a \x01(\tR\x05setBy\x121\n" +
 	"\x06set_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x05setAt\x12+\n" +
-	"\x11excluded_branches\x18\t \x03(\tR\x10excludedBranches\"P\n" +
+	"\x11excluded_branches\x18\t \x03(\tR\x10excludedBranches\x121\n" +
+	"\x14conversation_replies\x18\n" +
+	" \x01(\bR\x13conversationReplies\"P\n" +
 	"\x10LinearConnection\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x1e\n" +
 	"\n" +

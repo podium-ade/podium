@@ -127,6 +127,7 @@ describe("ConnectionsPanel", () => {
           triggerPhrases: [],
           replyMode: "bot_threads",
           autoReview: true,
+          conversationReplies: false,
           excludedBranches: ["dev"],
         },
       },
@@ -138,7 +139,7 @@ describe("ConnectionsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: /Triggers/ }));
 
     expect(screen.getByLabelText("Allowed people")).toHaveValue("alice");
-    expect(screen.getByRole("radio", { name: /Threads the App started/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Threads the App is in/ })).toBeChecked();
 
     await userEvent.type(screen.getByLabelText("Allowed people"), "\nbob, carol");
     await userEvent.type(screen.getByLabelText("Trigger phrases"), "/review{enter}take a look");
@@ -147,6 +148,7 @@ describe("ConnectionsPanel", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /Ignore bot accounts/ }));
     await userEvent.click(screen.getByRole("radio", { name: /Never/ }));
     await userEvent.click(screen.getByRole("checkbox", { name: /Review new pull requests/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Answer a reply on the conversation tab/ }));
     await userEvent.click(screen.getByRole("button", { name: "Save triggers" }));
 
     expect(setGitHubWebhookFilters).toHaveBeenCalledWith({
@@ -157,6 +159,7 @@ describe("ConnectionsPanel", () => {
         triggerPhrases: ["/review", "take a look"],
         replyMode: "always",
         autoReview: false,
+        conversationReplies: true,
         excludedBranches: ["dev", "feature/*", "/^v{1,2}$/"],
       },
     });

@@ -1809,9 +1809,10 @@ mention. A playbook that pushes as the asker's own GitHub account is a person's 
 | `pull_request` / `synchronize` pushed by this App | the review again, of what changed, delegated directly — when the pull request has a review. This is a playbook's fix landing |
 | `pull_request` / `synchronize` pushed by anybody else, `review_requested`, and other pull request actions | dropped |
 | a trigger phrase in a top-level comment or review body | as `@app` |
-| a reply in an inline review thread the App started | an assistant turn, no mention needed (the default reply mode) |
+| a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed (the default reply mode) |
+| a conversation-tab comment right after the App's own, within 30 minutes | an assistant turn, no mention needed, when **Answer a reply on the conversation tab** is on |
 | a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |
-| `lgtm` / other conversation-tab comments without a mention | dropped |
+| `lgtm` / other conversation-tab comments without a mention | dropped, unless they follow the App as above |
 | anything from a login the triggers do not allow | dropped, `@app` or not |
 | a Slack `@Podium` that names exactly one PR URL | an assistant turn on that PR's session; the Slack thread is bound to it |
 | a second mention in a bound Slack thread, URL or not | an assistant turn on the same session |
@@ -1832,12 +1833,17 @@ restart. They live in the settings row `connection.github.filters`.
 - **Trigger phrases**: plain text that starts a turn from a top-level comment or a review body,
   next to the `@app` mention, which always works. Matched as whole words, ignoring case and
   extra whitespace. The phrase is taken out of the text the turn sees, as the mention is.
-- **Replies without a mention**: a conversation-tab comment has no threads on GitHub, so it always
-  needs the mention or a phrase. An inline review reply follows the mode:
+- **Replies without a mention**: an inline review reply follows the mode:
   `bot_threads` (the default) lets a reply through when the App wrote the thread's first
-  comment, `any_thread` lets any reply through once the pull request has a session (the old
-  rule), and `always` asks for the trigger every time. Who started a thread is read once from
-  GitHub and remembered. A thread that cannot be read needs the trigger.
+  comment or has replied in the thread since, `any_thread` lets any reply through once the pull
+  request has a session (the old rule), and `always` asks for the trigger every time. Who started
+  a thread is read once from GitHub and remembered; whether the App has replied in a person's
+  thread is read until it has, and then remembered. A thread that cannot be read needs the
+  trigger.
+- **Answer a reply on the conversation tab**: the tab has no threads, so a comment there needs
+  the mention or a phrase — unless this is on and the comment directly follows the App's own,
+  within 30 minutes of it being written or last edited. Off by default: two people talking right
+  after the App answered would wake it.
 - **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still
   reaches the assistant, which can delegate a review.
 - **Excluded branches**: pull requests into these base branches start nothing, mentions

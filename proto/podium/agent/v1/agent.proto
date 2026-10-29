@@ -508,8 +508,8 @@ message GitHubWebhookFilters {
   // text, matched without case as whole words.
   repeated string trigger_phrases = 4;
   // reply_mode is when a reply in an inline review thread needs no trigger:
-  // "bot_threads" (the default) when the App started the thread, "any_thread" in any
-  // thread on a pull request with a session, "always" never.
+  // "bot_threads" (the default) when the App started the thread or has replied in it,
+  // "any_thread" in any thread on a pull request with a session, "always" never.
   string reply_mode = 5;
   // auto_review starts a review when a pull request opens ready or is marked ready.
   bool auto_review = 6;
@@ -519,6 +519,9 @@ message GitHubWebhookFilters {
   // ("dev", "feature/*", "release/**") or a regular expression between slashes
   // ("/^hotfix-\d+$/").
   repeated string excluded_branches = 9;
+  // conversation_replies lets a conversation-tab comment through without the trigger when
+  // the comment right before it is the App's, posted within the last 30 minutes.
+  bool conversation_replies = 10;
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved
