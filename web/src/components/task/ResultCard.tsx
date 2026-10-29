@@ -3,7 +3,7 @@ import { TextMessagePartProvider } from "@assistant-ui/react";
 import { CircleAlert, CircleHelp, ScrollText } from "lucide-react";
 import { TaskStatus } from "../../gen/podium/v1/common_pb";
 import type { Task } from "../../gen/podium/v1/task_pb";
-import { firstProblem, type Entry } from "../../lib/entries";
+import { firstError, type Entry } from "../../lib/entries";
 import { isTerminal } from "../../lib/format";
 import { MarkdownText } from "../agent/chat/MarkdownText";
 import { Chip } from "../Badge";
@@ -37,7 +37,7 @@ export function ResultCard({
         question = e;
       }
     }
-    return { answer, question, problem: firstProblem(entries) };
+    return { answer, question, problem: firstError(entries) };
   }, [entries]);
 
   const failed = task.status === TaskStatus.FAILED;
@@ -60,7 +60,7 @@ export function ResultCard({
           <CircleAlert className="size-4 shrink-0 text-err" />
           <div className="min-w-0 flex-1">
             <p className="text-2xs font-medium tracking-wide text-faint uppercase">
-              First {problem.severity === "error" ? "error" : "warning"} · {problem.source}
+              First error · {problem.source}
             </p>
             <p className="truncate font-mono text-xs text-err" title={problem.summary}>
               {problem.summary}

@@ -4,7 +4,7 @@ import {
   accountingOf,
   detailOf,
   EntryStream,
-  firstProblem,
+  firstError,
   hasStory,
   haystack,
   isTranscript,
@@ -154,8 +154,8 @@ describe("the story", () => {
     expect(hasStory(es.slice(0, 2))).toBe(false);
   });
 
-  it("finds the first error before the first warning", () => {
-    expect(firstProblem(es)?.key).toBe("5");
-    expect(firstProblem(es.slice(0, 2))?.key).toBe("2.0");
+  it("finds the first error, and no warning stands in for one", () => {
+    expect(firstError(es)?.key).toBe("5");
+    expect(firstError(es.slice(0, 2))).toBeUndefined();
   });
 });

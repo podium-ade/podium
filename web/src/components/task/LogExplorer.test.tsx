@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { LogExplorer } from "./LogExplorer";
 import { LogChunk_Stream, type TaskEvent } from "../../gen/podium/v1/node_pb";
 import { EntryStream, type Entry } from "../../lib/entries";
-import { activityEvent, errorEvent, logEvent, messageEvent, sidecarLogEvent, stderr, stdout } from "../../test/events";
+import { activityEvent, at, errorEvent, logEvent, messageEvent, sidecarLogEvent, stderr, stdout } from "../../test/events";
 
 type Chunk = [number, LogChunk_Stream, string];
 
@@ -287,9 +287,12 @@ describe("LogExplorer", () => {
     expect(follow).toBeChecked();
   });
 
-  it("jumps to the first error, and offers nothing to jump to without a problem", () => {
+  it("jumps to the first error, and offers nothing to jump to without one", () => {
     const noise = Array.from({ length: 200 }, (_, i): Chunk => [i + 1, stdout, `line ${i}\n`]);
     const { rerender } = render(<Explorer entries={build(noise)} />);
+    expect(screen.queryByRole("button", { name: /first error/i })).toBeNull();
+    // A warning is not an error: stderr alone offers no jump.
+    rerender(<Explorer entries={build([...noise, [201, stderr, "warn\n"]])} />);
     expect(screen.queryByRole("button", { name: /first (error|warning)/i })).toBeNull();
 
     const withError = build([...noise, [201, stderr, "warn\n"], errorEvent(202, "boom")]);
@@ -301,6 +304,53 @@ describe("LogExplorer", () => {
     // Three rows of context above the error, so the lines that led to it are on screen too.
     expect(scroller.scrollTop).toBe((201 - 3) * 28);
     expect(screen.getByTestId("entry-detail")).toBeInTheDocument();
+  });
+
+  it("draws the run on its lanes and opens a step from its mark", async () => {
+    const user = userEvent.setup();
+    const entries = build([
+      at(activityEvent(1, { kind: "tool", tool: "bash", status: "completed", input: '{"command":"ls"}' }), 1_000),
+      at(logEvent(2, stdout, "out\n"), 2_000),
+      at(activityEvent(3, { kind: "tool", tool: "read", status: "error", error: "no such file" }), 3_000),
+      at(messageEvent(4, "final", "done"), 4_000),
+    ]);
+    render(<Explorer entries={entries} />);
+    const timeline = screen.getByTestId("run-timeline");
+    expect(within(timeline).getByText("tools")).toBeInTheDocument();
+    expect(within(timeline).getByText("agent")).toBeInTheDocument();
+    expect(within(timeline).getByText("output")).toBeInTheDocument();
+    const marks = within(timeline).getAllByTestId("timeline-mark");
+    // Lane by lane, top to bottom: the agent's answer, then the two tool calls.
+    expect(marks.map((m) => m.dataset.key)).toEqual(["4", "1", "3"]);
+
+    await user.click(marks[2]);
+    expect(within(screen.getByTestId("entry-detail")).getByText("failed")).toBeInTheDocument();
+    expect(screen.getAllByTestId("log-line").find((r) => r.dataset.key === "3")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("draws only what the filter keeps", async () => {
+    const user = userEvent.setup();
+    const entries = build([
+      at(activityEvent(1, { kind: "tool", tool: "bash", status: "completed" }), 1_000),
+      at(activityEvent(2, { kind: "tool", tool: "read", status: "completed" }), 2_000),
+    ]);
+    render(<Explorer entries={entries} />);
+    await user.click(chip("tool:read"));
+    expect(within(screen.getByTestId("run-timeline")).getAllByTestId("timeline-mark").map((m) => m.dataset.key)).toEqual(["2"]);
+  });
+
+  it("keeps every lane of the run when a filter empties one", async () => {
+    const user = userEvent.setup();
+    const entries = build([
+      at(activityEvent(1, { kind: "tool", tool: "bash", status: "completed" }), 1_000),
+      at(logEvent(2, stdout, "out\n"), 2_000),
+      at(messageEvent(3, "progress", "hi"), 3_000),
+    ]);
+    render(<Explorer entries={entries} />);
+    const lanes = () => ["tools", "agent", "output"].filter((l) => within(screen.getByTestId("run-timeline")).queryByText(l));
+    expect(lanes()).toEqual(["tools", "agent", "output"]);
+    await user.click(chip("message"));
+    expect(lanes()).toEqual(["tools", "agent", "output"]);
   });
 
   it("says so when there is no output at all", () => {
