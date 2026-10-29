@@ -151,3 +151,53 @@ func TestFiltersThatCannotBeReadStartNothing(t *testing.T) {
 	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-1", prComment("@podium review")).Code)
 	assert.Empty(t, h.drain())
 }
+
+func TestAnExcludedBaseBranchStartsNothing(t *testing.T) {
+	h := newHarness(t)
+	h.filter(Filters{ExcludedBranches: []string{"main", "feature/*"}})
+	pr := readyForReview()
+	pr["pull_request"].(map[string]any)["base"] = map[string]any{"ref": "feature/login"}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-1", pr).Code)
+	assert.Empty(t, h.drain())
+
+	pr["pull_request"].(map[string]any)["base"] = map[string]any{"ref": "feature/login/ui"}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-2", pr).Code)
+	assert.Len(t, h.drain(), 1, "* does not cross a slash")
+}
+
+func TestAnExcludedBranchReadsTheBaseForAnIssueComment(t *testing.T) {
+	h := newHarness(t)
+	var buf bytes.Buffer
+	h.src.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	h.filter(Filters{ExcludedBranches: []string{"/^de/"}})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-1", prComment("@podium review")).Code)
+	assert.Empty(t, h.drain(), "the stub's pull request is into dev")
+	assert.Contains(t, buf.String(), `reason="excluded branch"`)
+	assert.Contains(t, buf.String(), "base=dev")
+
+	h.filter(Filters{ExcludedBranches: []string{"main"}})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-2", prComment("@podium review")).Code)
+	assert.Len(t, h.drain(), 1)
+}
+
+func TestAnUnreadableBaseStartsNothingWhenBranchesAreExcluded(t *testing.T) {
+	h := newHarness(t)
+	h.stub.failPull = true
+	h.filter(Filters{ExcludedBranches: []string{"main"}})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-1", prComment("@podium review")).Code)
+	assert.Empty(t, h.drain())
+
+	h.filter(Filters{})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-2", prComment("@podium review")).Code)
+	assert.Len(t, h.drain(), 1, "with nothing excluded the base is not read")
+}
+
+func TestAReviewCommentCarriesItsBase(t *testing.T) {
+	h := newHarness(t)
+	h.stub.failPull = true
+	h.filter(Filters{ExcludedBranches: []string{"main"}})
+	reply := reviewReply("@podium why?", 8)
+	reply["pull_request"].(map[string]any)["base"] = map[string]any{"ref": "dev"}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request_review_comment", "d-1", reply).Code)
+	assert.Len(t, h.drain(), 1, "the payload's base is used without reading the pull request")
+}

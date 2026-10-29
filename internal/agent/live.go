@@ -263,12 +263,13 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 				return ghreview.Filters{}, err
 			}
 			return ghreview.Filters{
-				AllowedActors:  f.AllowedActors,
-				IgnoredActors:  f.IgnoredActors,
-				IgnoreBots:     f.IgnoreBots,
-				TriggerPhrases: f.TriggerPhrases,
-				ReplyMode:      f.ReplyMode,
-				NoAutoReview:   f.NoAutoReview,
+				AllowedActors:    f.AllowedActors,
+				IgnoredActors:    f.IgnoredActors,
+				IgnoreBots:       f.IgnoreBots,
+				TriggerPhrases:   f.TriggerPhrases,
+				ReplyMode:        f.ReplyMode,
+				NoAutoReview:     f.NoAutoReview,
+				ExcludedBranches: f.ExcludedBranches,
 			}, nil
 		},
 		Reviews: ghreview.ReviewMemory{

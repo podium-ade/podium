@@ -408,6 +408,11 @@ func TestATurnLinksThePullRequestsItsAnswerNamed(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
 	})
+	// The status is stored before the links are handed over, so wait for them as well. One
+	// call hands over the whole answer's list, so once any are there all of them are.
+	waitFor(t, 5*time.Second, "the pull requests to be linked", func() bool {
+		return len(src.PullRequests(ev.Ref)) > 0
+	})
 
 	linked := src.PullRequests(ev.Ref)
 	require.Len(t, linked, 1, "one pull request, named twice, in one answer")
