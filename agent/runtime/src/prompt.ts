@@ -7,6 +7,9 @@ import { onHost, type SourceKind, type TurnBrief } from "./brief.js";
 import { WorkspaceDir, artifactsUnder, workspaceOf } from "./repos.js";
 import { TitleServer, TitleTool, titleByTool } from "./title.js";
 
+/** PullRequestServer is the conductor's read-only view of the pull request a host turn is on. */
+export const PullRequestServer = "pull-request";
+
 /** MemoryTools are the Hindsight MCP tools the memory block talks about. */
 export const MemoryTools = ["mcp__memory__recall", "mcp__memory__retain", "mcp__memory__list_tags"];
 
@@ -272,6 +275,12 @@ There is no default playbook. The instruction above to delegate on your first to
  */
 function pullRequestBlock(brief: TurnBrief): string {
   const review = (brief.delegation?.playbooks ?? []).find((p) => p.github)?.name;
+  const reads = (brief.playbook.mcp_servers ?? []).some((s) => s.name === PullRequestServer);
+  const readLine = reads
+    ? `
+  Read the pull request itself with the \`${PullRequestServer}\` tools — the changed files, the
+  diff, and any file as it is at the head commit — before you reach for a task.`
+    : "";
   const reviewLine = review
     ? `- Asked to review, or to review again — new commits, "take another look": delegate to \`${review}\`. Pass on the commits the message names. That playbook reads what it reviewed last and looks only at what changed.`
     : `- No playbook reviews pull requests here. If you are asked for a review, say so.`;
@@ -283,9 +292,10 @@ same review thread when the message was a reply in one.
 
 ${reviewLine}
 - A question about the code, the review or one of its findings: answer it from the
-  conversation — the review, the inline notes and the diff they quote — in a few sentences.
-  When the answer needs the repository itself, delegate it with \`read_only\` set: the task
-  reads the workspace the review left and changes nothing, so it never waits for other work.
+  conversation — the review, the inline notes and the diff they quote — in a few sentences.${readLine}
+  When the answer needs more than reading — running the code, the tests, the whole
+  repository — delegate it with \`read_only\` set: the task reads the workspace the review left
+  and changes nothing, so it never waits for other work.
 - One task at a time changes this pull request. If \`podium_delegate\` says another task is
   still working in it, inject into that task when the message adds to its work; otherwise say
   what is running and that you will pick this up when it answers.

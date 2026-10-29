@@ -53,6 +53,9 @@ type stub struct {
 	// thread ids a mutation resolved.
 	threads  []stubThread
 	resolved []string
+	// pullFiles is what pulls/{n}/files lists; files is a file's contents keyed path@ref.
+	pullFiles []PullFile
+	files     map[string]string
 }
 
 type stubThread struct {
@@ -204,6 +207,20 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(Comment{ID: id, Body: "root", User: user})
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/files") && strings.Contains(path, "/pulls/"):
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(s.pullFiles)
+	case r.Method == http.MethodGet && strings.Contains(path, "/contents/"):
+		file := path[strings.Index(path, "/contents/")+len("/contents/"):]
+		s.mu.Lock()
+		body, ok := s.files[file+"@"+r.URL.Query().Get("ref")]
+		s.mu.Unlock()
+		if !ok || r.Header.Get("Accept") != "application/vnd.github.raw" {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
 	case r.Method == http.MethodGet && strings.Contains(path, "/collaborators/") && strings.HasSuffix(path, "/permission"):
 		login := strings.TrimSuffix(path[strings.Index(path, "/collaborators/")+len("/collaborators/"):], "/permission")
 		s.mu.Lock()

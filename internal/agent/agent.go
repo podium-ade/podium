@@ -24,6 +24,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
 	"github.com/podium-ade/podium/internal/agent/connections"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
@@ -278,6 +279,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			},
 			TurnURL: turnURL(cfg.Listen),
 		}
+		if host.TurnURL != "" {
+			host.PullRequestMCPURL = host.TurnURL + ghreview.MCPPath
+		}
 		if cfg.MemoryEnabled() {
 			// The memory server as THIS PROCESS reaches it. A task is told
 			// cfg.MemoryTaskURL, which is an address that resolves in a container.
@@ -417,6 +421,11 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 		// podium-server proxies the AgentService path only, so this stays on loopback.
 		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
 		root.Handle(turnPath, turnHandler)
+		// The pull request a turn is answering, read-only, on the same terms: the turn's
+		// own token, and only its own pull request.
+		root.Handle(ghreview.MCPPath, ghreview.MCPHandler(func(token string) (string, bool) {
+			return a.conductor.TurnPullRequest(context.Background(), token)
+		}, a.live.githubSource))
 	}
 	if a.gitcred != nil {
 		// Not behind RequireBearer either, and for a sharper reason than the turn surface
