@@ -1749,8 +1749,9 @@ was said — and the new task starts once it has gone. The node stores a task's 
 reports it exited, so the new task restores what the released one left. Until then the new
 delegation is running with no task, and `podium_delegate` returns at once without one. A task
 that never lets go within ten minutes fails the waiting delegation. Read-only tasks hold nothing:
-they start at once beside the writer. A pull request marked ready while a task is still working
-is not reviewed, and the pull request is told why.
+they start at once beside the writer. A review the conductor starts itself — a pull request
+marked ready, or new commits it pushed — does not get refused: it queues behind the task still
+working, for up to four hours, and starts once that task has answered and been released.
 
 After a review exits, the next review is a new task restored from the snapshot, and it updates
 the review already on the pull request. A killed task's files are in that snapshot. The
@@ -1763,6 +1764,39 @@ no comments. When that delta fixes the earlier findings and adds nothing that sh
 merge, the verdict is an approval. A re-review the assistant delegates passes on the same two
 commits.
 
+### Fixing what the review found
+
+"Fix your comments" is a playbook like any other on a pull request's menu. Give it
+`github_requires: write`, the review playbook's first repository, and a GitHub token that can
+push to the pull request's branch:
+
+```yaml
+# playbooks/fixer.yaml
+system_prompt: |
+  Fix what the review on this pull request found. Read .podium/review.json and the
+  review in the conversation, change the code, run the tests, and push to the pull
+  request's head branch.
+allowed_tools: [read, edit, write, bash, grep, glob]
+github_requires: write
+repos:
+  - {name: api, url: https://github.com/acme/api.git, default_branch: main}
+```
+
+It runs on the pull request's workspace, so it starts where the review left off: the head
+checked out and `.podium/review.json` beside it. Its task is told it is on a pull request that
+is not its review: push to the head branch, open no other pull request, comment on nothing
+itself, and answer each finding under that finding. A fenced `resolved` or `reply` block
+naming the finding's `path:line` — the same location the review's own `inline` note named — is
+posted as a reply in that finding's thread, and `resolved` also resolves it (GraphQL
+`resolveReviewThread`). A thread is the App's own inline comment at that path and line, where
+it was made or where that line is now. A block whose thread is not found stays in the answer,
+under its location. The rest of the answer is one comment on the pull request.
+
+A push the App makes to a pull request it has reviewed is reviewed again by itself, from where
+the last review stopped: the `synchronize` delivery is the App's own, so no trigger filter is
+asked. A push by a person is not — that would be a review per commit — and a person asks with a
+mention. A playbook that pushes as the asker's own GitHub account is a person's push.
+
 ### What starts a turn, and what does not
 
 | inbound | action |
@@ -1771,7 +1805,9 @@ commits.
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | an assistant turn |
 | `pull_request` / `opened` | the review, delegated directly, when the pull request is not a draft. A draft's open is dropped |
-| `pull_request` / `ready_for_review` | the review, delegated directly. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
+| `pull_request` / `ready_for_review` | the review, delegated directly. This is a draft marked ready |
+| `pull_request` / `synchronize` pushed by this App | the review again, of what changed, delegated directly — when the pull request has a review. This is a playbook's fix landing |
+| `pull_request` / `synchronize` pushed by anybody else, `review_requested`, and other pull request actions | dropped |
 | a trigger phrase in a top-level comment or review body | as `@app` |
 | a reply in an inline review thread the App started | an assistant turn, no mention needed (the default reply mode) |
 | a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |

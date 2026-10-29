@@ -1523,8 +1523,9 @@ func openedPR() conductor.InboundEvent {
 }
 
 // TestAPullRequestsWorkspaceHasOneWriterAtATime: a review still working keeps the pull
-// request's workspace, and the next task is refused rather than started beside it, where the
-// two would race to replace the one snapshot.
+// request's workspace. A task the assistant asks for beside it is refused, naming it, rather
+// than started where the two would race to replace the one snapshot. A review the conductor
+// starts itself queues instead, and starts once the first has gone.
 func TestAPullRequestsWorkspaceHasOneWriterAtATime(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
@@ -1534,21 +1535,38 @@ func TestAPullRequestsWorkspaceHasOneWriterAtATime(t *testing.T) {
 	t.Cleanup(src.Close)
 
 	ctx := context.Background()
-	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
-	require.NoError(t, src.Send(ctx, openedPR()))
+	r := startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
 	waitFor(t, 30*time.Second, "the first review to start", func() bool { return len(fake.Specs()) == 1 })
 
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "fix the findings", conductor.DelegateOptions{})
+	require.ErrorIs(t, err, conductor.ErrWorkspaceBusy)
+	assert.Contains(t, err.Error(), "the `coder` task")
+
+	ro, err := r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "why is it racy?",
+		conductor.DelegateOptions{ReadOnly: true})
+	require.NoError(t, err, "a task that only reads holds nothing and waits for nothing")
+	assert.NotEmpty(t, ro.TaskID)
+	require.Len(t, fake.Specs(), 2)
+	assert.True(t, fake.Specs()[1].GetWorkspaceReadonly())
+
 	require.NoError(t, src.Send(ctx, openedPR()))
-	waitFor(t, 30*time.Second, "the second to be refused", func() bool {
-		for _, p := range posts(src.Records(), conductor.OutFinal) {
-			if strings.Contains(p.Text, "another task is still working on this pull request") {
-				return true
-			}
-		}
-		return false
+	waitFor(t, 30*time.Second, "the queued review to be recorded", func() bool {
+		return len(delegationsOf(t, st, ev.SourceKey)) == 3
 	})
-	assert.Len(t, fake.Specs(), 1, "nothing started beside the review that is still working")
+	assert.Len(t, fake.Specs(), 2, "nothing writing started beside the review that is still working")
 	assert.Empty(t, fake.Cancels(), "and the one working was left alone")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
+
+	release()
+	waitFor(t, 30*time.Second, "the queued review to start", func() bool { return len(fake.Specs()) == 3 })
+	assert.False(t, fake.Specs()[2].GetWorkspaceReadonly())
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[2].GetWorkspaceSession())
 }
 
 // TestAWaitingTaskHandsThePullRequestsWorkspaceOn: a review that has answered and is only
@@ -1618,4 +1636,60 @@ func TestAReadOnlyDelegationStoresNothing(t *testing.T) {
 	dlgs := delegationsOf(t, st, ev.SourceKey)
 	require.Len(t, dlgs, 1)
 	assert.True(t, dlgs[0].ReadOnly)
+}
+
+// TestAReviewIsFixedAndReviewedAgainOnOneWorkspace is the whole loop on a pull request: the
+// review answers and waits, a fix is delegated and takes the workspace from it, and the review
+// of the pushed commits queues behind the fix and takes the workspace from it in turn. Every
+// task restores the same session's snapshot, and nothing is posted as a failure.
+func TestAReviewIsFixedAndReviewedAgainOnOneWorkspace(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer of "+taskID)}
+	}
+	p := reviewProfile(t)
+	fixer := p.Playbooks["general"]
+	fixer.Name, fixer.GitHubRequires = "fixer", "write"
+	p.Playbooks["fixer"] = fixer
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	r := startWith(t, st, fake, src, withReviewHost(p))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the review to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+	fix, err := r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "fixer", "fix your comments", conductor.DelegateOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, fix.TaskID, "the fix waits for the review to let go of the workspace")
+	waitFor(t, 30*time.Second, "the fix to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 2
+	})
+
+	again := githubInbound("Podium pushed new commits to https://github.com/acme/repo/pull/12 to address the review.")
+	again.Automatic = true
+	require.NoError(t, src.Send(ctx, again))
+	waitFor(t, 30*time.Second, "the review of the fix to start", func() bool { return len(fake.Specs()) == 3 })
+
+	finals := posts(src.Records(), conductor.OutFinal)
+	assert.True(t, finals[0].SourcePlaybook, "the review is the review")
+	assert.Equal(t, "fixer", finals[1].Playbook)
+	assert.False(t, finals[1].SourcePlaybook, "the fix is a reply")
+	assert.Len(t, fake.Cancels(), 2, "each task was released once the next needed the workspace")
+	for _, spec := range fake.Specs() {
+		assert.Equal(t, sess.ID, spec.GetWorkspaceSession())
+	}
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[2]).Playbook.Name)
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
 }

@@ -209,6 +209,26 @@ describe("buildSystemPrompt", () => {
     expect(slack).not.toContain("# This pull request");
   });
 
+  it("tells a task fixing a pull request to answer under each finding, and not the review", () => {
+    const base = golden();
+    const fix = buildSystemPrompt({
+      ...base,
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    const flat = fix.replace(/\s+/g, " ");
+    expect(flat).toContain("Never open another pull request");
+    expect(fix).toContain("```resolved\ninternal/api/handler.go:42");
+    expect(flat).toContain("A push of yours is reviewed again by itself");
+
+    const review = buildSystemPrompt({
+      ...base,
+      playbook: { ...base.playbook, github: true },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(review).not.toContain("```resolved");
+    expect(buildSystemPrompt(base)).not.toContain("Never open another pull request");
+  });
+
   it("renders the delegation menu from the brief, and nothing else", () => {
     const brief = {
       ...golden(),

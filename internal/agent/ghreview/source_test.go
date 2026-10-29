@@ -1065,3 +1065,71 @@ func TestTheCommentersRoleRidesOnTheEvent(t *testing.T) {
 	require.Len(t, evs, 1)
 	assert.Empty(t, evs[0].Role, "nobody spoke, so nobody's role is asked for")
 }
+
+// What the App pushes to a pull request it reviewed — a playbook fixing the review — is
+// reviewed again, from where the last review stopped. Anybody else's push is not.
+func TestTheAppsOwnPushIsReviewedAgain(t *testing.T) {
+	h := newHarness(t)
+	push := readyForReview()
+	push["action"] = "synchronize"
+	push["sender"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
+
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-p1", push).Code)
+	assert.Empty(t, h.drain(), "a pull request that was never reviewed has nothing to review again")
+
+	h.session("github:acme/repo#12")
+	h.src.replaceReview("github:acme/repo#12", 77)
+	h.stub.listedReviews = []Review{{ID: 77, State: "CHANGES_REQUESTED", CommitID: "abc1234deadbeef"}}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-p2", push).Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.True(t, evs[0].Automatic)
+	assert.Contains(t, evs[0].Text, "Podium pushed new commits")
+	assert.Contains(t, evs[0].Text, "Review only the commits and files changed since that review")
+	assert.Contains(t, evs[0].Text, "abc1234deadbeef")
+	assert.Contains(t, evs[0].Text, "0123456789abcdef")
+
+	theirs := readyForReview()
+	theirs["action"] = "synchronize"
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-p3", theirs).Code)
+	assert.Empty(t, h.drain(), "a person's push is not reviewed: that would be a review per commit")
+}
+
+// A playbook that fixed the review says so under each finding: a ```reply or ```resolved
+// fence naming the finding's path:line lands in that finding's thread, and resolved also
+// resolves it. A finding with no thread is kept in the answer, which is posted as usual.
+func TestAnAnswerRepliesUnderTheFindingsItFixed(t *testing.T) {
+	h := newHarness(t)
+	bot := User{Login: "podium[bot]", Type: "Bot"}
+	h.stub.mu.Lock()
+	h.stub.reviewComments = []Comment{
+		{ID: 31, Path: "a.go", Line: 0, OriginalLine: 12, User: bot},
+		{ID: 32, Path: "a.go", Line: 12, OriginalLine: 12, InReplyTo: 31, User: User{Login: "alice", Type: "User"}},
+		{ID: 33, Path: "b.go", Line: 7, OriginalLine: 7, User: User{Login: "alice", Type: "User"}},
+		{ID: 34, Path: "c.go", Line: 3, OriginalLine: 3, User: bot},
+	}
+	h.stub.threads = []stubThread{{ID: "T_31", Root: 31}, {ID: "T_34", Root: 34}}
+	h.stub.mu.Unlock()
+
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	fixer := conductor.Speaker{Playbook: "fixer"}
+	text := "Pushed abc123.\n\n```resolved\na.go:12\nFixed in abc123: the nil check is back.\n```\n\n" +
+		"```reply\nc.go:3\nLeft as is: the caller already checks.\n```\n\n" +
+		"```resolved\nb.go:7\nNot ours, but fixed.\n```\n"
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: fixer, Type: conductor.OutFinal, Text: text})
+	require.NoError(t, err)
+
+	assert.Equal(t, []int64{31, 34}, h.stub.postedReviewInReplyTo(),
+		"each reply goes under the App's own finding, found where it was made even after the line moved")
+	h.stub.mu.Lock()
+	resolved := append([]string(nil), h.stub.resolved...)
+	h.stub.mu.Unlock()
+	assert.Equal(t, []string{"T_31"}, resolved, "only a resolved fence resolves its thread")
+
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.Contains(t, comments[0], "Pushed abc123.")
+	assert.Contains(t, comments[0], "**b.go:7**", "a thread a person started is not the App's to answer under")
+	assert.NotContains(t, comments[0], "nil check is back")
+	assert.Empty(t, h.stub.postedReviews())
+}

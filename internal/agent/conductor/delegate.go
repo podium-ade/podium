@@ -199,6 +199,10 @@ func repoNames(p profiles.Playbook) []string {
 type DelegateOptions struct {
 	// ReadOnly starts the task on the conversation's workspace and keeps nothing it changes.
 	ReadOnly bool
+	// Wait queues behind a pull request's writing task that is still working, where a
+	// delegation would otherwise be refused. It is for what the conductor starts itself: a
+	// review of commits a task just pushed arrives while that task is still finishing.
+	Wait bool
 }
 
 // Delegate starts a task for the conversation the token belongs to and returns once the task
@@ -256,14 +260,21 @@ func (c *Conductor) delegate(
 
 	// The claim and the row are one step: a second delegation that looked before this row
 	// existed would find the workspace free as well.
+	guarded := !opts.ReadOnly && sess.SourceKind == SourceGitHub
 	c.workspaceMu.Lock()
-	var released []*delegationRun
-	if !opts.ReadOnly && sess.SourceKind == SourceGitHub {
-		released, err = c.claimWorkspace(ctx, sess.ID)
+	ahead := 0
+	if guarded {
+		writers, err := c.writersAhead(ctx, sess.ID, "")
 		if err != nil {
 			c.workspaceMu.Unlock()
 			return store.Delegation{}, err
 		}
+		if busy := c.stillWorking(writers); busy != nil && !opts.Wait {
+			c.workspaceMu.Unlock()
+			return store.Delegation{}, fmt.Errorf("%w: the `%s` task (%s) is still working in it. "+
+				"Inject into that task, or wait for its answer", ErrWorkspaceBusy, busy.Playbook, busy.ID)
+		}
+		ahead = len(writers)
 	}
 	// The row first, and before the task: a task the control plane accepts must never be
 	// one this database has never heard of, because the row is what makes it owned.
@@ -286,18 +297,22 @@ func (c *Conductor) delegate(
 		return store.Delegation{}, err
 	}
 
-	if len(released) == 0 {
+	if ahead == 0 {
 		return c.launch(ctx, g, sess, playbook, dlg, choice, opts)
 	}
 	c.logger.InfoContext(ctx, "a delegation waits for the pull request's workspace",
-		"delegation_id", dlg.ID, "session_id", sess.ID, "playbook", playbookName, "released", len(released))
+		"delegation_id", dlg.ID, "session_id", sess.ID, "playbook", playbookName, "ahead", ahead)
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		bg := c.background()
-		if !c.awaitReleased(bg, released) {
-			c.logger.ErrorContext(bg, "a released task never finished, so the delegation waiting "+
-				"for its workspace did not start", "delegation_id", dlg.ID)
+		limit := releaseWait
+		if opts.Wait {
+			limit = queueWait
+		}
+		if err := c.awaitWorkspace(bg, sess.ID, dlg.ID, limit); err != nil {
+			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
+				"delegation_id", dlg.ID, "error", err)
 			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
 				c.logger.ErrorContext(bg, "recording a delegation that never started failed",
 					"delegation_id", dlg.ID, "error", ferr)
@@ -373,54 +388,87 @@ func (c *Conductor) launch(
 	return dlg, nil
 }
 
-// claimWorkspace makes a pull request's workspace free for a new writing task. A writing
-// task that has not answered yet keeps it, and the claim is refused. One that answered and
-// is only waiting for a follow-up is released, and returned, so the caller can wait for it
-// to store its snapshot. Read-only tasks hold nothing. The caller holds workspaceMu.
-func (c *Conductor) claimWorkspace(ctx context.Context, sessionID string) ([]*delegationRun, error) {
+// writersAhead is the pull request's running delegations that write its workspace and were
+// recorded before self — all of them when self is "". A delegation waits only for the ones
+// ahead of it, so two waiting delegations queue rather than wait for each other.
+func (c *Conductor) writersAhead(ctx context.Context, sessionID, self string) ([]store.Delegation, error) {
 	rows, err := c.store.RunningDelegationsForSession(ctx, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: reading what is running in this pull request: %w", err)
 	}
-	var idle []*delegationRun
+	var out []store.Delegation
 	for _, d := range rows {
-		if d.ReadOnly {
-			continue
+		if d.ID == self {
+			break
 		}
-		c.mu.Lock()
-		run := c.liveDelegations[d.ID]
-		c.mu.Unlock()
-		if run == nil || !run.answered.Load() {
-			return nil, fmt.Errorf("%w: the `%s` task (%s) is still working in it. "+
-				"Inject into that task, or wait for its answer", ErrWorkspaceBusy, d.Playbook, d.ID)
+		if !d.ReadOnly {
+			out = append(out, d)
 		}
-		idle = append(idle, run)
 	}
-	for _, run := range idle {
-		run.release(ctx)
+	return out, nil
+}
+
+// stillWorking is the first writer that has not answered: a task working, or one not
+// started yet. A writer that answered is only waiting for a follow-up, and can be released.
+func (c *Conductor) stillWorking(writers []store.Delegation) *store.Delegation {
+	for i, d := range writers {
+		if c.idleRun(d.ID) == nil {
+			return &writers[i]
+		}
 	}
-	return idle, nil
+	return nil
+}
+
+// idleRun is the live run of a delegation that has answered, or nil.
+func (c *Conductor) idleRun(id string) *delegationRun {
+	c.mu.Lock()
+	run := c.liveDelegations[id]
+	c.mu.Unlock()
+	if run == nil || !run.answered.Load() {
+		return nil
+	}
+	return run
 }
 
 // releaseWait bounds how long a delegation waits for a released task to store its workspace
 // and exit. Storing is a tar of the volume, so it is minutes for a large one, not seconds.
-const releaseWait = 10 * time.Minute
+// queueWait bounds a delegation queued behind a task still working, which can take as long
+// as that task's playbook allows.
+const (
+	releaseWait = 10 * time.Minute
+	queueWait   = 4 * time.Hour
+)
 
-// awaitReleased waits for every released run to finish, which is after its snapshot is
-// stored: the node uploads it before it reports the task exited.
-func (c *Conductor) awaitReleased(ctx context.Context, runs []*delegationRun) bool {
-	timer := time.NewTimer(releaseWait)
-	defer timer.Stop()
-	for _, run := range runs {
+// workspacePoll is how often a waiting delegation looks at the writers ahead of it.
+var workspacePoll = time.Second
+
+// awaitWorkspace waits until no writer ahead of self is running. A writer that has answered
+// is released; one still working is waited for until it answers. The node stores a task's
+// snapshot before it reports the task exited, so a free workspace is a stored one.
+func (c *Conductor) awaitWorkspace(ctx context.Context, sessionID, self string, limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	for {
+		writers, err := c.writersAhead(ctx, sessionID, self)
+		if err != nil {
+			return err
+		}
+		if len(writers) == 0 {
+			return nil
+		}
+		for _, d := range writers {
+			if run := c.idleRun(d.ID); run != nil && !run.released.Load() {
+				run.release(ctx)
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%d task(s) still hold the workspace after %s", len(writers), limit)
+		}
 		select {
-		case <-run.done:
-		case <-timer.C:
-			return false
 		case <-ctx.Done():
-			return false
+			return ctx.Err()
+		case <-time.After(workspacePoll):
 		}
 	}
-	return true
 }
 
 // delegateSettle bounds how long Delegate waits for a new task to leave the queue.
@@ -646,7 +694,6 @@ func (c *Conductor) followDelegation(
 		dlg:      dlg,
 		playbook: playbook,
 		lastSeq:  lastSeq,
-		done:     make(chan struct{}),
 	}
 	c.mu.Lock()
 	if c.liveDelegations == nil {
@@ -666,7 +713,6 @@ func (c *Conductor) followDelegation(
 			c.mu.Lock()
 			delete(c.liveDelegations, dlg.ID)
 			c.mu.Unlock()
-			close(run.done)
 		}()
 		run.run(runCtx)
 	}()
@@ -797,8 +843,6 @@ type delegationRun struct {
 	// conductor stopped it to free its workspace for another task, which is not a failure.
 	answered atomic.Bool
 	released atomic.Bool
-	// done is closed when the run has recorded how the task ended.
-	done chan struct{}
 
 	mu       sync.Mutex
 	progress string

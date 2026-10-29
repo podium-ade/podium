@@ -100,6 +100,10 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", reason)
 		return
 	}
+	if c.pushed {
+		s.handlePush(ctx, event, delivery, c)
+		return
+	}
 	if s.isAppUser(c.senderLogin, c.senderType) {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
@@ -247,6 +251,8 @@ type classified struct {
 	action string
 	// base is the branch the pull request merges into. An issue_comment leaves it empty.
 	base string
+	// pushed is new commits on the pull request's head branch (synchronize).
+	pushed bool
 	// reason is why classify rejected the delivery. Empty when it accepted it.
 	reason string
 	// role is the author's role on the repository, which decides the playbooks the turn is
@@ -410,8 +416,9 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 	case "pull_request":
 		// An open that is already ready, or a draft marked ready, starts the
 		// review. review_requested is not one: GitHub does not let you assign
-		// this App as a reviewer. A draft's own open waits for that mark.
-		if env.Action != "ready_for_review" && env.Action != "opened" {
+		// this App as a reviewer. A draft's own open waits for that mark. New
+		// commits are handlePush's to decide.
+		if env.Action != "ready_for_review" && env.Action != "opened" && env.Action != "synchronize" {
 			base.reason = "unsupported action"
 			return base, false
 		}
@@ -436,7 +443,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
 		base.ts = p.PullRequest.UpdatedAt
-		base.ready = true
+		base.ready = env.Action != "synchronize"
+		base.pushed = env.Action == "synchronize"
 		if base.number == 0 {
 			base.reason = "unhandled"
 			return base, false
@@ -584,6 +592,42 @@ func compileMention(slug string) *regexp.Regexp {
 	// @slug or @slug[bot], not @slug-extra. The trailing group is kept so stripMention
 	// can leave the following whitespace/punctuation in place via $1.
 	return regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(slug) + `(?:\[bot\])?([^A-Za-z0-9_-]|$)`)
+}
+
+// handlePush reviews again what this App pushed to a pull request it has already reviewed:
+// the commits a playbook made to fix the review. Anybody else's push is left alone, as it
+// always was — reviewing every push would be a review per commit. The trigger filters are not
+// asked: the push is this App's own, made for a request they already let through.
+func (s *Source) handlePush(ctx context.Context, event, delivery string, c classified) {
+	if !s.isAppUser(c.senderLogin, c.senderType) {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "unsupported action")
+		return
+	}
+	key := SourceKey(c.owner, c.repo, c.number)
+	if _, known := s.session(ctx, key); !known {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
+		return
+	}
+	commit, head := s.reviewBaseline(ctx, c)
+	if commit == "" {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
+		return
+	}
+	prURL := PRURL(c.owner, c.repo, c.number)
+	s.emit(ctx, conductor.InboundEvent{
+		SourceKind: Kind,
+		SourceKey:  key,
+		Ref: Ref(Parsed{
+			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID, Kind: KindPullRequest,
+		}),
+		Author:    c.author,
+		Text:      followUpInstruction("Podium pushed new commits to "+prURL+" to address the review.", commit, head),
+		TS:        c.ts,
+		URL:       prURL,
+		BriefKind: conductor.SourceGitHub,
+		Automatic: true,
+	})
+	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
 
 func pullInstruction(author, prURL, action string) string {

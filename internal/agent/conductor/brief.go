@@ -170,6 +170,9 @@ type BriefPlaybook struct {
 	// Interactive is true when this turn may ask a human a question and wait. Absent
 	// (false) is the default: the runtime has no ask tool and the prompt says so.
 	Interactive bool `json:"interactive,omitempty"`
+	// GitHub is true for the playbook that reviews pull requests: its answer is the review.
+	// Another playbook's task on a pull request answers under the review's findings instead.
+	GitHub bool `json:"github,omitempty"`
 }
 
 // BriefMCPServer points the runtime at one MCP server. It carries an address and the NAME of
