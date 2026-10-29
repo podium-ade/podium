@@ -712,32 +712,78 @@ func (l *hostLink) serve() {
 	for {
 		conn, err := l.ln.Accept()
 		if err != nil {
+			// Past the drain deadline, Accept reports the timeout without trying accept(2),
+			// so a connection still queued is not in hand yet. Take what is there first.
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				for _, conn := range l.queued() {
+					l.read(conn)
+				}
+			}
 			return
 		}
-		l.conns.Add(1)
-		go func() {
-			defer l.conns.Done()
-			defer func() { _ = conn.Close() }()
-			sc := bufio.NewScanner(conn)
-			sc.Buffer(make([]byte, 0, 4096), hostMaxLine)
-			for sc.Scan() {
-				var ev hostEvent
-				if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
-					// A line this process cannot read is a bug in the runner, not a failed
-					// turn. The turn's own messages are what matter and they keep coming.
-					l.bad(fmt.Errorf("undecodable event: %w", err))
-					continue
-				}
-				l.events <- ev
-			}
-			// A line past hostMaxLine ends the scan silently, which would lose a message
-			// and say nothing about it. podium-runner refuses one that long, so this means
-			// something else is writing to the socket.
-			if err := sc.Err(); err != nil {
-				l.bad(err)
-			}
-		}()
+		l.read(conn)
 	}
+}
+
+// queued accepts every connection already waiting on the listener, without waiting for more.
+// The listener's descriptor is non-blocking, so accept(2) on it returns EAGAIN once the
+// queue is empty.
+func (l *hostLink) queued() []net.Conn {
+	rc, err := l.ln.SyscallConn()
+	if err != nil {
+		return nil
+	}
+	var out []net.Conn
+	for {
+		var nfd int
+		var aerr error
+		if err := rc.Control(func(fd uintptr) {
+			// ForkLock, so a child started in between cannot inherit the descriptor before
+			// it is close-on-exec: the same dance syscall.Accept's callers in net do.
+			syscall.ForkLock.RLock()
+			nfd, _, aerr = syscall.Accept(int(fd))
+			if aerr == nil {
+				syscall.CloseOnExec(nfd)
+			}
+			syscall.ForkLock.RUnlock()
+		}); err != nil || aerr != nil {
+			return out
+		}
+		f := os.NewFile(uintptr(nfd), "host-event")
+		conn, err := net.FileConn(f)
+		_ = f.Close()
+		if err != nil {
+			return out
+		}
+		out = append(out, conn)
+	}
+}
+
+// read relays one connection's events until it closes.
+func (l *hostLink) read(conn net.Conn) {
+	l.conns.Add(1)
+	go func() {
+		defer l.conns.Done()
+		defer func() { _ = conn.Close() }()
+		sc := bufio.NewScanner(conn)
+		sc.Buffer(make([]byte, 0, 4096), hostMaxLine)
+		for sc.Scan() {
+			var ev hostEvent
+			if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+				// A line this process cannot read is a bug in the runner, not a failed
+				// turn. The turn's own messages are what matter and they keep coming.
+				l.bad(fmt.Errorf("undecodable event: %w", err))
+				continue
+			}
+			l.events <- ev
+		}
+		// A line past hostMaxLine ends the scan silently, which would lose a message
+		// and say nothing about it. podium-runner refuses one that long, so this means
+		// something else is writing to the socket.
+		if err := sc.Err(); err != nil {
+			l.bad(err)
+		}
+	}()
 }
 
 // close stops accepting. The events channel closes once the connections already open have
