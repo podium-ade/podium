@@ -249,9 +249,9 @@ export function hasStory(entries: readonly Entry[]): boolean {
   return entries.some((e) => e.kind === "tool" || e.kind === "reasoning" || e.kind === "message");
 }
 
-/** firstProblem is the first error, or failing that the first warning. */
-export function firstProblem(entries: readonly Entry[]): Entry | undefined {
-  return entries.find((e) => e.severity === "error") ?? entries.find((e) => e.severity === "warn");
+/** firstError is the first entry that says something went wrong. */
+export function firstError(entries: readonly Entry[]): Entry | undefined {
+  return entries.find((e) => e.severity === "error");
 }
 
 /** lines is the log lines among the entries, in order: what the raw download is made of. */

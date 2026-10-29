@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { ArrowDownToLine, Braces, CircleAlert, ListRestart, Search, X } from "lucide-react";
-import { entryJson, firstProblem, isTranscript, SEVERITIES, type Entry, type Severity } from "../../lib/entries";
+import { entryJson, firstError, isTranscript, SEVERITIES, type Entry, type Severity } from "../../lib/entries";
 import { parseQuery, tokenize } from "../../lib/entryQuery";
 import { toRawText } from "../../lib/logs";
 import { cn } from "../../lib/utils";
@@ -22,8 +22,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { Tooltip } from "../ui/tooltip";
-import type { TimeRange } from "../../lib/buckets";
-import { EventHistogram } from "./EventHistogram";
+import type { TimeRange } from "../../lib/timeline";
+import { RunTimeline } from "./RunTimeline";
 import { EntryPanel } from "./EntryPanel";
 import { LogRow, ROW_PX } from "./LogRow";
 import { MIN_SIDE_PX, PanelResizer } from "./PanelResizer";
@@ -225,7 +225,7 @@ export function LogExplorer({
     return n;
   }, [entries, band]);
 
-  const problem = useMemo(() => firstProblem(visible), [visible]);
+  const problem = useMemo(() => firstError(visible), [visible]);
   const filtered = !parsed.empty || onlySeverity.size > 0 || onlySource.size > 0 || range !== undefined;
 
   useLayoutEffect(() => {
@@ -331,6 +331,16 @@ export function LogExplorer({
     [query, onQuery],
   );
 
+  /** jumpTo selects an entry from outside the list — the timeline — and scrolls to its row. */
+  const jumpTo = useCallback(
+    (key: string) => {
+      landed.current = undefined;
+      setBandKey(undefined);
+      onSelect(key);
+    },
+    [onSelect],
+  );
+
   const toProblem = () => {
     if (!problem) return;
     landed.current = undefined;
@@ -404,14 +414,9 @@ export function LogExplorer({
 
         <div className="ml-auto flex items-center gap-2">
           {problem ? (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={toProblem}
-              className={problem.severity === "error" ? "text-err" : "text-warn"}
-            >
+            <Button variant="ghost" size="xs" onClick={toProblem} className="text-err">
               <CircleAlert />
-              {problem.severity === "error" ? "First error" : "First warning"}
+              First error
             </Button>
           ) : null}
           <Label htmlFor={`${uid}-follow`} className="text-2xs">
@@ -504,14 +509,17 @@ export function LogExplorer({
       ) : null}
 
       {span ? (
-        <EventHistogram
-          entries={faceted}
+        <RunTimeline
+          all={entries}
+          shown={faceted}
           span={span}
           range={range}
+          selected={selected}
           onRange={(r) => {
             setRange(r);
             setFollow(false);
           }}
+          onSelect={jumpTo}
         />
       ) : null}
 
@@ -532,7 +540,7 @@ export function LogExplorer({
         style={panelWidth !== undefined ? ({ "--panel-width": `${panelWidth}px` } as CSSProperties) : undefined}
         className={cn(
           "grid min-w-0",
-          selectedEntry && "lg:h-[34rem] lg:grid-cols-[minmax(0,1fr)_0.5rem_var(--panel-width,minmax(22rem,40%))]",
+          selectedEntry && "lg:h-[34rem] lg:grid-cols-[minmax(0,1fr)_0.5rem_var(--panel-width,minmax(20rem,32%))]",
         )}
       >
         <div
