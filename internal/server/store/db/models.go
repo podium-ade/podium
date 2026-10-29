@@ -183,6 +183,11 @@ type TaskLogChunk struct {
 	SourceOffset int64
 }
 
+type TaskLogIndex struct {
+	TaskID string
+	Data   []byte
+}
+
 type User struct {
 	Login        string
 	DisplayName  *string

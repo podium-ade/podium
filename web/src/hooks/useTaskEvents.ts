@@ -1,60 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { TaskEventKind, type Message, type TaskEvent } from "../gen/podium/v1/node_pb";
+import { TaskEventKind } from "../gen/podium/v1/node_pb";
 import { errorMessage, tasks } from "../lib/client";
-import { Accumulator, type LogLine } from "../lib/logs";
-
-export interface TimelineEntry {
-  seq: bigint;
-  kind: TaskEventKind;
-  ts?: Timestamp;
-  detail: string;
-  /** message is the whole payload of a `message` event: the row renders it in full. */
-  message?: Message;
-}
+import { EntryStream, type Entry } from "../lib/entries";
 
 export type StreamPhase = "connecting" | "streaming" | "finished" | "error";
 
 const FLUSH_MS = 60;
 const MAX_BACKOFF_MS = 10_000;
-
-/** How much of a message's first line the timeline's one-line detail shows. */
-const MAX_DETAIL = 200;
-
-function firstLine(text: string): string {
-  const line = text.split("\n", 1)[0];
-  return line.length > MAX_DETAIL ? `${line.slice(0, MAX_DETAIL)}…` : line;
-}
-
-// Replayed events carry an unset payload for the kinds that have none, so every read below is
-// guarded by the oneof case rather than by the kind. Exported for its own test.
-export function detailOf(ev: TaskEvent): string {
-  switch (ev.payload.case) {
-    case "error":
-      return ev.payload.value.retryable
-        ? `${ev.payload.value.message} (retryable)`
-        : ev.payload.value.message;
-    case "exited":
-      return ev.payload.value.oomKilled
-        ? `exit ${ev.payload.value.exitCode}, OOM-killed`
-        : `exit ${ev.payload.value.exitCode}`;
-    case "finished": {
-      const u = ev.payload.value.usage;
-      const exit = `exit ${ev.payload.value.exitCode}`;
-      return u ? `${exit}, ${u.cpuSeconds.toFixed(2)}s cpu, ${u.peakMemoryMb} MB peak` : exit;
-    }
-    case "step":
-      return `${ev.payload.value.name}: ${ev.payload.value.status}`;
-    case "message":
-      return `${ev.payload.value.type}: ${firstLine(ev.payload.value.text)}`;
-    case "preview":
-      return `published over ${ev.payload.value.via} on ${ev.payload.value.address}`;
-    case "sandbox":
-      return `${ev.payload.value.sandboxId} on ${ev.payload.value.provider}`;
-    default:
-      return "";
-  }
-}
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -71,7 +23,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * useTaskEvents follows StreamTaskEvents for one task.
+ * useTaskEvents follows StreamTaskEvents for one task, as entries (lib/entries).
  *
  * from_seq is exclusive, so reconnecting with the highest seq already rendered is exactly-once:
  * no gap and no repeat. A clean end of stream means the task is terminal and everything has been
@@ -83,8 +35,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * badge honest instead of up to one poll interval behind the logs.
  */
 export function useTaskEvents(taskId: string, onStatusEvent: () => void) {
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [phase, setPhase] = useState<StreamPhase>("connecting");
   const [error, setError] = useState<string>();
   const notify = useRef(onStatusEvent);
@@ -94,23 +45,17 @@ export function useTaskEvents(taskId: string, onStatusEvent: () => void) {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    const acc = new Accumulator();
+    const stream = new EntryStream();
     let lastSeq = 0n;
-    let pendingLines: LogLine[] = [];
-    let pendingEvents: TimelineEntry[] = [];
+    let pending: Entry[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const flush = () => {
       timer = undefined;
-      if (pendingLines.length > 0) {
-        const batch = pendingLines;
-        pendingLines = [];
-        setLines((prev) => prev.concat(batch));
-      }
-      if (pendingEvents.length > 0) {
-        const batch = pendingEvents;
-        pendingEvents = [];
-        setTimeline((prev) => prev.concat(batch));
+      if (pending.length > 0) {
+        const batch = pending;
+        pending = [];
+        setEntries((prev) => prev.concat(batch));
       }
     };
     const schedule = () => {
@@ -128,21 +73,11 @@ export function useTaskEvents(taskId: string, onStatusEvent: () => void) {
             if (ev.seq > lastSeq) lastSeq = ev.seq;
             backoff = 500;
             setPhase("streaming");
-            if (ev.kind === TaskEventKind.LOG) {
-              pendingLines = pendingLines.concat(acc.append(ev));
-            } else {
-              pendingEvents.push({
-                seq: ev.seq,
-                kind: ev.kind,
-                ts: ev.ts,
-                detail: detailOf(ev),
-                message: ev.payload.case === "message" ? ev.payload.value : undefined,
-              });
-              notify.current();
-            }
+            pending = pending.concat(stream.append(ev));
+            if (ev.kind !== TaskEventKind.LOG) notify.current();
             schedule();
           }
-          pendingLines = pendingLines.concat(acc.flush());
+          pending = pending.concat(stream.flush());
           flush();
           if (!ctrl.signal.aborted) {
             setPhase("finished");
@@ -165,5 +100,5 @@ export function useTaskEvents(taskId: string, onStatusEvent: () => void) {
     };
   }, [taskId]);
 
-  return { lines, timeline, phase, error };
+  return { entries, phase, error };
 }

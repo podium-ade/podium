@@ -152,6 +152,28 @@ func (s *Store) MarkLogsRolledUp(ctx context.Context, taskID string, up LogRollU
 	return nil
 }
 
+// PutTaskLogIndex stores a task's roll-up index: what its chunks were, apart from their
+// bytes (internal/server/logs/index.go). The roll-up writes it before it marks the task
+// rolled up, so a task is never marked without one; writing it again replaces it.
+func (s *Store) PutTaskLogIndex(ctx context.Context, taskID string, data []byte) error {
+	if err := s.q.PutTaskLogIndex(ctx, db.PutTaskLogIndexParams{TaskID: taskID, Data: data}); err != nil {
+		return fmt.Errorf("store log index of task %s: %w", taskID, err)
+	}
+	return nil
+}
+
+// TaskLogIndex is a task's roll-up index, or nil for a task rolled up before there was one.
+func (s *Store) TaskLogIndex(ctx context.Context, taskID string) ([]byte, error) {
+	data, err := s.q.GetTaskLogIndex(ctx, taskID)
+	if err != nil {
+		if noRows(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read log index of task %s: %w", taskID, err)
+	}
+	return data, nil
+}
+
 // TaskLogRollUp reports whether a task's logs have been rolled up, and the marks recorded
 // when they were.
 func (s *Store) TaskLogRollUp(ctx context.Context, taskID string) (LogRollUp, error) {
