@@ -297,12 +297,28 @@ export interface Field {
 const FIELD_TERM: Record<string, string> = { source: "source", kind: "kind", severity: "severity" };
 /** Text the body already shows in full is not repeated as a field. */
 const BODY_FIELDS = new Set(["text", "activity.input", "activity.output", "activity.error", "activity.text", "event.message.text"]);
+/**
+ * Fields that only repeat another — the key is the seq, a tool's kind and name are its
+ * source, the event's own seq, time and kind are the entry's — and the task id, which is
+ * the same on every row of the page.
+ */
+const REPEATED_FIELDS = new Set([
+  "key",
+  "activity.kind",
+  "activity.tool",
+  "activity.title",
+  "event.taskId",
+  "event.seq",
+  "event.ts",
+  "event.kind",
+  "event.leaseId",
+]);
 
 /** fieldsOf flattens an entry's record into the rows the explorer's field table shows. */
 export function fieldsOf(e: Entry): Field[] {
   const out: Field[] = [];
   const walk = (v: unknown, path: string) => {
-    if (v === undefined || v === null || BODY_FIELDS.has(path)) return;
+    if (v === undefined || v === null || BODY_FIELDS.has(path) || REPEATED_FIELDS.has(path)) return;
     if (typeof v === "object" && !Array.isArray(v)) {
       for (const [k, child] of Object.entries(v)) walk(child, path ? `${path}.${k}` : k);
       return;

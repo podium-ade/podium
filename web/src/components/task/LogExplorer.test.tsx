@@ -129,41 +129,88 @@ describe("LogExplorer", () => {
 
     await user.click(screen.getByTestId("log-line"));
     const detail = screen.getByTestId("entry-detail");
-    expect(screen.getByTestId("log-line")).toHaveAttribute("aria-expanded", "true");
-    expect(within(detail).getByText("Input")).toBeInTheDocument();
+    expect(screen.getByTestId("log-line")).toHaveAttribute("aria-selected", "true");
+    // A tool call opens on what came back, under the line that asked for it.
+    expect(within(detail).getByText("completed")).toBeInTheDocument();
+    expect(within(detail).getByText((_, el) => el?.tagName === "P" && el.textContent === "$ cat review.json")).toBeInTheDocument();
     expect(within(detail).getByText('{"verdict":"approve"}')).toBeInTheDocument();
-    expect(within(detail).getByText("tool:bash")).toBeInTheDocument();
 
+    await user.click(within(detail).getByRole("tab", { name: "input" }));
+    expect(within(detail).getByText("command")).toBeInTheDocument();
+
+    await user.click(within(detail).getByRole("tab", { name: "fields" }));
+    expect(within(detail).getAllByText("tool:bash").length).toBeGreaterThan(0);
+    // Fields that only repeat another are not listed twice.
+    expect(within(detail).queryByText("activity.tool")).toBeNull();
+
+    // Selecting the row again lets go of it; so does the panel's close.
     await user.click(screen.getByTestId("log-line"));
+    expect(screen.queryByTestId("entry-detail")).toBeNull();
+    await user.click(screen.getByTestId("log-line"));
+    await user.click(within(screen.getByTestId("entry-detail")).getByRole("button", { name: "Close" }));
     expect(screen.queryByTestId("entry-detail")).toBeNull();
   });
 
-  it("keeps several rows open at once, each in place under its own line", async () => {
-    const user = userEvent.setup();
+  it("walks the rows with the arrow keys, the record following, and lets go on Escape", () => {
     render(<Explorer entries={mixed} />);
-    const [a, , b] = screen.getAllByTestId("log-line");
-    await user.click(a);
-    await user.click(b);
-    const entries = screen.getAllByTestId("log-entry");
-    expect(entries.filter((e) => e.dataset.open).length).toBe(2);
-    expect(within(entries[0]).getByTestId("entry-detail")).toBeInTheDocument();
-    expect(within(entries[1]).queryByTestId("entry-detail")).toBeNull();
+    const list = screen.getByTestId("log-scroll");
+    const selected = () => screen.queryAllByTestId("log-line").find((r) => r.getAttribute("aria-selected") === "true")?.dataset.key;
+
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    expect(selected()).toBe("1.0");
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    expect(selected()).toBe("3.0");
+    expect(within(screen.getByTestId("entry-detail")).getByText("tick 2")).toBeInTheDocument();
+    fireEvent.keyDown(list, { key: "ArrowUp" });
+    expect(selected()).toBe("2.0");
+    fireEvent.keyDown(list, { key: "Escape" });
+    expect(selected()).toBeUndefined();
+    expect(screen.queryByTestId("entry-detail")).toBeNull();
   });
 
-  it("narrows the query from a field of an opened row", async () => {
+  it("resizes the panel from its handle, remembers the width, and resets it", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem("podium.logs.panelWidth");
+    render(<Explorer entries={mixed} />);
+    await user.click(screen.getAllByTestId("log-line")[0]);
+    const handle = screen.getByRole("separator", { name: "Resize the entry panel" });
+    expect(handle).not.toHaveAttribute("aria-valuenow");
+
+    // jsdom lays nothing out, so the split clamps every width to the narrowest allowed.
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(handle).toHaveAttribute("aria-valuenow", "320");
+    expect(localStorage.getItem("podium.logs.panelWidth")).toBe("320");
+
+    fireEvent.doubleClick(handle);
+    expect(handle).not.toHaveAttribute("aria-valuenow");
+    expect(localStorage.getItem("podium.logs.panelWidth")).toBeNull();
+  });
+
+  it("filters from a field of the open record, and takes the filter out again", async () => {
     const user = userEvent.setup();
     render(<Explorer entries={mixed} />);
     await user.click(screen.getAllByTestId("log-line")[1]);
+    await user.click(screen.getByRole("tab", { name: "fields" }));
     await user.click(screen.getByRole("button", { name: "Show only entries with source stderr" }));
     expect(screen.getByLabelText("Search logs")).toHaveValue("source:stderr");
     expect(texts()).toEqual(["warn: disk"]);
+
+    const on = screen.getByRole("button", { name: "Stop showing only entries with source stderr" });
+    expect(on).toHaveAttribute("aria-pressed", "true");
+    await user.click(on);
+    expect(screen.getByLabelText("Search logs")).toHaveValue("");
+    expect(texts()).toHaveLength(4);
   });
 
-  it("excludes by a field of an opened row", async () => {
+  it("excludes by a field of the open record, in place of showing only it", async () => {
     const user = userEvent.setup();
     render(<Explorer entries={mixed} />);
     await user.click(screen.getAllByTestId("log-line")[1]);
+    await user.click(screen.getByRole("tab", { name: "fields" }));
+    await user.click(screen.getByRole("button", { name: "Show only entries with source stderr" }));
     await user.click(screen.getByRole("button", { name: "Hide entries with source stderr" }));
+    expect(screen.getByLabelText("Search logs")).toHaveValue("-source:stderr");
     expect(texts()).toEqual(["tick 1", "tick 2", "tick 3"]);
   });
 
@@ -183,8 +230,8 @@ describe("LogExplorer", () => {
     render(<Explorer entries={entries} initial="4" trace />);
     const banded = () => screen.getAllByTestId("log-line").filter((r) => r.dataset.band).map((r) => r.dataset.key);
     expect(banded()).toEqual(["2.0", "3.0"]);
-    expect(screen.getByText(/2 lines above were printed while this ran/)).toBeInTheDocument();
-    expect(screen.getAllByTestId("log-line").find((r) => r.dataset.key === "4")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByText(/2 lines in the list were printed while this ran/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("log-line").find((r) => r.dataset.key === "4")).toHaveAttribute("aria-selected", "true");
 
     // A click inside the list is somebody reading, not a step to trace: it marks nothing.
     const user = userEvent.setup();
@@ -197,10 +244,10 @@ describe("LogExplorer", () => {
     render(<Explorer entries={mixed} />);
     await user.type(screen.getByLabelText("Search logs"), "disk");
     await user.click(screen.getByTestId("log-line"));
-    await user.click(screen.getByRole("button", { name: /show surrounding/i }));
+    await user.click(screen.getByRole("button", { name: /view in context/i }));
     expect(texts()).toHaveLength(4);
     expect(screen.getByLabelText("Search logs")).toHaveValue("");
-    expect(screen.getAllByTestId("log-line").find((r) => r.dataset.key === "2.0")).toHaveAttribute("aria-current", "true");
+    expect(screen.getAllByTestId("log-line").find((r) => r.dataset.key === "2.0")).toHaveAttribute("aria-selected", "true");
   });
 
   it("virtualizes: only a window of a long log is in the DOM", () => {

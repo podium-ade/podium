@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { ArrowDownToLine, Braces, CircleAlert, ListRestart, Search, X } from "lucide-react";
 import { entryJson, firstProblem, isTranscript, SEVERITIES, type Entry, type Severity } from "../../lib/entries";
-import { parseQuery } from "../../lib/entryQuery";
+import { parseQuery, tokenize } from "../../lib/entryQuery";
 import { toRawText } from "../../lib/logs";
 import { cn } from "../../lib/utils";
 import type { StreamPhase } from "../../hooks/useTaskEvents";
@@ -14,12 +25,12 @@ import { Switch } from "../ui/switch";
 import { Tooltip } from "../ui/tooltip";
 import type { TimeRange } from "../../lib/buckets";
 import { EventHistogram } from "./EventHistogram";
+import { EntryPanel } from "./EntryPanel";
 import { LogRow, ROW_PX } from "./LogRow";
+import { MIN_SIDE_PX, PanelResizer } from "./PanelResizer";
 
 /** OVERSCAN_PX is how far past the viewport rows are rendered, either way. */
 const OVERSCAN_PX = 360;
-/** An opened row is drawn before it can be measured; this is its height until it is. */
-const DETAIL_GUESS_PX = 240;
 /** jsdom and a not-yet-laid-out container both report clientHeight 0; render a screenful anyway. */
 const FALLBACK_VIEWPORT_PX = 600;
 const AT_BOTTOM_SLACK_PX = 24;
@@ -45,6 +56,27 @@ const SEVERITY_DOT: Record<Severity, string> = {
   warn: "bg-warn",
   error: "bg-err",
 };
+
+/** PANEL_WIDTH_KEY remembers, in this browser, how wide somebody dragged the entry panel. */
+const PANEL_WIDTH_KEY = "podium.logs.panelWidth";
+
+function readPanelWidth(): number | undefined {
+  try {
+    const v = Number(globalThis.localStorage?.getItem(PANEL_WIDTH_KEY));
+    return Number.isFinite(v) && v >= MIN_SIDE_PX ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writePanelWidth(px: number | undefined) {
+  try {
+    if (px === undefined) globalThis.localStorage?.removeItem(PANEL_WIDTH_KEY);
+    else globalThis.localStorage?.setItem(PANEL_WIDTH_KEY, String(px));
+  } catch {
+    // A browser that will not store it just forgets the width; the split still works.
+  }
+}
 
 /** Sources sort the way a run happens: the node, the container's streams, then what it said. */
 function sourceRank(s: string): number {
@@ -81,8 +113,8 @@ function bandOf(entries: readonly Entry[], at: number): [number, number] | undef
 /**
  * LogExplorer is every entry of the run, the way a log explorer shows them: a time, a
  * severity, a source and a line, filtered by facets and a query, over a histogram of where
- * in the run they fell. A row opens in place to its whole record, and any number can be
- * open at once; the last one opened is the one a link points at.
+ * in the run they fell. The selected row's record opens in a panel beside the list, which
+ * the arrow keys walk; the selected row is the one a link points at.
  */
 export function LogExplorer({
   entries,
@@ -113,12 +145,16 @@ export function LogExplorer({
   const [range, setRange] = useState<TimeRange>();
   const [follow, setFollow] = useState(selected === undefined);
   const [scrollTop, setScrollTop] = useState(0);
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(selected ? [selected] : []));
-  const [heights, setHeights] = useState<Readonly<Record<string, number>>>({});
   /** bandKey is the tool call whose lines are marked: set only when it was opened from the transcript. */
   const [bandKey, setBandKey] = useState<string>();
   const [viewport, setViewport] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const split = useRef<HTMLDivElement>(null);
+  const [panelWidth, setPanelWidth] = useState<number | undefined>(readPanelWidth);
+  const resizePanel = useCallback((px: number | undefined) => {
+    setPanelWidth(px);
+    writePanelWidth(px);
+  }, []);
   const uid = useId();
 
   const parsed = useMemo(() => parseQuery(query), [query]);
@@ -183,15 +219,6 @@ export function LogExplorer({
     return n;
   }, [entries, band]);
 
-  // offsets[i] is the top of row i; an open row is as tall as its row and its record.
-  const offsets = useMemo(() => {
-    const out = new Float64Array(visible.length + 1);
-    for (let i = 0; i < visible.length; i++) {
-      const key = visible[i].key;
-      out[i + 1] = out[i] + ROW_PX + (open.has(key) ? (heights[key] ?? DETAIL_GUESS_PX) : 0);
-    }
-    return out;
-  }, [visible, open, heights]);
   const problem = useMemo(() => firstProblem(visible), [visible]);
   const filtered = !parsed.empty || hiddenSeverity.size > 0 || hiddenSource.size > 0 || range !== undefined;
 
@@ -209,17 +236,27 @@ export function LogExplorer({
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  const toRow = useCallback(
-    (row: number) => {
-      const el = ref.current;
-      if (!el || row < 0) return;
-      setFollow(false);
-      const top = offsets[Math.max(0, row - CONTEXT_ROWS)];
-      el.scrollTop = top;
-      setScrollTop(top);
-    },
-    [offsets],
-  );
+  const toRow = useCallback((row: number) => {
+    const el = ref.current;
+    if (!el || row < 0) return;
+    setFollow(false);
+    const top = Math.max(0, (row - CONTEXT_ROWS) * ROW_PX);
+    el.scrollTop = top;
+    setScrollTop(top);
+  }, []);
+
+  /** reveal scrolls just enough to bring a row on screen, the way a list follows the keyboard. */
+  const reveal = useCallback((row: number) => {
+    const el = ref.current;
+    if (!el || row < 0) return;
+    setFollow(false);
+    const h = el.clientHeight || FALLBACK_VIEWPORT_PX;
+    let top = el.scrollTop;
+    if (row * ROW_PX < top) top = row * ROW_PX;
+    else if ((row + 1) * ROW_PX > top + h) top = (row + 1) * ROW_PX - h;
+    el.scrollTop = top;
+    setScrollTop(top);
+  }, []);
 
   useEffect(() => {
     if (follow) toBottom();
@@ -231,7 +268,6 @@ export function LogExplorer({
   useEffect(() => {
     if (selected === undefined || landed.current === selected || selectedRow < 0) return;
     landed.current = selected;
-    setOpen((prev) => (prev.has(selected) ? prev : new Set(prev).add(selected)));
     setBandKey(trace && selectedEntry?.kind === "tool" ? selected : undefined);
     toRow(selectedRow);
   }, [selected, selectedRow, selectedEntry, trace, toRow]);
@@ -244,34 +280,47 @@ export function LogExplorer({
     setFollow(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK_PX);
   }, []);
 
-  /** toggle opens a row in place, or closes it; the link follows the last row opened. */
-  const toggle = useCallback(
+  /** pick selects a row from inside the list, or lets go of it when it already was. */
+  const pick = useCallback(
     (key: string) => {
       landed.current = key;
       setBandKey(undefined);
-      const next = new Set(open);
-      if (next.has(key)) {
-        next.delete(key);
-        if (key === selected) onSelect(undefined);
-      } else {
-        next.add(key);
-        onSelect(key);
-      }
-      setOpen(next);
+      onSelect(selected === key ? undefined : key);
     },
-    [open, selected, onSelect],
+    [selected, onSelect],
   );
 
-  const onHeight = useCallback((key: string, px: number) => {
-    setHeights((prev) => (prev[key] === px ? prev : { ...prev, [key]: px }));
-  }, []);
+  /** step moves the selection by one visible row, the way arrow keys walk a list. */
+  const step = (by: number) => {
+    if (visible.length === 0) return;
+    const at = selectedRow < 0 ? (by > 0 ? -1 : visible.length) : selectedRow;
+    const row = Math.min(visible.length - 1, Math.max(0, at + by));
+    landed.current = visible[row].key;
+    setBandKey(undefined);
+    onSelect(visible[row].key);
+    reveal(row);
+  };
+  const onKeyDown = (k: KeyboardEvent) => {
+    if (k.key === "ArrowDown" || k.key === "j") step(1);
+    else if (k.key === "ArrowUp" || k.key === "k") step(-1);
+    else if (k.key === "Escape" && selected !== undefined) onSelect(undefined);
+    else return;
+    k.preventDefault();
+  };
 
-  /** addTerm narrows the query by one field of an opened row. */
-  const addTerm = useCallback(
+  /**
+   * toggleTerm narrows the query by one field of the open record, or takes the term out
+   * again when it is already in. Showing and hiding the same value are opposites, so
+   * choosing one replaces the other.
+   */
+  const toggleTerm = useCallback(
     (term: string) => {
-      const terms = query.trim();
-      if (` ${terms} `.includes(` ${term} `)) return;
-      onQuery(terms ? `${terms} ${term}` : term);
+      const opposite = term.startsWith("-") ? term.slice(1) : `-${term}`;
+      const terms = tokenize(query);
+      const next = terms.includes(term)
+        ? terms.filter((t) => t !== term)
+        : [...terms.filter((t) => t !== opposite), term];
+      onQuery(next.join(" "));
     },
     [query, onQuery],
   );
@@ -311,8 +360,8 @@ export function LogExplorer({
   const toggleSource = facet(hiddenSource, setHiddenSource, sources);
 
   const height = viewport > 0 ? viewport : FALLBACK_VIEWPORT_PX;
-  const first = Math.max(0, rowAt(offsets, scrollTop - OVERSCAN_PX));
-  const last = Math.min(visible.length, rowAt(offsets, scrollTop + height + OVERSCAN_PX) + 1);
+  const first = Math.max(0, Math.floor((scrollTop - OVERSCAN_PX) / ROW_PX));
+  const last = Math.min(visible.length, Math.ceil((scrollTop + height + OVERSCAN_PX) / ROW_PX));
   const window_ = visible.slice(first, last);
 
   const save = (body: string, type: string, name: string) => {
@@ -457,72 +506,85 @@ export function LogExplorer({
 
       {selectedEntry && selectedRow < 0 ? (
         <div className="flex items-center gap-3 border-b border-hairline bg-run-bg px-4 py-1.5 text-xs text-run">
-          The linked entry is hidden by the current filter.
+          The selected entry is hidden by the current filter.
           <Button variant="ghost" size="xs" onClick={showSurrounding}>
             <ListRestart />
-            Show surrounding
+            View in context
           </Button>
         </div>
       ) : null}
 
+      {/* The list and the open record side by side: the list never moves, and the arrow
+          keys walk it while the record follows. Narrower than that, the record sits below. */}
       <div
-        ref={ref}
-        onScroll={onScroll}
-        data-testid="log-scroll"
-        role="log"
-        aria-label="Task output"
-        className="h-[34rem] min-h-48 overflow-auto bg-bg font-mono text-[13px] leading-[28px]"
-      >
-        {visible.length === 0 ? (
-          <div className="flex min-h-48 flex-col items-center justify-center gap-1 px-4 text-center font-sans">
-            <p className="text-xs text-muted">
-              {entries.length === 0 ? "no output yet" : "nothing matches the filter"}
-            </p>
-            <p className="text-2xs text-faint">
-              {entries.length === 0
-                ? "Everything the run reports, and anything the container writes, appears here as it happens."
-                : "Clear the search, turn a chip back on, or clear the time window."}
-            </p>
-          </div>
-        ) : (
-          <div style={{ height: offsets[visible.length] }}>
-            <div style={{ transform: `translateY(${offsets[first]}px)` }}>
-              {window_.map((e) => (
-                <LogRow
-                  key={e.key}
-                  entry={e}
-                  open={open.has(e.key)}
-                  current={e.key === selected}
-                  inBand={band !== undefined && e.index >= band[0] && e.index < band[1]}
-                  bandSize={band !== undefined && e.index === band[1] ? bandSize : undefined}
-                  query={query}
-                  filtered={filtered}
-                  onToggle={toggle}
-                  onHeight={onHeight}
-                  onTerm={addTerm}
-                  onSurrounding={showSurrounding}
-                  onClearBand={() => setBandKey(undefined)}
-                />
-              ))}
-            </div>
-          </div>
+        ref={split}
+        style={panelWidth !== undefined ? ({ "--panel-width": `${panelWidth}px` } as CSSProperties) : undefined}
+        className={cn(
+          "grid min-w-0",
+          selectedEntry && "lg:h-[34rem] lg:grid-cols-[minmax(0,1fr)_0.5rem_var(--panel-width,minmax(22rem,40%))]",
         )}
+      >
+        <div
+          ref={ref}
+          onScroll={onScroll}
+          onKeyDown={onKeyDown}
+          tabIndex={0}
+          data-testid="log-scroll"
+          role="listbox"
+          aria-label="Task output"
+          className="h-[34rem] min-h-48 overflow-auto bg-bg font-mono text-[13px] leading-[28px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+        >
+          {visible.length === 0 ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-1 px-4 text-center font-sans">
+              <p className="text-xs text-muted">
+                {entries.length === 0 ? "no output yet" : "nothing matches the filter"}
+              </p>
+              <p className="text-2xs text-faint">
+                {entries.length === 0
+                  ? "Everything the run reports, and anything the container writes, appears here as it happens."
+                  : "Clear the search, turn a chip back on, or clear the time window."}
+              </p>
+            </div>
+          ) : (
+            <div style={{ height: visible.length * ROW_PX }}>
+              <div style={{ transform: `translateY(${first * ROW_PX}px)` }}>
+                {window_.map((e) => (
+                  <LogRow
+                    key={e.key}
+                    entry={e}
+                    selected={e.key === selected}
+                    inBand={band !== undefined && e.index >= band[0] && e.index < band[1]}
+                    onSelect={pick}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        {selectedEntry ? (
+          <PanelResizer
+            width={panelWidth}
+            onWidth={resizePanel}
+            onReset={() => resizePanel(undefined)}
+            container={split}
+          />
+        ) : null}
+        {selectedEntry ? (
+          <EntryPanel
+            entry={selectedEntry}
+            previous={selectedIndex > 0 ? entries[selectedIndex - 1] : undefined}
+            query={query}
+            filtered={filtered}
+            bandSize={band !== undefined && bandIndex === selectedIndex ? bandSize : undefined}
+            onTerm={toggleTerm}
+            onSurrounding={showSurrounding}
+            onClearBand={() => setBandKey(undefined)}
+            onClose={() => onSelect(undefined)}
+          />
+        ) : null}
       </div>
     </div>
   );
-}
-
-/** rowAt is the row that covers y: the last whose top is at or above it. */
-function rowAt(offsets: Float64Array, y: number): number {
-  let lo = 0;
-  let hi = offsets.length - 2;
-  if (hi < 0 || y <= 0) return 0;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (offsets[mid] <= y) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
 }
 
 function FacetChip({

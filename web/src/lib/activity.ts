@@ -86,6 +86,32 @@ function inputObject(input?: string): Record<string, unknown> {
   }
 }
 
+export interface ToolArgs {
+  /** primary is the argument the tool is summarised by — a command, a path — when it has one. */
+  primary?: { name: string; value: string };
+  /** rest is every other argument, as text. */
+  rest: [string, string][];
+  /** raw is the input as it came, when it is not a JSON object. */
+  raw?: string;
+}
+
+/** toolArgs splits a tool call's input into what it was pointed at and everything else. */
+export function toolArgs(a: ToolActivity): ToolArgs {
+  if (!a.input) return { rest: [] };
+  const input = inputObject(a.input);
+  if (Object.keys(input).length === 0) return a.input.trim() === "{}" ? { rest: [] } : { rest: [], raw: a.input };
+  const primaryName = (SUMMARY_FIELD[a.tool] ?? []).find((f) => typeof input[f] === "string");
+  const rest: [string, string][] = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (k === primaryName) continue;
+    rest.push([k, typeof v === "string" ? v : JSON.stringify(v)]);
+  }
+  return {
+    primary: primaryName ? { name: primaryName, value: input[primaryName] as string } : undefined,
+    rest,
+  };
+}
+
 /** oneLine collapses a multi-line value so a row stays a row. */
 function oneLine(s: string): string {
   return s.replace(/\s*\n\s*/g, " ⏎ ").trim();
