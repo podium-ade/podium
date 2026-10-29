@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1092,8 +1093,11 @@ func TestARestartResumesTheTurnAndPostsTheFinalOnce(t *testing.T) {
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, relayed, "the ledger holds one row per thing said, and no more")
-	assert.Contains(t, reactions(records), string(conductor.ReactionDone),
-		"the resumed turn still shows its outcome")
+	// finish stores the status before it reacts, so the reaction is waited for rather than
+	// read the moment the status says succeeded.
+	waitFor(t, 30*time.Second, "the resumed turn to show its outcome", func() bool {
+		return slices.Contains(reactions(src.Records()), string(conductor.ReactionDone))
+	})
 }
 
 // Two conductors following one task is what a botched rolling restart looks like. Both
