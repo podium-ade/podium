@@ -485,6 +485,44 @@ func (c *restClient) ListReviewComments(ctx context.Context, installID int64, ow
 	return all, err
 }
 
+// PullFile is one file a pull request changes. Patch is its part of the diff, empty for a
+// binary file or one GitHub thinks too large to show.
+type PullFile struct {
+	Filename  string `json:"filename"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Patch     string `json:"patch"`
+}
+
+// PullFiles pages the files a pull request changes.
+func (c *restClient) PullFiles(ctx context.Context, installID int64, owner, repo string, number int) ([]PullFile, error) {
+	var all []PullFile
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/files", owner, repo, number)
+	err := c.pages(ctx, installID, path, func(raw []byte) (int, error) {
+		var page []PullFile
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return 0, err
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
+	return all, err
+}
+
+// FileAt is one file's contents at ref.
+func (c *restClient) FileAt(ctx context.Context, installID int64, owner, repo, path, ref string) ([]byte, error) {
+	escaped := make([]string, 0, 4)
+	for _, part := range strings.Split(strings.Trim(path, "/"), "/") {
+		escaped = append(escaped, url.PathEscape(part))
+	}
+	var raw []byte
+	err := c.doAccept(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", owner, repo, strings.Join(escaped, "/"), url.QueryEscape(ref)),
+		"application/vnd.github.raw", nil, &raw)
+	return raw, err
+}
+
 // ListReviews pages submitted reviews.
 func (c *restClient) ListReviews(ctx context.Context, installID int64, owner, repo string, number int) ([]Review, error) {
 	var all []Review
@@ -568,6 +606,11 @@ func (c *restClient) jwt() (string, error) {
 }
 
 func (c *restClient) do(ctx context.Context, installID int64, method, path string, body, out any) error {
+	return c.doAccept(ctx, installID, method, path, "application/vnd.github+json", body, out)
+}
+
+// doAccept is do with another media type. out as a *[]byte takes the body as it came.
+func (c *restClient) doAccept(ctx context.Context, installID int64, method, path, accept string, body, out any) error {
 	var auth string
 	var err error
 	if installID > 0 {
@@ -595,7 +638,7 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("Authorization", "Bearer "+auth)
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	if body != nil {
@@ -627,6 +670,10 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		return fmt.Errorf("github: %s %s: response exceeds %d bytes", method, path, restSuccessBody)
 	}
 	if out == nil || len(raw) == 0 || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	if b, ok := out.(*[]byte); ok {
+		*b = raw
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {

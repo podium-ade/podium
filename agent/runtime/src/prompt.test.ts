@@ -198,6 +198,16 @@ describe("buildSystemPrompt", () => {
     expect(flat).toContain("delegate it with `read_only` set");
     expect(flat).toContain("One task at a time changes this pull request");
 
+    expect(flat).not.toContain("with the `pull-request` tools");
+    const reading = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      playbook: { ...golden().playbook, mcp_servers: [{ name: "pull-request", url: "http://h/mcp", token_env: "T" }] },
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "coder", github: true }] },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(reading.replace(/\s+/g, " ")).toContain("Read the pull request itself with the `pull-request` tools");
+
     const none = buildSystemPrompt({
       ...golden(),
       runs_on: "host" as const,

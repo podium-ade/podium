@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/mcp"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
@@ -98,6 +99,24 @@ func (c *Conductor) mintTurnToken(g turnGrant) (string, error) {
 	}
 	c.turnTokens[token] = g
 	return token, nil
+}
+
+// PullRequestMCPName is the name a host turn on a pull request knows the conductor's
+// read-only pull-request MCP server by.
+const PullRequestMCPName = mcp.ReservedPullRequest
+
+// TurnPullRequest is the pull request a live turn token's conversation is, as its source key.
+// False for a token that names no live turn, and for a turn that is not on a pull request.
+func (c *Conductor) TurnPullRequest(ctx context.Context, token string) (string, bool) {
+	g, ok := c.grantFor(token)
+	if !ok {
+		return "", false
+	}
+	sess, err := c.store.GetSession(ctx, g.sessionID)
+	if err != nil || sess.SourceKind != SourceGitHub {
+		return "", false
+	}
+	return sess.SourceKey, true
 }
 
 func (c *Conductor) revokeTurnToken(token string) {

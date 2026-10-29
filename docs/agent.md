@@ -1687,9 +1687,15 @@ A pull request is a **conversation**, one session per pull request (`github:owne
 - **Anything a person writes** — `@slug` on the pull request (the App's slug from its
   settings, or `@slug[bot]`), a reply in a thread the App started, or a Slack mention with
   that PR's URL — is answered by the **assistant**, on the host, as a Slack thread is. It
-  answers a question about the code or the review itself, from the conversation: the
-  review, its inline notes and the diff they quote. Asked to review, or to review again, it
-  delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
+  answers a question about the code or the review itself, from the conversation — the
+  review, its inline notes and the diff they quote — and from the pull request itself,
+  through the conductor's own `pull-request` MCP server: `files`, `diff`, and `file` (one
+  file at the head commit, with line numbers), each cut at 64 KB. That server is on the
+  turn listener at `/mcp/pull-request`, answers only a live turn's own token, and only
+  about that turn's pull request; it reads and nothing else. A question that needs more —
+  running the code — goes to a task with `read_only`. Asked to review, or to review again,
+  it delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
+  `pull-request` is a reserved MCP server name.
 
 **The menu on a pull request depends on who is asking.** Anybody the triggers allow can comment,
 so the menu is the review playbook, plus each playbook whose `github_requires` the commenter's

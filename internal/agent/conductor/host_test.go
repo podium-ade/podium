@@ -151,6 +151,29 @@ func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 	assert.Equal(t, menu, b.Delegation.Playbooks)
 }
 
+// A turn on a pull request reads that pull request through the conductor's own server, with
+// its own token. No other source gets it, and nor does a turn that has no token.
+func TestHostBriefGivesAPullRequestItsOwnReadOnlyServer(t *testing.T) {
+	c := &Conductor{host: &HostRuntime{
+		TurnURL: "http://127.0.0.1:8090", PullRequestMCPURL: "http://127.0.0.1:8090/mcp/pull-request",
+	}}
+	menu := []DelegablePlaybook{{Name: "coder", GitHub: true}}
+	b := &Brief{Source: BriefSource{Kind: SourceGitHub}, Playbook: BriefPlaybook{AllowedTools: hostTools}}
+	c.hostBrief(b, menu, nil, nil)
+	require.Len(t, b.Playbook.MCPServers, 1)
+	assert.Equal(t, BriefMCPServer{
+		Name: "pull-request", URL: "http://127.0.0.1:8090/mcp/pull-request", TokenEnv: TurnTokenEnv,
+	}, b.Playbook.MCPServers[0])
+
+	slack := &Brief{Source: BriefSource{Kind: SourceSlack}, Playbook: BriefPlaybook{AllowedTools: hostTools}}
+	c.hostBrief(slack, menu, nil, nil)
+	assert.Empty(t, slack.Playbook.MCPServers)
+
+	noMenu := &Brief{Source: BriefSource{Kind: SourceGitHub}, Playbook: BriefPlaybook{AllowedTools: hostTools}}
+	c.hostBrief(noMenu, nil, nil, nil)
+	assert.Empty(t, noMenu.Playbook.MCPServers, "no delegation block, no token minted, nothing to authenticate with")
+}
+
 func TestHostBriefOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
