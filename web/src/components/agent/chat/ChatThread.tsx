@@ -8,7 +8,6 @@ import {
   Copy,
   LoaderCircle,
   Terminal,
-  Wrench,
   X,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -24,12 +23,14 @@ import {
   type ThreadMessageLike,
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
+import { toolSummary } from "../../../lib/activity";
 import { TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
 import { absolute, relative } from "../../../lib/format";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible";
 import { Tooltip } from "../../ui/tooltip";
+import { ToolCallRow } from "../../activity/ToolCallRow";
 import { ChatAttachments } from "../ChatAttachments";
 import { MarkdownText } from "./MarkdownText";
 
@@ -285,48 +286,19 @@ function Trail({ running, steps, children }: { running: boolean; steps: number; 
   );
 }
 
-/** ToolCall is one finished tool call: a line to scan, and its input and output to open. */
+/** ToolCall is one finished tool call, drawn the way the task page draws one. */
 function ToolCall({ toolName, argsText, result, isError, artifact }: ToolCallMessagePartProps) {
   const title = (artifact as { title?: string } | undefined)?.title;
   const output = typeof result === "string" ? result : result === undefined ? "" : JSON.stringify(result, null, 2);
-  const input = pretty(argsText);
   return (
-    <Collapsible data-testid="chat-tool" className="min-w-0">
-      <CollapsibleTrigger className="group/trigger flex w-full min-w-0 items-center gap-2 text-left text-sm text-muted transition-colors hover:text-fg">
-        {isError ? <X className="size-3.5 shrink-0 text-err" /> : <Wrench className="size-3.5 shrink-0" />}
-        <span className="shrink-0 font-mono text-xs text-fg">{toolName}</span>
-        {title ? <span className="min-w-0 truncate text-xs">{title}</span> : null}
-        <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/trigger:rotate-90" />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down overflow-hidden">
-        <div className="mt-1.5 space-y-1.5">
-          {input ? <Pre label="Input">{input}</Pre> : null}
-          {output ? <Pre label={isError ? "Error" : "Output"} error={isError}>{output}</Pre> : null}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <ToolCallRow
+      tool={toolName}
+      summary={toolSummary({ kind: "tool", tool: toolName, title, input: argsText })}
+      input={argsText}
+      output={output}
+      isError={isError}
+    />
   );
-}
-
-function Pre({ label, error, children }: { label: string; error?: boolean; children: string }) {
-  return (
-    <figure className="overflow-hidden rounded-lg border border-border bg-bg">
-      <figcaption className="border-b border-hairline bg-panel px-2.5 py-0.5 text-2xs text-faint">{label}</figcaption>
-      <pre className={cn("max-h-64 overflow-auto px-2.5 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words", error && "text-err")}>
-        {children}
-      </pre>
-    </figure>
-  );
-}
-
-/** pretty indents a JSON input and leaves anything else as it came. */
-function pretty(text: string): string {
-  if (text === "") return "";
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
 }
 
 /**

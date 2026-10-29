@@ -192,9 +192,12 @@ Three properties worth knowing:
   scoped by task (a join against `tasks.logs_rolled_up_at`), not by chunk age. That is what keeps
   it from truncating a long-running task's log out from under it.
 - **Reading a pruned task back is transparent.** `podium logs` on an archived task serves the
-  whole stream from the object store. What is lost is the **interleaving between streams**:
-  stdout replays as one run and then stderr, because there is one object per stream and nothing
-  records how they were braided together. Within a stream the order is exact.
+  whole stream from the object store, exactly as it streamed live: the roll-up also writes an
+  index of the chunks (`task_log_index`: each chunk's seq, stream, length, timestamp and source
+  offset, compressed), so every line comes back under the sequence number and the time it had,
+  with stdout and stderr braided as they were. A task rolled up before the index existed has
+  none, and replays the old way: stdout as one run and then stderr, every chunk stamped with the
+  time it was archived. Within a stream the order is exact either way.
 - **A rolled-up log is decompressed on every read.** There is no cache and no range support, so
   `podium logs --from-seq N` on a large archived task reads and discards everything below N. It
   is a cold path for a task older than a day.

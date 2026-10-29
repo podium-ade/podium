@@ -357,8 +357,12 @@ func TestNoObjectStoreConfiguredIsASupportedDeployment(t *testing.T) {
 // the grace period, and `podium logs` — StreamTaskEvents — still returns the whole log.
 //
 // It also carries a `message` event, which is a task_events row and therefore not rolled up
-// at all: it must survive the sweep and the prune and replay from the archive in seq order,
-// with the log put back into the gaps around it.
+// at all: it must survive the sweep and the prune and replay from the archive in seq order.
+//
+// And the log braids stdout with stderr. The roll-up's index (internal/server/logs/index.go)
+// is what lets the pruned task replay exactly as it streamed live: every event under the
+// seq, the time and the stream it had, not one stream after the other under the archive's
+// own timestamp.
 func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -382,11 +386,15 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 		node.stamp(assign, &podiumv1.TaskEvent{Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_PROVISIONING}),
 		node.stamp(assign, &podiumv1.TaskEvent{Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED}),
 	)
-	for _, line := range lines {
+	for i, line := range lines {
+		stream := podiumv1.LogChunk_STREAM_STDOUT
+		if i%8 == 3 {
+			stream = podiumv1.LogChunk_STREAM_STDERR
+		}
 		node.send(node.stamp(assign, &podiumv1.TaskEvent{
 			Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG,
 			Payload: &podiumv1.TaskEvent_Log{Log: &podiumv1.LogChunk{
-				Stream: podiumv1.LogChunk_STREAM_STDOUT, Bytes: []byte(line),
+				Stream: stream, Bytes: []byte(line),
 			}},
 		}))
 	}
@@ -426,8 +434,8 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 		}
 		return false
 	})
-	require.Equal(t, "stdout", logArtifact.GetName())
-	require.Equal(t, "tasks/"+taskID+"/logs/stdout.log.zst", logArtifact.GetObjectKey())
+	require.Contains(t, []string{"stdout", "stderr"}, logArtifact.GetName())
+	require.Equal(t, "tasks/"+taskID+"/logs/"+logArtifact.GetName()+".log.zst", logArtifact.GetObjectKey())
 	require.Equal(t, artifacts.LogContentType, logArtifact.GetContentType())
 
 	// The object really is the log, zstd-compressed.
@@ -438,7 +446,7 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	defer dec.Close()
 	plain, err := io.ReadAll(dec)
 	require.NoError(t, err)
-	require.Equal(t, wantLog, plain)
+	require.Equal(t, streamBytes(before, logArtifactStream(logArtifact.GetName())), plain)
 
 	// After the grace period the hot rows go, and the log still reads back whole.
 	waitFor(t, 30*time.Second, "the task's log chunks to be pruned", func() bool {
@@ -449,6 +457,18 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	require.Equal(t, wantLog, logBytes(after), "a pruned task's log must still read back in full")
 	requireAscendingSeq(t, after)
 	requireTheMessage(t, after)
+
+	// Event for event, the pruned task is the live one.
+	require.Len(t, after, len(before))
+	for i := range before {
+		b, a := before[i], after[i]
+		require.Equal(t, b.GetSeq(), a.GetSeq(), "event %d", i)
+		require.Equal(t, b.GetKind(), a.GetKind(), "seq %d", b.GetSeq())
+		require.True(t, b.GetTs().AsTime().Equal(a.GetTs().AsTime()),
+			"seq %d: live at %s, replayed at %s", b.GetSeq(), b.GetTs().AsTime(), a.GetTs().AsTime())
+		require.Equal(t, b.GetLog().GetStream(), a.GetLog().GetStream(), "seq %d", b.GetSeq())
+		require.Equal(t, b.GetLog().GetBytes(), a.GetLog().GetBytes(), "seq %d", b.GetSeq())
+	}
 
 	// from_seq still means what it means everywhere else.
 	half := after[len(after)/2].GetSeq()
@@ -629,4 +649,22 @@ func requireAscendingSeq(t *testing.T, events []*podiumv1.TaskEvent) {
 		require.Greater(t, e.GetSeq(), last, "events must be strictly ascending by seq")
 		last = e.GetSeq()
 	}
+}
+
+// streamBytes is the bytes one stream's chunks carried, in seq order.
+func streamBytes(events []*podiumv1.TaskEvent, stream podiumv1.LogChunk_Stream) []byte {
+	var out []byte
+	for _, e := range events {
+		if e.GetKind() == podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG && e.GetLog().GetStream() == stream {
+			out = append(out, e.GetLog().GetBytes()...)
+		}
+	}
+	return out
+}
+
+func logArtifactStream(name string) podiumv1.LogChunk_Stream {
+	if name == "stderr" {
+		return podiumv1.LogChunk_STREAM_STDERR
+	}
+	return podiumv1.LogChunk_STREAM_STDOUT
 }
