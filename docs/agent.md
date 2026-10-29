@@ -1761,10 +1761,17 @@ restart. They live in the settings row `connection.github.filters`.
   GitHub and remembered. A thread that cannot be read needs the trigger.
 - **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still starts
   a review.
+- **Excluded branches**: pull requests into these base branches start nothing, mentions
+  included. One pattern per line, case sensitive. A plain name matches only itself; a glob
+  follows GitHub Actions, so `feature/*` matches `feature/login` but not `feature/login/ui`,
+  and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is a regular
+  expression that may match any part of the name unless anchored. `issue_comment` does not carry
+  the base, so with any branch excluded the conductor reads the pull request for it.
 
 The log line for a dropped delivery names why: `actor not allowed`, `ignored actor`,
-`bot sender`, `auto review off`, `not mentioned`. If the filters cannot be read, the delivery is
-dropped with `filters unavailable` rather than let an allowlist lapse.
+`bot sender`, `auto review off`, `not mentioned`, `excluded branch`. If the filters cannot be
+read, the delivery is dropped with `filters unavailable` rather than let an allowlist lapse; the
+same holds for `base branch unavailable` when branches are excluded and GitHub does not answer.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.

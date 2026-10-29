@@ -180,12 +180,13 @@ func (s *AgentService) SetGitHubWebhookFilters(
 	}
 	in := req.Msg.GetFilters()
 	row, err := connections.NormalizeGitHubFilters(connections.GitHubFilters{
-		AllowedActors:  in.GetAllowedActors(),
-		IgnoredActors:  in.GetIgnoredActors(),
-		IgnoreBots:     in.GetIgnoreBots(),
-		TriggerPhrases: in.GetTriggerPhrases(),
-		ReplyMode:      in.GetReplyMode(),
-		NoAutoReview:   !in.GetAutoReview(),
+		AllowedActors:    in.GetAllowedActors(),
+		IgnoredActors:    in.GetIgnoredActors(),
+		IgnoreBots:       in.GetIgnoreBots(),
+		TriggerPhrases:   in.GetTriggerPhrases(),
+		ReplyMode:        in.GetReplyMode(),
+		NoAutoReview:     !in.GetAutoReview(),
+		ExcludedBranches: in.GetExcludedBranches(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -201,7 +202,8 @@ func (s *AgentService) SetGitHubWebhookFilters(
 	s.logger.InfoContext(ctx, "saving the github webhook filters", "login", row.SetBy,
 		"allowed_actors", len(row.AllowedActors), "ignored_actors", len(row.IgnoredActors),
 		"ignore_bots", row.IgnoreBots, "trigger_phrases", len(row.TriggerPhrases),
-		"reply_mode", row.ReplyMode, "auto_review", !row.NoAutoReview)
+		"reply_mode", row.ReplyMode, "auto_review", !row.NoAutoReview,
+		"excluded_branches", len(row.ExcludedBranches))
 	if err := connections.SaveGitHubFilters(ctx, s.store, row); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -313,13 +315,14 @@ func filtersView(f connections.GitHubFilters) *agentv1.GitHubWebhookFilters {
 		mode = connections.ReplyBotThreads
 	}
 	out := &agentv1.GitHubWebhookFilters{
-		AllowedActors:  f.AllowedActors,
-		IgnoredActors:  f.IgnoredActors,
-		IgnoreBots:     f.IgnoreBots,
-		TriggerPhrases: f.TriggerPhrases,
-		ReplyMode:      mode,
-		AutoReview:     !f.NoAutoReview,
-		SetBy:          f.SetBy,
+		AllowedActors:    f.AllowedActors,
+		IgnoredActors:    f.IgnoredActors,
+		IgnoreBots:       f.IgnoreBots,
+		TriggerPhrases:   f.TriggerPhrases,
+		ReplyMode:        mode,
+		AutoReview:       !f.NoAutoReview,
+		ExcludedBranches: f.ExcludedBranches,
+		SetBy:            f.SetBy,
 	}
 	if !f.SetAt.IsZero() {
 		out.SetAt = timestamppb.New(f.SetAt)
