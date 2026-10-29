@@ -74,7 +74,7 @@ describe("Header", () => {
     expect(groupLinks("Work")).toEqual(["Chat", "Tasks", "Sessions"]);
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
     expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
-    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Registries"]);
+    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Snapshots", "Registries"]);
     expect(groupLinks("Organization")).toEqual(["Members", "Usage"]);
   });
 
@@ -289,6 +289,7 @@ describe("Header", () => {
       ["Nodes", "nodes"],
       ["Backend", "backend"],
       ["Sandboxes", "sandboxes"],
+      ["Snapshots", "snapshots"],
       ["Registries", "registries"],
       ["Members", "members"],
       ["Usage", "usage"],

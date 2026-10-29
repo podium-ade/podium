@@ -67,6 +67,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "nodes", label: "Nodes", to: "/nodes", icon: "nodes", desc: "Workers enrolled with this control plane.", keys: "workers machines enroll drain" },
       { id: "backend", label: "Backend", to: "/agent/settings/runs-on", icon: "backend", desc: "Where a session’s workspace runs.", keys: "runs on sandbox runtime self-hosted", show: agent },
       { id: "sandboxes", label: "Sandboxes", to: "/sandboxes", icon: "sandboxes", desc: "Sandbox providers sessions and tasks can run in.", keys: "modal daytona e2b provider capacity" },
+      { id: "snapshots", label: "Snapshots", to: "/snapshots", icon: "snapshots", desc: "Saved conversation workspaces, and when they are deleted.", keys: "workspace storage disk retention cleanup s3 bucket" },
       { id: "registries", label: "Registries", to: "/registries", icon: "registries", desc: "Image registries workers pull from.", keys: "images docker containers" },
     ],
   },
