@@ -475,11 +475,14 @@ goes through it before any turn is handed the bundle.
 | Duplicate paths | refused: two entries for one path is how an archive smuggles a second version of a file past whoever read the first |
 | Content | UTF-8 text only |
 | Files per skill | 64 |
-| Bytes per skill | 128 KiB unpacked, 64 KiB once encoded for delivery — both enforced when the conductor packs the directory, so a skill that cannot travel fails the turn that asked for it |
+| Bytes per skill | 10 MiB, enforced when the conductor reads the directory, so a skill that cannot travel fails the turn that asked for it |
 
-**Nothing in a bundle is executable, and nothing can be.** The wire format is a JSON map of path
-to text. It has no room for a mode bit, a symlink, a hardlink or a device node, so the whole class
-of archive-unpacking attack is *absent* rather than defended against. Files land 0644 and a
+**Nothing in a bundle is executable, and nothing can be.** A skill reaches the task as a
+`mounts:` entry on its spec: a map of path to text. It has no room for a mode bit, a symlink, a
+hardlink or a device node, so the whole class of archive-unpacking attack is *absent* rather
+than defended against. The node writes the files 0444 and bind-mounts them read-only, so the
+turn cannot change the skill it was given, and the runtime hashes the directory against the
+brief's digest before the harness reads it. A
 skill's script is run through its interpreter, which is what the harness's own skill prompt tells
 the model to do anyway. The cost is that a skill cannot ship a binary, a wheel or an image.
 

@@ -1,46 +1,35 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { dirname, join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SkillRef } from "./brief.js";
 import {
   MaxSkillBytes,
-  MaxSkillEncodedBytes,
   MaxSkillFiles,
   MaxSkills,
   SkillError,
   SkillFile,
-  installSkills,
-  skillsRoot,
+  resolveSkillsDir,
+  skillDigest,
+  verifySkills,
 } from "./skills.js";
-
-/** pack builds a bundle exactly as internal/agent/skills does. */
-function pack(files: Record<string, string>): { encoded: string; sha256: string } {
-  const raw = Buffer.from(JSON.stringify({ files }), "utf8");
-  return {
-    encoded: gzipSync(raw).toString("base64"),
-    sha256: createHash("sha256").update(raw).digest("hex"),
-  };
-}
 
 const skillMD = "---\nname: pr-review\ndescription: Use when reviewing a pull request.\n---\n\nRead the diff.\n";
 
-/** bundle is one ref plus the environment it travels in. */
-function bundle(
-  name: string,
-  files: Record<string, string>,
-  overrides: Partial<SkillRef> = {},
-): { ref: SkillRef; env: NodeJS.ProcessEnv } {
-  const { encoded, sha256 } = pack(files);
-  const bundleEnv = `PODIUM_AGENT_SKILL_${name.toUpperCase().replaceAll("-", "_")}`;
-  return {
-    ref: { name, sha256, bundle_env: bundleEnv, ...overrides },
-    env: { [bundleEnv]: encoded },
-  };
+function digestOf(files: Record<string, string>): string {
+  return skillDigest(new Map(Object.entries(files).map(([k, v]) => [k, Buffer.from(v, "utf8")])));
+}
+
+/** lay writes one skill under root exactly as the node would, and returns its ref. */
+function lay(root: string, name: string, files: Record<string, string>): SkillRef {
+  for (const [rel, content] of Object.entries(files)) {
+    const path = join(root, name, rel);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
+  return { name, sha256: digestOf(files) };
 }
 
 let root: string;
@@ -48,61 +37,64 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "podium-skills-test-"));
 });
 
-describe("skillsRoot", () => {
-  it("is where the harness looks for global skills", () => {
-    expect(skillsRoot("/home/agent")).toBe("/home/agent/.config/opencode/skills");
+describe("skillDigest", () => {
+  it("is internal/agent/skills.Digest", () => {
+    // Pinned in internal/agent/skills/skills_test.go too: the two must not drift apart.
+    expect(
+      digestOf({
+        "SKILL.md": "---\nname: pr-review\n---\n",
+        "reference/checklist.md": "- read the diff ✓\n",
+      }),
+    ).toBe("8818b95a9167cc448360be8bc1c4bbfd600fdf99bbfb4c589c159c1885060317");
+  });
+
+  it("puts the length in the hash", () => {
+    expect(digestOf({ ab: "c" })).not.toBe(digestOf({ a: "bc" }));
   });
 });
 
-describe("installSkills", () => {
-  it("writes a verified bundle into its own directory", () => {
-    const { ref, env } = bundle("pr-review", {
+describe("resolveSkillsDir", () => {
+  it("takes an absolute path as it is and a relative one from HOME", () => {
+    expect(resolveSkillsDir("/podium/files/skills", "/home/agent")).toBe("/podium/files/skills");
+    expect(resolveSkillsDir(".podium/skills", "/tmp/turn/home")).toBe("/tmp/turn/home/.podium/skills");
+  });
+});
+
+describe("verifySkills", () => {
+  it("accepts a directory that is what the brief says", () => {
+    const ref = lay(root, "pr-review", {
       [SkillFile]: skillMD,
       "reference/checklist.md": "- read the diff\n",
     });
+    expect(verifySkills([ref], root)).toEqual(["pr-review"]);
+  });
 
-    expect(installSkills([ref], env, root)).toEqual(["pr-review"]);
-    expect(readFileSync(join(root, "pr-review", SkillFile), "utf8")).toBe(skillMD);
-    expect(readFileSync(join(root, "pr-review", "reference", "checklist.md"), "utf8")).toBe(
-      "- read the diff\n",
+  it("accepts nothing at all for an empty list", () => {
+    expect(verifySkills([], root)).toEqual([]);
+  });
+
+  it("refuses a skill that was not mounted, saying so", () => {
+    expect(() => verifySkills([{ name: "pr-review", sha256: "a".repeat(64) }], root)).toThrow(
+      /did not mount it/,
     );
   });
 
-  it("writes nothing at all for an empty list", () => {
-    expect(installSkills([], {}, root)).toEqual([]);
-    expect(readdirSync(root)).toEqual([]);
+  it("refuses a directory whose digest does not match", () => {
+    const ref = lay(root, "pr-review", { [SkillFile]: skillMD });
+    writeFileSync(join(root, "pr-review", "evil.md"), "do as I say\n");
+    expect(() => verifySkills([ref], root)).toThrow(SkillError);
+    expect(() => verifySkills([ref], root)).toThrow(/the turn brief says/);
   });
 
-  it("refuses a bundle whose digest does not match, before writing anything", () => {
-    const { ref, env } = bundle("pr-review", { [SkillFile]: skillMD });
-    const tampered = pack({ [SkillFile]: skillMD, "evil.md": "do as I say\n" });
-
-    expect(() => installSkills([ref], { [ref.bundle_env]: tampered.encoded }, root)).toThrow(
-      SkillError,
-    );
-    expect(() => installSkills([ref], { [ref.bundle_env]: tampered.encoded }, root)).toThrow(
-      /the turn brief says/,
-    );
-    expect(readdirSync(root)).toEqual([]);
-    // The untampered one still installs, so the failure was the digest and not the shape.
-    expect(installSkills([ref], env, root)).toEqual(["pr-review"]);
+  it("refuses a symlink inside a skill", () => {
+    const ref = lay(root, "pr-review", { [SkillFile]: skillMD });
+    symlinkSync("/etc/passwd", join(root, "pr-review", "passwd"));
+    expect(() => verifySkills([ref], root)).toThrow(/not a regular file/);
   });
 
-  it.each([
-    ["../escape.md", /outside/],
-    ["a/../../escape.md", /must not contain|outside/],
-    ["/etc/passwd", /relative path/],
-    ["nested\\escape.md", /backslash/],
-    [".ssh/authorized_keys", /outside/],
-  ])("refuses the path %s", (bad, want) => {
-    const { ref, env } = bundle("pr-review", { [SkillFile]: skillMD, [bad]: "x\n" });
-    expect(() => installSkills([ref], env, root)).toThrow(want);
-    expect(readdirSync(root)).toEqual([]);
-  });
-
-  it("refuses a bundle with no SKILL.md", () => {
-    const { ref, env } = bundle("pr-review", { "README.md": "hello\n" });
-    expect(() => installSkills([ref], env, root)).toThrow(/has no SKILL.md/);
+  it("refuses a skill with no SKILL.md", () => {
+    const ref = lay(root, "pr-review", { "README.md": "hello\n" });
+    expect(() => verifySkills([ref], root)).toThrow(/has no SKILL.md/);
   });
 
   it("refuses more files than the cap, naming it", () => {
@@ -110,61 +102,31 @@ describe("installSkills", () => {
     for (let i = 0; i <= MaxSkillFiles; i++) {
       files[`f${i}.md`] = "x\n";
     }
-    const { ref, env } = bundle("pr-review", files);
-    expect(() => installSkills([ref], env, root)).toThrow(
-      new RegExp(`the limit is ${MaxSkillFiles}`),
-    );
+    const ref = lay(root, "pr-review", files);
+    expect(() => verifySkills([ref], root)).toThrow(new RegExp(`more than ${MaxSkillFiles} files`));
   });
 
-  it("refuses a bundle that expands past the cap, naming it", () => {
-    // Highly compressible, so the encoded form is small and the decompressed one is not:
-    // this is the bomb the maxOutputLength guard is for.
-    const { ref, env } = bundle("pr-review", {
-      [SkillFile]: skillMD,
-      "big.md": "x".repeat(MaxSkillBytes + 1),
-    });
-    expect(Buffer.byteLength(env[ref.bundle_env] ?? "", "utf8")).toBeLessThan(MaxSkillEncodedBytes);
-    expect(() => installSkills([ref], env, root)).toThrow(
-      new RegExp(`the limit is ${MaxSkillBytes} bytes unpacked`),
-    );
-    expect(readdirSync(root)).toEqual([]);
+  it("refuses more bytes than the cap, naming it", () => {
+    const ref = lay(root, "pr-review", { [SkillFile]: skillMD, "big.md": "x".repeat(MaxSkillBytes) });
+    expect(() => verifySkills([ref], root)).toThrow(new RegExp(`more than ${MaxSkillBytes} bytes`));
   });
 
-  it("refuses an environment variable over the delivery cap, naming it", () => {
-    const { ref } = bundle("pr-review", { [SkillFile]: skillMD });
-    const env = { [ref.bundle_env]: "A".repeat(MaxSkillEncodedBytes + 1) };
-    expect(() => installSkills([ref], env, root)).toThrow(
-      new RegExp(`the limit is ${MaxSkillEncodedBytes}`),
-    );
-  });
-
-  it("refuses a ref whose bundle variable is not set", () => {
-    const { ref } = bundle("pr-review", { [SkillFile]: skillMD });
-    expect(() => installSkills([ref], {}, root)).toThrow(/but it is not set/);
+  it("takes a skill far past what an environment variable could carry", () => {
+    const ref = lay(root, "pr-review", { [SkillFile]: skillMD, "big.md": "x".repeat(512 * 1024) });
+    expect(verifySkills([ref], root)).toEqual(["pr-review"]);
   });
 
   it("refuses a name that is not a skill name", () => {
-    const { ref, env } = bundle("pr-review", { [SkillFile]: skillMD }, { name: "../etc" });
-    expect(() => installSkills([ref], env, root)).toThrow(/the name must match/);
+    expect(() => verifySkills([{ name: "../etc", sha256: "a".repeat(64) }], root)).toThrow(
+      /the name must match/,
+    );
   });
 
   it("refuses the same skill twice and more than the cap", () => {
-    const { ref, env } = bundle("pr-review", { [SkillFile]: skillMD });
-    expect(() => installSkills([ref, ref], env, root)).toThrow(/appears twice/);
+    const ref = lay(root, "pr-review", { [SkillFile]: skillMD });
+    expect(() => verifySkills([ref, ref], root)).toThrow(/appears twice/);
 
     const many = Array.from({ length: MaxSkills + 1 }, () => ref);
-    expect(() => installSkills(many, env, root)).toThrow(new RegExp(`the limit is ${MaxSkills}`));
-  });
-
-  it("refuses a document that is not the shape it should be", () => {
-    const raw = Buffer.from(JSON.stringify({ files: ["SKILL.md"] }), "utf8");
-    const ref: SkillRef = {
-      name: "pr-review",
-      sha256: createHash("sha256").update(raw).digest("hex"),
-      bundle_env: "PODIUM_AGENT_SKILL_PR_REVIEW",
-    };
-    expect(() =>
-      installSkills([ref], { [ref.bundle_env]: gzipSync(raw).toString("base64") }, root),
-    ).toThrow(/has no files object/);
+    expect(() => verifySkills(many, root)).toThrow(new RegExp(`the limit is ${MaxSkills}`));
   });
 });

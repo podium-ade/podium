@@ -136,7 +136,7 @@ func TestEverySkillAPlaybookNamesResolves(t *testing.T) {
 			require.Equal(t, s, b.Name)
 			require.NotEmpty(t, b.Description,
 				"the description is the whole of what the model reads to reach for a skill")
-			require.Equal(t, skills.EnvFor(s), b.Env)
+			require.Equal(t, skills.Digest(b.Files), b.SHA256)
 		}
 	}
 	require.Positive(t, named, "no playbook names a skill; this test would then prove nothing")
@@ -159,21 +159,18 @@ func TestEverySkillInTheDirectoryLoads(t *testing.T) {
 	}
 }
 
-// TestTheSkillFitsInAnEnvironmentVariable is the cap that is not about tidiness. A bundle
-// travels as one environment string on the task spec, and past MAX_ARG_STRLEN the container
-// cannot exec at all — the runtime never starts, so it cannot report why. A skill that grows
-// past the delivery cap has to fail here, where the number is visible, and not in a task
-// container that never runs.
-func TestTheSkillFitsInAnEnvironmentVariable(t *testing.T) {
+// TestTheSkillFitsOnATaskSpec is the cap that is not about tidiness: a skill is delivered as
+// read-only files on the task spec, and one that grows past MaxBytes has to fail here, where
+// the number is visible, and not on the turn that asked for it.
+func TestTheSkillFitsOnATaskSpec(t *testing.T) {
 	b, err := skills.Load(skillsDir, "validate-pr")
 	require.NoError(t, err)
 
-	require.LessOrEqual(t, len(b.Encoded), skills.MaxEncodedBytes,
-		"validate-pr is %d bytes encoded and the delivery cap is %d",
-		len(b.Encoded), skills.MaxEncodedBytes)
-	require.LessOrEqual(t, len(b.Document), skills.MaxBytes)
-	t.Logf("validate-pr: %d files, %d bytes unpacked, %d bytes encoded, sha256 %s",
-		b.Files, len(b.Document), len(b.Encoded), b.SHA256)
+	require.LessOrEqual(t, b.Size(), skills.MaxBytes)
+	require.NoError(t, (&spec.TaskSpec{
+		Image: "x", Timeout: 1, MaxAttempts: 1, Mounts: []spec.FileMount{b.Mount()},
+	}).Validate())
+	t.Logf("validate-pr: %d files, %d bytes, sha256 %s", len(b.Files), b.Size(), b.SHA256)
 }
 
 // Routing on the profile a human actually deploys, and the case the worked example cannot

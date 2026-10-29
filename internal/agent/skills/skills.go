@@ -9,26 +9,28 @@
 // path, and a bundle over any cap fails with the cap in the message.
 //
 // This package reads a directory and produces bytes. It does not decide which skills a turn
-// gets — that is the playbook's allow-list — and it never writes anything.
+// gets — that is the playbook's allow-list — and the only thing it writes is a skill an
+// operator uploaded, or a host turn's copy of one.
 package skills
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // SkillFile is the one file a skill directory must contain, spelled exactly this way.
@@ -58,63 +60,86 @@ const (
 // The caps. Every one of them is named in the error that trips it, because a skill that is
 // too big is an operator's problem to fix and a number they cannot see is no help.
 //
-// MaxEncodedBytes is the load-bearing one and it is not arbitrary. A bundle travels as one
-// environment variable on the task spec, and Linux caps a single environment string at
-// MAX_ARG_STRLEN — 128 KiB — after which the container cannot exec at all:
-//
-//	$ docker run --rm -e "BIG=$(python3 -c "print('x'*(128*1024))")" IMAGE printenv BIG
-//	exec /usr/bin/printenv: argument list too long
-//
-// 64 KiB leaves half of that as margin and lets MaxSkills bundles ride along beside a
-// full-sized brief.
+// A bundle reaches a container as a read-only directory on the task spec (spec.FileMount),
+// so no environment variable bounds it. What does is the spec: MaxSkills bundles at
+// MaxBytes is exactly spec.MaxMountBytes, so a playbook within these caps always fits.
 const (
 	// MaxSkills is how many skills one playbook may declare.
 	MaxSkills = 8
 	// MaxFiles is how many files one skill may carry, SKILL.md included.
 	MaxFiles = 64
-	// MaxBytes caps the decompressed bundle document.
-	MaxBytes = 128 << 10
-	// MaxEncodedBytes caps the base64 that goes on the task spec.
-	MaxEncodedBytes = 64 << 10
+	// MaxBytes caps the content of one skill's files, together.
+	MaxBytes = 10 << 20
 )
 
-// EnvPrefix is what a bundle's environment variable is called. A playbook may not set a
-// variable with this prefix: the conductor writes them, one per skill it is delivering.
-const EnvPrefix = "PODIUM_AGENT_SKILL_"
+// ContainerDir is where a task container finds its skills: one read-only mount per skill,
+// at ContainerDir/<name>. The harness is pointed at it in its config.
+const ContainerDir = spec.FilesMount + "/skills"
 
 // DirEnv is the directory on the CONDUCTOR'S OWN HOST that skills are read from. There is
 // no other source in this phase: no object store, no upload, no RPC.
 const DirEnv = "PODIUM_AGENT_SKILLS_DIR"
 
-// Bundle is one skill packed for delivery.
+// Bundle is one skill, read and checked, on its way to a turn.
 type Bundle struct {
 	// Name is the skill's name, which is also its directory name here and in the container.
 	Name string
 	// Description is the frontmatter's, kept for the log line and nothing else.
 	Description string
-	// SHA256 is the hex digest of the bundle document — the bytes Encoded decompresses to,
-	// and what the runtime verifies before it unpacks anything.
+	// SHA256 is Digest(Files): what the runtime verifies the directory it was given against
+	// before the harness reads any of it.
 	SHA256 string
-	// Env is the environment variable Encoded travels in.
-	Env string
-	// Encoded is base64(gzip(document)).
-	Encoded string
-	// Files is how many files the bundle carries. For the log line.
-	Files int
-	// Document is the bundle document itself: the JSON file map SHA256 is over. A gzip
-	// stream is one of many encodings of it, and base64 is a delivery detail.
-	Document []byte
+	// Files is every file of the skill by its path relative to the skill's directory.
+	Files map[string]string
 }
 
-// document is the bundle's wire format: a map of relative path to file content.
-//
-// It is JSON and not a tar deliberately. A tar entry can be a symlink, a hardlink, a device
-// node or a mode bit, and every one of those is a thing an unpacker has to refuse; this
-// format cannot express any of them, so the whole class of archive attacks is absent rather
-// than defended against. The cost is that a bundle carries text only and nothing in it is
-// executable — see docs/agent.md.
-type document struct {
-	Files map[string]string `json:"files"`
+// Size is how many bytes of content the bundle carries.
+func (b Bundle) Size() int {
+	n := 0
+	for _, content := range b.Files {
+		n += len(content)
+	}
+	return n
+}
+
+// Mount is the read-only directory this bundle is delivered as.
+func (b Bundle) Mount() spec.FileMount {
+	return spec.FileMount{Target: ContainerDir + "/" + b.Name, Files: maps.Clone(b.Files)}
+}
+
+// WriteUnder writes the bundle to root/<name>, for a turn that has no node to mount it: a
+// host turn. The files are read-only, the same as a mount, though the turn runs as the
+// conductor's own user and that is a convention here rather than a control.
+func (b Bundle) WriteUnder(root string) error {
+	dir := filepath.Join(root, b.Name)
+	for _, rel := range slices.Sorted(maps.Keys(b.Files)) {
+		if err := checkPath(rel); err != nil {
+			return fmt.Errorf("skill %q: %w", b.Name, err)
+		}
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("skill %q: %w", b.Name, err)
+		}
+		if err := os.WriteFile(path, []byte(b.Files[rel]), 0o444); err != nil {
+			return fmt.Errorf("skill %q: %w", b.Name, err)
+		}
+	}
+	return nil
+}
+
+// Digest is the hash a skill is identified and verified by. The runtime computes it again
+// over the directory it finds, so it is defined over the files themselves rather than over
+// any encoding of them: for each path in byte order, the path, a NUL, the content's length
+// in decimal, a NUL, and the content. A path cannot hold a NUL and the length says where
+// the content ends, so no two file sets share a preimage.
+func Digest(files map[string]string) string {
+	h := sha256.New()
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		content := files[rel]
+		h.Write([]byte(rel + "\x00" + strconv.Itoa(len(content)) + "\x00"))
+		h.Write([]byte(content))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // frontmatter is the part of SKILL.md this package validates. It is deliberately not
@@ -124,13 +149,6 @@ type document struct {
 type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-}
-
-// EnvFor is the environment variable one skill's bundle travels in. NameRE has already
-// refused everything but lowercase alphanumerics and hyphens, so the mapping is one-to-one:
-// an underscore cannot appear in a name, which means no two names can collide here.
-func EnvFor(name string) string {
-	return EnvPrefix + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
 // ValidateName reports whether a name is one the harness would accept. It is exported
@@ -215,32 +233,11 @@ func Build(name string, files map[string]string) (Bundle, error) {
 		return Bundle{}, fmt.Errorf("skill %q: %s: %w", name, SkillFile, err)
 	}
 
-	raw, err := json.Marshal(document{Files: files})
-	if err != nil {
-		return Bundle{}, fmt.Errorf("skill %q: %w", name, err)
-	}
-	if len(raw) > MaxBytes {
-		return Bundle{}, fmt.Errorf("skill %q is %d bytes packed; the limit is %d", name, len(raw), MaxBytes)
-	}
-	encoded, err := pack(raw)
-	if err != nil {
-		return Bundle{}, fmt.Errorf("skill %q: %w", name, err)
-	}
-	if len(encoded) > MaxEncodedBytes {
-		return Bundle{}, fmt.Errorf(
-			"skill %q is %d bytes once encoded for delivery; the limit is %d, and a bundle "+
-				"travels as one environment variable on the task spec",
-			name, len(encoded), MaxEncodedBytes)
-	}
-	sum := sha256.Sum256(raw)
 	return Bundle{
 		Name:        name,
 		Description: strings.TrimSpace(fm.Description),
-		SHA256:      hex.EncodeToString(sum[:]),
-		Env:         EnvFor(name),
-		Encoded:     encoded,
-		Files:       len(files),
-		Document:    raw,
+		SHA256:      Digest(files),
+		Files:       maps.Clone(files),
 	}, nil
 }
 
@@ -390,22 +387,4 @@ func checkFrontmatter(dir string, fm frontmatter) error {
 			len(fm.Description), MaxDescriptionLen))
 	}
 	return errors.Join(errs...)
-}
-
-// pack is gzip then base64. gzip is not decoration: it is roughly a third of the size on
-// markdown, which is the difference between a useful skill and one that does not fit in an
-// environment variable.
-func pack(raw []byte) (string, error) {
-	var buf bytes.Buffer
-	zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	if err != nil {
-		return "", err
-	}
-	if _, err := zw.Write(raw); err != nil {
-		return "", err
-	}
-	if err := zw.Close(); err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }

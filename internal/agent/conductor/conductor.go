@@ -1015,9 +1015,8 @@ func (c *Conductor) brief(
 		b.Git = &BriefGit{Name: g.Name, Email: g.Email}
 	}
 	for _, s := range bundles {
-		b.Playbook.Skills = append(b.Playbook.Skills, BriefSkill{
-			Name: s.Name, SHA256: s.SHA256, BundleEnv: s.Env,
-		})
+		b.Playbook.Skills = append(b.Playbook.Skills, BriefSkill{Name: s.Name, SHA256: s.SHA256})
+		b.Playbook.SkillsDir = skills.ContainerDir
 	}
 	for _, srv := range servers {
 		// resolveMCPServers has already refused a config that does not parse.
@@ -1129,19 +1128,21 @@ func (c *Conductor) taskSpec(
 		}
 	}
 	env[BriefEnv] = encodedBrief
-	// One variable per skill bundle, written last so a playbook's own env: can never
-	// shadow one. Playbook.validate has already refused the prefix, so this overwrites
-	// nothing an operator wrote.
-	for _, s := range bundles {
-		env[s.Env] = s.Encoded
-	}
 
 	if playbook.Docker {
 		env[profiles.DockerHostEnv] = dockerSidecarHost
 	}
 
+	// One read-only directory per skill, which is where the brief tells the runtime to
+	// look. Files and not variables: an environment string is capped at 128 KiB.
+	var mounts []spec.FileMount
+	for _, b := range bundles {
+		mounts = append(mounts, b.Mount())
+	}
+
 	s := &spec.TaskSpec{
 		Image:     playbook.Image,
+		Mounts:    mounts,
 		Env:       env,
 		Labels:    append([]string(nil), playbook.Labels...),
 		Resources: playbook.Resources,

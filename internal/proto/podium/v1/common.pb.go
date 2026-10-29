@@ -193,7 +193,10 @@ type TaskSpec struct {
 	// reachable from outside the node, until the ttl runs out or somebody releases it.
 	Expose *Expose `protobuf:"bytes,17,opt,name=expose,proto3" json:"expose,omitempty"`
 	// Run the task in a cloud sandbox instead of a container on the node.
-	Sandbox       *TaskSandbox `protobuf:"bytes,18,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	Sandbox *TaskSandbox `protobuf:"bytes,18,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// Directories of text files the node writes before the task starts and mounts
+	// read-only, each at its target under /podium/files.
+	Mounts        []*FileMount `protobuf:"bytes,19,rep,name=mounts,proto3" json:"mounts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -354,6 +357,70 @@ func (x *TaskSpec) GetSandbox() *TaskSandbox {
 	return nil
 }
 
+func (x *TaskSpec) GetMounts() []*FileMount {
+	if x != nil {
+		return x.Mounts
+	}
+	return nil
+}
+
+// FileMount is one read-only directory a task gets, carried whole on the spec. It is how
+// content too large for an environment variable reaches a task: Linux caps a single
+// environment string at 128 KiB.
+type FileMount struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// target is the absolute directory it is mounted at, under /podium/files.
+	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	// files maps a path relative to target onto that file's content. Text only.
+	Files         map[string]string `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileMount) Reset() {
+	*x = FileMount{}
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileMount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileMount) ProtoMessage() {}
+
+func (x *FileMount) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileMount.ProtoReflect.Descriptor instead.
+func (*FileMount) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *FileMount) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *FileMount) GetFiles() map[string]string {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
 // TaskSandbox is a task's cloud sandbox.
 type TaskSandbox struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -371,7 +438,7 @@ type TaskSandbox struct {
 
 func (x *TaskSandbox) Reset() {
 	*x = TaskSandbox{}
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -383,7 +450,7 @@ func (x *TaskSandbox) String() string {
 func (*TaskSandbox) ProtoMessage() {}
 
 func (x *TaskSandbox) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -396,7 +463,7 @@ func (x *TaskSandbox) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskSandbox.ProtoReflect.Descriptor instead.
 func (*TaskSandbox) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TaskSandbox) GetSnapshot() string {
@@ -442,7 +509,7 @@ type BoatSandbox struct {
 
 func (x *BoatSandbox) Reset() {
 	*x = BoatSandbox{}
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -454,7 +521,7 @@ func (x *BoatSandbox) String() string {
 func (*BoatSandbox) ProtoMessage() {}
 
 func (x *BoatSandbox) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -467,7 +534,7 @@ func (x *BoatSandbox) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoatSandbox.ProtoReflect.Descriptor instead.
 func (*BoatSandbox) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *BoatSandbox) GetType() string {
@@ -504,7 +571,7 @@ type ModalSandbox struct {
 
 func (x *ModalSandbox) Reset() {
 	*x = ModalSandbox{}
-	mi := &file_podium_v1_common_proto_msgTypes[3]
+	mi := &file_podium_v1_common_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -516,7 +583,7 @@ func (x *ModalSandbox) String() string {
 func (*ModalSandbox) ProtoMessage() {}
 
 func (x *ModalSandbox) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[3]
+	mi := &file_podium_v1_common_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -529,7 +596,7 @@ func (x *ModalSandbox) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModalSandbox.ProtoReflect.Descriptor instead.
 func (*ModalSandbox) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{3}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ModalSandbox) GetRuntime() string {
@@ -561,7 +628,7 @@ type Expose struct {
 
 func (x *Expose) Reset() {
 	*x = Expose{}
-	mi := &file_podium_v1_common_proto_msgTypes[4]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -573,7 +640,7 @@ func (x *Expose) String() string {
 func (*Expose) ProtoMessage() {}
 
 func (x *Expose) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[4]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -586,7 +653,7 @@ func (x *Expose) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Expose.ProtoReflect.Descriptor instead.
 func (*Expose) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{4}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Expose) GetTtl() *durationpb.Duration {
@@ -622,7 +689,7 @@ type ExposedPort struct {
 
 func (x *ExposedPort) Reset() {
 	*x = ExposedPort{}
-	mi := &file_podium_v1_common_proto_msgTypes[5]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +701,7 @@ func (x *ExposedPort) String() string {
 func (*ExposedPort) ProtoMessage() {}
 
 func (x *ExposedPort) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[5]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +714,7 @@ func (x *ExposedPort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposedPort.ProtoReflect.Descriptor instead.
 func (*ExposedPort) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{5}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ExposedPort) GetPort() int32 {
@@ -684,7 +751,7 @@ type SecretRef struct {
 
 func (x *SecretRef) Reset() {
 	*x = SecretRef{}
-	mi := &file_podium_v1_common_proto_msgTypes[6]
+	mi := &file_podium_v1_common_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -696,7 +763,7 @@ func (x *SecretRef) String() string {
 func (*SecretRef) ProtoMessage() {}
 
 func (x *SecretRef) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[6]
+	mi := &file_podium_v1_common_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -709,7 +776,7 @@ func (x *SecretRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretRef.ProtoReflect.Descriptor instead.
 func (*SecretRef) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{6}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SecretRef) GetName() string {
@@ -756,7 +823,7 @@ type Resources struct {
 
 func (x *Resources) Reset() {
 	*x = Resources{}
-	mi := &file_podium_v1_common_proto_msgTypes[7]
+	mi := &file_podium_v1_common_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -768,7 +835,7 @@ func (x *Resources) String() string {
 func (*Resources) ProtoMessage() {}
 
 func (x *Resources) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[7]
+	mi := &file_podium_v1_common_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -781,7 +848,7 @@ func (x *Resources) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Resources.ProtoReflect.Descriptor instead.
 func (*Resources) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{7}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Resources) GetCpu() float64 {
@@ -822,7 +889,7 @@ type Readiness struct {
 
 func (x *Readiness) Reset() {
 	*x = Readiness{}
-	mi := &file_podium_v1_common_proto_msgTypes[8]
+	mi := &file_podium_v1_common_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -834,7 +901,7 @@ func (x *Readiness) String() string {
 func (*Readiness) ProtoMessage() {}
 
 func (x *Readiness) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[8]
+	mi := &file_podium_v1_common_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -847,7 +914,7 @@ func (x *Readiness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Readiness.ProtoReflect.Descriptor instead.
 func (*Readiness) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{8}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Readiness) GetTcpPort() int32 {
@@ -907,7 +974,7 @@ type Sidecar struct {
 
 func (x *Sidecar) Reset() {
 	*x = Sidecar{}
-	mi := &file_podium_v1_common_proto_msgTypes[9]
+	mi := &file_podium_v1_common_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -919,7 +986,7 @@ func (x *Sidecar) String() string {
 func (*Sidecar) ProtoMessage() {}
 
 func (x *Sidecar) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[9]
+	mi := &file_podium_v1_common_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,7 +999,7 @@ func (x *Sidecar) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Sidecar.ProtoReflect.Descriptor instead.
 func (*Sidecar) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{9}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Sidecar) GetImage() string {
@@ -998,7 +1065,7 @@ type Hardening struct {
 
 func (x *Hardening) Reset() {
 	*x = Hardening{}
-	mi := &file_podium_v1_common_proto_msgTypes[10]
+	mi := &file_podium_v1_common_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1077,7 @@ func (x *Hardening) String() string {
 func (*Hardening) ProtoMessage() {}
 
 func (x *Hardening) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[10]
+	mi := &file_podium_v1_common_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1090,7 @@ func (x *Hardening) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hardening.ProtoReflect.Descriptor instead.
 func (*Hardening) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{10}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Hardening) GetReadOnlyRootfs() bool {
@@ -1052,7 +1119,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_podium_v1_common_proto_msgTypes[11]
+	mi := &file_podium_v1_common_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1064,7 +1131,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[11]
+	mi := &file_podium_v1_common_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1077,7 +1144,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{11}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Usage) GetCpuSeconds() float64 {
@@ -1113,7 +1180,7 @@ type NodeCapacity struct {
 
 func (x *NodeCapacity) Reset() {
 	*x = NodeCapacity{}
-	mi := &file_podium_v1_common_proto_msgTypes[12]
+	mi := &file_podium_v1_common_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1192,7 @@ func (x *NodeCapacity) String() string {
 func (*NodeCapacity) ProtoMessage() {}
 
 func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[12]
+	mi := &file_podium_v1_common_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1205,7 @@ func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeCapacity.ProtoReflect.Descriptor instead.
 func (*NodeCapacity) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{12}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *NodeCapacity) GetMaxTasks() int32 {
@@ -1166,7 +1233,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xb1\a\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xdf\a\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -1187,13 +1254,21 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\x16workspace_publish_base\x18\x0f \x01(\bR\x14workspacePublishBase\x12@\n" +
 	"\x0eworkspace_warm\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\rworkspaceWarm\x12)\n" +
 	"\x06expose\x18\x11 \x01(\v2\x11.podium.v1.ExposeR\x06expose\x120\n" +
-	"\asandbox\x18\x12 \x01(\v2\x16.podium.v1.TaskSandboxR\asandbox\x1a6\n" +
+	"\asandbox\x18\x12 \x01(\v2\x16.podium.v1.TaskSandboxR\asandbox\x12,\n" +
+	"\x06mounts\x18\x13 \x03(\v2\x14.podium.v1.FileMountR\x06mounts\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +
 	"\rSidecarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"\xa0\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"\x94\x01\n" +
+	"\tFileMount\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\x125\n" +
+	"\x05files\x18\x02 \x03(\v2\x1f.podium.v1.FileMount.FilesEntryR\x05files\x1a8\n" +
+	"\n" +
+	"FilesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
 	"\vTaskSandbox\x12\x1a\n" +
 	"\bsnapshot\x18\x01 \x01(\tR\bsnapshot\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12*\n" +
@@ -1291,54 +1366,58 @@ func file_podium_v1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_podium_v1_common_proto_goTypes = []any{
 	(TaskStatus)(0),             // 0: podium.v1.TaskStatus
 	(NodeStatus)(0),             // 1: podium.v1.NodeStatus
 	(*TaskSpec)(nil),            // 2: podium.v1.TaskSpec
-	(*TaskSandbox)(nil),         // 3: podium.v1.TaskSandbox
-	(*BoatSandbox)(nil),         // 4: podium.v1.BoatSandbox
-	(*ModalSandbox)(nil),        // 5: podium.v1.ModalSandbox
-	(*Expose)(nil),              // 6: podium.v1.Expose
-	(*ExposedPort)(nil),         // 7: podium.v1.ExposedPort
-	(*SecretRef)(nil),           // 8: podium.v1.SecretRef
-	(*Resources)(nil),           // 9: podium.v1.Resources
-	(*Readiness)(nil),           // 10: podium.v1.Readiness
-	(*Sidecar)(nil),             // 11: podium.v1.Sidecar
-	(*Hardening)(nil),           // 12: podium.v1.Hardening
-	(*Usage)(nil),               // 13: podium.v1.Usage
-	(*NodeCapacity)(nil),        // 14: podium.v1.NodeCapacity
-	nil,                         // 15: podium.v1.TaskSpec.EnvEntry
-	nil,                         // 16: podium.v1.TaskSpec.SidecarsEntry
-	nil,                         // 17: podium.v1.Expose.PortsEntry
-	nil,                         // 18: podium.v1.Sidecar.EnvEntry
-	(*durationpb.Duration)(nil), // 19: google.protobuf.Duration
+	(*FileMount)(nil),           // 3: podium.v1.FileMount
+	(*TaskSandbox)(nil),         // 4: podium.v1.TaskSandbox
+	(*BoatSandbox)(nil),         // 5: podium.v1.BoatSandbox
+	(*ModalSandbox)(nil),        // 6: podium.v1.ModalSandbox
+	(*Expose)(nil),              // 7: podium.v1.Expose
+	(*ExposedPort)(nil),         // 8: podium.v1.ExposedPort
+	(*SecretRef)(nil),           // 9: podium.v1.SecretRef
+	(*Resources)(nil),           // 10: podium.v1.Resources
+	(*Readiness)(nil),           // 11: podium.v1.Readiness
+	(*Sidecar)(nil),             // 12: podium.v1.Sidecar
+	(*Hardening)(nil),           // 13: podium.v1.Hardening
+	(*Usage)(nil),               // 14: podium.v1.Usage
+	(*NodeCapacity)(nil),        // 15: podium.v1.NodeCapacity
+	nil,                         // 16: podium.v1.TaskSpec.EnvEntry
+	nil,                         // 17: podium.v1.TaskSpec.SidecarsEntry
+	nil,                         // 18: podium.v1.FileMount.FilesEntry
+	nil,                         // 19: podium.v1.Expose.PortsEntry
+	nil,                         // 20: podium.v1.Sidecar.EnvEntry
+	(*durationpb.Duration)(nil), // 21: google.protobuf.Duration
 }
 var file_podium_v1_common_proto_depIdxs = []int32{
-	15, // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
-	19, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
-	16, // 2: podium.v1.TaskSpec.sidecars:type_name -> podium.v1.TaskSpec.SidecarsEntry
-	9,  // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
-	12, // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
-	8,  // 5: podium.v1.TaskSpec.secrets:type_name -> podium.v1.SecretRef
-	19, // 6: podium.v1.TaskSpec.workspace_warm:type_name -> google.protobuf.Duration
-	6,  // 7: podium.v1.TaskSpec.expose:type_name -> podium.v1.Expose
-	3,  // 8: podium.v1.TaskSpec.sandbox:type_name -> podium.v1.TaskSandbox
-	4,  // 9: podium.v1.TaskSandbox.boat:type_name -> podium.v1.BoatSandbox
-	5,  // 10: podium.v1.TaskSandbox.modal:type_name -> podium.v1.ModalSandbox
-	19, // 11: podium.v1.Expose.ttl:type_name -> google.protobuf.Duration
-	17, // 12: podium.v1.Expose.ports:type_name -> podium.v1.Expose.PortsEntry
-	19, // 13: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
-	18, // 14: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
-	10, // 15: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
-	9,  // 16: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
-	11, // 17: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
-	7,  // 18: podium.v1.Expose.PortsEntry.value:type_name -> podium.v1.ExposedPort
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	16, // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
+	21, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
+	17, // 2: podium.v1.TaskSpec.sidecars:type_name -> podium.v1.TaskSpec.SidecarsEntry
+	10, // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
+	13, // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
+	9,  // 5: podium.v1.TaskSpec.secrets:type_name -> podium.v1.SecretRef
+	21, // 6: podium.v1.TaskSpec.workspace_warm:type_name -> google.protobuf.Duration
+	7,  // 7: podium.v1.TaskSpec.expose:type_name -> podium.v1.Expose
+	4,  // 8: podium.v1.TaskSpec.sandbox:type_name -> podium.v1.TaskSandbox
+	3,  // 9: podium.v1.TaskSpec.mounts:type_name -> podium.v1.FileMount
+	18, // 10: podium.v1.FileMount.files:type_name -> podium.v1.FileMount.FilesEntry
+	5,  // 11: podium.v1.TaskSandbox.boat:type_name -> podium.v1.BoatSandbox
+	6,  // 12: podium.v1.TaskSandbox.modal:type_name -> podium.v1.ModalSandbox
+	21, // 13: podium.v1.Expose.ttl:type_name -> google.protobuf.Duration
+	19, // 14: podium.v1.Expose.ports:type_name -> podium.v1.Expose.PortsEntry
+	21, // 15: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
+	20, // 16: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
+	11, // 17: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
+	10, // 18: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
+	12, // 19: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
+	8,  // 20: podium.v1.Expose.PortsEntry.value:type_name -> podium.v1.ExposedPort
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_common_proto_init() }
@@ -1352,7 +1431,7 @@ func file_podium_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_common_proto_rawDesc), len(file_podium_v1_common_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

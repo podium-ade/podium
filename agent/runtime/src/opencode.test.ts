@@ -165,6 +165,12 @@ describe("writeConfig", () => {
     // first or it denies the skills that follow it.
     expect(Object.keys(config.permission.skill)[0]).toBe("*");
   });
+
+  it("points the harness at the mounted skills directory, and nowhere without one", () => {
+    const { config } = write({ skills: ["pr-review"], skillsDir: "/podium/files/skills" });
+    expect(config.skills).toEqual({ paths: ["/podium/files/skills"] });
+    expect(write({ skills: ["pr-review"] }).config.skills).toBeUndefined();
+  });
 });
 
 describe("skillPermission", () => {

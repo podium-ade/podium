@@ -141,32 +141,37 @@ describe("decodeBrief", () => {
     ).toBe("podium.v2-x");
   });
 
-  it("takes a skill as a name, a digest and the variable its bundle travels in", () => {
-    const skills = [
-      {
-        name: "pr-review",
-        sha256: "a".repeat(64),
-        bundle_env: "PODIUM_AGENT_SKILL_PR_REVIEW",
-      },
-    ];
-    const brief = decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills } }));
+  it("takes a skill as a name and a digest, and the directory they are all in", () => {
+    const skills = [{ name: "pr-review", sha256: "a".repeat(64) }];
+    const brief = decodeBrief(
+      encode({ ...minimal, playbook: { ...minimal.playbook, skills, skills_dir: "/podium/files/skills" } }),
+    );
     expect(brief.playbook.skills).toEqual(skills);
+    expect(brief.playbook.skills_dir).toBe("/podium/files/skills");
     // Absent, not empty: a playbook that names no skills leaves the key out.
     expect(decodeBrief(encode(minimal)).playbook.skills).toBeUndefined();
   });
 
+  it("refuses skills with nowhere to find them", () => {
+    const skills = [{ name: "pr-review", sha256: "a".repeat(64) }];
+    expect(() => decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills } }))).toThrow(
+      BriefError,
+    );
+  });
+
   it("refuses a skill ref that is not one", () => {
     const bad = [
-      { name: "../etc", sha256: "a".repeat(64), bundle_env: "X" },
-      { name: "Upper", sha256: "a".repeat(64), bundle_env: "X" },
-      { name: "pr-review", sha256: "nothex", bundle_env: "X" },
-      { name: "pr-review", sha256: "A".repeat(64), bundle_env: "X" },
-      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "" },
-      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "X", extra: 1 },
+      { name: "../etc", sha256: "a".repeat(64) },
+      { name: "Upper", sha256: "a".repeat(64) },
+      { name: "pr-review", sha256: "nothex" },
+      { name: "pr-review", sha256: "A".repeat(64) },
+      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "X" },
     ];
     for (const skill of bad) {
       expect(() =>
-        decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills: [skill] } })),
+        decodeBrief(
+          encode({ ...minimal, playbook: { ...minimal.playbook, skills: [skill], skills_dir: "/podium/files/skills" } }),
+        ),
       ).toThrow(BriefError);
     }
   });

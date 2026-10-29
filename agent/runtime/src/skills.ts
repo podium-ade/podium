@@ -1,30 +1,25 @@
-// Putting one turn's Agent Skills where the harness will find them.
+// Checking one turn's Agent Skills before the harness is pointed at them.
 //
-// The harness discovers skills from `$HOME/.config/opencode/skills/<name>/SKILL.md` on its
-// own (https://opencode.ai/docs/skills/), so Podium's whole job here is to have written that
-// directory before the harness starts, and to have written nothing else.
+// The skills are already on disk when this process starts: on a node they are read-only
+// mounts the node wrote from the task spec, one directory per skill under the brief's
+// skills_dir, and for a host turn the conductor wrote them into the turn's own HOME. Nothing
+// here writes anything. The harness is told where they are with `skills.paths` in its
+// config (https://opencode.ai/docs/skills/), so the directory is read where it was mounted.
 //
-// A bundle is somebody else's content. It reached this process as base64 on an environment
-// variable, which is a channel with no integrity of its own, so nothing is written until the
-// digest in the brief matches the bytes that arrived — and every path inside is checked
-// component by component rather than normalised, because a normalised `../../.ssh` is still
-// a write outside the skill's directory.
-//
-// The wire format is a JSON map of relative path to file content, gzipped. It is not a tar
-// on purpose: a tar entry can be a symlink, a hardlink, a device node or a mode bit, and
-// each of those is a thing an unpacker has to remember to refuse. This format cannot express
-// any of them, so that whole class of archive attack is absent rather than defended against.
-// What it costs is that a bundle carries text only, and nothing it writes is executable.
+// What this does is refuse to start a turn on a directory that is not what the brief
+// promised. A node too old to know about mounts drops them without a word, and the turn
+// would then run with fewer skills than its playbook describes; a digest that does not
+// match is the same failure in a different shape. Each skill's files are hashed exactly as
+// internal/agent/skills.Digest does and compared with the brief's sha256.
 
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { isAbsolute, join } from "node:path";
 
 import type { SkillRef } from "./brief.js";
 
-/** SkillFile is the one file a bundle must contain, spelled exactly this way. */
+/** SkillFile is the one file a skill must contain, spelled exactly this way. */
 export const SkillFile = "SKILL.md";
 
 /**
@@ -37,23 +32,14 @@ export const SkillNameRE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const MaxSkillNameLen = 64;
 
 /**
- * The caps, mirroring internal/agent/skills. The conductor has already applied them; they
- * are applied again here because this side is what writes to a filesystem, and a cap that
- * only exists on the side that packs is not a cap.
+ * The caps, mirroring internal/agent/skills. The conductor has already applied them; here
+ * they bound how much of a directory this process is willing to read to find out.
  */
 export const MaxSkills = 8;
 export const MaxSkillFiles = 64;
-export const MaxSkillBytes = 128 * 1024;
-export const MaxSkillEncodedBytes = 64 * 1024;
+export const MaxSkillBytes = 10 * 1024 * 1024;
 
-/** MaxSkillPathLen and MaxSkillPathDepth bound one path inside a bundle. */
-export const MaxSkillPathLen = 255;
-export const MaxSkillPathDepth = 8;
-
-/** pathSegmentRE is what one component of a bundle path may look like. */
-const pathSegmentRE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/** SkillError is every way a bundle can be unusable. It always fails the turn. */
+/** SkillError is every way a skill can be unusable. It always fails the turn. */
 export class SkillError extends Error {
   constructor(message: string) {
     super(message);
@@ -61,23 +47,35 @@ export class SkillError extends Error {
   }
 }
 
-/** skillsRoot is where the harness looks for global skills. */
-export function skillsRoot(home = process.env.HOME || homedir()): string {
-  return join(home, ".config", "opencode", "skills");
+/** resolveSkillsDir is the brief's skills_dir as an absolute path: relative is to HOME. */
+export function resolveSkillsDir(dir: string, home = process.env.HOME || homedir()): string {
+  return isAbsolute(dir) ? dir : join(home, dir);
 }
 
 /**
- * installSkills unpacks every skill in the brief and returns the names it wrote, in order.
+ * skillDigest is internal/agent/skills.Digest: for each path in byte order, the path, a
+ * NUL, the content's length in bytes as decimal, a NUL, and the content.
+ */
+export function skillDigest(files: Map<string, Buffer>): string {
+  const h = createHash("sha256");
+  // Paths are ASCII (the conductor's path rule), so a code-unit sort is a byte sort.
+  for (const rel of [...files.keys()].sort()) {
+    const content = files.get(rel) as Buffer;
+    h.update(`${rel}\0${content.length}\0`, "utf8");
+    h.update(content);
+  }
+  return h.digest("hex");
+}
+
+/**
+ * verifySkills checks every skill in the brief against what is under dir and returns the
+ * names it checked, in order.
  *
  * One failure fails all of them, and the caller fails the turn. A turn that ran with three
  * of its four skills would answer differently from the playbook it claims to be, and nobody
  * watching would know which of the two had happened.
  */
-export function installSkills(
-  refs: SkillRef[],
-  env: NodeJS.ProcessEnv = process.env,
-  root = skillsRoot(),
-): string[] {
+export function verifySkills(refs: SkillRef[], dir: string): string[] {
   if (refs.length > MaxSkills) {
     throw new SkillError(`the turn brief carries ${refs.length} skills; the limit is ${MaxSkills}`);
   }
@@ -86,120 +84,60 @@ export function installSkills(
     if (done.includes(ref.name)) {
       throw new SkillError(`skill "${ref.name}" appears twice in the turn brief`);
     }
-    install(ref, env, root);
+    verify(ref, dir);
     done.push(ref.name);
   }
   return done;
 }
 
-function install(ref: SkillRef, env: NodeJS.ProcessEnv, root: string): void {
+function verify(ref: SkillRef, dir: string): void {
   const where = `skill "${ref.name}"`;
   if (ref.name.length > MaxSkillNameLen || !SkillNameRE.test(ref.name)) {
     throw new SkillError(`${where}: the name must match ${SkillNameRE.source} and be at most ${MaxSkillNameLen} characters`);
   }
-  const encoded = env[ref.bundle_env];
-  if (encoded === undefined || encoded === "") {
-    throw new SkillError(`${where}: the turn brief names ${ref.bundle_env} but it is not set`);
+  const root = join(dir, ref.name);
+  let isDir = false;
+  try {
+    isDir = lstatSync(root).isDirectory();
+  } catch {
+    // Reported below, as the same failure.
   }
-  if (Buffer.byteLength(encoded, "utf8") > MaxSkillEncodedBytes) {
+  if (!isDir) {
     throw new SkillError(
-      `${where}: ${ref.bundle_env} is ${Buffer.byteLength(encoded, "utf8")} bytes; the limit is ${MaxSkillEncodedBytes}`,
+      `${where}: ${root} is not there; the node that ran this turn did not mount it, which an older node does not know how to do`,
     );
   }
 
-  let raw: Buffer;
-  try {
-    // maxOutputLength is the decompression bomb guard, and it is the reason the cap is
-    // checked here rather than after parsing: a bundle that expands past it never reaches
-    // memory in full.
-    raw = gunzipSync(Buffer.from(encoded, "base64"), { maxOutputLength: MaxSkillBytes });
-  } catch (err) {
-    throw new SkillError(
-      `${where}: ${ref.bundle_env} did not decompress (the limit is ${MaxSkillBytes} bytes unpacked): ${messageOf(err)}`,
-    );
-  }
-
-  const digest = createHash("sha256").update(raw).digest("hex");
-  if (digest !== ref.sha256) {
-    // Before anything is parsed, and long before anything is written.
-    throw new SkillError(`${where}: the bundle hashes to ${digest} and the turn brief says ${ref.sha256}`);
-  }
-
-  const files = readDocument(where, raw);
-  const dir = join(root, ref.name);
-  for (const [rel, content] of files) {
-    const dest = join(dir, rel);
-    mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, content, { encoding: "utf8", mode: 0o644 });
-  }
-}
-
-/**
- * readDocument parses and checks the bundle. It returns the files sorted by path so that
- * what is written is a function of the bundle and not of a JSON key order.
- */
-function readDocument(where: string, raw: Buffer): [string, string][] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw.toString("utf8")) as unknown;
-  } catch (err) {
-    throw new SkillError(`${where}: the bundle is not JSON: ${messageOf(err)}`);
-  }
-  const doc = parsed as { files?: unknown } | null;
-  const map = doc?.files;
-  if (map === null || typeof map !== "object" || Array.isArray(map)) {
-    throw new SkillError(`${where}: the bundle has no files object`);
-  }
-  const entries = Object.entries(map as Record<string, unknown>);
-  if (entries.length === 0) {
-    throw new SkillError(`${where}: the bundle is empty`);
-  }
-  if (entries.length > MaxSkillFiles) {
-    throw new SkillError(`${where}: the bundle holds ${entries.length} files; the limit is ${MaxSkillFiles}`);
-  }
-  const out: [string, string][] = [];
+  const files = new Map<string, Buffer>();
   let total = 0;
-  for (const [rel, content] of entries) {
-    checkPath(where, rel);
-    if (typeof content !== "string") {
-      throw new SkillError(`${where}: ${rel} is not text; a skill bundle carries text only`);
+  const walk = (abs: string, rel: string): void => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const childAbs = join(abs, entry.name);
+      const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(childAbs, childRel);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new SkillError(`${where}: ${childRel} is not a regular file`);
+      }
+      if (files.size === MaxSkillFiles) {
+        throw new SkillError(`${where}: more than ${MaxSkillFiles} files; that is the limit`);
+      }
+      const content = readFileSync(childAbs);
+      total += content.length;
+      if (total > MaxSkillBytes) {
+        throw new SkillError(`${where}: more than ${MaxSkillBytes} bytes of files; that is the limit`);
+      }
+      files.set(childRel, content);
     }
-    total += Buffer.byteLength(content, "utf8");
-    if (total > MaxSkillBytes) {
-      throw new SkillError(`${where}: the bundle holds more than ${MaxSkillBytes} bytes of files`);
-    }
-    out.push([rel, content]);
+  };
+  walk(root, "");
+  if (!files.has(SkillFile)) {
+    throw new SkillError(`${where}: ${root} has no ${SkillFile}`);
   }
-  if (!out.some(([rel]) => rel === SkillFile)) {
-    throw new SkillError(`${where}: the bundle has no ${SkillFile}`);
+  const digest = skillDigest(files);
+  if (digest !== ref.sha256) {
+    throw new SkillError(`${where}: ${root} hashes to ${digest} and the turn brief says ${ref.sha256}`);
   }
-  out.sort(([a], [b]) => (a < b ? -1 : 1));
-  return out;
-}
-
-/**
- * checkPath is the traversal guard: every component has to be an ordinary name, so `..`,
- * an absolute path, a Windows separator, a NUL and a hidden dotfile are all refused by the
- * same rule rather than by a list of special cases.
- */
-function checkPath(where: string, rel: string): void {
-  if (rel === "" || rel.length > MaxSkillPathLen) {
-    throw new SkillError(`${where}: a bundle path must be 1 to ${MaxSkillPathLen} characters`);
-  }
-  if (rel.startsWith("/") || rel.includes("\\") || rel.includes("\0")) {
-    throw new SkillError(`${where}: ${JSON.stringify(rel)} must be a relative path with no backslash`);
-  }
-  const parts = rel.split("/");
-  if (parts.length > MaxSkillPathDepth) {
-    throw new SkillError(`${where}: ${rel} is more than ${MaxSkillPathDepth} directories deep`);
-  }
-  for (const part of parts) {
-    if (!pathSegmentRE.test(part)) {
-      throw new SkillError(`${where}: ${rel} has a path component ${JSON.stringify(part)} outside ${pathSegmentRE.source}`);
-    }
-  }
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

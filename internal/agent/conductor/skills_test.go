@@ -12,6 +12,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/skills"
 	"github.com/podium-ade/podium/internal/agent/store"
+	specpkg "github.com/podium-ade/podium/pkg/spec"
 )
 
 // skillsDir writes one usable skill per name and returns the directory holding them.
@@ -43,8 +44,8 @@ func skillsConductor(t *testing.T, dir string, playbook profiles.Playbook) *Cond
 	}
 }
 
-// The bundle is delivered beside the brief and never inside it: the brief carries the name,
-// the digest and the variable, and the task spec carries the bytes.
+// The skill is delivered beside the brief and never inside it: the brief carries the name,
+// the digest and the directory, and the task spec carries the files as read-only mounts.
 func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 	dir := skillsDir(t, "pr-review", "release-notes")
 	playbook := profiles.Playbook{Skills: []string{"pr-review", "release-notes"}}
@@ -60,14 +61,18 @@ func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	require.Len(t, b.Playbook.Skills, 2)
 	assert.Equal(t, "pr-review", b.Playbook.Skills[0].Name)
-	assert.Equal(t, skills.EnvPrefix+"PR_REVIEW", b.Playbook.Skills[0].BundleEnv)
+	assert.Equal(t, skills.ContainerDir, b.Playbook.SkillsDir)
 	assert.Len(t, b.Playbook.Skills[0].SHA256, 64)
 
 	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, nil, choice, "", "")
-	assert.Equal(t, bundles[0].Encoded, spec.Env[skills.EnvPrefix+"PR_REVIEW"])
-	assert.Equal(t, bundles[1].Encoded, spec.Env[skills.EnvPrefix+"RELEASE_NOTES"])
-	// The brief itself is untouched by any of this.
+	require.Len(t, spec.Mounts, 2)
+	assert.Equal(t, skills.ContainerDir+"/pr-review", spec.Mounts[0].Target)
+	assert.Equal(t, bundles[0].Files, spec.Mounts[0].Files)
+	assert.Equal(t, skills.ContainerDir+"/release-notes", spec.Mounts[1].Target)
+	assert.NoError(t, (&specpkg.TaskSpec{Image: "x", Timeout: 1, MaxAttempts: 1, Mounts: spec.Mounts}).Validate())
+	// The brief itself is untouched by any of this, and it is the only variable added.
 	assert.Equal(t, "encoded-brief", spec.Env[BriefEnv])
+	assert.Len(t, spec.Env, 1)
 	// And the digest in the brief is the digest of what was delivered.
 	assert.Equal(t, bundles[0].SHA256, b.Playbook.Skills[0].SHA256)
 }
@@ -86,11 +91,10 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	assert.Nil(t, b.Playbook.Skills)
+	assert.Empty(t, b.Playbook.SkillsDir)
 
 	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, nil, choice, "", "")
-	for k := range spec.Env {
-		assert.NotContains(t, k, skills.EnvPrefix)
-	}
+	assert.Empty(t, spec.Mounts)
 }
 
 // A skill the conductor cannot deliver fails the turn rather than running it with fewer
