@@ -174,6 +174,11 @@ var Backends = []Backend{{
 			Efforts: fullEfforts,
 		},
 		{
+			ID: "gpt-6.1-terra", DisplayName: "GPT-6.1 Terra",
+			Note:          "Fast and efficient. For visual reasoning, computer use, and writing.",
+			ContextTokens: 1_050_000, Efforts: fullEfforts,
+		},
+		{
 			ID: "gpt-6-luna", DisplayName: "GPT-6 Luna",
 			Note:          "Fastest and cheapest. For focused, high-volume tasks.",
 			ContextTokens: 1_050_000, Efforts: fullEfforts,
