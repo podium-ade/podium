@@ -144,7 +144,7 @@ describe("Header", () => {
     const agents = screen.getByRole("button", { name: "Agents" });
     await userEvent.click(agents);
     expect(agents).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("link", { name: "Playbooks", hidden: true })).not.toBeVisible();
+    expect(screen.getByTitle("Playbooks")).not.toBeVisible();
     first.unmount();
 
     const again = mount({ ...base, agentEnabled: true }, "/tasks");
