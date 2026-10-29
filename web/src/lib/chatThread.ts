@@ -5,7 +5,10 @@ import {
   type ToolCallMessagePart,
 } from "@assistant-ui/react";
 import type { ChatAttachment, ChatMessage } from "../gen/podium/agent/v1/agent_pb";
+import { parseActivity } from "./activity";
 import { toDate } from "./format";
+
+export { parseActivity, type Activity } from "./activity";
 
 /**
  * How a Podium transcript becomes an assistant-ui thread.
@@ -37,53 +40,6 @@ export interface TaskArgs {
 export interface MessageCustom {
   author?: string;
   attachments?: ChatAttachment[];
-}
-
-/** Activity is the JSON an `activity` row carries (agent/runtime/src/activity.ts). */
-export type Activity =
-  | {
-      kind: "tool";
-      id?: string;
-      tool: string;
-      title?: string;
-      status?: string;
-      input?: string;
-      output?: string;
-      error?: string;
-    }
-  | { kind: "reasoning"; text: string };
-
-/**
- * parseActivity reads an activity row, or undefined for one this build does not understand.
- * The text is a task's and untrusted: only the fields named here are read, only as strings.
- */
-export function parseActivity(text: string): Activity | undefined {
-  let v: unknown;
-  try {
-    v = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-  if (typeof v !== "object" || v === null) return undefined;
-  const o = v as Record<string, unknown>;
-  const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
-  if (o.kind === "reasoning") {
-    const t = str("text");
-    return t ? { kind: "reasoning", text: t } : undefined;
-  }
-  if (o.kind === "tool" && str("tool")) {
-    return {
-      kind: "tool",
-      id: str("id"),
-      tool: str("tool")!,
-      title: str("title"),
-      status: str("status"),
-      input: str("input"),
-      output: str("output"),
-      error: str("error"),
-    };
-  }
-  return undefined;
 }
 
 export interface ThreadInput {

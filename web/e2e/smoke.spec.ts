@@ -44,8 +44,10 @@ test("a running task appears, streams its log live, and the node is online", asy
   await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
 
   // Live, not after the fact: the assertion lands while the container is still counting.
-  await expect(page.getByTestId("log-line").first()).toContainText("tick 1");
-  await expect(page.getByTestId("log-line").nth(1)).toContainText("tick 2");
+  // The explorer lists the node's events too, so the container's lines are read by source.
+  const stdout = page.locator('[data-testid="log-line"][data-source="stdout"]');
+  await expect(stdout.first()).toContainText("tick 1");
+  await expect(stdout.nth(1)).toContainText("tick 2");
   await expect(page.getByText("running")).toBeVisible();
 
   await page.getByLabel("Search logs").fill("tick 3");
@@ -85,7 +87,7 @@ test("a task can be submitted from the UI and watched to completion", async ({ p
   await page.getByRole("button", { name: "Submit task" }).click();
 
   await expect(page).toHaveURL(/\/tasks\/task_[0-9a-z]+$/);
-  await expect(page.getByTestId("log-line").first()).toContainText("submitted-from-the-ui", {
+  await expect(page.getByTestId("log-line").filter({ hasText: "submitted-from-the-ui" })).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.getByText("succeeded")).toBeVisible({ timeout: 60_000 });
@@ -154,19 +156,21 @@ sidecars:
   const taskId = podium("run", "--detach", "--spec", path).match(/task_[0-9a-z]+/)![0];
 
   await page.goto(`/tasks/${taskId}`);
-  await expect(page.getByLabel("sidecar db")).toBeVisible({ timeout: 120_000 });
+  const db = page.getByRole("button", { name: /^sidecar:db \d+$/ });
+  await expect(db).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId("log-line").filter({ hasText: "[db]" }).first()).toBeVisible();
   await expect(
     page.getByTestId("log-line").filter({ hasText: "task-said-hello" }),
   ).toBeVisible();
 
-  await page.getByLabel("sidecar db").uncheck();
+  await db.click();
+  await expect(db).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("log-line").filter({ hasText: "[db]" })).toHaveCount(0);
   await expect(
     page.getByTestId("log-line").filter({ hasText: "task-said-hello" }),
   ).toBeVisible();
 
-  await page.getByLabel("sidecar db").check();
+  await db.click();
   await expect(page.getByTestId("log-line").filter({ hasText: "[db]" }).first()).toBeVisible();
 
   podium("task", "cancel", taskId);
