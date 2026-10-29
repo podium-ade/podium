@@ -285,6 +285,11 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	rs.inbox = inbox
 	rs.mu.Unlock()
 
+	files, err := e.stageMounts(req.TaskID, req.Spec.Mounts)
+	if err != nil {
+		return Result{}, err
+	}
+
 	// Secrets are staged last, so the smallest possible window exists between a
 	// plaintext landing on the node's disk and the container that consumes it starting.
 	secretsStaged, err := e.stageSecrets(req.TaskID, req.Secrets)
@@ -329,7 +334,7 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 				Target:   runnerTarget,
 				ReadOnly: true,
 			},
-		}, secretsStaged.mounts...),
+		}, append(files, secretsStaged.mounts...)...),
 		// The event socket goes in the legacy Binds form on purpose. Docker Desktop
 		// validates a Mounts-style bind by stat-ing the source through its file-sharing
 		// namespace, where Unix sockets are not visible, and rejects every socket source

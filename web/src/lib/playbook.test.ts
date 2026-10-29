@@ -29,6 +29,7 @@ const draft: PlaybookDraft = {
   slackChannels: [],
   linear: false,
   github: false,
+  githubRequires: "",
   interactive: true,
   skills: ["pr-review"],
   mcpServers: ["linear"],
@@ -75,6 +76,16 @@ env:
       "system_prompt: hi\nallowed_tools: [read, notepad]\n",
     );
     expect(problems.join("\n")).toContain("notepad");
+  });
+
+  it("round-trips github_requires and refuses a role GitHub does not have", () => {
+    const text = draftToYaml({ ...draft, githubRequires: "write" });
+    expect(text).toContain("github_requires: write");
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).githubRequires).toBe("write");
+    const bad = parsePlaybookYaml(text.replace("github_requires: write", "github_requires: owner"));
+    expect(bad.problems.join("\n")).toContain("is not one of read, triage, write, maintain, admin");
   });
 
   it("round-trips github: true", () => {

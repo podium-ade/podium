@@ -3,7 +3,7 @@ export const THEME_KEY = "podium-relay-theme";
 export type Theme = "light" | "dark";
 
 const THEME_COLOR: Record<Theme, string> = {
-  light: "#060708",
+  light: "#f2f4f6",
   dark: "#060708",
 };
 

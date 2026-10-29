@@ -7,6 +7,9 @@ import { onHost, type SourceKind, type TurnBrief } from "./brief.js";
 import { WorkspaceDir, artifactsUnder, workspaceOf } from "./repos.js";
 import { TitleServer, TitleTool, titleByTool } from "./title.js";
 
+/** PullRequestServer is the conductor's read-only view of the pull request a host turn is on. */
+export const PullRequestServer = "pull-request";
+
 /** MemoryTools are the Hindsight MCP tools the memory block talks about. */
 export const MemoryTools = ["mcp__memory__recall", "mcp__memory__retain", "mcp__memory__list_tags"];
 
@@ -30,6 +33,12 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   }
   if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
     sections.push(slackPlaybookBlock(brief));
+  }
+  if (onHost(brief) && brief.source.kind === "github") {
+    sections.push(pullRequestBlock(brief));
+  }
+  if (!onHost(brief) && brief.source.kind === "github" && !brief.playbook.github) {
+    sections.push(pullRequestTaskBlock());
   }
   if (titledConversation(brief) && firstChatTurn(brief)) {
     sections.push(chatTitleBlock(brief));
@@ -153,6 +162,9 @@ function delegationBlock(brief: TurnBrief): string {
     if (p.preview) {
       has.push("a preview that stays up after it finishes");
     }
+    if (p.github) {
+      has.push("the pull-request review");
+    }
     const carries = has.length > 0 ? ` — has ${has.join(", ")}` : "";
     const summary = p.summary && p.summary !== "" ? `: ${p.summary}` : "";
     return `- \`${p.name}\`${carries}${summary}`;
@@ -255,6 +267,70 @@ There is no default playbook. The instruction above to delegate on your first to
 - ${preference}
 - When the message and the channel description, taken together, do not make one playbook clearly right, ask. Name each playbook and the one line you were given about it, then stop. Do not call \`podium_delegate\` until they answer, and do not pick the first name on the menu in order to keep moving.
 - A question you can answer from this conversation, from memory, or from a page you can fetch still needs no playbook. Ask only when the work needs a machine and the playbook is the part you cannot tell.`;
+}
+
+/**
+ * pullRequestBlock is how a host turn behaves on a pull request. The review is a playbook's
+ * job and only its answer becomes the review; the assistant answers questions and routes work.
+ */
+function pullRequestBlock(brief: TurnBrief): string {
+  const review = (brief.delegation?.playbooks ?? []).find((p) => p.github)?.name;
+  const reads = (brief.playbook.mcp_servers ?? []).some((s) => s.name === PullRequestServer);
+  const readLine = reads
+    ? `
+  Read the pull request itself with the \`${PullRequestServer}\` tools — the changed files, the
+  diff, and any file as it is at the head commit — before you reach for a task.`
+    : "";
+  const reviewLine = review
+    ? `- Asked to review, or to review again — new commits, "take another look": delegate to \`${review}\`. Pass on the commits the message names. That playbook reads what it reviewed last and looks only at what changed.`
+    : `- No playbook reviews pull requests here. If you are asked for a review, say so.`;
+  return `# This pull request
+
+The message is a comment on a GitHub pull request. The review, its inline notes and the
+replies so far are in the conversation below. Your answer is posted as a comment — in the
+same review thread when the message was a reply in one.
+
+${reviewLine}
+- A question about the code, the review or one of its findings: answer it from the
+  conversation — the review, the inline notes and the diff they quote — in a few sentences.${readLine}
+  When the answer needs more than reading — running the code, the tests, the whole
+  repository — delegate it with \`read_only\` set: the task reads the workspace the review left
+  and changes nothing, so it never waits for other work.
+- One task at a time changes this pull request. If \`podium_delegate\` says another task is
+  still working in it, inject into that task when the message adds to its work; otherwise say
+  what is running and that you will pick this up when it answers.
+- Never write a verdict yourself. "Approve", "Request changes" and inline notes are the
+  review playbook's; yours is a reply.
+- Asked to change the code: delegate to a playbook on the menu that can push to this pull
+  request. If none can, say that you cannot change code here and stop.
+- The menu is what this commenter may ask for. It depends on their access to the repository,
+  so a playbook missing from it is not one to describe, offer or work around.`;
+}
+
+/**
+ * pullRequestTaskBlock is a task on a pull request that is not its review: fixing what the
+ * review found, usually. Its answer is a reply, and it answers each finding in its own thread.
+ */
+function pullRequestTaskBlock(): string {
+  return `# This pull request
+
+You are working on a GitHub pull request that has a review. The review and its findings are in
+the conversation below, and \`.podium/review.json\` in the workspace has the commit it covered.
+
+- Change the pull request's own head branch: commit there and push it. Never open another pull
+  request, and never comment on GitHub yourself — your last message is posted for you.
+- A push of yours is reviewed again by itself. Do not ask for a review.
+- Answer each finding you dealt with under that finding, with a fenced block naming the path
+  and line the finding named. \`resolved\` replies and resolves the thread; \`reply\` only
+  replies, for a finding you left as it is and why:
+
+\`\`\`resolved
+internal/api/handler.go:42
+Fixed in abc1234: the error is returned instead of dropped.
+\`\`\`
+
+  Everything outside those blocks is posted on the pull request as one comment: say what you
+  pushed, in a sentence or two.`;
 }
 
 function memoryBlock(): string {

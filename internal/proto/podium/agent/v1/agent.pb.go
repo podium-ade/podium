@@ -1900,15 +1900,22 @@ type GitHubWebhookFilters struct {
 	// text, matched without case as whole words.
 	TriggerPhrases []string `protobuf:"bytes,4,rep,name=trigger_phrases,json=triggerPhrases,proto3" json:"trigger_phrases,omitempty"`
 	// reply_mode is when a reply in an inline review thread needs no trigger:
-	// "bot_threads" (the default) when the App started the thread, "any_thread" in any
-	// thread on a pull request with a session, "always" never.
+	// "bot_threads" (the default) when the App started the thread or has replied in it,
+	// "any_thread" in any thread on a pull request with a session, "always" never.
 	ReplyMode string `protobuf:"bytes,5,opt,name=reply_mode,json=replyMode,proto3" json:"reply_mode,omitempty"`
 	// auto_review starts a review when a pull request opens ready or is marked ready.
-	AutoReview    bool                   `protobuf:"varint,6,opt,name=auto_review,json=autoReview,proto3" json:"auto_review,omitempty"`
-	SetBy         string                 `protobuf:"bytes,7,opt,name=set_by,json=setBy,proto3" json:"set_by,omitempty"`
-	SetAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=set_at,json=setAt,proto3" json:"set_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AutoReview bool                   `protobuf:"varint,6,opt,name=auto_review,json=autoReview,proto3" json:"auto_review,omitempty"`
+	SetBy      string                 `protobuf:"bytes,7,opt,name=set_by,json=setBy,proto3" json:"set_by,omitempty"`
+	SetAt      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=set_at,json=setAt,proto3" json:"set_at,omitempty"`
+	// excluded_branches are base branches whose pull requests start nothing. Each is a glob
+	// ("dev", "feature/*", "release/**") or a regular expression between slashes
+	// ("/^hotfix-\d+$/").
+	ExcludedBranches []string `protobuf:"bytes,9,rep,name=excluded_branches,json=excludedBranches,proto3" json:"excluded_branches,omitempty"`
+	// conversation_replies lets a conversation-tab comment through without the trigger when
+	// the comment right before it is the App's, posted within the last 30 minutes.
+	ConversationReplies bool `protobuf:"varint,10,opt,name=conversation_replies,json=conversationReplies,proto3" json:"conversation_replies,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GitHubWebhookFilters) Reset() {
@@ -1995,6 +2002,20 @@ func (x *GitHubWebhookFilters) GetSetAt() *timestamppb.Timestamp {
 		return x.SetAt
 	}
 	return nil
+}
+
+func (x *GitHubWebhookFilters) GetExcludedBranches() []string {
+	if x != nil {
+		return x.ExcludedBranches
+	}
+	return nil
+}
+
+func (x *GitHubWebhookFilters) GetConversationReplies() bool {
+	if x != nil {
+		return x.ConversationReplies
+	}
+	return false
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved
@@ -6808,9 +6829,13 @@ type PlaybookDefinition struct {
 	SlackChannels []string             `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
 	Linear        bool                 `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
 	// github marks the one playbook a pull-request review runs. At most one playbook may
-	// set it. A review does not get the assistant's menu.
-	Github bool              `protobuf:"varint,30,opt,name=github,proto3" json:"github,omitempty"`
-	Env    map[string]string `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// set it. It is always on a pull request's menu, and only its answer is the review.
+	Github bool `protobuf:"varint,30,opt,name=github,proto3" json:"github,omitempty"`
+	// github_requires offers this playbook on a pull request to a commenter whose role on the
+	// repository is at least this: read, triage, write, maintain or admin. Empty is not
+	// offered there.
+	GithubRequires string            `protobuf:"bytes,33,opt,name=github_requires,json=githubRequires,proto3" json:"github_requires,omitempty"`
+	Env            map[string]string `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// origin is "file": every playbook is a playbooks/<name>.yaml on the conductor's host,
 	// whether a human wrote it in a shell or this API wrote it.
 	Origin string `protobuf:"bytes,15,opt,name=origin,proto3" json:"origin,omitempty"`
@@ -6999,6 +7024,13 @@ func (x *PlaybookDefinition) GetGithub() bool {
 		return x.Github
 	}
 	return false
+}
+
+func (x *PlaybookDefinition) GetGithubRequires() string {
+	if x != nil {
+		return x.GithubRequires
+	}
+	return ""
 }
 
 func (x *PlaybookDefinition) GetEnv() map[string]string {
@@ -10683,7 +10715,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x10restart_required\x18\v \x01(\bR\x0frestartRequired\x12\x1b\n" +
 	"\tclient_id\x18\f \x01(\tR\bclientId\x12*\n" +
 	"\x11client_secret_set\x18\r \x01(\bR\x0fclientSecretSet\x12?\n" +
-	"\afilters\x18\x0e \x01(\v2%.podium.agent.v1.GitHubWebhookFiltersR\afilters\"\xb8\x02\n" +
+	"\afilters\x18\x0e \x01(\v2%.podium.agent.v1.GitHubWebhookFiltersR\afilters\"\x98\x03\n" +
 	"\x14GitHubWebhookFilters\x12%\n" +
 	"\x0eallowed_actors\x18\x01 \x03(\tR\rallowedActors\x12%\n" +
 	"\x0eignored_actors\x18\x02 \x03(\tR\rignoredActors\x12\x1f\n" +
@@ -10695,7 +10727,10 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\vauto_review\x18\x06 \x01(\bR\n" +
 	"autoReview\x12\x15\n" +
 	"\x06set_by\x18\a \x01(\tR\x05setBy\x121\n" +
-	"\x06set_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x05setAt\"P\n" +
+	"\x06set_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x05setAt\x12+\n" +
+	"\x11excluded_branches\x18\t \x03(\tR\x10excludedBranches\x121\n" +
+	"\x14conversation_replies\x18\n" +
+	" \x01(\bR\x13conversationReplies\"P\n" +
 	"\x10LinearConnection\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x1e\n" +
 	"\n" +
@@ -11020,7 +11055,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"7\n" +
 	"\vPlaybookGit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xbe\t\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\xe7\t\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -11036,7 +11071,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05repos\x18\v \x03(\v2\x1d.podium.agent.v1.PlaybookRepoR\x05repos\x12%\n" +
 	"\x0eslack_channels\x18\f \x03(\tR\rslackChannels\x12\x16\n" +
 	"\x06linear\x18\r \x01(\bR\x06linear\x12\x16\n" +
-	"\x06github\x18\x1e \x01(\bR\x06github\x12>\n" +
+	"\x06github\x18\x1e \x01(\bR\x06github\x12'\n" +
+	"\x0fgithub_requires\x18! \x01(\tR\x0egithubRequires\x12>\n" +
 	"\x03env\x18\x0e \x03(\v2,.podium.agent.v1.PlaybookDefinition.EnvEntryR\x03env\x12\x16\n" +
 	"\x06origin\x18\x0f \x01(\tR\x06origin\x12\x1a\n" +
 	"\beditable\x18\x10 \x01(\bR\beditable\x12\x1a\n" +

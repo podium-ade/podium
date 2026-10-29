@@ -104,10 +104,20 @@ describe("tools/call delegate", () => {
       name: "delegate",
       arguments: { playbook: "podium", instruction: "fix the alignment" },
     });
-    expect(client.delegate).toHaveBeenCalledWith("podium", "fix the alignment");
+    expect(client.delegate).toHaveBeenCalledWith("podium", "fix the alignment", false);
     expect(text(res)).toContain("dlg_01");
     expect(text(res)).toContain("task_01");
     expect(isError(res)).toBe(false);
+  });
+
+  it("asks for a read-only task when the model says so", async () => {
+    const client = stubClient();
+    const h = newHandler(client);
+    await h("tools/call", {
+      name: "delegate",
+      arguments: { playbook: "podium", instruction: "why is it racy?", read_only: true },
+    });
+    expect(client.delegate).toHaveBeenCalledWith("podium", "why is it racy?", true);
   });
 
   it("refuses a call with no instruction rather than starting an empty task", async () => {

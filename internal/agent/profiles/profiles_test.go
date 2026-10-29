@@ -200,9 +200,6 @@ default_playbook: general
 			f["playbooks/general.yaml"] = goodPlaybook +
 				"skills: [a, b, c, d, e, f, g, h, i]\n"
 		}, []string{"playbooks/general.yaml", "the limit is 8"}},
-		{"a skill bundle env var of its own", func(f map[string]string) {
-			f["playbooks/general.yaml"] = goodPlaybook + "env: {PODIUM_AGENT_SKILL_PR_REVIEW: x}\n"
-		}, []string{"playbooks/general.yaml", "AGENT_SKILL_PR_REVIEW"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -401,6 +398,40 @@ func TestExactlyOnePlaybookMayReviewPullRequests(t *testing.T) {
 	_, err = Load(write(t, files))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "github: true")
+}
+
+// A pull request offers the review playbook, and any other playbook only to a commenter
+// with the role it names. Those share the pull request's one workspace with the review, so
+// they share its first repository too.
+func TestAPlaybookIsOfferedOnAPullRequestByRole(t *testing.T) {
+	repo := "repos: [{name: api, url: https://github.com/acme/api.git, default_branch: main}]\n"
+	files := base()
+	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\n" + repo
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: write\n" + repo
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "write", p.Playbooks["fixer"].GitHubRequires)
+
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: owner\n" + repo
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `github_requires "owner" must be one of read, triage, write, maintain, admin`)
+
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: write\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, "same first repository")
+
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: write\n" + repo
+	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\ngithub_requires: read\n" + repo
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, "the review playbook is always offered")
+}
+
+func TestGitHubRolesAreOrdered(t *testing.T) {
+	assert.True(t, GitHubRoleAtLeast("admin", "write"))
+	assert.True(t, GitHubRoleAtLeast("write", "write"))
+	assert.False(t, GitHubRoleAtLeast("triage", "write"))
+	assert.False(t, GitHubRoleAtLeast("", "read"), "no role is no role")
+	assert.False(t, GitHubRoleAtLeast("admin", ""), "a playbook that names no role is not offered")
 }
 
 func TestNoPlaybookTakingLinearTicketsIsAllowed(t *testing.T) {

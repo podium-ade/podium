@@ -1,21 +1,17 @@
 package skills
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // write puts one file in a skill directory, creating parents.
@@ -31,22 +27,6 @@ func skillMD(name, description string) string {
 	return "---\nname: " + name + "\ndescription: " + description + "\n---\n\nDo the thing.\n"
 }
 
-// unpack reverses Load's encoding, which is what the runtime does.
-func unpack(t *testing.T, encoded string) (raw []byte, files map[string]string) {
-	t.Helper()
-	gz, err := base64.StdEncoding.DecodeString(encoded)
-	require.NoError(t, err)
-	zr, err := gzip.NewReader(bytes.NewReader(gz))
-	require.NoError(t, err)
-	raw, err = io.ReadAll(zr)
-	require.NoError(t, err)
-	var doc struct {
-		Files map[string]string `json:"files"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &doc))
-	return raw, doc.Files
-}
-
 func TestLoadPacksASkillDirectory(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "pr-review")
@@ -58,12 +38,8 @@ func TestLoadPacksASkillDirectory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "pr-review", b.Name)
 	require.Equal(t, "Use when reviewing a pull request.", b.Description)
-	require.Equal(t, EnvPrefix+"PR_REVIEW", b.Env)
-	require.Equal(t, 3, b.Files)
-
-	raw, files := unpack(t, b.Encoded)
-	sum := sha256.Sum256(raw)
-	require.Equal(t, hex.EncodeToString(sum[:]), b.SHA256, "the digest is over the unpacked document")
+	files := b.Files
+	require.Equal(t, Digest(files), b.SHA256, "the digest is over the files")
 	require.Len(t, files, 3)
 	require.Contains(t, files[SkillFile], "name: pr-review")
 	require.Equal(t, "- read the diff\n", files["reference/checklist.md"])
@@ -81,16 +57,39 @@ func TestLoadIsDeterministic(t *testing.T) {
 	second, err := Load(root, "a-skill")
 	require.NoError(t, err)
 	require.Equal(t, first.SHA256, second.SHA256)
-	require.Equal(t, first.Encoded, second.Encoded)
+	require.Equal(t, first.Files, second.Files)
 }
 
-// The names are built rather than written out: deploy/env_test.go scans this tree for
-// quoted PODIUM_* literals, and a per-skill variable is not a knob an operator sets.
-func TestEnvForMapsANameOntoAVariable(t *testing.T) {
-	require.Equal(t, "PODIUM_AGENT_SKILL_", EnvPrefix)
-	require.Equal(t, EnvPrefix+"PR_REVIEW", EnvFor("pr-review"))
-	require.Equal(t, EnvPrefix+"X", EnvFor("x"))
-	require.Equal(t, EnvPrefix+"A_B_C", EnvFor("a-b-c"))
+// The runtime computes the same digest over the directory it is given. This fixture is
+// pinned on both sides (agent/runtime/src/skills.test.ts), so the two cannot drift apart.
+func TestDigestIsTheOneTheRuntimeComputes(t *testing.T) {
+	got := Digest(map[string]string{
+		"SKILL.md":               "---\nname: pr-review\n---\n",
+		"reference/checklist.md": "- read the diff ✓\n",
+	})
+	require.Equal(t, digestFixture, got)
+
+	// Moving bytes between a path and its content changes it: the length is in the hash.
+	require.NotEqual(t, Digest(map[string]string{"ab": "c"}), Digest(map[string]string{"a": "bc"}))
+}
+
+func TestABundleMountsAtItsOwnDirectory(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "pr-review"), SkillFile, skillMD("pr-review", "Use always."))
+	write(t, filepath.Join(root, "pr-review"), "reference/a.md", "a\n")
+	b, err := Load(root, "pr-review")
+	require.NoError(t, err)
+
+	m := b.Mount()
+	require.Equal(t, "/podium/files/skills/pr-review", m.Target)
+	require.Equal(t, b.Files, m.Files)
+	require.NoError(t, (&spec.TaskSpec{Image: "x", Timeout: 1, MaxAttempts: 1, Mounts: []spec.FileMount{m}}).Validate())
+
+	out := t.TempDir()
+	require.NoError(t, b.WriteUnder(out))
+	raw, err := os.ReadFile(filepath.Join(out, "pr-review", "reference", "a.md"))
+	require.NoError(t, err)
+	require.Equal(t, "a\n", string(raw))
 }
 
 func TestValidateNameFollowsTheHarnessRule(t *testing.T) {
@@ -228,19 +227,20 @@ func TestLoadRefusesWhatABundleMustNotCarry(t *testing.T) {
 	}
 }
 
-func TestLoadRefusesABundleTooLargeToDeliver(t *testing.T) {
+func TestLoadTakesASkillFarPastAnEnvironmentVariable(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "s")
 	write(t, dir, SkillFile, skillMD("s", "Use always."))
-	// Random-looking text does not compress, so it hits the encoded cap while staying
-	// inside the unpacked one. The message has to name the encoded limit, because that is
-	// the one an operator cannot see for themselves.
-	write(t, dir, "noise.md", incompressible(MaxBytes-4096))
+	// Twice what Linux lets one environment string hold, which is what used to carry it.
+	write(t, dir, "noise.md", incompressible(256<<10))
 
-	_, err := Load(root, "s")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "once encoded for delivery")
-	require.Contains(t, err.Error(), "one environment variable")
+	b, err := Load(root, "s")
+	require.NoError(t, err)
+	require.Greater(t, b.Size(), 256<<10)
+
+	write(t, dir, "more.md", incompressible(MaxBytes))
+	_, err = Load(root, "s")
+	require.ErrorContains(t, err, "that is the limit")
 }
 
 func TestLoadAllRefusesMoreThanTheCapAndAnyDuplicate(t *testing.T) {
@@ -297,3 +297,6 @@ func incompressible(n int) string {
 	}
 	return b.String()[:n]
 }
+
+// digestFixture is Digest of the files in TestDigestIsTheOneTheRuntimeComputes.
+const digestFixture = "8818b95a9167cc448360be8bc1c4bbfd600fdf99bbfb4c589c159c1885060317"

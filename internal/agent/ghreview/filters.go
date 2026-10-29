@@ -4,13 +4,15 @@ import (
 	"context"
 	"regexp"
 	"strings"
+
+	"github.com/podium-ade/podium/internal/agent/connections"
 )
 
 // Reply modes decide whether a reply in an inline review thread needs the trigger.
 // A top-level comment always does.
 const (
 	// ReplyBotThreads lets a reply through without the trigger when the App started the
-	// thread. A reply in a thread a person started still needs it.
+	// thread or has replied in it. A reply in a thread the App is not in still needs it.
 	ReplyBotThreads = "bot_threads"
 	// ReplyAnyThread lets any reply through on a pull request that already has a session.
 	ReplyAnyThread = "any_thread"
@@ -36,6 +38,12 @@ type Filters struct {
 	// NoAutoReview stops the review that starts when a pull request opens or is marked
 	// ready.
 	NoAutoReview bool
+	// ExcludedBranches are patterns for base branches whose pull requests start nothing,
+	// as connections.CompileBranchPattern reads them.
+	ExcludedBranches []string
+	// ConversationReplies lets a conversation-tab comment through without the trigger when
+	// the comment right before it is the App's, posted within conversationReplyWindow.
+	ConversationReplies bool
 }
 
 // FilterLookup returns the filters in force now.
@@ -62,6 +70,18 @@ func (f Filters) actorAllowed(login, typ string) (bool, string) {
 		return false, "actor not allowed"
 	}
 	return true, ""
+}
+
+// branchExcluded reports whether a pull request into base starts nothing. A pattern that
+// does not compile was refused when it was saved, so it is skipped here.
+func (f Filters) branchExcluded(base string) bool {
+	for _, p := range f.ExcludedBranches {
+		re, err := connections.CompileBranchPattern(p)
+		if err == nil && re.MatchString(base) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsLogin(list []string, login string) bool {

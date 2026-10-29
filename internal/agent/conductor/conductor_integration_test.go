@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -407,6 +408,11 @@ func TestATurnLinksThePullRequestsItsAnswerNamed(t *testing.T) {
 
 	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+	// The status is stored before the links are handed over, so wait for them as well. One
+	// call hands over the whole answer's list, so once any are there all of them are.
+	waitFor(t, 5*time.Second, "the pull requests to be linked", func() bool {
+		return len(src.PullRequests(ev.Ref)) > 0
 	})
 
 	linked := src.PullRequests(ev.Ref)
@@ -895,11 +901,10 @@ func withReviewHost(p *profiles.Profile) func(*conductor.Options) {
 	}
 }
 
-// TestAGitHubReviewRunsItsPlaybookAndReusesTheTask is the review guardrail and the resume.
-// A host runtime is configured, which is what would answer a conversation. The review still
-// runs the playbook marked github: true. A follow-up while that task is warm is injected,
-// and one after it exits is a new task on the same workspace.
-func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
+// TestWithNoHostRuntimeAPullRequestRunsItsReviewPlaybook is a conductor with no assistant to
+// ask: every GitHub event runs the playbook marked github: true as a task, a follow-up while
+// that task is warm is injected, and one after it exits is a new task on the same workspace.
+func TestWithNoHostRuntimeAPullRequestRunsItsReviewPlaybook(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	release := fake.HoldTasks()
@@ -910,12 +915,15 @@ func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
 	t.Cleanup(src.Close)
 
 	ctx := context.Background()
-	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Profiles = profiles.NewLive(reviewProfile(t)) })
 	require.NoError(t, src.Send(ctx, githubInbound("please review")))
 	waitFor(t, 30*time.Second, "the review", func() bool {
 		return len(posts(src.Records(), conductor.OutFinal)) >= 1
 	})
 	require.Len(t, fake.Specs(), 1)
+	final := posts(src.Records(), conductor.OutFinal)[0]
+	assert.Equal(t, "coder", final.Playbook)
+	assert.True(t, final.SourcePlaybook, "the review playbook's answer is the review")
 	sess, err := st.GetSessionByKey(ctx, "github:acme/repo#12")
 	require.NoError(t, err)
 	assert.Equal(t, "coder", sess.Playbook)
@@ -936,21 +944,97 @@ func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
 	require.NoError(t, src.Send(ctx, githubInbound("and once more")))
 	waitFor(t, 60*time.Second, "the restored review", func() bool { return len(fake.Specs()) == 2 })
 	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
-	sess, err = st.GetSessionByKey(ctx, "github:acme/repo#12")
-	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Playbook)
 }
 
-// TestAGitHubReviewWithoutAPlaybookIsRefused refuses the turn rather than letting the
-// assistant pick a job. A host runtime is configured so that path is available.
-func TestAGitHubReviewWithoutAPlaybookIsRefused(t *testing.T) {
+// TestAnOpenedPullRequestIsReviewedWithNoAssistantTurn: nobody asked anything, so there is
+// nothing for the assistant to decide. The review playbook is delegated directly, on the
+// session's workspace, and its answer is posted as the review.
+func TestAnOpenedPullRequestIsReviewedWithNoAssistantTurn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := githubInbound("alice opened https://github.com/acme/repo/pull/12 for review")
+	ev.Automatic = true
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the review", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) >= 1
+	})
+	require.Len(t, fake.Specs(), 1, "the review is the only task")
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook, "a pull request is a conversation and is pinned to no playbook")
+	assert.Equal(t, sess.ID, fake.Specs()[0].GetWorkspaceSession())
+
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "coder", brief.Playbook.Name)
+	assert.Equal(t, ev.Text, brief.Instruction)
+
+	final := posts(src.Records(), conductor.OutFinal)[0]
+	assert.True(t, final.SourcePlaybook)
+	progress := posts(src.Records(), conductor.OutProgress)
+	require.NotEmpty(t, progress, "the review is announced, which is what opens the status comment")
+	assert.True(t, progress[0].SourcePlaybook)
+
+	waitFor(t, 30*time.Second, "the delegation to finish", func() bool {
+		dlgs := delegationsOf(t, st, ev.SourceKey)
+		return len(dlgs) == 1 && dlgs[0].Status == store.TurnSucceeded
+	})
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	assert.Equal(t, "coder", dlgs[0].Playbook)
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Equal(t, store.TurnSucceeded, turn.Status)
+	assert.Empty(t, turn.TaskID, "the event's turn ran nothing itself")
+}
+
+// TestACommentOnAPullRequestIsTheAssistants: what a person writes on a pull request is
+// answered on this host, not run as a review.
+func TestACommentOnAPullRequestIsTheAssistants(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	// A runtime that exits at once: what is under test is where the turn runs, not what it
+	// says. The fake runtime cannot be used, because only the dev source passes it its env.
+	host := hostRuntime(t, "sk-test")
+	host.Node = "/usr/bin/true"
+	startWith(t, st, fake, src, func(o *conductor.Options) {
+		o.Profiles = profiles.NewLive(reviewProfile(t))
+		o.Host = host
+	})
+	ev := githubInbound("why is this a race?")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the turn to reach a terminal status", func() bool {
+		s := turnStatus(st, ev.SourceKey)
+		return s != "" && s != store.TurnRunning
+	})
+	assert.Empty(t, fake.Specs(), "a question is answered here, not run as a review")
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook)
+}
+
+// TestAnOpenedPullRequestWithNoReviewPlaybookIsRefused refuses the event rather than asking
+// the assistant to make up a review.
+func TestAnOpenedPullRequestWithNoReviewPlaybookIsRefused(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	src := fakesource.New(conductor.SourceGitHub)
 	t.Cleanup(src.Close)
 
 	startWith(t, st, fake, src, withReviewHost(testProfile(t)))
-	require.NoError(t, src.Send(context.Background(), githubInbound("deploy production")))
+	ev := githubInbound("alice opened https://github.com/acme/repo/pull/12 for review")
+	ev.Automatic = true
+	require.NoError(t, src.Send(context.Background(), ev))
 	waitFor(t, 30*time.Second, "the refusal", func() bool {
 		return len(posts(src.Records(), conductor.OutFailure)) >= 1
 	})
@@ -1009,8 +1093,11 @@ func TestARestartResumesTheTurnAndPostsTheFinalOnce(t *testing.T) {
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, relayed, "the ledger holds one row per thing said, and no more")
-	assert.Contains(t, reactions(records), string(conductor.ReactionDone),
-		"the resumed turn still shows its outcome")
+	// finish stores the status before it reacts, so the reaction is waited for rather than
+	// read the moment the status says succeeded.
+	waitFor(t, 30*time.Second, "the resumed turn to show its outcome", func() bool {
+		return slices.Contains(reactions(src.Records()), string(conductor.ReactionDone))
+	})
 }
 
 // Two conductors following one task is what a botched rolling restart looks like. Both
@@ -1425,4 +1512,184 @@ func (m *recordingMirror) rows(chatID string) []store.ChatMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.seen[chatID]
+}
+
+// openedPR is the automatic review event: the delegation path with no assistant turn, so a
+// test can drive a pull request's workspace rule without a model.
+func openedPR() conductor.InboundEvent {
+	ev := githubInbound("alice marked https://github.com/acme/repo/pull/12 ready for review")
+	ev.Automatic = true
+	return ev
+}
+
+// TestAPullRequestsWorkspaceHasOneWriterAtATime: a review still working keeps the pull
+// request's workspace. A task the assistant asks for beside it is refused, naming it, rather
+// than started where the two would race to replace the one snapshot. A review the conductor
+// starts itself queues instead, and starts once the first has gone.
+func TestAPullRequestsWorkspaceHasOneWriterAtATime(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	r := startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the first review to start", func() bool { return len(fake.Specs()) == 1 })
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "fix the findings", conductor.DelegateOptions{})
+	require.ErrorIs(t, err, conductor.ErrWorkspaceBusy)
+	assert.Contains(t, err.Error(), "the `coder` task")
+
+	ro, err := r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "why is it racy?",
+		conductor.DelegateOptions{ReadOnly: true})
+	require.NoError(t, err, "a task that only reads holds nothing and waits for nothing")
+	assert.NotEmpty(t, ro.TaskID)
+	require.Len(t, fake.Specs(), 2)
+	assert.True(t, fake.Specs()[1].GetWorkspaceReadonly())
+
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the queued review to be recorded", func() bool {
+		return len(delegationsOf(t, st, ev.SourceKey)) == 3
+	})
+	assert.Len(t, fake.Specs(), 2, "nothing writing started beside the review that is still working")
+	assert.Empty(t, fake.Cancels(), "and the one working was left alone")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
+
+	release()
+	waitFor(t, 30*time.Second, "the queued review to start", func() bool { return len(fake.Specs()) == 3 })
+	assert.False(t, fake.Specs()[2].GetWorkspaceReadonly())
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[2].GetWorkspaceSession())
+}
+
+// TestAWaitingTaskHandsThePullRequestsWorkspaceOn: a review that has answered and is only
+// waiting for a follow-up is released, quietly, and the next task starts once it has gone —
+// which is after its snapshot is stored.
+func TestAWaitingTaskHandsThePullRequestsWorkspaceOn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	// What a node reports for a task it was told to stop.
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the first review to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	first := fake.TaskIDs()[0]
+
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the second review to start", func() bool { return len(fake.Specs()) == 2 })
+	require.Len(t, fake.Cancels(), 1)
+	assert.Equal(t, first, fake.Cancels()[0].GetTaskId(), "the waiting review was released")
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
+
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 2)
+	var firstDlg store.Delegation
+	for _, d := range dlgs {
+		if d.TaskID == first {
+			firstDlg = d
+		}
+	}
+	assert.Equal(t, store.TurnSucceeded, firstDlg.Status, "it had answered; being released is not a failure")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure), "and nothing says it failed")
+}
+
+// TestAReadOnlyDelegationStoresNothing: a task asked for read-only starts from the
+// conversation's workspace and its spec says to store nothing back. It is recorded as such,
+// which is what lets it run beside a pull request's writing task.
+func TestAReadOnlyDelegationStoresNothing(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	ev := inbound("C1/40.1", "why is this racy?")
+	ev.Env = hostEnv(map[string]string{hostFakeDelegateEnv: "dogfood|read the handler and explain the race|ro"})
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 60*time.Second, "the read-only task", func() bool { return len(fake.Specs()) == 1 })
+	assert.True(t, fake.Specs()[0].GetWorkspaceReadonly())
+	assert.NotEmpty(t, fake.Specs()[0].GetWorkspaceSession(), "it still starts from the conversation's files")
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 1)
+	assert.True(t, dlgs[0].ReadOnly)
+}
+
+// TestAReviewIsFixedAndReviewedAgainOnOneWorkspace is the whole loop on a pull request: the
+// review answers and waits, a fix is delegated and takes the workspace from it, and the review
+// of the pushed commits queues behind the fix and takes the workspace from it in turn. Every
+// task restores the same session's snapshot, and nothing is posted as a failure.
+func TestAReviewIsFixedAndReviewedAgainOnOneWorkspace(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer of "+taskID)}
+	}
+	p := reviewProfile(t)
+	fixer := p.Playbooks["general"]
+	fixer.Name, fixer.GitHubRequires = "fixer", "write"
+	p.Playbooks["fixer"] = fixer
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	r := startWith(t, st, fake, src, withReviewHost(p))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the review to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+	fix, err := r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "fixer", "fix your comments", conductor.DelegateOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, fix.TaskID, "the fix waits for the review to let go of the workspace")
+	waitFor(t, 30*time.Second, "the fix to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 2
+	})
+
+	again := githubInbound("Podium pushed new commits to https://github.com/acme/repo/pull/12 to address the review.")
+	again.Automatic = true
+	require.NoError(t, src.Send(ctx, again))
+	waitFor(t, 30*time.Second, "the review of the fix to start", func() bool { return len(fake.Specs()) == 3 })
+
+	finals := posts(src.Records(), conductor.OutFinal)
+	assert.True(t, finals[0].SourcePlaybook, "the review is the review")
+	assert.Equal(t, "fixer", finals[1].Playbook)
+	assert.False(t, finals[1].SourcePlaybook, "the fix is a reply")
+	assert.Len(t, fake.Cancels(), 2, "each task was released once the next needed the workspace")
+	for _, spec := range fake.Specs() {
+		assert.Equal(t, sess.ID, spec.GetWorkspaceSession())
+	}
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[2]).Playbook.Name)
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
 }

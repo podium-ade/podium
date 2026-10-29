@@ -32,6 +32,9 @@ type sink struct {
 	// taskID is the task this output came from. It is empty for a host turn, which has no
 	// task: a source uses it only to say where an answer came from.
 	taskID string
+	// speaker is the playbook this output came from, on everything it says. The zero
+	// Speaker for a host turn: the assistant runs no playbook.
+	speaker Speaker
 	// placeholder is the "working…" message progress edits replace. It is empty for a
 	// resumed turn and for a delegated task, whose progress is posted as new messages
 	// instead — there is nothing of theirs on screen to replace.
@@ -67,7 +70,7 @@ func (s *sink) attachAll(ctx context.Context, byName map[string]*podiumv1.Artifa
 		if !ok {
 			// Normal, not an error: a name that matches nothing is how the runtime says
 			// "I mentioned a file I did not produce".
-			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Text: fmt.Sprintf(
+			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Speaker: s.speaker, Text: fmt.Sprintf(
 				"no artifact named `%s` was produced", name)})
 			continue
 		}
@@ -109,7 +112,7 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 		// is still running, waiting for a reply.
 		s.flushProgress(ctx)
 		if strings.TrimSpace(text) != "" {
-			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutQuestion, TaskID: s.taskID, Text: text})
+			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutQuestion, TaskID: s.taskID, Speaker: s.speaker, Text: text})
 		}
 		return
 	}
@@ -136,7 +139,7 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 	if text == "" {
 		return
 	}
-	s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Text: text})
+	s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Text: text})
 }
 
 // activity hands one activity document to a source that draws it, and otherwise only to
@@ -147,7 +150,7 @@ func (s *sink) activity(ctx context.Context, text string) {
 		s.c.logger.DebugContext(ctx, "dropping an activity message that is not JSON", "task_id", s.taskID)
 		return
 	}
-	out := Outbound{Type: OutActivity, TaskID: s.taskID, Text: text}
+	out := Outbound{Type: OutActivity, TaskID: s.taskID, Speaker: s.speaker, Text: text}
 	ap, ok := s.src.(ActivityPoster)
 	if !ok {
 		s.c.mirrorSaid(ctx, s.src, s.ref, out)
@@ -183,7 +186,7 @@ func (s *sink) flushProgress(ctx context.Context) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	out := Outbound{Type: OutProgress, TaskID: s.taskID, Text: ProgressPrefix + text}
+	out := Outbound{Type: OutProgress, TaskID: s.taskID, Speaker: s.speaker, Text: ProgressPrefix + text}
 	if s.placeholder == "" {
 		s.placeholder = s.c.post(ctx, s.src, s.ref, out)
 		return
@@ -203,7 +206,7 @@ func (s *sink) flushProgress(ctx context.Context) {
 // thread rather than proxied.
 func (s *sink) attach(ctx context.Context, art *podiumv1.Artifact) {
 	if art.GetSizeBytes() > podium.MaxAttachmentBytes {
-		s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Text: fmt.Sprintf(
+		s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Speaker: s.speaker, Text: fmt.Sprintf(
 			"`%s` is %d MB, which is more than I will relay. It is on the task: `podium artifact get %s`.",
 			art.GetName(), art.GetSizeBytes()>>20, art.GetId())})
 		return
@@ -211,7 +214,7 @@ func (s *sink) attach(ctx context.Context, art *podiumv1.Artifact) {
 	body, contentType, err := s.c.podium.Artifact(ctx, art.GetId())
 	if err != nil {
 		if errors.Is(err, podium.ErrTooLarge) {
-			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Text: fmt.Sprintf(
+			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutProgress, TaskID: s.taskID, Speaker: s.speaker, Text: fmt.Sprintf(
 				"`%s` is too large for me to relay. It is on the task: `podium artifact get %s`.",
 				art.GetName(), art.GetId())})
 			return

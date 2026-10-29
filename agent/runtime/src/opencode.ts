@@ -177,6 +177,8 @@ export interface Config {
   browser?: { cdpURL: string };
   /** skills is the Agent Skills this turn may use, by name. Everything else is denied. */
   skills?: string[];
+  /** skillsDir is the directory holding those skills, one directory each. */
+  skillsDir?: string;
   /**
    * delegation is how a HOST turn reaches a container, when it has one. It becomes a local
    * MCP server beside the turn (mcp.ts) and the `podium*` tools that go with it — the same
@@ -320,6 +322,8 @@ export function writeConfig(cfg: Config): string {
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
     permission: { skill: skillPermission(cfg.skills ?? []) },
+    // Read where the node mounted them, read-only, rather than copied anywhere first.
+    ...(cfg.skillsDir ? { skills: { paths: [cfg.skillsDir] } } : {}),
     agent: {
       [AgentName]: {
         description: "One Podium turn.",

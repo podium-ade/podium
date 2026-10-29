@@ -28,6 +28,15 @@ describe("the Connect JSON client", () => {
     expect(String(calls[0]!.init.body)).not.toContain("s3cret");
   });
 
+  it("asks for a read-only task only when told to", async () => {
+    const { calls, impl } = capture(200, { delegation: { id: "dlg_01", playbook: "podium", status: "running" } });
+    const client = new Client("http://127.0.0.1:8090", "s3cret", impl);
+    await client.delegate("podium", "why is it racy?", true);
+    expect(calls[0]!.init.body).toBe(
+      JSON.stringify({ playbook: "podium", instruction: "why is it racy?", read_only: true }),
+    );
+  });
+
   it("does not double the slash when the address has a trailing one", async () => {
     const { calls, impl } = capture(200, {});
     await new Client("http://127.0.0.1:8090/", "t", impl).list();

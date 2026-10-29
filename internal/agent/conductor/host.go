@@ -66,6 +66,10 @@ const hostSockPathMax = 100
 // runtime forwards SIGTERM to the harness and still emits its final.
 const hostGrace = 30 * time.Second
 
+// hostSkillsDir is where a host turn's skills are written, relative to the turn's HOME,
+// which is also how the brief says it: the jail is made after the brief is encoded.
+const hostSkillsDir = ".podium/skills"
+
 // hostMaxLine caps one line of the event protocol, as the node's reader does.
 const hostMaxLine = 64 * 1024
 
@@ -167,6 +171,10 @@ type HostRuntime struct {
 	// conductor offers no delegation: a host turn then answers with what it has and cannot
 	// start a task, which is a working configuration and a poor one.
 	TurnURL string
+	// PullRequestMCPURL is the conductor's read-only pull-request MCP server as a host turn
+	// reaches it. A turn on a pull request gets it, authenticated with its own token. Empty
+	// leaves it out.
+	PullRequestMCPURL string
 }
 
 // validate reports what is missing, naming the environment variable that supplies it.
@@ -217,6 +225,10 @@ func (h *HostRuntime) node() string {
 // is nothing here to strip: what the brief says is what the turn was built with.
 func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []BriefRunningDelegation, previews []BriefPreview) {
 	b.RunsOn = RunsOnHost
+	// No node mounts the skills here: hostRun writes them into the turn's own HOME.
+	if len(b.Playbook.Skills) > 0 {
+		b.Playbook.SkillsDir = hostSkillsDir
+	}
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
 	// container.
@@ -228,6 +240,14 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 			Running:   running,
 			Previews:  previews,
 		}
+	}
+	// A pull request's own diff and files, read here rather than in a container. The turn's
+	// token is its credential, so it rides only with a delegation block, which is what gets
+	// a token minted.
+	if b.Delegation != nil && b.Source.Kind == SourceGitHub && c.host.PullRequestMCPURL != "" {
+		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
+			Name: PullRequestMCPName, URL: c.host.PullRequestMCPURL, TokenEnv: TurnTokenEnv,
+		})
 	}
 	if b.Memory == nil {
 		return
@@ -286,6 +306,16 @@ func (h *hostRun) run(ctx context.Context) {
 				"turn_id", r.turn.ID, "dir", jail.dir, "error", err)
 		}
 	}()
+
+	// The skills, where hostBrief told the runtime they would be.
+	for _, b := range h.bundles {
+		if err := b.WriteUnder(filepath.Join(jail.home, hostSkillsDir)); err != nil {
+			c.logger.ErrorContext(ctx, "writing a host turn's skills failed",
+				"turn_id", r.turn.ID, "error", err)
+			h.giveUp(ctx, hostFailedToStart)
+			return
+		}
+	}
 
 	env, err := h.env(ctx, jail)
 	if err != nil {
@@ -520,9 +550,8 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 	env := []string{
 		// The harness is found on PATH, and so are node's own child processes.
 		"PATH=" + hostPATH(),
-		// A HOME of its own: the runtime installs this playbook's Agent Skills under
-		// $HOME/.config/opencode/skills, and with the operator's HOME that would write into
-		// the operator's own harness configuration.
+		// A HOME of its own: the harness reads its global configuration and skills from
+		// under $HOME, and with the operator's HOME that would be the operator's own.
 		"HOME=" + jail.home,
 		"TMPDIR=" + jail.tmp,
 		hostEventsSockEnv + "=" + jail.sock,
@@ -548,9 +577,6 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 			return nil, err
 		}
 		env = append(env, mcp.TokenEnv(srv.Name)+"="+token)
-	}
-	for _, b := range h.bundles {
-		env = append(env, b.Env+"="+b.Encoded)
 	}
 	// Last, so a dry run can be driven without any of the above being reachable.
 	for k, v := range h.devEnv {
@@ -698,32 +724,78 @@ func (l *hostLink) serve() {
 	for {
 		conn, err := l.ln.Accept()
 		if err != nil {
+			// Past the drain deadline, Accept reports the timeout without trying accept(2),
+			// so a connection still queued is not in hand yet. Take what is there first.
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				for _, conn := range l.queued() {
+					l.read(conn)
+				}
+			}
 			return
 		}
-		l.conns.Add(1)
-		go func() {
-			defer l.conns.Done()
-			defer func() { _ = conn.Close() }()
-			sc := bufio.NewScanner(conn)
-			sc.Buffer(make([]byte, 0, 4096), hostMaxLine)
-			for sc.Scan() {
-				var ev hostEvent
-				if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
-					// A line this process cannot read is a bug in the runner, not a failed
-					// turn. The turn's own messages are what matter and they keep coming.
-					l.bad(fmt.Errorf("undecodable event: %w", err))
-					continue
-				}
-				l.events <- ev
-			}
-			// A line past hostMaxLine ends the scan silently, which would lose a message
-			// and say nothing about it. podium-runner refuses one that long, so this means
-			// something else is writing to the socket.
-			if err := sc.Err(); err != nil {
-				l.bad(err)
-			}
-		}()
+		l.read(conn)
 	}
+}
+
+// queued accepts every connection already waiting on the listener, without waiting for more.
+// The listener's descriptor is non-blocking, so accept(2) on it returns EAGAIN once the
+// queue is empty.
+func (l *hostLink) queued() []net.Conn {
+	rc, err := l.ln.SyscallConn()
+	if err != nil {
+		return nil
+	}
+	var out []net.Conn
+	for {
+		var nfd int
+		var aerr error
+		if err := rc.Control(func(fd uintptr) {
+			// ForkLock, so a child started in between cannot inherit the descriptor before
+			// it is close-on-exec: the same dance syscall.Accept's callers in net do.
+			syscall.ForkLock.RLock()
+			nfd, _, aerr = syscall.Accept(int(fd))
+			if aerr == nil {
+				syscall.CloseOnExec(nfd)
+			}
+			syscall.ForkLock.RUnlock()
+		}); err != nil || aerr != nil {
+			return out
+		}
+		f := os.NewFile(uintptr(nfd), "host-event")
+		conn, err := net.FileConn(f)
+		_ = f.Close()
+		if err != nil {
+			return out
+		}
+		out = append(out, conn)
+	}
+}
+
+// read relays one connection's events until it closes.
+func (l *hostLink) read(conn net.Conn) {
+	l.conns.Add(1)
+	go func() {
+		defer l.conns.Done()
+		defer func() { _ = conn.Close() }()
+		sc := bufio.NewScanner(conn)
+		sc.Buffer(make([]byte, 0, 4096), hostMaxLine)
+		for sc.Scan() {
+			var ev hostEvent
+			if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+				// A line this process cannot read is a bug in the runner, not a failed
+				// turn. The turn's own messages are what matter and they keep coming.
+				l.bad(fmt.Errorf("undecodable event: %w", err))
+				continue
+			}
+			l.events <- ev
+		}
+		// A line past hostMaxLine ends the scan silently, which would lose a message
+		// and say nothing about it. podium-runner refuses one that long, so this means
+		// something else is writing to the socket.
+		if err := sc.Err(); err != nil {
+			l.bad(err)
+		}
+	}()
 }
 
 // close stops accepting. The events channel closes once the connections already open have
