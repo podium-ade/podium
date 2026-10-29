@@ -62,8 +62,8 @@ export class Client {
     this.fetchImpl = fetchImpl;
   }
 
-  delegate(playbook: string, instruction: string): Promise<{ delegation: Delegation }> {
-    return this.call("Delegate", { playbook, instruction });
+  delegate(playbook: string, instruction: string, readOnly = false): Promise<{ delegation: Delegation }> {
+    return this.call("Delegate", readOnly ? { playbook, instruction, read_only: true } : { playbook, instruction });
   }
 
   get(id: string): Promise<DelegationState> {

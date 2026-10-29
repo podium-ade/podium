@@ -272,10 +272,14 @@ The rules that matter:
   turn ends. It is not the operator bearer: `TurnService` is a separate service on the same
   loopback listener, and `podium-server` proxies `/podium.agent.v1.AgentService/` and nothing
   else, so nothing outside this host can reach it.
-- **The menu is the allow-list, and it is the whole profile.** Every playbook is delegable.
-  Nothing narrows it per conversation and nothing ever did: the turn picks a playbook per piece
-  of work, and may pick several in one answer. A name that is not on the menu is refused rather
-  than resolved.
+- **The menu is the allow-list, and it is the whole profile.** Every playbook is delegable,
+  except on a pull request, whose menu depends on who is asking (see
+  [GitHub App reviews](#github-app-reviews)). The turn picks a playbook per piece of work, and
+  may pick several in one answer. A name that is not on the menu is refused rather than
+  resolved.
+- **A task may only read.** `podium_delegate` takes `read_only`: the task restores the
+  conversation's workspace and stores nothing back (`workspace_readonly` on its spec), for
+  reading the code to answer a question. It is recorded on the `delegations` row.
 - **A delegated task keeps its own playbook's model.** The chat's model picker moves what
   *answers*; it does not reach into a container. "Answer me on Grok" is a statement about the
   conversation, not about how a container should do its job.
@@ -1735,10 +1739,21 @@ Those are the same session (`github:acme/repo#12`). Mark the review playbook wit
 before any of this runs. With none marked, an opened pull request is refused, and the assistant
 says it has nothing to review with.
 
-Every review of a pull request runs on the same session workspace. A review delegated while an
-earlier one is still up — including the warm window after it answers — can be injected into
-instead. After it exits, the next review is a new task restored from the snapshot, and it
-updates the review already on the pull request. A killed task's files are in that snapshot. The
+Every task on a pull request runs on the same session workspace, and **one task at a time
+changes it**: a task that writes replaces the snapshot when it exits, and two at once would race
+to. A delegation that writes, while another writing task of the pull request has not answered
+yet, is refused with `FailedPrecondition` and the running task's name and id, so the assistant
+can inject into it instead or say what is running. One that has answered and is only waiting in
+its warm window is released — cancelled, and recorded as succeeded, because its work is done and
+was said — and the new task starts once it has gone. The node stores a task's snapshot before it
+reports it exited, so the new task restores what the released one left. Until then the new
+delegation is running with no task, and `podium_delegate` returns at once without one. A task
+that never lets go within ten minutes fails the waiting delegation. Read-only tasks hold nothing:
+they start at once beside the writer. A pull request marked ready while a task is still working
+is not reviewed, and the pull request is told why.
+
+After a review exits, the next review is a new task restored from the snapshot, and it updates
+the review already on the pull request. A killed task's files are in that snapshot. The
 restored checkout is kept when it is not on the default branch, so a review that left the
 pull-request head checked out starts there again. A pull request marked ready again reviews only
 the commits and files changed since the last review: the task is told the commit that review was

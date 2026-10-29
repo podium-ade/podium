@@ -23,6 +23,7 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		WorkspaceSession:     s.WorkspaceSession,
 		WorkspaceRepo:        s.WorkspaceRepo,
 		WorkspacePublishBase: s.WorkspacePublishBase,
+		WorkspaceReadonly:    s.WorkspaceReadOnly,
 		Resources:            s.Resources.toProto(),
 		Hardening:            s.Hardening.toProto(),
 	}
@@ -80,6 +81,7 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		WorkspaceSession:     p.GetWorkspaceSession(),
 		WorkspaceRepo:        p.GetWorkspaceRepo(),
 		WorkspacePublishBase: p.GetWorkspacePublishBase(),
+		WorkspaceReadOnly:    p.GetWorkspaceReadonly(),
 		Resources:            resourcesFromProto(p.GetResources()),
 		Hardening:            hardeningFromProto(p.GetHardening()),
 	}

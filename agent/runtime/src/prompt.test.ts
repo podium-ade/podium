@@ -195,6 +195,8 @@ describe("buildSystemPrompt", () => {
     expect(flat).toContain("`coder` — has the pull-request review");
     expect(flat).toContain("Never write a verdict yourself");
     expect(flat).toContain("The menu is what this commenter may ask for");
+    expect(flat).toContain("delegate it with `read_only` set");
+    expect(flat).toContain("One task at a time changes this pull request");
 
     const none = buildSystemPrompt({
       ...golden(),

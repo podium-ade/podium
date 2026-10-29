@@ -281,7 +281,11 @@ same review thread when the message was a reply in one.
 ${reviewLine}
 - A question about the code, the review or one of its findings: answer it from the
   conversation — the review, the inline notes and the diff they quote — in a few sentences.
-  Delegate only when the answer needs the repository itself.
+  When the answer needs the repository itself, delegate it with \`read_only\` set: the task
+  reads the workspace the review left and changes nothing, so it never waits for other work.
+- One task at a time changes this pull request. If \`podium_delegate\` says another task is
+  still working in it, inject into that task when the message adds to its work; otherwise say
+  what is running and that you will pick this up when it answers.
 - Never write a verdict yourself. "Approve", "Request changes" and inline notes are the
   review playbook's; yours is a reply.
 - Asked to change the code: delegate to a playbook on the menu that can push to this pull
