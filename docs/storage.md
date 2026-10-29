@@ -140,6 +140,18 @@ copy of the named volume `podium-ws-<task_id>` mounted at `/workspace`, taken af
 exit and restored after the next task creates its volume. It still never talks to S3. With
 no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
 
+Nothing ties a snapshot to the node that took it. The row records `node_id` and `task_id`
+for the record only; the scheduler does not read them, and the next task of the session
+restores the tar through the control plane on whichever node it lands on.
+
+The **Snapshots** page (`SnapshotService`) lists every session snapshot and deletes one by
+hand. It also holds the retention policy, the singleton `snapshot_retention` row: delete
+snapshots not replaced for N days, and keep the newest whose sizes fit under X GB. Both are
+off until set. podium-server applies them every 10 minutes and once more when the policy is
+saved. A snapshot whose session has a queued or running task is never deleted, though it
+still counts towards the total. Deleting removes the row first and the object second, so
+nothing restores from an object that is about to go. Repository bases are not swept.
+
 ### Running without one
 
 Leaving `PODIUM_S3_ENDPOINT` empty is supported and does exactly what it says:

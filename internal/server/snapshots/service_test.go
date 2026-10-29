@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sort"
 	"testing"
 
 	"github.com/podium-ade/podium/internal/server/artifacts"
@@ -15,9 +16,11 @@ import (
 // mem is the pointer table, in process. failNext makes the following write fail so a
 // test can see that the previous object survives.
 type mem struct {
-	sessions map[string]store.WorkspaceSnapshot
-	bases    map[string]store.WorkspaceSnapshot
-	failNext bool
+	sessions  map[string]store.WorkspaceSnapshot
+	bases     map[string]store.WorkspaceSnapshot
+	retention store.SnapshotRetention
+	audits    []string
+	failNext  bool
 }
 
 func newMem() *mem {
@@ -67,6 +70,38 @@ func (m *mem) GetWorkspaceBase(_ context.Context, repo string) (store.WorkspaceS
 		return store.WorkspaceSnapshot{}, store.ErrNotFound
 	}
 	return row, nil
+}
+
+func (m *mem) ListWorkspaceSnapshots(context.Context) ([]store.WorkspaceSnapshot, error) {
+	out := make([]store.WorkspaceSnapshot, 0, len(m.sessions))
+	for _, row := range m.sessions {
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+func (m *mem) DeleteWorkspaceSnapshot(_ context.Context, sessionID, objectKey string) (bool, error) {
+	row, ok := m.sessions[sessionID]
+	if !ok || row.ObjectKey != objectKey {
+		return false, nil
+	}
+	delete(m.sessions, sessionID)
+	return true, nil
+}
+
+func (m *mem) GetSnapshotRetention(context.Context) (store.SnapshotRetention, error) {
+	return m.retention, nil
+}
+
+func (m *mem) SetSnapshotRetention(_ context.Context, in store.SnapshotRetention) (store.SnapshotRetention, error) {
+	m.retention = in
+	return in, nil
+}
+
+func (m *mem) Audit(_ context.Context, _, action, _ string, _ map[string]any) error {
+	m.audits = append(m.audits, action)
+	return nil
 }
 
 func testService(t *testing.T) (*Service, *mem) {
