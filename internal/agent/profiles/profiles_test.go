@@ -200,9 +200,6 @@ default_playbook: general
 			f["playbooks/general.yaml"] = goodPlaybook +
 				"skills: [a, b, c, d, e, f, g, h, i]\n"
 		}, []string{"playbooks/general.yaml", "the limit is 8"}},
-		{"a skill bundle env var of its own", func(f map[string]string) {
-			f["playbooks/general.yaml"] = goodPlaybook + "env: {PODIUM_AGENT_SKILL_PR_REVIEW: x}\n"
-		}, []string{"playbooks/general.yaml", "AGENT_SKILL_PR_REVIEW"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

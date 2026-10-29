@@ -26,8 +26,7 @@ func TestADirectorySkillIsDelivered(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "pr-review", got[0].Name)
 	assert.Equal(t, "Use when reviewing a diff.", got[0].Description)
-	assert.Equal(t, EnvPrefix+"PR_REVIEW", got[0].Env)
-	assert.NotEmpty(t, got[0].Encoded)
+	assert.Equal(t, Digest(got[0].Files), got[0].SHA256)
 }
 
 func TestABrokenDirectorySkillFailsTheTurn(t *testing.T) {
