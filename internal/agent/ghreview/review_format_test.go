@@ -28,3 +28,11 @@ func TestSplitInlineKeepsNotesOffTheSummary(t *testing.T) {
 	assert.Contains(t, kept, "not a location")
 	assert.Empty(t, none)
 }
+
+func TestSplitThreadNotesKeepsAMalformedFence(t *testing.T) {
+	rest, notes := splitThreadNotes("done\n\n```reply\nno location here\n```\n\n```resolved\nx.go:4-6\nfixed\n```")
+	require.Len(t, notes, 1)
+	assert.Equal(t, threadNote{Path: "x.go", Line: 6, Body: "fixed", Resolve: true}, notes[0],
+		"a range names the finding by its last line, as the review's own note does")
+	assert.Contains(t, rest, "no location here", "a fence that names no finding stays in the answer")
+}

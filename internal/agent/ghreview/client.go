@@ -61,9 +61,12 @@ type Comment struct {
 	CreatedAt time.Time `json:"created_at"`
 	Path      string    `json:"path"`
 	Line      int       `json:"line"`
-	DiffHunk  string    `json:"diff_hunk"`
-	InReplyTo int64     `json:"in_reply_to_id"`
-	User      User      `json:"user"`
+	// OriginalLine is where the comment was made. Line is where that line is now, and zero
+	// once the code under it changed.
+	OriginalLine int    `json:"original_line"`
+	DiffHunk     string `json:"diff_hunk"`
+	InReplyTo    int64  `json:"in_reply_to_id"`
+	User         User   `json:"user"`
 }
 
 // Review is a submitted pull-request review.
@@ -331,6 +334,104 @@ func (c *restClient) Role(ctx context.Context, installID int64, owner, repo, log
 	return "", nil
 }
 
+// graphqlURL is where GraphQL is: /graphql beside the REST root, and /api/graphql on a GitHub
+// Enterprise Server whose REST root is /api/v3.
+func (c *restClient) graphqlURL() string {
+	if base, ok := strings.CutSuffix(c.baseURL, "/api/v3"); ok {
+		return base + "/api/graphql"
+	}
+	return c.baseURL + "/graphql"
+}
+
+// graphql runs one query. GitHub answers a GraphQL error with 200 and an errors array.
+func (c *restClient) graphql(ctx context.Context, installID int64, query string, vars map[string]any, out any) error {
+	var res struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := c.do(ctx, installID, http.MethodPost, c.graphqlURL(),
+		map[string]any{"query": query, "variables": vars}, &res); err != nil {
+		return err
+	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("github: graphql: %s", res.Errors[0].Message)
+	}
+	if out == nil || len(res.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(res.Data, out)
+}
+
+const reviewThreadsQuery = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`
+
+const resolveThreadMutation = `mutation($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) { thread { id } }
+}`
+
+// maxThreadPages bounds the thread walk: a pull request with more than this many hundred
+// review threads leaves the rest unresolved rather than paging for ever.
+const maxThreadPages = 5
+
+// ResolveThread resolves the review thread whose first comment is rootID. A thread already
+// resolved is left alone; one that cannot be found is an error.
+func (c *restClient) ResolveThread(ctx context.Context, installID int64, owner, repo string, number int, rootID int64) error {
+	var after any
+	for range maxThreadPages {
+		var page struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		err := c.graphql(ctx, installID, reviewThreadsQuery,
+			map[string]any{"owner": owner, "repo": repo, "number": number, "after": after}, &page)
+		if err != nil {
+			return err
+		}
+		threads := page.Repository.PullRequest.ReviewThreads
+		for _, t := range threads.Nodes {
+			if len(t.Comments.Nodes) == 0 || t.Comments.Nodes[0].DatabaseID != rootID {
+				continue
+			}
+			if t.IsResolved {
+				return nil
+			}
+			return c.graphql(ctx, installID, resolveThreadMutation, map[string]any{"id": t.ID}, nil)
+		}
+		if !threads.PageInfo.HasNextPage {
+			break
+		}
+		after = threads.PageInfo.EndCursor
+	}
+	return fmt.Errorf("github: no review thread starts with comment %d", rootID)
+}
+
 // reactionSeen is the reaction a comment gets when a turn starts on it.
 const reactionSeen = "eyes"
 
@@ -485,7 +586,11 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		}
 		rdr = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
+	target := c.baseURL + path
+	if strings.HasPrefix(path, "https://") || strings.HasPrefix(path, "http://") {
+		target = path
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, rdr)
 	if err != nil {
 		return err
 	}

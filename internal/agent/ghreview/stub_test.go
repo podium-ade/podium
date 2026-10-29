@@ -49,6 +49,16 @@ type stub struct {
 	// lets maintainers push there.
 	fork      bool
 	canModify bool
+	// threads is the pull request's review threads as GraphQL lists them, and resolved the
+	// thread ids a mutation resolved.
+	threads  []stubThread
+	resolved []string
+}
+
+type stubThread struct {
+	ID       string
+	Root     int64
+	Resolved bool
 }
 
 func newStub(t *testing.T) *stub {
@@ -65,12 +75,42 @@ func newStub(t *testing.T) *stub {
 	mux.HandleFunc("/app", s.getApp)
 	mux.HandleFunc("/app/installations/", s.accessToken)
 	mux.HandleFunc("/repos/", s.repos)
+	mux.HandleFunc("/graphql", s.graphql)
 	s.srv = httptest.NewServer(mux)
 	t.Cleanup(s.srv.Close)
 	return s
 }
 
 func (s *stub) url() string { return s.srv.URL }
+
+// graphql answers the review-thread query, and the resolve mutation by recording its id.
+func (s *stub) graphql(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.Contains(req.Query, "resolveReviewThread") {
+		id, _ := req.Variables["id"].(string)
+		s.resolved = append(s.resolved, id)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+		return
+	}
+	nodes := make([]map[string]any, 0, len(s.threads))
+	for _, t := range s.threads {
+		nodes = append(nodes, map[string]any{
+			"id": t.ID, "isResolved": t.Resolved,
+			"comments": map[string]any{"nodes": []map[string]any{{"databaseId": t.Root}}},
+		})
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+		"repository": map[string]any{"pullRequest": map[string]any{"reviewThreads": map[string]any{
+			"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": false},
+		}}},
+	}})
+}
 
 func (s *stub) postedReactions() []string {
 	s.mu.Lock()

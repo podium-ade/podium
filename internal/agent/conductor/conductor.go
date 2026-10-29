@@ -622,19 +622,13 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		ref:       ev.Ref,
 		src:       src,
 		playbooks: []string{ev.Playbook},
-	}, ev.Playbook, ev.Text, DelegateOptions{})
+	}, ev.Playbook, ev.Text, DelegateOptions{Wait: true})
 	if err != nil {
 		status = store.TurnFailed
 		c.logger.WarnContext(ctx, "starting the source's own playbook failed",
 			"session_id", sess.ID, "playbook", ev.Playbook, "error", err)
-		out := Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
-			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)}
-		if errors.Is(err, ErrWorkspaceBusy) {
-			// Not the review failing: said as a reply, so the pull request hears why.
-			out = Outbound{Type: OutFinal, Text: fmt.Sprintf(
-				"I did not start the `%s` playbook: another task is still working on this pull request.", ev.Playbook)}
-		}
-		c.post(ctx, src, ev.Ref, out)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)})
 	}
 	none, free := 0, 0.0
 	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
@@ -1059,6 +1053,7 @@ func (c *Conductor) brief(
 			AllowedTools: append([]string{}, j.allowedTools...),
 			MaxTurns:     j.maxTurns,
 			Interactive:  j.playbook.Interactive,
+			GitHub:       j.playbook.GitHub,
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
