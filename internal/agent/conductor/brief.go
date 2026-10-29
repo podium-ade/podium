@@ -31,8 +31,8 @@ const BriefEnv = "PODIUM_AGENT_TURN"
 //
 // 131053 + len("PODIUM_AGENT_TURN=") + 1 for the NUL is exactly 131072.
 //
-// The cap is per string and not per environment: a brief at MaxBriefBytes beside eight skill
-// bundles at skills.MaxEncodedBytes — 608 KiB of environment — execs. What bounds the whole
+// The cap is per string and not per environment: a brief at MaxBriefBytes beside a few
+// hundred KiB of other variables execs. What bounds the whole
 // of argv plus environ is a different and much larger limit, a quarter of RLIMIT_STACK, so
 // about 2 MiB at the usual 8 MiB; docs/agent.md carries that measurement and nothing here
 // budgets against it. TestTheBriefCapLeavesRoomToExec is what pins this one.
@@ -158,6 +158,11 @@ type BriefPlaybook struct {
 	// Skills is the Agent Skills this turn may use. Absent means none, and the runtime
 	// writes a permission map that denies every skill either way.
 	Skills []BriefSkill `json:"skills,omitempty"`
+	// SkillsDir is the directory holding one directory per skill in Skills, already
+	// written by whoever started the runtime: the node, as read-only mounts, for a task;
+	// the conductor for a host turn. A relative path is relative to the runtime's HOME.
+	// Empty exactly when Skills is.
+	SkillsDir string `json:"skills_dir,omitempty"`
 	// MCPServers is the MCP servers this turn may use. Absent means none, and the runtime
 	// writes the harness one entry per server here and no others — so a playbook that names
 	// none has no MCP tools beyond the ones the conductor wires up itself.
@@ -188,23 +193,21 @@ type BriefMCPServer struct {
 	Config map[string]any `json:"config,omitempty"`
 }
 
-// BriefSkill points the runtime at one Agent Skill bundle. It carries a NAME and a DIGEST,
-// never the bytes: the bundle rides in its own environment variable, exactly as a
-// credential does, and for the same reason — the brief is a document an operator reads, and
-// a quarter of a megabyte of base64 in the middle of it is not readable.
+// BriefSkill names one Agent Skill the turn may use. It carries a NAME and a DIGEST, never
+// the bytes: the files reach the runtime as a directory under BriefPlaybook.SkillsDir, and
+// the brief is a document an operator reads, which a megabyte of skill in the middle of it
+// would not be.
 //
 // Keeping them apart also keeps the two caps apart. A brief that does not fit is truncated
-// by dropping the oldest transcript entries; a bundle in the brief would therefore buy
+// by dropping the oldest transcript entries; a skill in the brief would therefore buy
 // itself room by silently deleting the conversation, which is the wrong trade to make on a
 // human's behalf.
 type BriefSkill struct {
-	// Name is the skill's name and the directory it is unpacked into.
+	// Name is the skill's name and its directory under SkillsDir.
 	Name string `json:"name"`
-	// SHA256 is the hex digest of the bundle document the runtime must verify before it
-	// writes anything.
+	// SHA256 is skills.Digest of the skill's files, which the runtime checks the directory
+	// against before the harness reads any of it.
 	SHA256 string `json:"sha256"`
-	// BundleEnv names the environment variable holding base64(gzip(document)).
-	BundleEnv string `json:"bundle_env"`
 }
 
 // BriefEntry is one utterance of the conversation so far.

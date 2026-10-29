@@ -750,11 +750,6 @@ func (s Playbook) validate(path string) error {
 	errs = append(errs, s.Git.validate()...)
 	errs = append(errs, gitEnvConflicts(s.Env, s.Git)...)
 	for key := range s.Env {
-		if strings.HasPrefix(key, skills.EnvPrefix) {
-			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
-				"variable per skill it delivers", key, skills.EnvPrefix))
-			continue
-		}
 		if strings.HasPrefix(key, mcp.EnvPrefix) {
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
 				"variable per MCP server it delivers", key, mcp.EnvPrefix))

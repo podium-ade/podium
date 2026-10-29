@@ -531,3 +531,60 @@ func mustSpec(t *testing.T, doc string) *TaskSpec {
 	require.NoError(t, err)
 	return s
 }
+
+func TestValidateMounts(t *testing.T) {
+	files := map[string]string{"SKILL.md": "---\n", "reference/a.md": "a\n"}
+	cases := []struct {
+		name   string
+		mounts []FileMount
+		want   string
+	}{
+		{"ok", []FileMount{{Target: "/podium/files/skills/pr-review", Files: files}}, ""},
+		{"two side by side", []FileMount{
+			{Target: "/podium/files/skills/a", Files: files},
+			{Target: "/podium/files/skills/b", Files: files},
+		}, ""},
+		{"outside the root", []FileMount{{Target: "/etc/skills", Files: files}}, "must be a directory under /podium/files"},
+		{"the root itself", []FileMount{{Target: "/podium/files", Files: files}}, "must be a directory under /podium/files"},
+		{"traversal in the target", []FileMount{{Target: "/podium/files/../etc", Files: files}}, "must be a directory under"},
+		{"nested targets", []FileMount{
+			{Target: "/podium/files/skills", Files: files},
+			{Target: "/podium/files/skills/a", Files: files},
+		}, "overlaps mounts[0].target"},
+		{"the same target twice", []FileMount{
+			{Target: "/podium/files/a", Files: files},
+			{Target: "/podium/files/a", Files: files},
+		}, "overlaps"},
+		{"no files", []FileMount{{Target: "/podium/files/a"}}, "mounts[0] has no files"},
+		{"traversal in a file", []FileMount{{Target: "/podium/files/a", Files: map[string]string{"../x": "x"}}}, `component ".."`},
+		{"absolute file", []FileMount{{Target: "/podium/files/a", Files: map[string]string{"/x": "x"}}}, `component ""`},
+		{"dotfile", []FileMount{{Target: "/podium/files/a", Files: map[string]string{".ssh/k": "x"}}}, `component ".ssh"`},
+		{"not text", []FileMount{{Target: "/podium/files/a", Files: map[string]string{"b": "\xff"}}}, "not UTF-8"},
+		{"a file that is a directory", []FileMount{{Target: "/podium/files/a", Files: map[string]string{"b": "x", "b/c": "y"}}}, "is a file and also the directory of b/c"},
+		{"too many bytes", []FileMount{{Target: "/podium/files/a", Files: map[string]string{"b": strings.Repeat("x", MaxMountBytes+1)}}}, "bytes of files; the limit is"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &TaskSpec{Image: "alpine:3", Timeout: Duration(time.Hour), MaxAttempts: 1, Mounts: tc.mounts}
+			err := s.Validate()
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestProtoRoundTripWithMounts(t *testing.T) {
+	in := &TaskSpec{
+		Image: "alpine:3",
+		Mounts: []FileMount{
+			{Target: "/podium/files/skills/a", Files: map[string]string{"SKILL.md": "a", "x/y.md": "y"}},
+			{Target: "/podium/files/skills/b", Files: map[string]string{"SKILL.md": "b"}},
+		},
+	}
+	in.ApplyDefaults()
+	require.NoError(t, in.Validate())
+	assert.Equal(t, in.Mounts, FromProto(in.ToProto()).Mounts)
+}

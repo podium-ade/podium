@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -117,24 +116,14 @@ func ListDir(dir string) ([]DirSkill, error) {
 			Name:        name,
 			Description: b.Description,
 			SHA256:      b.SHA256,
-			SizeBytes:   int64(len(b.Document)),
-			FileCount:   b.Files,
+			SizeBytes:   int64(b.Size()),
+			FileCount:   len(b.Files),
 			Markdown:    md,
-			Files:       filesOf(b.Document),
+			Files:       b.Files,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
-}
-
-func filesOf(document []byte) map[string]string {
-	var doc struct {
-		Files map[string]string `json:"files"`
-	}
-	if err := json.Unmarshal(document, &doc); err != nil || len(doc.Files) == 0 {
-		return nil
-	}
-	return doc.Files
 }
 
 func readSkillMD(dir, name string) string {
