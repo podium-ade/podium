@@ -515,6 +515,10 @@ message GitHubWebhookFilters {
   bool auto_review = 6;
   string set_by = 7;
   google.protobuf.Timestamp set_at = 8;
+  // excluded_branches are base branches whose pull requests start nothing. Each is a glob
+  // ("dev", "feature/*", "release/**") or a regular expression between slashes
+  // ("/^hotfix-\d+$/").
+  repeated string excluded_branches = 9;
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved

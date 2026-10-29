@@ -474,6 +474,7 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
   const [phrases, setPhrases] = useState((filters?.triggerPhrases ?? []).join("\n"));
   const [replyMode, setReplyMode] = useState(filters?.replyMode || "bot_threads");
   const [autoReview, setAutoReview] = useState(filters?.autoReview ?? true);
+  const [branches, setBranches] = useState((filters?.excludedBranches ?? []).join("\n"));
   const [error, setError] = useState("");
 
   const save = useMutation({
@@ -486,6 +487,8 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
           triggerPhrases: phrases.split("\n").map((v) => v.trim()).filter(Boolean),
           replyMode,
           autoReview,
+          // Not splitList: a regular expression may hold a comma.
+          excludedBranches: branches.split("\n").map((v) => v.trim()).filter(Boolean),
         },
       }),
     onSuccess: async () => {
@@ -535,6 +538,21 @@ function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
         label="Ignore bot accounts"
         detail="Drop everything sent by a bot, such as Dependabot or Renovate."
       />
+      <Field
+        label="Excluded branches"
+        htmlFor="github-excluded-branches"
+        hint="Pull requests into these base branches never start a review. One per line: a name, a glob such as feature/* (** crosses slashes), or a regular expression between slashes."
+      >
+        <Textarea
+          id="github-excluded-branches"
+          value={branches}
+          onChange={(e) => setBranches(e.target.value)}
+          className="min-h-16 font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={"dev\nfeature/*"}
+        />
+      </Field>
       <Field
         label="Trigger phrases"
         htmlFor="github-trigger-phrases"
