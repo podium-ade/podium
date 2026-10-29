@@ -81,6 +81,10 @@ const DefaultOpenAIOAuthIssuer = "https://auth.openai.com"
 // not Podium, because that is whose client this is.
 const DefaultOpenAIOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
+// DefaultGoogleBaseURL is where a Gemini API key is validated, and where a Gemini turn sends
+// the harness. It is the host only: the API version is a path the callers append.
+const DefaultGoogleBaseURL = "https://generativelanguage.googleapis.com"
+
 // DefaultMemoryTaskURL is where a TASK CONTAINER reaches Hindsight. It is not where the
 // conductor reaches it: a task runs on a node, on its own bridge network, and gets to the
 // host through the bridge gateway. Correct when the node runs on the same host as the
@@ -203,6 +207,10 @@ type Config struct {
 	// Codex CLI). Set to "off" to turn the subscription sign-in off and leave the API key
 	// path. Public OAuth client metadata, not a secret.
 	OpenAIOAuthClientID string
+	// GoogleBaseURL is PODIUM_AGENT_GOOGLE_BASE_URL, default
+	// https://generativelanguage.googleapis.com. SetProviderKey validates a Gemini API key
+	// against it, and a Gemini turn carries it in its brief.
+	GoogleBaseURL string
 	// MemoryURL is PODIUM_AGENT_MEMORY_URL: Hindsight's base URL as seen from THIS
 	// process. Empty turns memory off entirely — briefs carry no memory block, nothing is
 	// retained, readyz does not probe it and the memory RPCs answer FailedPrecondition.
@@ -297,6 +305,7 @@ func FromEnv() Config {
 		OpenAICodexBaseURL:  envOr("PODIUM_AGENT_OPENAI_CODEX_BASE_URL", DefaultOpenAICodexBaseURL),
 		OpenAIOAuthIssuer:   envOr("PODIUM_AGENT_OPENAI_OAUTH_ISSUER", DefaultOpenAIOAuthIssuer),
 		OpenAIOAuthClientID: oauthClientID("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", DefaultOpenAIOAuthClientID),
+		GoogleBaseURL:       envOr("PODIUM_AGENT_GOOGLE_BASE_URL", DefaultGoogleBaseURL),
 		MemoryURL:           os.Getenv("PODIUM_AGENT_MEMORY_URL"),
 		MemoryTaskURL:       envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
 		MemoryBank:          envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
@@ -391,6 +400,7 @@ func (c Config) Validate() error {
 		{"PODIUM_AGENT_XAI_OAUTH_ISSUER", c.XAIOAuthIssuer},
 		{"PODIUM_AGENT_OPENAI_BASE_URL", c.OpenAIBaseURL},
 		{"PODIUM_AGENT_OPENAI_OAUTH_ISSUER", c.OpenAIOAuthIssuer},
+		{"PODIUM_AGENT_GOOGLE_BASE_URL", c.GoogleBaseURL},
 	} {
 		if u.value == "" {
 			continue
@@ -483,6 +493,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openai_codex_base_url", c.OpenAICodexBaseURL),
 		slog.String("openai_oauth_issuer", c.OpenAIOAuthIssuer),
 		slog.String("openai_oauth_client_id", c.OpenAIOAuthClientID),
+		slog.String("google_base_url", c.GoogleBaseURL),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),

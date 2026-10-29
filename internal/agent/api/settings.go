@@ -25,6 +25,7 @@ const (
 	ProviderAnthropic = profiles.ProviderAnthropic
 	ProviderXAI       = profiles.ProviderXAI
 	ProviderOpenAI    = profiles.ProviderOpenAI
+	ProviderGoogle    = profiles.ProviderGoogle
 )
 
 // How a stored credential was obtained. The distinction is not cosmetic: an API key does
@@ -111,6 +112,14 @@ var providerSpecs = []providerSpec{{
 	validateOAuth: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
 		return validateOpenAICodexToken(ctx, s.http, s.openaiCodexBaseURL, key)
 	},
+}, {
+	name:   ProviderGoogle,
+	label:  "Google",
+	secret: profiles.GoogleKeySecret,
+	validate: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
+		return validateGoogleKey(ctx, s.http, s.googleBaseURL, key)
+	},
+	unusual: unusualGoogleFormat,
 }}
 
 // findProvider resolves a request's provider field. An empty one is Anthropic, so a client
