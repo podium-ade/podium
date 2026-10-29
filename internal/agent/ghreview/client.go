@@ -59,6 +59,7 @@ type Comment struct {
 	Body      string    `json:"body"`
 	HTMLURL   string    `json:"html_url"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	Path      string    `json:"path"`
 	Line      int       `json:"line"`
 	// OriginalLine is where the comment was made. Line is where that line is now, and zero

@@ -263,12 +263,15 @@ func TestGitHubWebhookFiltersRoundTrip(t *testing.T) {
 	def := got.Msg.GetGithub().GetFilters()
 	assert.Equal(t, connections.ReplyBotThreads, def.GetReplyMode())
 	assert.True(t, def.GetAutoReview())
+	assert.False(t, def.GetConversationReplies(), "a conversation-tab reply needs the mention unless turned on")
 
 	saved, err := f.svc.SetGitHubWebhookFilters(ctx, connect.NewRequest(&agentv1.SetGitHubWebhookFiltersRequest{
 		Filters: &agentv1.GitHubWebhookFilters{
 			AllowedActors:  []string{"@alice", "alice", "bob"},
 			TriggerPhrases: []string{" /review "},
 			ReplyMode:      connections.ReplyAlways,
+
+			ConversationReplies: true,
 		},
 	}))
 	require.NoError(t, err)
@@ -277,6 +280,7 @@ func TestGitHubWebhookFiltersRoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"/review"}, out.GetTriggerPhrases())
 	assert.Equal(t, connections.ReplyAlways, out.GetReplyMode())
 	assert.False(t, out.GetAutoReview())
+	assert.True(t, out.GetConversationReplies())
 	assert.Equal(t, "ada", out.GetSetBy())
 	assert.False(t, saved.Msg.GetGithub().GetRestartRequired())
 

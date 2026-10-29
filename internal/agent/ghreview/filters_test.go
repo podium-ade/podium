@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,4 +201,60 @@ func TestAReviewCommentCarriesItsBase(t *testing.T) {
 	reply["pull_request"].(map[string]any)["base"] = map[string]any{"ref": "dev"}
 	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request_review_comment", "d-1", reply).Code)
 	assert.Len(t, h.drain(), 1, "the payload's base is used without reading the pull request")
+}
+
+// A thread a person started is the App's to answer in once the App has replied in it.
+func TestABotThreadIsOneTheAppStartedOrHasRepliedIn(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	h.stub.threadRoot(8, User{Login: "alice", Type: "User"})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request_review_comment", "d-j1", reviewReply("and this?", 8)).Code)
+	assert.Empty(t, h.drain(), "a person's thread the App is not in needs the trigger")
+
+	h.stub.mu.Lock()
+	h.stub.reviewComments = []Comment{
+		{ID: 8, Path: "a.go", User: User{Login: "alice", Type: "User"}},
+		{ID: 21, Path: "a.go", InReplyTo: 8, User: User{Login: "podium[bot]", Type: "Bot"}},
+	}
+	h.stub.mu.Unlock()
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request_review_comment", "d-j2", reviewReply("and this?", 8)).Code)
+	assert.Len(t, h.drain(), 1, "the App replied in it, so it is the App's thread too")
+
+	h.filter(Filters{ReplyMode: ReplyAlways})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request_review_comment", "d-j3", reviewReply("and this?", 8)).Code)
+	assert.Empty(t, h.drain(), "always asks for the trigger")
+}
+
+// With conversation replies on, a comment that directly follows the App's own on the
+// conversation tab, within half an hour, needs no mention. Anything else still does.
+func TestAConversationReplyRightAfterTheAppNeedsNoMention(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	bot := User{Login: "podium[bot]", Type: "Bot"}
+	at := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC) // prComment's created_at
+	h.stub.mu.Lock()
+	h.stub.issueComments = []Comment{{ID: 5, Body: "the race is in Close", CreatedAt: at.Add(-10 * time.Minute), User: bot}}
+	h.stub.mu.Unlock()
+
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-c1", prComment("why Close?")).Code)
+	assert.Empty(t, h.drain(), "off by default")
+
+	h.filter(Filters{ConversationReplies: true})
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-c2", prComment("why Close?")).Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Contains(t, evs[0].Text, "why Close?")
+
+	h.stub.mu.Lock()
+	h.stub.issueComments = append(h.stub.issueComments,
+		Comment{ID: 6, Body: "bob, can you look?", CreatedAt: at.Add(-5 * time.Minute), User: User{Login: "alice", Type: "User"}})
+	h.stub.mu.Unlock()
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-c3", prComment("sure")).Code)
+	assert.Empty(t, h.drain(), "people talking to each other after the App spoke")
+
+	h.stub.mu.Lock()
+	h.stub.issueComments = []Comment{{ID: 5, CreatedAt: at.Add(-2 * time.Hour), UpdatedAt: at.Add(-time.Hour), User: bot}}
+	h.stub.mu.Unlock()
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-c4", prComment("why Close?")).Code)
+	assert.Empty(t, h.drain(), "an hour later is not a reply to it")
 }

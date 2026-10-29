@@ -270,6 +270,8 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 				ReplyMode:        f.ReplyMode,
 				NoAutoReview:     f.NoAutoReview,
 				ExcludedBranches: f.ExcludedBranches,
+
+				ConversationReplies: f.ConversationReplies,
 			}, nil
 		},
 		Reviews: ghreview.ReviewMemory{

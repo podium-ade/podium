@@ -131,6 +131,9 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	if !triggered && c.inReply {
 		triggered = s.replyTriggers(ctx, f, c, known)
 	}
+	if !triggered && known && f.ConversationReplies && c.kind == KindIssueComment {
+		triggered = s.answersTheApp(ctx, c)
+	}
 	if !triggered {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
 		return
@@ -535,8 +538,8 @@ func (s *Source) speakerRole(ctx context.Context, c classified) (role string, lo
 // maxThreadBots bounds the thread cache. Forgetting it only costs one more read.
 const maxThreadBots = 4096
 
-// botThread reports whether the App started the thread c replies in. A thread that
-// cannot be read counts as a person's: the reply then needs the trigger.
+// botThread reports whether the App started the thread c replies in, or has replied in it.
+// A thread that cannot be read counts as a person's: the reply then needs the trigger.
 func (s *Source) botThread(ctx context.Context, c classified) bool {
 	if c.threadID == 0 || c.installID == 0 {
 		return false
@@ -545,7 +548,7 @@ func (s *Source) botThread(ctx context.Context, c classified) bool {
 	bot, ok := s.threadBots[c.threadID]
 	s.mu.Unlock()
 	if ok {
-		return bot
+		return bot || s.joinedThread(ctx, c)
 	}
 	root, err := s.client.ReviewComment(ctx, c.installID, c.owner, c.repo, c.threadID)
 	if err != nil {
@@ -560,7 +563,71 @@ func (s *Source) botThread(ctx context.Context, c classified) bool {
 	}
 	s.threadBots[c.threadID] = bot
 	s.mu.Unlock()
-	return bot
+	return bot || s.joinedThread(ctx, c)
+}
+
+// joinedThread reports whether the App has replied in the thread c replies in, though a
+// person started it. Only a yes is remembered: the App can join a thread later.
+func (s *Source) joinedThread(ctx context.Context, c classified) bool {
+	s.mu.Lock()
+	joined := s.threadJoined[c.threadID]
+	s.mu.Unlock()
+	if joined {
+		return true
+	}
+	comments, err := s.client.ListReviewComments(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading a review thread's replies failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "comment", c.threadID, "error", err)
+		return false
+	}
+	for _, cm := range comments {
+		if cm.InReplyTo == c.threadID && s.isAppUser(cm.User.Login, cm.User.Type) {
+			s.mu.Lock()
+			if len(s.threadJoined) >= maxThreadBots {
+				clear(s.threadJoined)
+			}
+			s.threadJoined[c.threadID] = true
+			s.mu.Unlock()
+			return true
+		}
+	}
+	return false
+}
+
+// conversationReplyWindow is how soon after the App's own comment a conversation-tab
+// comment counts as the answer to it.
+const conversationReplyWindow = 30 * time.Minute
+
+// answersTheApp reports whether the conversation-tab comment c follows the App's own comment
+// directly, within conversationReplyWindow of it being written or last edited. The tab has no
+// threads, so "right after the App spoke" is the nearest thing to a reply.
+func (s *Source) answersTheApp(ctx context.Context, c classified) bool {
+	if c.installID == 0 {
+		return false
+	}
+	comments, err := s.client.ListIssueComments(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the conversation before a comment failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return false
+	}
+	var prev *Comment
+	for i := range comments {
+		cm := &comments[i]
+		if cm.ID == c.commentID || !cm.CreatedAt.Before(c.ts) {
+			break
+		}
+		prev = cm
+	}
+	if prev == nil || !s.isAppUser(prev.User.Login, prev.User.Type) {
+		return false
+	}
+	at := prev.CreatedAt
+	if prev.UpdatedAt.After(at) {
+		at = prev.UpdatedAt
+	}
+	return c.ts.Sub(at) <= conversationReplyWindow
 }
 
 func (s *Source) mentioned(body string) bool {

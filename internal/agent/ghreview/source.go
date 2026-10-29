@@ -151,6 +151,8 @@ type Source struct {
 	// threadBots is whether the App started an inline review thread, keyed by the
 	// thread's first comment. Who started a thread never changes.
 	threadBots map[int64]bool
+	// threadJoined is the inline threads a person started that the App has replied in.
+	threadJoined map[int64]bool
 	// roles is a commenter's role on a repository, keyed owner/repo/login, for roleTTL.
 	roles map[string]knownRole
 }
@@ -220,6 +222,7 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		pulls:         map[string]pullInfo{},
 		threadBots:    map[int64]bool{},
 		roles:         map[string]knownRole{},
+		threadJoined:  map[int64]bool{},
 	}, nil
 }
 
