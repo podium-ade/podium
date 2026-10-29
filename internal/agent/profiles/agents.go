@@ -197,6 +197,11 @@ var Backends = []Backend{{
 			Efforts: geminiEfforts,
 		},
 		{
+			ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon",
+			Note:          "The most capable Gemini model, and the most expensive.",
+			ContextTokens: 1_048_576, Efforts: geminiEfforts,
+		},
+		{
 			ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash",
 			Note:          "The previous Flash. Pin it when a playbook is tuned to it.",
 			ContextTokens: 1_048_576, Efforts: geminiEfforts,
