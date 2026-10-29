@@ -12,6 +12,8 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/podium-ade/podium/internal/ids"
 	"github.com/podium-ade/podium/internal/server/artifacts"
@@ -37,6 +39,11 @@ type rows interface {
 	GetWorkspaceSnapshot(ctx context.Context, sessionID string) (store.WorkspaceSnapshot, error)
 	PutWorkspaceBase(ctx context.Context, in store.WorkspaceSnapshot) (string, error)
 	GetWorkspaceBase(ctx context.Context, repo string) (store.WorkspaceSnapshot, error)
+	ListWorkspaceSnapshots(ctx context.Context) ([]store.WorkspaceSnapshot, error)
+	DeleteWorkspaceSnapshot(ctx context.Context, sessionID, objectKey string) (bool, error)
+	GetSnapshotRetention(ctx context.Context) (store.SnapshotRetention, error)
+	SetSnapshotRetention(ctx context.Context, in store.SnapshotRetention) (store.SnapshotRetention, error)
+	Audit(ctx context.Context, actor, action, subject string, details map[string]any) error
 }
 
 // Service writes workspace tars to S3 and the pointer to Postgres.
@@ -44,6 +51,10 @@ type Service struct {
 	store  rows
 	s3     *artifacts.S3
 	logger *slog.Logger
+
+	// sweeping keeps the ticker and a policy change from sweeping at the same time.
+	sweeping sync.Mutex
+	now      func() time.Time
 }
 
 // New returns a Service. A nil *S3 means snapshots are disabled.
@@ -51,7 +62,7 @@ func New(st rows, s3 *artifacts.S3, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{store: st, s3: s3, logger: logger}
+	return &Service{store: st, s3: s3, logger: logger, now: time.Now}
 }
 
 // Enabled reports whether an object store is configured.

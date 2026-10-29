@@ -125,6 +125,14 @@ type Session struct {
 	CreatedAt time.Time
 }
 
+type SnapshotRetention struct {
+	ID            int32
+	MaxAgeSeconds int64
+	MaxTotalBytes int64
+	UpdatedBy     string
+	UpdatedAt     time.Time
+}
+
 type Task struct {
 	ID                    string
 	Spec                  []byte

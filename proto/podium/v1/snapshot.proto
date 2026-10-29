@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// SnapshotService is the operator's view of the conversation workspaces stored in the
+// object store, and the policy that deletes old ones. Repository bases are not listed here.
+service SnapshotService {
+  // ListSnapshots returns every session snapshot, newest first, and the retention policy.
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  // DeleteSnapshot removes one session's snapshot. Its next task starts from the
+  // repository base, or from an empty workspace.
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+  // SetSnapshotRetention replaces the policy and applies it before returning.
+  rpc SetSnapshotRetention(SetSnapshotRetentionRequest) returns (SetSnapshotRetentionResponse);
+}
+
+// Snapshot is one conversation's latest workspace tar. A session has at most one.
+message Snapshot {
+  string session_id = 1;
+  int64 size_bytes = 2;
+  string sha256 = 3;
+  // node_id and task_id are where the tar was taken. A later task of the session may run on
+  // any node: the tar is restored through the control plane.
+  string node_id = 4;
+  string task_id = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // in_use is a task of the session that has not finished. Retention never deletes it.
+  bool in_use = 7;
+}
+
+// SnapshotRetention is when session snapshots are deleted. Zero turns a rule off.
+message SnapshotRetention {
+  // max_age_seconds deletes a snapshot not replaced for this long.
+  int64 max_age_seconds = 1;
+  // max_total_bytes keeps the newest snapshots whose sizes fit under it and deletes the rest.
+  int64 max_total_bytes = 2;
+  string updated_by = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message ListSnapshotsRequest {}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+  SnapshotRetention retention = 2;
+  // enabled is false when the server has no object store, so nothing is ever stored.
+  bool enabled = 3;
+}
+
+message DeleteSnapshotRequest {
+  string session_id = 1;
+}
+
+message DeleteSnapshotResponse {}
+
+message SetSnapshotRetentionRequest {
+  int64 max_age_seconds = 1;
+  int64 max_total_bytes = 2;
+}
+
+message SetSnapshotRetentionResponse {
+  SnapshotRetention retention = 1;
+  // removed and freed_bytes are what applying the new policy deleted.
+  int32 removed = 2;
+  int64 freed_bytes = 3;
+}
