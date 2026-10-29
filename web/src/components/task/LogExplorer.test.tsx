@@ -69,33 +69,44 @@ describe("LogExplorer", () => {
     expect(rows.map((r) => r.dataset.severity)).toEqual(["info", "info", "info", "error"]);
   });
 
-  it("hides a source with its chip and counts what the query matched", async () => {
+  it("shows only a source when its chip is clicked, and counts what the query matched", async () => {
     const user = userEvent.setup();
     render(<Explorer entries={mixed} />);
     expect(chip("stdout")).toHaveTextContent("3");
 
-    await user.click(chip("stdout"));
+    await user.click(chip("stderr"));
     expect(texts()).toEqual(["warn: disk"]);
+    expect(chip("stderr")).toHaveAttribute("aria-pressed", "true");
     expect(chip("stdout")).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(chip("stderr"));
-    expect(screen.queryAllByTestId("log-line")).toHaveLength(0);
-    expect(screen.getByText("nothing matches the filter")).toBeInTheDocument();
-  });
+    // A second chip adds its group to what shows.
+    await user.click(chip("stdout"));
+    expect(texts()).toHaveLength(4);
 
-  it("shows only one source on alt-click, and everything again on a second", () => {
-    render(<Explorer entries={mixed} />);
-    fireEvent.click(chip("stderr"), { altKey: true });
+    // Clicking a chosen chip takes it out again.
+    await user.click(chip("stdout"));
     expect(texts()).toEqual(["warn: disk"]);
-    fireEvent.click(chip("stderr"), { altKey: true });
+    await user.click(chip("stderr"));
     expect(texts()).toHaveLength(4);
   });
 
-  it("filters by severity", async () => {
+  it("clears every chip with 'Show all'", async () => {
+    const user = userEvent.setup();
+    render(<Explorer entries={mixed} />);
+    await user.click(chip("stderr"));
+    await user.click(chip("warn"));
+    await user.click(screen.getByRole("button", { name: "Show all" }));
+    expect(texts()).toHaveLength(4);
+    expect(chip("stderr")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("combines the severity and source rows", async () => {
     const user = userEvent.setup();
     render(<Explorer entries={mixed} />);
     await user.click(chip("info"));
-    expect(texts()).toEqual(["warn: disk"]);
+    expect(texts()).toEqual(["tick 1", "tick 2", "tick 3"]);
+    await user.click(chip("stderr"));
+    expect(screen.getByText("nothing matches the filter")).toBeInTheDocument();
   });
 
   it("searches with the query language and reports the count", async () => {

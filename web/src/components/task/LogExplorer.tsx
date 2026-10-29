@@ -8,7 +8,6 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type MouseEvent,
 } from "react";
 import { ArrowDownToLine, Braces, CircleAlert, ListRestart, Search, X } from "lucide-react";
 import { entryJson, firstProblem, isTranscript, SEVERITIES, type Entry, type Severity } from "../../lib/entries";
@@ -140,8 +139,10 @@ export function LogExplorer({
   /** trace says the selection came from a transcript step: mark what it printed. */
   trace?: boolean;
 }) {
-  const [hiddenSeverity, setHiddenSeverity] = useState<ReadonlySet<string>>(new Set());
-  const [hiddenSource, setHiddenSource] = useState<ReadonlySet<string>>(new Set());
+  // A chip narrows to its group: with none chosen in a row every entry shows, and each one
+  // chosen adds its group to what does.
+  const [onlySeverity, setOnlySeverity] = useState<ReadonlySet<string>>(new Set());
+  const [onlySource, setOnlySource] = useState<ReadonlySet<string>>(new Set());
   const [range, setRange] = useState<TimeRange>();
   const [follow, setFollow] = useState(selected === undefined);
   const [scrollTop, setScrollTop] = useState(0);
@@ -163,8 +164,13 @@ export function LogExplorer({
     [entries, parsed],
   );
   const faceted = useMemo(
-    () => queried.filter((e) => !hiddenSeverity.has(e.severity) && !hiddenSource.has(e.source)),
-    [queried, hiddenSeverity, hiddenSource],
+    () =>
+      queried.filter(
+        (e) =>
+          (onlySeverity.size === 0 || onlySeverity.has(e.severity)) &&
+          (onlySource.size === 0 || onlySource.has(e.source)),
+      ),
+    [queried, onlySeverity, onlySource],
   );
   const visible = useMemo(
     () => (range ? faceted.filter((e) => e.at >= range.from && e.at <= range.to) : faceted),
@@ -220,7 +226,7 @@ export function LogExplorer({
   }, [entries, band]);
 
   const problem = useMemo(() => firstProblem(visible), [visible]);
-  const filtered = !parsed.empty || hiddenSeverity.size > 0 || hiddenSource.size > 0 || range !== undefined;
+  const filtered = !parsed.empty || onlySeverity.size > 0 || onlySource.size > 0 || range !== undefined;
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -334,30 +340,20 @@ export function LogExplorer({
   /** showSurrounding drops every filter and keeps the open row, in the context it came from. */
   const showSurrounding = () => {
     onQuery("");
-    setHiddenSeverity(new Set());
-    setHiddenSource(new Set());
+    setOnlySeverity(new Set());
+    setOnlySource(new Set());
     setRange(undefined);
     landed.current = undefined;
   };
 
-  const facet = (
-    hidden: ReadonlySet<string>,
-    set: (s: ReadonlySet<string>) => void,
-    all: readonly string[],
-  ) => (value: string, e: MouseEvent) => {
-    // Alt-click shows only this one, or everything again when it already was the only one.
-    if (e.altKey || e.metaKey) {
-      const only = all.every((v) => v === value || hidden.has(v)) && !hidden.has(value);
-      set(only ? new Set() : new Set(all.filter((v) => v !== value)));
-      return;
-    }
-    const next = new Set(hidden);
+  const facet = (only: ReadonlySet<string>, set: (s: ReadonlySet<string>) => void) => (value: string) => {
+    const next = new Set(only);
     if (next.has(value)) next.delete(value);
     else next.add(value);
     set(next);
   };
-  const toggleSeverity = facet(hiddenSeverity, setHiddenSeverity, SEVERITIES);
-  const toggleSource = facet(hiddenSource, setHiddenSource, sources);
+  const toggleSeverity = facet(onlySeverity, setOnlySeverity);
+  const toggleSource = facet(onlySource, setOnlySource);
 
   const height = viewport > 0 ? viewport : FALLBACK_VIEWPORT_PX;
   const first = Math.max(0, Math.floor((scrollTop - OVERSCAN_PX) / ROW_PX));
@@ -453,9 +449,10 @@ export function LogExplorer({
             key={s}
             label={s}
             count={counts.severity.get(s) ?? 0}
-            shown={!hiddenSeverity.has(s)}
+            chosen={onlySeverity.has(s)}
+            narrowed={onlySeverity.size > 0}
             dot={SEVERITY_DOT[s]}
-            onClick={(e) => toggleSeverity(s, e)}
+            onClick={() => toggleSeverity(s)}
           />
         ))}
         <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
@@ -464,8 +461,9 @@ export function LogExplorer({
             key={s}
             label={s}
             count={counts.source.get(s) ?? 0}
-            shown={!hiddenSource.has(s)}
-            onClick={(e) => toggleSource(s, e)}
+            chosen={onlySource.has(s)}
+            narrowed={onlySource.size > 0}
+            onClick={() => toggleSource(s)}
           />
         ))}
         {range ? (
@@ -478,7 +476,20 @@ export function LogExplorer({
             <X aria-label="Clear the time window" className="size-3" />
           </button>
         ) : null}
-        <span className="ml-auto hidden text-2xs text-faint sm:inline">Alt-click a chip to show only it</span>
+        {onlySeverity.size > 0 || onlySource.size > 0 ? (
+          <button
+            type="button"
+            onClick={() => {
+              setOnlySeverity(new Set());
+              setOnlySource(new Set());
+            }}
+            className="ml-auto text-2xs text-muted underline-offset-2 hover:text-fg hover:underline"
+          >
+            Show all
+          </button>
+        ) : (
+          <span className="ml-auto hidden text-2xs text-faint sm:inline">Click a chip to show only it</span>
+        )}
       </div>
 
       {parsed.error ? (
@@ -587,28 +598,40 @@ export function LogExplorer({
   );
 }
 
+/**
+ * FacetChip is one group of a facet. Chosen, it is part of what the list shows; while
+ * another chip of its row is chosen and it is not, it recedes, so the row reads as which
+ * groups are in.
+ */
 function FacetChip({
   label,
   count,
-  shown,
+  chosen,
+  narrowed,
   dot,
   onClick,
 }: {
   label: string;
   count: number;
-  shown: boolean;
+  chosen: boolean;
+  /** narrowed says some chip of this row is chosen. */
+  narrowed: boolean;
   dot?: string;
-  onClick: (e: MouseEvent) => void;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      aria-pressed={shown}
+      aria-pressed={chosen}
       aria-label={`${label} ${count}`}
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-2xs transition-colors",
-        shown ? "border-border bg-panel text-fg hover:bg-raised" : "border-dashed border-border text-faint line-through hover:text-muted",
+        chosen
+          ? "border-accent bg-accent/20 text-fg hover:bg-accent/25"
+          : narrowed
+            ? "border-border text-faint hover:bg-raised hover:text-muted"
+            : "border-border bg-panel text-fg hover:bg-raised",
       )}
     >
       {dot ? <span aria-hidden className={cn("size-1.5 rounded-[1px]", dot)} /> : null}
