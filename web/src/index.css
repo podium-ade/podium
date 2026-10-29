@@ -2,8 +2,8 @@
 @import "tw-animate-css";
 
 /*
-  Podium design system, dark shell. Canvas is #060708, surface is #101214,
-  and the chat rail is #181b1f. Names the screens already use
+  Podium design system. Light is the default, and html[data-theme="dark"] repaints the
+  same tokens with the dark shell. Names the screens already use
   (bg, panel, muted, accent, …) stay, and the shadcn names alias them.
 */
 
@@ -30,36 +30,36 @@
 }
 
 @theme {
-  /* Dark shell: canvas #060708, surface #101214, surface-alt #181b1f. */
-  --color-bg: #060708;
-  --color-panel: #101214;
-  --color-rail: #181b1f;
-  --color-raised: #181b1f;
-  --color-popover: #1e2227;
-  --color-fg: #f2f4f6;
-  --color-soft: #c5ccd3;
-  --color-muted: #939ba3;
-  --color-faint: #939ba3;
-  --color-border: #32373c;
-  --color-hairline: #32373c;
-  --color-line-strong: #5c636b;
+  /* Light shell: canvas #f2f4f6, surface #ffffff, surface-alt #e9edf1. Dark overrides below. */
+  --color-bg: #f2f4f6;
+  --color-panel: #ffffff;
+  --color-rail: #e9edf1;
+  --color-raised: #e9edf1;
+  --color-popover: #ffffff;
+  --color-fg: #19232d;
+  --color-soft: #364654;
+  --color-muted: #526372;
+  --color-faint: #526372;
+  --color-border: #cbd4dd;
+  --color-hairline: #cbd4dd;
+  --color-line-strong: #9baab9;
   --color-accent: #254f78;
   --color-accent-hover: #183d62;
   --color-accent-ink: #ffffff;
   --color-ring: #2365a7;
-  --color-ok: #8fceb0;
-  --color-ok-bg: #102018;
-  --color-warn: #e4c48a;
-  --color-warn-bg: #241c10;
-  --color-err: #f0b0b4;
-  --color-err-bg: #2a1517;
-  --color-run: #9eb4c9;
-  --color-run-bg: #12171d;
-  --color-idle: #939ba3;
-  --color-idle-bg: #181b1f;
+  --color-ok: #176447;
+  --color-ok-bg: #e2f3ea;
+  --color-warn: #805012;
+  --color-warn-bg: #fff0d5;
+  --color-err: #a03037;
+  --color-err-bg: #fce9e9;
+  --color-run: #245d91;
+  --color-run-bg: #e4f0fb;
+  --color-idle: #526372;
+  --color-idle-bg: #e9edf1;
   /* lost is not a failure: it stays its own colour so it cannot be read as one. */
-  --color-lost: #e4c6f2;
-  --color-lost-bg: #3a2c44;
+  --color-lost: #6b3d86;
+  --color-lost-bg: #f3e8fa;
 
   --color-background: var(--color-bg);
   --color-foreground: var(--color-fg);
@@ -99,7 +99,7 @@
   --shadow-xs: none;
   --shadow-sm: none;
   --shadow-md: none;
-  --shadow-lg: 0 12px 32px #0002;
+  --shadow-lg: 0 12px 32px #19232d1f;
 
   --ease-out-quint: cubic-bezier(0.2, 0.8, 0.2, 1);
 
@@ -167,7 +167,7 @@ html[data-theme="dark"] {
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
   font-size: 16px;
   scroll-behavior: smooth;
 }
@@ -219,7 +219,10 @@ body {
   color: var(--color-accent-ink);
 }
 
-/* Highlighted code carries both Shiki themes. The shell canvas is dark, so the dark colors stay. */
+/* Highlighted code carries both Shiki themes; the dark one is inline, the light one a variable. */
+html:not([data-theme="dark"]) .chat-code span {
+  color: var(--shiki-light) !important;
+}
 
 .tabular {
   font-variant-numeric: tabular-nums;
