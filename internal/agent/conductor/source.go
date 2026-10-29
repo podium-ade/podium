@@ -95,6 +95,11 @@ type InboundEvent struct {
 	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
 	// by the assistant and runs no playbook at all.
 	Playbook string
+	// Role is the speaker's role on what the conversation is about, when the source knows it:
+	// their access to a pull request's repository — read, triage, write, maintain or admin.
+	// A pull request offers a playbook only to a speaker whose role its github_requires
+	// allows. Empty is no role, and offers none of them.
+	Role string
 	// Automatic is an event nobody said: the source saw something happen — a pull request
 	// opened, or marked ready — and wants its own playbook run on it. The conductor delegates
 	// that playbook directly, with no assistant turn, because there is nothing to decide.

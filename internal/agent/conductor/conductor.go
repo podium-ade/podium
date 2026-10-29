@@ -836,7 +836,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
-		menu = c.menuFor(src)
+		menu = c.menuFor(src, ev.Role)
 		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()

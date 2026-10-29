@@ -109,21 +109,27 @@ func TestReactionForEveryEnding(t *testing.T) {
 }
 
 // Anybody the GitHub triggers allow can comment on a pull request, so a turn there is
-// offered the review playbook and nothing else. Every other source gets the whole profile.
-func TestAPullRequestIsOfferedTheReviewPlaybookAlone(t *testing.T) {
+// offered the review playbook, and another playbook only when the speaker's role meets its
+// github_requires. Every other source gets the whole profile.
+func TestAPullRequestOffersPlaybooksByTheSpeakersRole(t *testing.T) {
 	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
 		Name: "podium", Model: "claude-opus-5",
 		Playbooks: map[string]profiles.Playbook{
 			"coder":  {Name: "coder", SystemPrompt: "reviews pull requests", GitHub: true},
 			"deploy": {Name: "deploy", SystemPrompt: "ships to production"},
+			"fixer":  {Name: "fixer", SystemPrompt: "fixes the review", GitHubRequires: "write"},
 		},
 	})}
-	menu := c.menuFor(kindSource{SourceGitHub})
-	require.Len(t, menu, 1)
-	assert.Equal(t, "coder", menu[0].Name)
-	assert.True(t, menu[0].GitHub)
+	names := func(menu []DelegablePlaybook) []string { return playbookNames(menu) }
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "")),
+		"no role, as from Slack: the review alone")
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "triage")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "write")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "admin")),
+		"a playbook that names no role is never offered on a pull request")
+	assert.True(t, c.menuFor(kindSource{SourceGitHub}, "")[0].GitHub)
 
-	assert.Len(t, c.menuFor(kindSource{SourceSlack}), 2)
+	assert.Len(t, c.menuFor(kindSource{SourceSlack}, ""), 3)
 
 	assert.Equal(t, Speaker{Playbook: "coder", SourcePlaybook: true}, c.speakerFor(kindSource{SourceGitHub}, "coder"))
 	assert.Equal(t, Speaker{Playbook: "deploy"}, c.speakerFor(kindSource{SourceGitHub}, "deploy"))

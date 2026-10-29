@@ -285,7 +285,9 @@ ${reviewLine}
 - Never write a verdict yourself. "Approve", "Request changes" and inline notes are the
   review playbook's; yours is a reply.
 - Asked to change the code: delegate to a playbook on the menu that can push to this pull
-  request. If none can, say that you cannot change code here and stop.`;
+  request. If none can, say that you cannot change code here and stop.
+- The menu is what this commenter may ask for. It depends on their access to the repository,
+  so a playbook missing from it is not one to describe, offer or work around.`;
 }
 
 function memoryBlock(): string {

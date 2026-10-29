@@ -1021,3 +1021,47 @@ func TestAnAnswerToSlackStaysInSlack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, h.stub.postedReviews(), 1)
 }
+
+// The commenter's role decides what the assistant is offered, and it is read once per person
+// per repository for a while. A fork nobody here can push to caps it below write, and the
+// turn is told why.
+func TestTheCommentersRoleRidesOnTheEvent(t *testing.T) {
+	h := newHarness(t)
+	h.stub.roles["alice"] = "write"
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-r1", prComment("@podium fix it")).Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "write", evs[0].Role)
+	assert.NotContains(t, evs[0].Text, "fork")
+
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-r2", prComment("@podium again")).Code)
+	require.Len(t, h.drain(), 1)
+	assert.Equal(t, 1, h.stub.roleReads, "the role is remembered")
+
+	h.stub.fork = true
+	h.src.roles = map[string]knownRole{}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-r3", prComment("@podium fix it")).Code)
+	evs = h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "triage", evs[0].Role, "nothing here can push to this fork")
+	assert.Contains(t, evs[0].Text, "comes from a fork that does not let maintainers push to it")
+
+	h.stub.canModify = true
+	h.src.roles = map[string]knownRole{}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-r4", prComment("@podium fix it")).Code)
+	evs = h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "write", evs[0].Role, "a fork that lets maintainers push is pushable")
+
+	delete(h.stub.roles, "alice")
+	h.src.roles = map[string]knownRole{}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-r5", prComment("@podium fix it")).Code)
+	evs = h.drain()
+	require.Len(t, evs, 1)
+	assert.Empty(t, evs[0].Role, "no role on the repository is no role")
+
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-r6", readyForReview()).Code)
+	evs = h.drain()
+	require.Len(t, evs, 1)
+	assert.Empty(t, evs[0].Role, "nobody spoke, so nobody's role is asked for")
+}
