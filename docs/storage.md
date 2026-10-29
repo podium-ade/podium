@@ -140,6 +140,18 @@ copy of the named volume `podium-ws-<task_id>` mounted at `/workspace`, taken af
 exit and restored after the next task creates its volume. It still never talks to S3. With
 no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
 
+Nothing ties a snapshot to the node that took it. The row records `node_id` and `task_id`
+for the record only; the scheduler does not read them, and the next task of the session
+restores the tar through the control plane on whichever node it lands on.
+
+The **Snapshots** page (`SnapshotService`) lists every session snapshot and deletes one by
+hand. It also holds the retention policy, the singleton `snapshot_retention` row: delete
+snapshots not replaced for N days, and keep the newest whose sizes fit under X GB. Both are
+off until set. podium-server applies them every 10 minutes and once more when the policy is
+saved. A snapshot whose session has a queued or running task is never deleted, though it
+still counts towards the total. Deleting removes the row first and the object second, so
+nothing restores from an object that is about to go. Repository bases are not swept.
+
 ### Running without one
 
 Leaving `PODIUM_S3_ENDPOINT` empty is supported and does exactly what it says:
@@ -180,9 +192,12 @@ Three properties worth knowing:
   scoped by task (a join against `tasks.logs_rolled_up_at`), not by chunk age. That is what keeps
   it from truncating a long-running task's log out from under it.
 - **Reading a pruned task back is transparent.** `podium logs` on an archived task serves the
-  whole stream from the object store. What is lost is the **interleaving between streams**:
-  stdout replays as one run and then stderr, because there is one object per stream and nothing
-  records how they were braided together. Within a stream the order is exact.
+  whole stream from the object store, exactly as it streamed live: the roll-up also writes an
+  index of the chunks (`task_log_index`: each chunk's seq, stream, length, timestamp and source
+  offset, compressed), so every line comes back under the sequence number and the time it had,
+  with stdout and stderr braided as they were. A task rolled up before the index existed has
+  none, and replays the old way: stdout as one run and then stderr, every chunk stamped with the
+  time it was archived. Within a stream the order is exact either way.
 - **A rolled-up log is decompressed on every read.** There is no cache and no range support, so
   `podium logs --from-seq N` on a large archived task reads and discards everything below N. It
   is a cold path for a task older than a day.

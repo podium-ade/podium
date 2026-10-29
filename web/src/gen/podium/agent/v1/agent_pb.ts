@@ -743,7 +743,7 @@ export const SetRunsOnResponseSchema: GenMessage<SetRunsOnResponse> = /*@__PURE_
  */
 export type ProviderSettings = Message<"podium.agent.v1.ProviderSettings"> & {
   /**
-   * provider is "anthropic", "xai", or "openai". The field is the BYOK seam.
+   * provider is "anthropic", "xai", "openai", or "google". The field is the BYOK seam.
    *
    * @generated from field: string provider = 1;
    */
@@ -1673,7 +1673,7 @@ export const ClearProviderKeyResponseSchema: GenMessage<ClearProviderKeyResponse
  */
 export type StartProviderOAuthRequest = Message<"podium.agent.v1.StartProviderOAuthRequest"> & {
   /**
-   * provider is "xai" or "openai". Anthropic takes an API key on this control plane and answers
+   * provider is "xai" or "openai". Anthropic and Google take an API key on this control plane and answer
    * invalid_argument here.
    *
    * @generated from field: string provider = 1;
@@ -1874,7 +1874,7 @@ export const AgentModelSchema: GenMessage<AgentModel> = /*@__PURE__*/
  */
 export type AgentBackend = Message<"podium.agent.v1.AgentBackend"> & {
   /**
-   * id is what a playbook's `agent` field holds: "claude", "grok", or "openai".
+   * id is what a playbook's `agent` field holds: "claude", "grok", "openai", or "gemini".
    *
    * @generated from field: string id = 1;
    */
@@ -1886,7 +1886,7 @@ export type AgentBackend = Message<"podium.agent.v1.AgentBackend"> & {
   displayName: string;
 
   /**
-   * provider is the credential this backend spends: "anthropic", "xai", or "openai".
+   * provider is the credential this backend spends: "anthropic", "xai", "openai", or "google".
    *
    * @generated from field: string provider = 3;
    */
@@ -3156,7 +3156,7 @@ export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
   updatedAt?: Timestamp | undefined;
 
   /**
-   * agent is the backend every playbook runs on unless it names its own: "claude", "grok", or "openai".
+   * agent is the backend every playbook runs on unless it names its own: "claude", "grok", "openai", or "gemini".
    *
    * @generated from field: string agent = 14;
    */

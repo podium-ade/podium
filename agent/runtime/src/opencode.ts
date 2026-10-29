@@ -241,6 +241,17 @@ export function chatgptAccountId(token: string): string | undefined {
   }
 }
 
+/**
+ * NamedKeyProviders are the providers whose credential has to be named in the config.
+ *
+ * The harness hands a provider the key it found in the environment only when that provider
+ * lists exactly one variable. Google lists three, so with GOOGLE_API_KEY set the provider is
+ * enabled and then its SDK looks for GOOGLE_GENERATIVE_AI_API_KEY instead. The turn does not
+ * fail cleanly: traced against opencode 1.19.5, it never sends a request and hangs until it
+ * is killed. Naming the variable is what makes it the one spent.
+ */
+export const NamedKeyProviders = new Set(["google"]);
+
 function chatgptHeaders(cfg: Config): Record<string, string> | undefined {
   if (cfg.providerID !== "openai" || !cfg.apiKeyEnv) {
     return undefined;
@@ -325,6 +336,10 @@ export function writeConfig(cfg: Config): string {
   const headers = chatgptHeaders(cfg);
   if (headers) {
     options.headers = headers;
+  }
+  if (cfg.apiKeyEnv && NamedKeyProviders.has(cfg.providerID)) {
+    // {env:...} is resolved by the harness, so the key is never written to this file.
+    options.apiKey = `{env:${cfg.apiKeyEnv}}`;
   }
   if (Object.keys(options).length > 0) {
     doc.provider = { [cfg.providerID]: { options } };

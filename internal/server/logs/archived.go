@@ -40,16 +40,10 @@ func (s *Service) archived(ctx context.Context, taskID string) (store.LogRollUp,
 
 // replayArchived serves a rolled-up, pruned task from the object store.
 //
-// The seq space the log chunks occupied is gone with them, so the log is put back into the
-// gaps: the surviving task_events rows keep their own sequence numbers, and every number
-// between 1 and the recorded high-water mark that no event claims carries one chunk of the
-// decompressed stream. Ordering is therefore still strictly ascending and from_seq still
-// means what it means everywhere else, which is what keeps `podium logs --from-seq` and
-// the UI's resume working on a task this old.
-//
-// What is lost is the interleaving *between* streams: stdout is replayed as one run and
-// then stderr, because the object store holds one object per stream and nothing records
-// how they were braided together. Within a stream the order is exact.
+// A task rolled up with an index (index.go) is replayed chunk for chunk as it streamed
+// live: each chunk under its own sequence number and timestamp, stdout and stderr braided
+// as they were. One rolled up before the index existed is replayed into the gaps instead
+// (replayGaps), which keeps the order within each stream and nothing else.
 func (s *Service) replayArchived(
 	ctx context.Context,
 	taskID string,
@@ -60,18 +54,28 @@ func (s *Service) replayArchived(
 	if err != nil {
 		return err
 	}
-	occupied := make(map[uint64]struct{}, len(events))
-	for _, e := range events {
-		occupied[e.Seq] = struct{}{}
-	}
-
 	streams, err := s.archivedStreams(ctx, taskID)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		for _, st := range streams {
+			_ = st.body.Close()
+		}
+	}()
 
-	seq := uint64(0)
-	next := 0 // index into events
+	raw, err := s.store.TaskLogIndex(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	index, err := decodeIndex(raw)
+	if err != nil {
+		// The bytes are still all there; only the times and the braiding are not.
+		s.logger.WarnContext(ctx, "a rolled-up task's log index is unreadable; replaying without it",
+			"task_id", taskID, "error", err)
+		index = nil
+	}
+
 	send := func(e *podiumv1.TaskEvent) bool {
 		if e.GetSeq() <= fromSeq {
 			return true
@@ -83,24 +87,124 @@ func (s *Service) replayArchived(
 			return false
 		}
 	}
-	// advance emits every stored event up to and including seq.
-	drainEvents := func(upto uint64) (bool, error) {
-		for next < len(events) && events[next].Seq <= upto {
-			e, cerr := eventToProto(taskID, events[next])
-			if cerr != nil {
-				return false, cerr
-			}
-			next++
-			if !send(e) {
-				return false, nil
-			}
+	if index != nil {
+		return replayIndexed(taskID, events, index, streams, send)
+	}
+	return replayGaps(taskID, events, streams, send)
+}
+
+// eventDrainer emits stored events, in seq order, up to a sequence number.
+type eventDrainer struct {
+	taskID string
+	events []store.Event
+	next   int
+	send   func(*podiumv1.TaskEvent) bool
+}
+
+// upTo emits every stored event up to and including seq. It reports false once the
+// reader has gone.
+func (d *eventDrainer) upTo(seq uint64) (bool, error) {
+	for d.next < len(d.events) && d.events[d.next].Seq <= seq {
+		e, err := eventToProto(d.taskID, d.events[d.next])
+		if err != nil {
+			return false, err
 		}
-		return true, nil
+		d.next++
+		if !d.send(e) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// replayIndexed walks the index, reading each chunk's bytes off its stream's object and
+// emitting it the way chunkToProto emits a hot row, with the stored events braided in by
+// sequence number. A stream whose object is missing or ends early drops the chunks it
+// cannot back, and the rest of the log still replays.
+func replayIndexed(
+	taskID string,
+	events []store.Event,
+	index []indexEntry,
+	streams []archivedStream,
+	send func(*podiumv1.TaskEvent) bool,
+) error {
+	readers := make(map[string]io.Reader, len(streams))
+	for _, st := range streams {
+		dec, err := zstd.NewReader(st.body)
+		if err != nil {
+			return fmt.Errorf("decompress %s of task %s: %w", st.name, taskID, err)
+		}
+		defer dec.Close()
+		readers[st.name] = dec
 	}
 
+	drain := &eventDrainer{taskID: taskID, events: events, send: send}
+	for _, e := range index {
+		if e.Seq > 0 {
+			ok, err := drain.upTo(e.Seq - 1)
+			if err != nil || !ok {
+				return err
+			}
+		}
+		name := e.artifactName()
+		r := readers[name]
+		if r == nil {
+			continue
+		}
+		buf := make([]byte, e.Len)
+		n, rerr := io.ReadFull(r, buf)
+		if n > 0 {
+			chunk := store.LogChunk{
+				Seq:          e.Seq,
+				Stream:       e.Stream,
+				Sidecar:      e.Sidecar,
+				TS:           e.TS,
+				Bytes:        buf[:n],
+				SourceOffset: e.SourceOffset,
+			}
+			if !send(chunkToProto(taskID, chunk)) {
+				return nil
+			}
+		}
+		if rerr != nil {
+			if !errors.Is(rerr, io.EOF) && !errors.Is(rerr, io.ErrUnexpectedEOF) {
+				return fmt.Errorf("read %s of task %s: %w", name, taskID, rerr)
+			}
+			delete(readers, name)
+		}
+	}
+	// Everything after the last chunk: exited and finished among them.
+	_, err := drain.upTo(^uint64(0))
+	return err
+}
+
+// replayGaps is the replay of a task rolled up before the index existed.
+//
+// The seq space the log chunks occupied is gone with them, so the log is put back into the
+// gaps: the surviving task_events rows keep their own sequence numbers, and every number
+// between 1 and the recorded high-water mark that no event claims carries one chunk of the
+// decompressed stream. Ordering is therefore still strictly ascending and from_seq still
+// means what it means everywhere else, which is what keeps `podium logs --from-seq` and
+// the UI's resume working on a task this old.
+//
+// What is lost is the interleaving *between* streams: stdout is replayed as one run and
+// then stderr, because the object store holds one object per stream and nothing records
+// how they were braided together. Within a stream the order is exact.
+func replayGaps(
+	taskID string,
+	events []store.Event,
+	streams []archivedStream,
+	send func(*podiumv1.TaskEvent) bool,
+) error {
+	occupied := make(map[uint64]struct{}, len(events))
+	for _, e := range events {
+		occupied[e.Seq] = struct{}{}
+	}
+
+	seq := uint64(0)
+	drain := &eventDrainer{taskID: taskID, events: events, send: send}
 	for _, st := range streams {
 		if err := func() error {
-			defer func() { _ = st.body.Close() }()
 			dec, derr := zstd.NewReader(st.body)
 			if derr != nil {
 				return fmt.Errorf("decompress %s of task %s: %w", st.name, taskID, derr)
@@ -119,7 +223,7 @@ func (s *Service) replayArchived(
 							break
 						}
 					}
-					ok, eerr := drainEvents(seq - 1)
+					ok, eerr := drain.upTo(seq - 1)
 					if eerr != nil {
 						return eerr
 					}
@@ -144,7 +248,7 @@ func (s *Service) replayArchived(
 
 	// Everything the log did not displace: the events above the last synthetic chunk,
 	// exited and finished among them.
-	_, err = drainEvents(^uint64(0))
+	_, err := drain.upTo(^uint64(0))
 	return err
 }
 
@@ -153,9 +257,9 @@ type archivedStream struct {
 	name    string
 	stream  podiumv1.LogChunk_Stream
 	sidecar string
-	// ts is when the roll-up wrote the object. The chunks' own timestamps went with the
-	// rows, and stamping every replayed chunk with the moment its stream was archived is
-	// the only honest answer left.
+	// ts is when the roll-up wrote the object. Without an index the chunks' own timestamps
+	// went with the rows, and stamping every replayed chunk with the moment its stream was
+	// archived is the only honest answer left.
 	ts   time.Time
 	body io.ReadCloser
 }

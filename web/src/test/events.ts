@@ -1,4 +1,5 @@
 import { create } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   LogChunk_Stream,
   TaskEventKind,
@@ -52,3 +53,39 @@ export function messageEvent(
 
 export const stdout = LogChunk_Stream.STDOUT;
 export const stderr = LogChunk_Stream.STDERR;
+
+/** at stamps an event with a time, in ms since the epoch: the explorer's clock reads it. */
+export function at<T extends TaskEvent>(ev: T, ms: number): T {
+  ev.ts = timestampFromMs(ms);
+  return ev;
+}
+
+/** activityEvent is one tool call or reasoning block, as the agent runtime reports it. */
+export function activityEvent(seq: number, activity: Record<string, unknown>): TaskEvent {
+  return messageEvent(seq, "activity", JSON.stringify(activity));
+}
+
+/** exitedEvent is the container exiting with a code. */
+export function exitedEvent(seq: number, exitCode: number, oomKilled = false): TaskEvent {
+  return create(TaskEventSchema, {
+    taskId: "task_test",
+    seq: BigInt(seq),
+    kind: TaskEventKind.EXITED,
+    payload: { case: "exited", value: { exitCode, oomKilled } },
+  });
+}
+
+/** errorEvent is the node reporting the run went wrong. */
+export function errorEvent(seq: number, message: string, retryable = false): TaskEvent {
+  return create(TaskEventSchema, {
+    taskId: "task_test",
+    seq: BigInt(seq),
+    kind: TaskEventKind.ERROR,
+    payload: { case: "error", value: { message, retryable } },
+  });
+}
+
+/** lifecycleEvent is a stage with no payload: provisioning, pulling, started. */
+export function lifecycleEvent(seq: number, kind: TaskEventKind): TaskEvent {
+  return create(TaskEventSchema, { taskId: "task_test", seq: BigInt(seq), kind });
+}

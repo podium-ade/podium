@@ -1,5 +1,6 @@
 import { Plug } from "lucide-react";
 import claude from "../../assets/marks/claude.svg";
+import gemini from "../../assets/marks/gemini.svg";
 import github from "../../assets/marks/github.svg";
 import grok from "../../assets/marks/grok.svg";
 import linear from "../../assets/marks/linear.svg";
@@ -16,6 +17,7 @@ import { cn } from "../../lib/utils";
  */
 const MARKS: Record<string, string> = {
   claude,
+  gemini,
   github,
   grok,
   linear,

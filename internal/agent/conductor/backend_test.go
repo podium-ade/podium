@@ -62,7 +62,10 @@ func TestMemoryIsAttachedOnTopOfWhicheverCredential(t *testing.T) {
 // Every turn carries a provider block now: the harness is told `provider/model` and cannot
 // run without one. What changes between backends is which provider and which credential.
 func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
-	c := &Conductor{xaiBaseURL: "https://api.x.ai", openaiBaseURL: "https://api.openai.com"}
+	c := &Conductor{
+		xaiBaseURL: "https://api.x.ai", openaiBaseURL: "https://api.openai.com",
+		googleBaseURL: "https://generativelanguage.googleapis.com",
+	}
 
 	claude := c.providerFor(profiles.AgentClaude)
 	require.NotNil(t, claude)
@@ -85,12 +88,18 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 	assert.Equal(t, profiles.ProviderOpenAI, openai.ID)
 	assert.Equal(t, "OPENAI_API_KEY", openai.APIKeyEnv)
 	assert.Equal(t, "https://api.openai.com/v1", openai.BaseURL)
+
+	gemini := c.providerFor(profiles.AgentGemini)
+	require.NotNil(t, gemini)
+	assert.Equal(t, profiles.ProviderGoogle, gemini.ID)
+	assert.Equal(t, "GOOGLE_API_KEY", gemini.APIKeyEnv)
+	assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta", gemini.BaseURL)
 }
 
 // An agent id nobody configured still produces a runnable turn rather than a brief the
 // runtime will refuse: it falls back to the default backend.
 func TestAnUnknownBackendFallsBackRatherThanEmittingNothing(t *testing.T) {
-	got := (&Conductor{}).providerFor("gemini")
+	got := (&Conductor{}).providerFor("mistral")
 	require.NotNil(t, got)
 	assert.Equal(t, profiles.ProviderAnthropic, got.ID)
 }
@@ -116,4 +125,6 @@ func TestDerivedCredentialNamesMatchTheConstants(t *testing.T) {
 	assert.Equal(t, profiles.XAIKeyEnv, profiles.KeyEnvFor(profiles.ProviderXAI))
 	assert.Equal(t, profiles.OpenAIKeySecret, profiles.SecretFor(profiles.ProviderOpenAI))
 	assert.Equal(t, profiles.OpenAIKeyEnv, profiles.KeyEnvFor(profiles.ProviderOpenAI))
+	assert.Equal(t, profiles.GoogleKeySecret, profiles.SecretFor(profiles.ProviderGoogle))
+	assert.Equal(t, profiles.GoogleKeyEnv, profiles.KeyEnvFor(profiles.ProviderGoogle))
 }

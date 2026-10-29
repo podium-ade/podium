@@ -265,3 +265,25 @@ func TestSubscribeTaskEventsDeliversNotifications(t *testing.T) {
 		t.Fatal("subscription did not shut down")
 	}
 }
+
+// TestLogIndexIsKeptPerTask is the roll-up's index: stored once per task, replaced by a
+// second roll-up, absent for a task rolled up before it existed, and gone with its task.
+func TestLogIndexIsKeptPerTask(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	task := mustCreateTask(t, s, 1)
+
+	none, err := s.TaskLogIndex(ctx, task.ID)
+	require.NoError(t, err)
+	require.Nil(t, none, "a task with no index reads as none, not as an error")
+
+	require.NoError(t, s.PutTaskLogIndex(ctx, task.ID, []byte("first")))
+	require.NoError(t, s.PutTaskLogIndex(ctx, task.ID, []byte("second")))
+	got, err := s.TaskLogIndex(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, []byte("second"), got)
+
+	_, err = s.pool.Exec(ctx, "delete from tasks where id = $1", task.ID)
+	require.NoError(t, err)
+	require.Zero(t, countRows(t, s, "select count(*) from task_log_index where task_id = $1", task.ID))
+}

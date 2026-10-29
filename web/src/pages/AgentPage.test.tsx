@@ -164,6 +164,7 @@ function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer
 const anthropicNotSet = { provider: "anthropic", keySet: false, model: "claude-opus-5" };
 const xaiNotSet = { provider: "xai", keySet: false, model: "claude-opus-5" };
 const openaiNotSet = { provider: "openai", keySet: false, model: "claude-opus-5" };
+const googleNotSet = { provider: "google", keySet: false, model: "claude-opus-5" };
 const anthropicConnected = {
   provider: "anthropic",
   keySet: true,
@@ -175,10 +176,10 @@ const anthropicConnected = {
 
 // The settings screen reads `providers`; `provider` stays the Anthropic row for the clients
 // that only ever knew about one.
-const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet, openaiNotSet] };
+const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet] };
 const connected = {
   provider: anthropicConnected,
-  providers: [anthropicConnected, xaiNotSet, openaiNotSet],
+  providers: [anthropicConnected, xaiNotSet, openaiNotSet, googleNotSet],
 };
 
 describe("AgentPage", () => {
@@ -517,6 +518,7 @@ describe("AgentPage", () => {
     expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
+    expect(screen.getByText("Google")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
     // Status lives on each card. A summary row of "Claude · not set" chips above the list
     // is gone: it repeated the cards and read as a second, empty catalogue.
