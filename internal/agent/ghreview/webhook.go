@@ -156,19 +156,20 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	if phrases != nil {
 		text = strings.TrimSpace(phrases.ReplaceAllString(text, "$1$2"))
 	}
-	switch {
-	case c.ready && known:
-		commit, head := s.reviewBaseline(ctx, c)
-		text = followUpInstruction(pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action), commit, head)
-	case c.ready:
+	// A pull request opened or marked ready is the review playbook's, and nobody asked
+	// anything: the conductor runs it directly. Anything a person wrote is the assistant's,
+	// told who wrote it where, and where the last review stopped.
+	commit, head := "", ""
+	if known {
+		commit, head = s.reviewBaseline(ctx, c)
+	}
+	if c.ready {
 		text = pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action)
-	case !known:
-		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
-	case c.inReply:
-		text = reviewReplyInstruction(c.path, c.line, c.diffHunk, text)
-	default:
-		commit, head := s.reviewBaseline(ctx, c)
-		text = followUpInstruction(text, commit, head)
+		if known {
+			text = followUpInstruction(text, commit, head)
+		}
+	} else {
+		text = commentInstruction(c, text, commit, head)
 	}
 
 	s.emit(ctx, conductor.InboundEvent{
@@ -183,6 +184,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		TS:        c.ts,
 		URL:       PRURL(c.owner, c.repo, c.number),
 		BriefKind: conductor.SourceGitHub,
+		Automatic: c.ready,
 	})
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
@@ -595,8 +597,44 @@ func (s *Source) reviewBaseline(ctx context.Context, c classified) (commit, head
 	return commit, info.SHA
 }
 
-func reviewInstruction(author, prURL, body string) string {
-	head := firstNonEmpty(author, "someone") + " asked for a review of " + prURL
+// commentInstruction is a person's comment as the assistant is told it: who wrote it, where,
+// and what. The commit the last review covered and the head now ride along, so a re-review
+// it delegates can be told where that review stopped.
+func commentInstruction(c classified, body, commit, head string) string {
+	who := firstNonEmpty(c.author, "someone")
+	pr := PRURL(c.owner, c.repo, c.number)
+	var b strings.Builder
+	switch {
+	case c.inReply:
+		b.WriteString(who + " replied in a review thread on " + pr + ".")
+	case c.kind == KindReviewComment:
+		b.WriteString(who + " commented on the diff of " + pr + ".")
+	case c.kind == KindReview:
+		b.WriteString(who + " submitted a review of " + pr + ".")
+	default:
+		b.WriteString(who + " commented on " + pr + ".")
+	}
+	if commit != "" {
+		b.WriteString(" The last review was on commit " + commit + ".")
+		if head != "" && head != commit {
+			b.WriteString(" The head is now " + head + ".")
+		}
+		if head == commit {
+			b.WriteString(" The head has not moved since.")
+		}
+	}
+	b.WriteString("\n\n")
+	if c.kind == KindReviewComment {
+		b.WriteString(reviewReplyInstruction(c.path, c.line, c.diffHunk, body))
+	} else {
+		b.WriteString(strings.TrimSpace(body))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// slackInstruction is a Slack mention about a pull request, as the assistant is told it.
+func slackInstruction(author, prURL, body string) string {
+	head := firstNonEmpty(author, "someone") + " wrote in Slack about " + prURL + "."
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return head

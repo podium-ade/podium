@@ -178,6 +178,34 @@ describe("buildSystemPrompt", () => {
     expect(host).toContain("What you do NOT have");
   });
 
+  it("tells a pull-request turn to answer questions and leave the review to its playbook", () => {
+    const pr = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://h",
+        token_env: "T",
+        playbooks: [{ name: "coder", summary: "reviews pull requests", github: true }],
+      },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    const flat = pr.replace(/\s+/g, " ");
+    expect(flat).toContain("# This pull request");
+    expect(flat).toContain("delegate to `coder`");
+    expect(flat).toContain("`coder` — has the pull-request review");
+    expect(flat).toContain("Never write a verdict yourself");
+
+    const none = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(none.replace(/\s+/g, " ")).toContain("No playbook reviews pull requests here");
+
+    const slack = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
+    expect(slack).not.toContain("# This pull request");
+  });
+
   it("renders the delegation menu from the brief, and nothing else", () => {
     const brief = {
       ...golden(),

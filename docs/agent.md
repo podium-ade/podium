@@ -14,9 +14,10 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
-A conversation runs **no playbook**. A Slack mention and a Linear ticket do, and run as tasks,
-because each of those really is one piece of work. A GitHub pull-request review does too: the
-one playbook marked `github: true`, one session per pull request.
+A conversation runs **no playbook**. A Linear ticket does, and runs as a task, because it
+really is one piece of work. A GitHub pull request is a conversation, one session per pull
+request: the assistant answers what people write on it, and the review is a task of the one
+playbook marked `github: true`.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -1668,13 +1669,27 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
-open a pull request that is not a draft, mark a draft ready for review, or tag Podium
-in Slack with that PR's URL, and it starts **one** review of that pull request. A draft
-stays quiet until it is marked ready. GitHub does not let you request the App as a
-reviewer, so `review_requested` does not start one. The review runs the playbook marked
-`github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
-The App posts on GitHub; bound Slack threads get the same answer.
+A pull request is a **conversation**, one session per pull request (`github:owner/repo#N`).
+
+- **Opening a pull request** that is not a draft, or marking a draft ready for review, runs
+  the review. Nobody asked anything, so there is no assistant turn: the conductor delegates
+  the playbook marked `github: true` itself. A draft stays quiet until it is marked ready.
+  GitHub does not let you request the App as a reviewer, so `review_requested` does not
+  start one.
+- **Anything a person writes** — `@slug` on the pull request (the App's slug from its
+  settings, or `@slug[bot]`), a reply in a thread the App started, or a Slack mention with
+  that PR's URL — is answered by the **assistant**, on the host, as a Slack thread is. It
+  answers a question about the code or the review itself, from the conversation: the
+  review, its inline notes and the diff they quote. Asked to review, or to review again, it
+  delegates to the `github: true` playbook. Its menu on a pull request is that playbook
+  alone — anybody the triggers allow can comment there.
+
+The turn is told who wrote what, where — the conversation tab, a review thread with the file,
+line and quoted diff, or Slack — and, once there is a review, the commit it covered and the head
+now. The App posts on GitHub; bound Slack threads get every answer.
+
+With no host runtime (`PODIUM_AGENT_HOST_RUNTIME` empty) there is no assistant, and every
+GitHub event runs the `github: true` playbook as a task, as it did before.
 
 **Each deployment creates its own GitHub App.** Podium ships
 [`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
@@ -1705,19 +1720,21 @@ Then `@your-app review this` on a PR, or in Slack:
 ```
 
 Those are the same session (`github:acme/repo#12`). Mark the review playbook with `github: true`
-before any of this runs. With none marked, the turn is refused.
+before any of this runs. With none marked, an opened pull request is refused, and the assistant
+says it has nothing to review with.
 
-A follow-up while that task is still up, including the warm window after it answers, is injected
-into the same container. After it exits, the next message is a new task on the same session
-workspace, restored from the snapshot, and it updates the review already on the pull request.
-A killed task's files are in that snapshot. The restored checkout is kept when it is not on
-the default branch, so a review that left the pull-request head checked out starts there again.
-A follow-up reviews only the commits and files changed since the last review. The turn is told
-the commit that review was submitted against and the head now, and the snapshot keeps
-`.podium/review.json` with that commit and the verdict. When the head has not moved, the turn
-is told to repeat the previous verdict and add no comments. When that delta fixes the earlier
-findings and adds nothing that should block a merge, the verdict is an approval. A `/other`
-prefix in the comment does not change the playbook.
+Every review of a pull request runs on the same session workspace. A review delegated while an
+earlier one is still up — including the warm window after it answers — can be injected into
+instead. After it exits, the next review is a new task restored from the snapshot, and it
+updates the review already on the pull request. A killed task's files are in that snapshot. The
+restored checkout is kept when it is not on the default branch, so a review that left the
+pull-request head checked out starts there again. A pull request marked ready again reviews only
+the commits and files changed since the last review: the task is told the commit that review was
+submitted against and the head now, and the snapshot keeps `.podium/review.json` with that commit
+and the verdict. When the head has not moved, it is told to repeat the previous verdict and add
+no comments. When that delta fixes the earlier findings and adds nothing that should block a
+merge, the verdict is an approval. A re-review the assistant delegates passes on the same two
+commits.
 
 ### What starts a turn, and what does not
 
@@ -1725,16 +1742,16 @@ prefix in the comment does not change the playbook.
 |---|---|
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
-| `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
-| `pull_request` / `opened` | start when the pull request is not a draft. A draft's open is dropped |
-| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
+| `@app` on a PR (conversation comment, review comment, or review body) | an assistant turn |
+| `pull_request` / `opened` | the review, delegated directly, when the pull request is not a draft. A draft's open is dropped |
+| `pull_request` / `ready_for_review` | the review, delegated directly. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
 | a trigger phrase in a top-level comment or review body | as `@app` |
-| a reply in an inline review thread the App started | start or continue, no mention needed (the default reply mode) |
+| a reply in an inline review thread the App started | an assistant turn, no mention needed (the default reply mode) |
 | a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | anything from a login the triggers do not allow | dropped, `@app` or not |
-| a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
-| a second mention in a bound Slack thread, URL or not | continue |
+| a Slack `@Podium` that names exactly one PR URL | an assistant turn on that PR's session; the Slack thread is bound to it |
+| a second mention in a bound Slack thread, URL or not | an assistant turn on the same session |
 | two PR URLs in one Slack mention, or a different PR in a bound thread | refused in Slack; not a second session |
 
 Unrelated webhook deliveries still return 200 so GitHub does not retry.
@@ -1758,8 +1775,8 @@ restart. They live in the settings row `connection.github.filters`.
   comment, `any_thread` lets any reply through once the pull request has a session (the old
   rule), and `always` asks for the trigger every time. Who started a thread is read once from
   GitHub and remembered. A thread that cannot be read needs the trigger.
-- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still starts
-  a review.
+- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still
+  reaches the assistant, which can delegate a review.
 - **Excluded branches**: pull requests into these base branches start nothing, mentions
   included. One pattern per line, case sensitive. A plain name matches only itself; a glob
   follows GitHub Actions, so `feature/*` matches `feature/login` but not `feature/login/ui`,
@@ -1779,7 +1796,15 @@ bound Slack thread.
 container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
 
-A pull request gets two GitHub posts. When the turn starts, the App posts one
+**Who speaks decides where it goes.** The review playbook's work is the review, below. Anybody
+else — the assistant, the conductor itself — is replying, and the reply goes where the question
+was asked: in the review thread a reply came from, on the conversation tab, or only in Slack when
+Slack is where it was asked. The comment a turn answers gets a 👀 reaction when the turn starts;
+a review body has no comment to react on. Nothing else about a reply's progress is posted. A
+reply that fails says `❌ I could not answer that.` and nothing more: the failure text and the
+task id stay in the operator's log.
+
+A review gets two GitHub posts. When the review starts, the App posts one
 conversation comment: a status callout titled **Review in progress**, then the
 pull request title, linked head and base branches, the head commit, and a table
 of files, additions, deletions, and commits. Later progress leaves that comment
@@ -1793,8 +1818,8 @@ comment review. The review id is stored on the session. A later answer that stil
 agrees with that review updates it. A follow-up that approves for the first time
 submits a new approval. A follow-up that withdraws an approval submits a new
 review requesting changes, because rewriting the approval would leave the pull
-request approved and this App cannot dismiss a review. A reply in an inline thread
-is answered in that thread and leaves both posts in place. A turn that fails
+request approved and this App cannot dismiss a review. A review asked for from an inline
+thread is still the review, not a reply in that thread. A review that fails
 changes the status comment's title to **Review did not finish** when that comment
 already exists. The failure text and the task id are not written on the pull request.
 

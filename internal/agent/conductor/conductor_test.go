@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
@@ -19,7 +20,7 @@ import (
 func TestAConversationIsAnsweredHereForChatAndSlack(t *testing.T) {
 	assert.True(t, aConversation(SourceChat))
 	assert.True(t, aConversation(SourceSlack))
-	assert.False(t, aConversation(SourceGitHub), "a pull-request review runs the github playbook, not the assistant")
+	assert.True(t, aConversation(SourceGitHub), "a pull request is talked about; the review is a delegation")
 	assert.True(t, aConversation(KindDev), "the dev source is how a conversation is tested")
 	assert.False(t, aConversation("linear"), "a ticket is one piece of work, not a conversation")
 }
@@ -105,4 +106,28 @@ func TestReactionForEveryEnding(t *testing.T) {
 	} {
 		assert.Equal(t, want, reactionFor(status), status)
 	}
+}
+
+// Anybody the GitHub triggers allow can comment on a pull request, so a turn there is
+// offered the review playbook and nothing else. Every other source gets the whole profile.
+func TestAPullRequestIsOfferedTheReviewPlaybookAlone(t *testing.T) {
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name: "podium", Model: "claude-opus-5",
+		Playbooks: map[string]profiles.Playbook{
+			"coder":  {Name: "coder", SystemPrompt: "reviews pull requests", GitHub: true},
+			"deploy": {Name: "deploy", SystemPrompt: "ships to production"},
+		},
+	})}
+	menu := c.menuFor(kindSource{SourceGitHub})
+	require.Len(t, menu, 1)
+	assert.Equal(t, "coder", menu[0].Name)
+	assert.True(t, menu[0].GitHub)
+
+	assert.Len(t, c.menuFor(kindSource{SourceSlack}), 2)
+
+	assert.Equal(t, Speaker{Playbook: "coder", SourcePlaybook: true}, c.speakerFor(kindSource{SourceGitHub}, "coder"))
+	assert.Equal(t, Speaker{Playbook: "deploy"}, c.speakerFor(kindSource{SourceGitHub}, "deploy"))
+	assert.Equal(t, Speaker{Playbook: "coder"}, c.speakerFor(kindSource{SourceSlack}, "coder"),
+		"only a pull request has a playbook of its own")
+	assert.Equal(t, Speaker{}, c.speakerFor(kindSource{SourceGitHub}, ""), "the assistant runs no playbook")
 }
