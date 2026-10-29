@@ -59,6 +59,7 @@ type Server struct {
 	logs      *logs.Service
 	secrets   *secrets.Service
 	artifacts *artifacts.Service
+	snapshots *snapshots.Service
 	scheduler *scheduler.Service
 	http      *http.Server
 
@@ -147,6 +148,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		logs:      logSvc,
 		secrets:   secretSvc,
 		artifacts: artifactSvc,
+		snapshots: snapSvc,
 		scheduler: sched,
 		serveErr:  make(chan error, 1),
 	}
@@ -361,6 +363,8 @@ func (s *Server) mux() http.Handler {
 		api.NewSandboxProviderService(s.secrets, s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewSnapshotServiceHandler(
+		api.NewSnapshotService(s.snapshots, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -403,6 +407,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.RegistryServiceName,
 		podiumv1connect.SandboxProviderServiceName,
 		podiumv1connect.ArtifactServiceName,
+		podiumv1connect.SnapshotServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
 	}
@@ -513,6 +518,11 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		if err := s.logs.RunRollUp(baseCtx); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "log roll-up stopped", "error", err)
+		}
+	}()
+	go func() {
+		if err := s.snapshots.Run(baseCtx); err != nil && baseCtx.Err() == nil {
+			s.logger.ErrorContext(baseCtx, "workspace snapshot retention stopped", "error", err)
 		}
 	}()
 	go func() {

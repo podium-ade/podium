@@ -19,6 +19,8 @@ type WorkspaceSnapshot struct {
 	NodeID    string
 	TaskID    string
 	UpdatedAt time.Time
+	// InUse is set by ListWorkspaceSnapshots: a task of the session has not finished.
+	InUse bool
 }
 
 // PutWorkspaceSnapshot records a session's latest snapshot and returns the object key it
@@ -113,4 +115,85 @@ func (s *Store) GetWorkspaceBase(ctx context.Context, repo string) (WorkspaceSna
 		SHA256:    row.Sha256,
 		UpdatedAt: row.UpdatedAt,
 	}, nil
+}
+
+// ListWorkspaceSnapshots returns every session snapshot, newest first. Bases are not included.
+func (s *Store) ListWorkspaceSnapshots(ctx context.Context) ([]WorkspaceSnapshot, error) {
+	rows, err := s.q.ListWorkspaceSnapshots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list workspace snapshots: %w", err)
+	}
+	out := make([]WorkspaceSnapshot, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, WorkspaceSnapshot{
+			SessionID: row.SessionID,
+			ObjectKey: row.ObjectKey,
+			SizeBytes: row.SizeBytes,
+			SHA256:    row.Sha256,
+			NodeID:    row.NodeID,
+			TaskID:    row.TaskID,
+			UpdatedAt: row.UpdatedAt,
+			InUse:     row.InUse,
+		})
+	}
+	return out, nil
+}
+
+// DeleteWorkspaceSnapshot removes a session's row if it still points at objectKey, and
+// reports whether it did. The caller deletes the object after.
+func (s *Store) DeleteWorkspaceSnapshot(ctx context.Context, sessionID, objectKey string) (bool, error) {
+	n, err := s.q.DeleteWorkspaceSnapshot(ctx, db.DeleteWorkspaceSnapshotParams{
+		SessionID: sessionID,
+		ObjectKey: objectKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("delete workspace snapshot %s: %w", sessionID, err)
+	}
+	return n > 0, nil
+}
+
+// SnapshotRetention is when the sweep deletes a session snapshot. Zero turns a rule off.
+type SnapshotRetention struct {
+	MaxAge        time.Duration
+	MaxTotalBytes int64
+	UpdatedBy     string
+	UpdatedAt     time.Time
+}
+
+// GetSnapshotRetention reads the policy. A deployment that never set one gets the zero
+// value, which keeps everything.
+func (s *Store) GetSnapshotRetention(ctx context.Context) (SnapshotRetention, error) {
+	row, err := s.q.GetSnapshotRetention(ctx)
+	if noRows(err) {
+		return SnapshotRetention{}, nil
+	}
+	if err != nil {
+		return SnapshotRetention{}, fmt.Errorf("get snapshot retention: %w", err)
+	}
+	return retentionFromRow(row), nil
+}
+
+// SetSnapshotRetention replaces the policy.
+func (s *Store) SetSnapshotRetention(ctx context.Context, in SnapshotRetention) (SnapshotRetention, error) {
+	if in.MaxAge < 0 || in.MaxTotalBytes < 0 {
+		return SnapshotRetention{}, fmt.Errorf("set snapshot retention: limits cannot be negative")
+	}
+	row, err := s.q.SetSnapshotRetention(ctx, db.SetSnapshotRetentionParams{
+		MaxAgeSeconds: int64(in.MaxAge / time.Second),
+		MaxTotalBytes: in.MaxTotalBytes,
+		UpdatedBy:     in.UpdatedBy,
+	})
+	if err != nil {
+		return SnapshotRetention{}, fmt.Errorf("set snapshot retention: %w", err)
+	}
+	return retentionFromRow(row), nil
+}
+
+func retentionFromRow(row db.SnapshotRetention) SnapshotRetention {
+	return SnapshotRetention{
+		MaxAge:        time.Duration(row.MaxAgeSeconds) * time.Second,
+		MaxTotalBytes: row.MaxTotalBytes,
+		UpdatedBy:     row.UpdatedBy,
+		UpdatedAt:     row.UpdatedAt,
+	}
 }
