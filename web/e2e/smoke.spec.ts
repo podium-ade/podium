@@ -141,7 +141,7 @@ test("re-run pre-fills the form from a finished task's spec", async ({ page }) =
   await expect(page.getByLabel("Labels")).toHaveValue("demo");
 });
 
-test("a sidecar's logs can be filtered out on their own", async ({ page }) => {
+test("a sidecar's logs can be shown on their own", async ({ page }) => {
   await authenticate(page);
   const spec = `image: alpine:3
 command: ["sh", "-c", "echo task-said-hello; sleep 20"]
@@ -163,15 +163,16 @@ sidecars:
     page.getByTestId("log-line").filter({ hasText: "task-said-hello" }),
   ).toBeVisible();
 
+  // Its chip narrows the list to that sidecar alone, and lets go on a second click.
   await db.click();
-  await expect(db).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByTestId("log-line").filter({ hasText: "[db]" })).toHaveCount(0);
+  await expect(db).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("log-line").filter({ hasText: "[db]" }).first()).toBeVisible();
+  await expect(page.getByTestId("log-line").filter({ hasText: "task-said-hello" })).toHaveCount(0);
+
+  await db.click();
   await expect(
     page.getByTestId("log-line").filter({ hasText: "task-said-hello" }),
   ).toBeVisible();
-
-  await db.click();
-  await expect(page.getByTestId("log-line").filter({ hasText: "[db]" }).first()).toBeVisible();
 
   podium("task", "cancel", taskId);
 });
