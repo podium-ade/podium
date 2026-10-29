@@ -33,6 +33,13 @@ set logs_rolled_up_at  = now(),
     logs_stderr_offset = greatest(logs_stderr_offset, @stderr_offset)
 where id = @id;
 
+-- name: PutTaskLogIndex :exec
+insert into task_log_index (task_id, data) values (@task_id, @data)
+on conflict (task_id) do update set data = excluded.data;
+
+-- name: GetTaskLogIndex :one
+select data from task_log_index where task_id = @task_id;
+
 -- PruneRolledUpLogChunks drops the hot rows of tasks whose logs are safely in the object
 -- store and have been for longer than the grace period. It is deliberately scoped by task
 -- rather than by chunk age: a task still running after the horizon would otherwise have

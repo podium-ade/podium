@@ -74,6 +74,17 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 	return i, err
 }
 
+const getTaskLogIndex = `-- name: GetTaskLogIndex :one
+select data from task_log_index where task_id = $1
+`
+
+func (q *Queries) GetTaskLogIndex(ctx context.Context, taskID string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getTaskLogIndex, taskID)
+	var data []byte
+	err := row.Scan(&data)
+	return data, err
+}
+
 const listArtifacts = `-- name: ListArtifacts :many
 select id, task_id, kind, name, object_key, size_bytes, content_type, sha256, created_at from artifacts where task_id = $1 order by created_at, id
 `
@@ -193,6 +204,21 @@ func (q *Queries) PruneRolledUpLogChunks(ctx context.Context, olderThan time.Tim
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const putTaskLogIndex = `-- name: PutTaskLogIndex :exec
+insert into task_log_index (task_id, data) values ($1, $2)
+on conflict (task_id) do update set data = excluded.data
+`
+
+type PutTaskLogIndexParams struct {
+	TaskID string
+	Data   []byte
+}
+
+func (q *Queries) PutTaskLogIndex(ctx context.Context, arg PutTaskLogIndexParams) error {
+	_, err := q.db.Exec(ctx, putTaskLogIndex, arg.TaskID, arg.Data)
+	return err
 }
 
 const taskLogRollUp = `-- name: TaskLogRollUp :one
