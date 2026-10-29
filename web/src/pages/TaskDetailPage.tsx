@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { Ban, ChevronRight, FileCode, Hourglass, RotateCw } from "lucide-react";
+import { Ban, ChevronRight, FileCode, Hourglass, MessagesSquare, RotateCw, ScrollText } from "lucide-react";
 import { ArtifactsPanel } from "../components/ArtifactsPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
-import { LogViewer } from "../components/LogViewer";
 import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { CopyValue, PathText } from "../components/task/CopyValue";
 import { PreviewCard } from "../components/task/PreviewCard";
-import { TaskTimeline } from "../components/task/TaskTimeline";
+import { LogExplorer } from "../components/task/LogExplorer";
+import { PhaseStrip } from "../components/task/PhaseStrip";
+import { ResultCard } from "../components/task/ResultCard";
+import { Transcript } from "../components/task/Transcript";
 import { useToast } from "../components/Toast";
 import { Alert } from "../components/ui/alert";
 import { Button, buttonVariants } from "../components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Card } from "../components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Collapsible,
   CollapsibleContent,
@@ -34,6 +37,7 @@ import { TaskStatus } from "../gen/podium/v1/common_pb";
 import type { Task } from "../gen/podium/v1/task_pb";
 import { useTaskEvents } from "../hooks/useTaskEvents";
 import { errorMessage, tasks } from "../lib/client";
+import { accountingOf, hasStory, type Accounting } from "../lib/entries";
 import {
   absolute,
   durationMs,
@@ -81,7 +85,47 @@ function TaskDetail({ id }: { id: string }) {
     void qc.invalidateQueries({ queryKey: ["task", id] });
   }, [qc, id]);
 
-  const { lines, timeline, phase, error } = useTaskEvents(id, reread);
+  const { entries, phase, error } = useTaskEvents(id, reread);
+  const [params, setParams] = useSearchParams();
+  const story = hasStory(entries);
+  // A task that said nothing has no story: its logs are the page.
+  const view = story && params.get("view") !== "logs" ? "transcript" : "logs";
+  const selected = params.get("entry") ?? undefined;
+  const search = params.get("q") ?? "";
+
+  // The view, the open row and the query live in the URL, so a link lands somebody else on
+  // the same row under the same filter. Typing replaces the entry; a jump is a new one.
+  const setLink = useCallback(
+    (next: { view?: string; entry?: string | null; q?: string; trace?: boolean }, replace = false) => {
+      setParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (next.view !== undefined) p.set("view", next.view);
+          if (next.entry === null) p.delete("entry");
+          else if (next.entry !== undefined) p.set("entry", next.entry);
+          if (next.trace) p.set("trace", "1");
+          else if (next.entry !== undefined) p.delete("trace");
+          if (next.q !== undefined) {
+            if (next.q) p.set("q", next.q);
+            else p.delete("q");
+          }
+          return p;
+        },
+        { replace },
+      );
+    },
+    [setParams],
+  );
+  // From the transcript a jump traces the step: the explorer marks what it printed.
+  const traceInLogs = useCallback((key: string) => setLink({ view: "logs", entry: key, trace: true }), [setLink]);
+  const openInLogs = useCallback((key: string) => setLink({ view: "logs", entry: key }), [setLink]);
+  const accounting = useMemo(() => {
+    let last: Accounting | undefined;
+    for (const e of entries) {
+      if (e.message?.type === "accounting") last = accountingOf(e.message.text) ?? last;
+    }
+    return last;
+  }, [entries]);
 
   useEffect(() => {
     if (query.error) toast(`GetTask: ${errorMessage(query.error)}`);
@@ -125,8 +169,7 @@ function TaskDetail({ id }: { id: string }) {
   const command = task.spec?.command.join(" ") ?? "";
   // A task that has never been placed has no output, no events and no files — three empty
   // cards say that three times and answer nothing.
-  const notStarted =
-    !task.startedAt && !terminal && timeline.length === 0 && lines.length === 0;
+  const notStarted = !task.startedAt && !terminal && entries.length === 0;
 
   return (
     <PageFrame
@@ -168,6 +211,10 @@ function TaskDetail({ id }: { id: string }) {
       <Explain task={task} />
 
       <PreviewCard task={task} />
+
+      {notStarted ? null : <PhaseStrip task={task} entries={entries} />}
+
+      <ResultCard task={task} entries={entries} onJump={openInLogs} />
 
       <Card>
         <div className="grid divide-y divide-hairline xl:grid-cols-[1.5fr_1fr_1fr] xl:divide-x xl:divide-y-0">
@@ -257,7 +304,7 @@ function TaskDetail({ id }: { id: string }) {
             </Fact>
           </FactGroup>
         </div>
-        <Usage task={task} />
+        <Usage task={task} accounting={accounting} />
       </Card>
 
       {notStarted ? (
@@ -273,34 +320,50 @@ function TaskDetail({ id }: { id: string }) {
         />
       ) : (
         <>
-          {/* Log lines are long; the output gets the full width and the two lists share the
-              row below it. */}
-          <LogViewer lines={lines} phase={phase} error={error} taskId={task.id} />
+          {/* The story by default, the evidence one click away: both tabs read the same
+              entries, and every transcript step opens the explorer on itself. */}
+          <Card className="min-w-0 overflow-hidden">
+            <Tabs
+              value={view}
+              onValueChange={(v) => setLink({ view: v }, true)}
+            >
+              <TabsList className="border-hairline px-2">
+                {story ? (
+                  <TabsTrigger value="transcript">
+                    <MessagesSquare />
+                    Transcript
+                  </TabsTrigger>
+                ) : null}
+                <TabsTrigger value="logs">
+                  <ScrollText />
+                  Logs
+                </TabsTrigger>
+              </TabsList>
+              {story ? (
+                <TabsContent value="transcript" className="pt-0">
+                  <Transcript entries={entries} live={!terminal} onViewInLogs={traceInLogs} />
+                </TabsContent>
+              ) : null}
+              <TabsContent value="logs" className="pt-0">
+                <LogExplorer
+                  entries={entries}
+                  phase={phase}
+                  error={error}
+                  taskId={task.id}
+                  query={search}
+                  onQuery={(q) => setLink({ q }, true)}
+                  selected={selected}
+                  onSelect={(key) => setLink({ entry: key ?? null }, true)}
+                  trace={params.get("trace") === "1"}
+                />
+              </TabsContent>
+            </Tabs>
+          </Card>
 
-          <div className="grid items-start gap-5 lg:grid-cols-2">
-            <Card className="flex min-w-0 flex-col overflow-hidden">
-              <CardHeader className="pb-3">
-                <div>
-                  <CardTitle>Timeline</CardTitle>
-                  <CardDescription>What the node reported, in order.</CardDescription>
-                </div>
-              </CardHeader>
-              <div className="max-h-[34rem] overflow-y-auto border-t border-hairline px-5 py-4">
-                {timeline.length === 0 ? (
-                  <p className="text-xs text-muted">
-                    No events yet. The node reports one as each stage of the run begins.
-                  </p>
-                ) : (
-                  <TaskTimeline entries={timeline} />
-                )}
-              </div>
-            </Card>
-
-            <ArtifactsPanel
-              taskId={task.id}
-              refetch={!terminal || task.status === TaskStatus.SUCCEEDED}
-            />
-          </div>
+          <ArtifactsPanel
+            taskId={task.id}
+            refetch={!terminal || task.status === TaskStatus.SUCCEEDED}
+          />
         </>
       )}
 
@@ -414,7 +477,7 @@ function Explain({ task }: { task: Task }) {
 }
 
 /** Usage is the receipt: what the run actually cost, once the node has reported it. */
-function Usage({ task }: { task: Task }) {
+function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
   const usage = task.usage;
   const limit = task.spec?.resources?.memoryMb;
   const items: { label: string; value: string; sub?: string; tone?: string }[] = [];
@@ -438,6 +501,8 @@ function Usage({ task }: { task: Task }) {
     }
     if (usage.wallMs) items.push({ label: "Wall", value: durationMs(Number(usage.wallMs)) });
   }
+  if (accounting?.turns !== undefined) items.push({ label: "Turns", value: String(accounting.turns) });
+  if (accounting?.costUsd !== undefined) items.push({ label: "Cost", value: `$${accounting.costUsd.toFixed(4)}` });
   if (items.length === 0) return null;
 
   return (

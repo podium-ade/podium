@@ -1,3 +1,4 @@
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { LogChunk_Stream, TaskEventKind, type TaskEvent } from "../gen/podium/v1/node_pb";
 
 export type StreamName = "stdout" | "stderr" | "sidecar";
@@ -9,6 +10,8 @@ export interface LogLine {
   /** Set only for sidecar output. */
   source: string;
   text: string;
+  /** ts is the chunk's: every line a chunk completes shares it. */
+  ts?: Timestamp;
 }
 
 function streamName(s: LogChunk_Stream): StreamName {
@@ -51,7 +54,7 @@ export class Accumulator {
 
     const parts = text.split("\n");
     this.partial.set(key, parts.pop() ?? "");
-    return parts.map((raw) => this.line(ev.seq, stream, chunk.sidecarName, raw));
+    return parts.map((raw) => this.line(ev.seq, stream, chunk.sidecarName, raw, ev.ts));
   }
 
   /** flush emits the unterminated tail of every stream. Call it when the task is finished. */
@@ -66,13 +69,14 @@ export class Accumulator {
     return out;
   }
 
-  private line(seq: bigint, stream: StreamName, source: string, raw: string): LogLine {
+  private line(seq: bigint, stream: StreamName, source: string, raw: string, ts?: Timestamp): LogLine {
     return {
       id: this.nextId++,
       seq,
       stream,
       source,
       text: raw.endsWith("\r") ? raw.slice(0, -1) : raw,
+      ts,
     };
   }
 }
