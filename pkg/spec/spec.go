@@ -69,6 +69,10 @@ type TaskSpec struct {
 	// WorkspacePublishBase stores this task's workspace as the shared base for
 	// WorkspaceRepo. It requires WorkspaceRepo.
 	WorkspacePublishBase bool `yaml:"workspace_publish_base,omitempty" json:"workspace_publish_base,omitempty"`
+	// WorkspaceReadOnly restores the session's snapshot and stores nothing when the task
+	// exits: what it changed is thrown away with the volume. It requires WorkspaceSession,
+	// and it does not publish a base.
+	WorkspaceReadOnly bool `yaml:"workspace_readonly,omitempty" json:"workspace_readonly,omitempty"`
 	// WorkspaceWarm is how long a runtime should stay up after a turn, waiting for the
 	// next instruction. Zero means leave when the turn ends. The node publishes it as
 	// PODIUM_WORKSPACE_WARM_SECONDS; the runtime is what waits.
@@ -427,6 +431,12 @@ func (s *TaskSpec) Validate() error {
 	errs = append(errs, s.Hardening.validate()...)
 	errs = append(errs, s.validateSecrets()...)
 	errs = append(errs, s.validateSidecars()...)
+	if s.WorkspaceReadOnly && strings.TrimSpace(s.WorkspaceSession) == "" {
+		errs = append(errs, errors.New("workspace_readonly requires workspace_session"))
+	}
+	if s.WorkspaceReadOnly && s.WorkspacePublishBase {
+		errs = append(errs, errors.New("workspace_readonly stores nothing, so it cannot workspace_publish_base"))
+	}
 	if s.WorkspacePublishBase && strings.TrimSpace(s.WorkspaceRepo) == "" {
 		errs = append(errs, errors.New("workspace_publish_base requires workspace_repo"))
 	}

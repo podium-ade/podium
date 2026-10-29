@@ -12,6 +12,55 @@ const (
 	eventRequestChanges = "REQUEST_CHANGES"
 )
 
+// threadNote is a reply to one of the review's inline threads, from an answer that is not
+// the review: "fixed in abc123" under the finding it fixed. Resolve also resolves the thread.
+type threadNote struct {
+	Path    string
+	Line    int
+	Body    string
+	Resolve bool
+}
+
+var threadFence = regexp.MustCompile("(?s)```(reply|resolved)[ \t]*\r?\n(.*?)```")
+
+// splitThreadNotes pulls ```reply and ```resolved fences out of an answer. Each names the
+// finding's path:line on its first line, as the review's own inline note did, and the rest is
+// the reply. A fence that does not start with path:line stays in the answer.
+func splitThreadNotes(body string) (string, []threadNote) {
+	var notes []threadNote
+	rest := threadFence.ReplaceAllStringFunc(body, func(block string) string {
+		m := threadFence.FindStringSubmatch(block)
+		if len(m) < 3 {
+			return block
+		}
+		inline, ok := parseInline(m[2])
+		if !ok {
+			return block
+		}
+		notes = append(notes, threadNote{
+			Path: inline.Path, Line: inline.Line, Body: inline.Body, Resolve: m[1] == "resolved",
+		})
+		return ""
+	})
+	return strings.TrimSpace(rest), notes
+}
+
+// withThreadNotes keeps replies whose thread was not found in the answer, under the finding
+// they name, so a reply never disappears.
+func withThreadNotes(answer string, notes []threadNote) string {
+	var b strings.Builder
+	b.WriteString(answer)
+	for _, n := range notes {
+		b.WriteString("\n\n**")
+		b.WriteString(n.Path)
+		b.WriteByte(':')
+		b.WriteString(strconv.Itoa(n.Line))
+		b.WriteString("**\n\n")
+		b.WriteString(n.Body)
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // pullComment is one inline note on a submitted review. Side is the new file:
 // a review of a diff reads the result, not the lines that were deleted.
 type pullComment struct {

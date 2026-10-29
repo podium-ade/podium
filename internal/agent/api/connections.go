@@ -187,6 +187,8 @@ func (s *AgentService) SetGitHubWebhookFilters(
 		ReplyMode:        in.GetReplyMode(),
 		NoAutoReview:     !in.GetAutoReview(),
 		ExcludedBranches: in.GetExcludedBranches(),
+
+		ConversationReplies: in.GetConversationReplies(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -203,6 +205,7 @@ func (s *AgentService) SetGitHubWebhookFilters(
 		"allowed_actors", len(row.AllowedActors), "ignored_actors", len(row.IgnoredActors),
 		"ignore_bots", row.IgnoreBots, "trigger_phrases", len(row.TriggerPhrases),
 		"reply_mode", row.ReplyMode, "auto_review", !row.NoAutoReview,
+		"conversation_replies", row.ConversationReplies,
 		"excluded_branches", len(row.ExcludedBranches))
 	if err := connections.SaveGitHubFilters(ctx, s.store, row); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -323,6 +326,8 @@ func filtersView(f connections.GitHubFilters) *agentv1.GitHubWebhookFilters {
 		AutoReview:       !f.NoAutoReview,
 		ExcludedBranches: f.ExcludedBranches,
 		SetBy:            f.SetBy,
+
+		ConversationReplies: f.ConversationReplies,
 	}
 	if !f.SetAt.IsZero() {
 		out.SetAt = timestamppb.New(f.SetAt)

@@ -40,6 +40,28 @@ type stub struct {
 	// threadRoots is who wrote an inline review comment, by id, for GET pulls/comments/{id}.
 	threadRoots map[int64]User
 	threadReads int
+	// reactions is every reaction posted, as "<path> <content>".
+	reactions []string
+	// roles is a login's role_name on acme/repo. A login not in it has none.
+	roles     map[string]string
+	roleReads int
+	// fork makes the pull request's head another repository; canModify is whether its author
+	// lets maintainers push there.
+	fork      bool
+	canModify bool
+	// threads is the pull request's review threads as GraphQL lists them, and resolved the
+	// thread ids a mutation resolved.
+	threads  []stubThread
+	resolved []string
+	// pullFiles is what pulls/{n}/files lists; files is a file's contents keyed path@ref.
+	pullFiles []PullFile
+	files     map[string]string
+}
+
+type stubThread struct {
+	ID       string
+	Root     int64
+	Resolved bool
 }
 
 func newStub(t *testing.T) *stub {
@@ -49,18 +71,55 @@ func newStub(t *testing.T) *stub {
 		installID:   42,
 		nextComment: 100,
 		threadRoots: map[int64]User{},
+		roles:       map[string]string{},
 		app:         App{ID: 1, Slug: "podium", Name: "Podium"},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/app", s.getApp)
 	mux.HandleFunc("/app/installations/", s.accessToken)
 	mux.HandleFunc("/repos/", s.repos)
+	mux.HandleFunc("/graphql", s.graphql)
 	s.srv = httptest.NewServer(mux)
 	t.Cleanup(s.srv.Close)
 	return s
 }
 
 func (s *stub) url() string { return s.srv.URL }
+
+// graphql answers the review-thread query, and the resolve mutation by recording its id.
+func (s *stub) graphql(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.Contains(req.Query, "resolveReviewThread") {
+		id, _ := req.Variables["id"].(string)
+		s.resolved = append(s.resolved, id)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+		return
+	}
+	nodes := make([]map[string]any, 0, len(s.threads))
+	for _, t := range s.threads {
+		nodes = append(nodes, map[string]any{
+			"id": t.ID, "isResolved": t.Resolved,
+			"comments": map[string]any{"nodes": []map[string]any{{"databaseId": t.Root}}},
+		})
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+		"repository": map[string]any{"pullRequest": map[string]any{"reviewThreads": map[string]any{
+			"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": false},
+		}}},
+	}})
+}
+
+func (s *stub) postedReactions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.reactions...)
+}
 
 func (s *stub) getApp(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/app" {
@@ -94,6 +153,14 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
+	case strings.HasSuffix(path, "/reactions") && r.Method == http.MethodPost:
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]string
+		_ = json.Unmarshal(raw, &body)
+		s.mu.Lock()
+		s.reactions = append(s.reactions, strings.TrimPrefix(path, "/repos/acme/repo")+" "+body["content"])
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
 	case strings.Contains(path, "/issues/") && strings.HasSuffix(path, "/comments") && r.Method == http.MethodPost:
 		s.writeComment(w, r, &s.issuePosts)
 	case strings.Contains(path, "/issues/comments/") && r.Method == http.MethodPatch:
@@ -140,9 +207,39 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(Comment{ID: id, Body: "root", User: user})
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/files") && strings.Contains(path, "/pulls/"):
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(s.pullFiles)
+	case r.Method == http.MethodGet && strings.Contains(path, "/contents/"):
+		file := path[strings.Index(path, "/contents/")+len("/contents/"):]
+		s.mu.Lock()
+		body, ok := s.files[file+"@"+r.URL.Query().Get("ref")]
+		s.mu.Unlock()
+		if !ok || r.Header.Get("Accept") != "application/vnd.github.raw" {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	case r.Method == http.MethodGet && strings.Contains(path, "/collaborators/") && strings.HasSuffix(path, "/permission"):
+		login := strings.TrimSuffix(path[strings.Index(path, "/collaborators/")+len("/collaborators/"):], "/permission")
+		s.mu.Lock()
+		s.roleReads++
+		role := s.roles[login]
+		s.mu.Unlock()
+		permission := role
+		if role == "" {
+			permission = "none"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"permission": permission, "role_name": role})
 	case r.Method == http.MethodGet && isPullPath(path):
 		s.mu.Lock()
 		fail := s.failPull
+		head := "acme/repo"
+		if s.fork {
+			head = "alice/repo"
+		}
+		canModify := s.canModify
 		s.mu.Unlock()
 		if fail {
 			http.Error(w, `{"message":"unavailable"}`, http.StatusBadGateway)
@@ -154,8 +251,12 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			"additions":     40,
 			"deletions":     5,
 			"changed_files": 3,
-			"head":          map[string]any{"ref": "agent/review", "sha": "0123456789abcdef"},
-			"base":          map[string]any{"ref": "dev"},
+			"head": map[string]any{
+				"ref": "agent/review", "sha": "0123456789abcdef",
+				"repo": map[string]any{"full_name": head},
+			},
+			"base":                  map[string]any{"ref": "dev", "repo": map[string]any{"full_name": "acme/repo"}},
+			"maintainer_can_modify": canModify,
 		})
 	default:
 		http.NotFound(w, r)

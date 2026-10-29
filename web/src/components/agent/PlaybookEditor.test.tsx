@@ -146,6 +146,20 @@ describe("PlaybookEditor", () => {
     expect(onSubmit.mock.calls[0][0].interactive).toBe(true);
   });
 
+  it("offers a playbook on pull requests by role, and never the review playbook", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "fixer");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/fixer:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Fix what the review found.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+    await userEvent.selectOptions(screen.getByLabelText("Offered on pull requests to"), "write");
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit.mock.calls[0][0].githubRequires).toBe("write");
+
+    await userEvent.click(screen.getByLabelText("Reviews pull requests"));
+    expect(screen.queryByLabelText("Offered on pull requests to")).toBeNull();
+  });
+
   // Same three states a skill has, because the turn fails the same way in two of them: a
   // name nobody registered, and one that is registered and turned off.
   it("warns about an MCP server that is not registered, or is disabled", async () => {

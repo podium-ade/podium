@@ -178,6 +178,67 @@ describe("buildSystemPrompt", () => {
     expect(host).toContain("What you do NOT have");
   });
 
+  it("tells a pull-request turn to answer questions and leave the review to its playbook", () => {
+    const pr = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://h",
+        token_env: "T",
+        playbooks: [{ name: "coder", summary: "reviews pull requests", github: true }],
+      },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    const flat = pr.replace(/\s+/g, " ");
+    expect(flat).toContain("# This pull request");
+    expect(flat).toContain("delegate to `coder`");
+    expect(flat).toContain("`coder` — has the pull-request review");
+    expect(flat).toContain("Never write a verdict yourself");
+    expect(flat).toContain("The menu is what this commenter may ask for");
+    expect(flat).toContain("delegate it with `read_only` set");
+    expect(flat).toContain("One task at a time changes this pull request");
+
+    expect(flat).not.toContain("with the `pull-request` tools");
+    const reading = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      playbook: { ...golden().playbook, mcp_servers: [{ name: "pull-request", url: "http://h/mcp", token_env: "T" }] },
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "coder", github: true }] },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(reading.replace(/\s+/g, " ")).toContain("Read the pull request itself with the `pull-request` tools");
+
+    const none = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(none.replace(/\s+/g, " ")).toContain("No playbook reviews pull requests here");
+
+    const slack = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
+    expect(slack).not.toContain("# This pull request");
+  });
+
+  it("tells a task fixing a pull request to answer under each finding, and not the review", () => {
+    const base = golden();
+    const fix = buildSystemPrompt({
+      ...base,
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    const flat = fix.replace(/\s+/g, " ");
+    expect(flat).toContain("Never open another pull request");
+    expect(fix).toContain("```resolved\ninternal/api/handler.go:42");
+    expect(flat).toContain("A push of yours is reviewed again by itself");
+
+    const review = buildSystemPrompt({
+      ...base,
+      playbook: { ...base.playbook, github: true },
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(review).not.toContain("```resolved");
+    expect(buildSystemPrompt(base)).not.toContain("Never open another pull request");
+  });
+
   it("renders the delegation menu from the brief, and nothing else", () => {
     const brief = {
       ...golden(),

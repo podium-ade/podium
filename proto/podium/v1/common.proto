@@ -64,6 +64,9 @@ message TaskSpec {
   string workspace_repo = 14;
   // Also store this task's workspace as the shared base for workspace_repo.
   bool workspace_publish_base = 15;
+  // Restore the session's snapshot and store nothing when the task exits. Requires
+  // workspace_session; cannot be combined with workspace_publish_base.
+  bool workspace_readonly = 20;
   // How long the runtime stays up after a turn, waiting for the next instruction on the
   // inbox. Zero means exit when the turn ends. The node forwards it as
   // PODIUM_WORKSPACE_WARM_SECONDS; it does not itself keep the container alive.

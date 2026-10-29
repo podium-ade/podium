@@ -228,6 +228,13 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 	return nil
 }
 
+// githubSource is the GitHub source running now, nil when no App with webhooks is saved.
+func (l *liveConnections) githubSource() *ghreview.Source {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.gh
+}
+
 // newGitHubSource is the pull-request review source: the App's webhooks, and the threads in
 // Slack bound to a review.
 func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Source, logger *slog.Logger) (*ghreview.Source, error) {
@@ -270,6 +277,8 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 				ReplyMode:        f.ReplyMode,
 				NoAutoReview:     f.NoAutoReview,
 				ExcludedBranches: f.ExcludedBranches,
+
+				ConversationReplies: f.ConversationReplies,
 			}, nil
 		},
 		Reviews: ghreview.ReviewMemory{

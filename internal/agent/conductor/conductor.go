@@ -204,6 +204,9 @@ type Conductor struct {
 	// The durable half is the delegations table; this is only how a turn asking for
 	// progress finds the last thing its task said.
 	liveDelegations map[string]*delegationRun
+	// workspaceMu makes claiming a pull request's workspace and recording the delegation
+	// that claimed it one step. See delegate.
+	workspaceMu sync.Mutex
 	// baseCtx is the conductor's own lifetime, set by Run.
 	//
 	// It exists because following a delegated task is the conductor's work, not the work of
@@ -351,9 +354,11 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
 
-	// A pull-request review runs one playbook, the one marked github: true. It does not
-	// get the assistant's menu, so a comment on the review cannot start some other job.
-	if src.Kind() == SourceGitHub {
+	// A pull request is a conversation: what people say on it is answered by the assistant,
+	// which delegates the review to the playbook marked github: true. What nobody said — a
+	// pull request opened, or marked ready — runs that playbook directly. So does every
+	// GitHub event on a conductor with no host runtime, which has no assistant to ask.
+	if src.Kind() == SourceGitHub && (ev.Automatic || c.host == nil) {
 		name := profile.GitHubPlaybook()
 		if name == "" {
 			c.logger.ErrorContext(ctx, "no playbook reviews pull requests",
@@ -366,6 +371,10 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			return
 		}
 		ev.Playbook = name
+		if c.host != nil {
+			c.acceptAutomatic(ctx, src, profile, ev)
+			return
+		}
 	}
 
 	var j job
@@ -584,6 +593,53 @@ func (c *Conductor) acceptConversation(
 	return assistantJob(profile.Assistant()), sess, true
 }
 
+// acceptAutomatic runs the source's own playbook, ev.Playbook, on something nobody said: a
+// pull request opened, or marked ready. There is nothing for the assistant to decide, so the
+// conductor delegates it itself. It is still a delegation of the conversation, so the review
+// is posted the way one the assistant asked for would be, and the next comment's turn sees it
+// running and can add to it.
+//
+// A delegation hangs off a turn, so the event gets one. It records that the event was handled
+// here, ran no model and cost nothing, and it is finished once the task has started.
+func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *profiles.Profile, ev InboundEvent) {
+	_, sess, ok := c.acceptConversation(ctx, src, profile, &ev)
+	if !ok {
+		return
+	}
+	c.mirrorHeard(ctx, src, ev)
+	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	if err != nil {
+		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+			Text: "Something went wrong on my side before I could start. Nothing ran."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
+		return
+	}
+	status := store.TurnSucceeded
+	_, err = c.delegate(ctx, turnGrant{
+		turnID:    turn.ID,
+		sessionID: sess.ID,
+		ref:       ev.Ref,
+		src:       src,
+		playbooks: []string{ev.Playbook},
+	}, ev.Playbook, ev.Text, DelegateOptions{Wait: true})
+	if err != nil {
+		status = store.TurnFailed
+		c.logger.WarnContext(ctx, "starting the source's own playbook failed",
+			"session_id", sess.ID, "playbook", ev.Playbook, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)})
+	}
+	none, free := 0, 0.0
+	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
+		c.logger.ErrorContext(ctx, "recording how the turn ended failed",
+			"turn_id", turn.ID, "status", status, "error", err)
+	}
+	// The task may not have spoken yet. Its announcement is what says it started.
+	c.sayAnnouncementsFor(ctx, turn.ID)
+	c.metrics.Turns.WithLabelValues(sess.SourceKind, ev.Playbook, status).Inc()
+}
+
 // acceptTask is a Linear ticket, or a conversation on a conductor with no host runtime
 // (the test-only KindDev source, and Slack before host turns). It runs one playbook as a
 // task on a node. A web chat without a host runtime is refused instead.
@@ -668,7 +724,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// The placeholder goes first and the reaction second, because the placeholder is the
 	// acknowledgement a human is actually waiting for and a source's write path is rate
 	// limited: every call ahead of it is a second of silence after somebody spoke.
-	placeholder := c.post(ctx, src, ev.Ref, Outbound{Type: OutProgress, Text: Placeholder})
+	placeholder := c.post(ctx, src, ev.Ref, Outbound{
+		Type: OutProgress, Text: Placeholder, Speaker: c.speakerFor(src, j.playbook.Name),
+	})
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
 		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
 	}
@@ -781,7 +839,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
-		menu = c.DelegablePlaybooks()
+		menu = c.menuFor(src, ev.Role)
 		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
@@ -793,7 +851,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	run := &turnRun{
-		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder},
+		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder, speaker: c.speakerFor(src, j.playbook.Name)},
 		sess:        sess,
 		job:         j,
 		turn:        turn,
@@ -910,12 +968,22 @@ func playbookNames(menu []DelegablePlaybook) []string {
 // aConversation is a source that is a chat window rather than a thread. A turn of one is
 // answered by the assistant, in this process, and delegates whatever needs a machine. A
 // Linear issue runs one playbook as a task: nobody is watching a cursor, and one session
-// is one piece of work. A GitHub pull-request review is the same kind of work. It stays
-// one session for the pull request, and it runs the playbook marked github: true rather
-// than the assistant, so a comment on it cannot start some other job. The dev source is
-// in here because it is how a conversation is tested.
+// is one piece of work. A pull request is a conversation: people ask about the code and
+// the review, and the assistant answers or delegates — the review to the playbook marked
+// github: true, other work to whatever the menu offers. The dev source is in here because
+// it is how a conversation is tested.
 func aConversation(kind string) bool {
-	return kind == SourceChat || kind == SourceSlack || kind == KindDev
+	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
+}
+
+// speakerFor is who a run's output is from: the playbook, and whether it is the one src
+// runs on its own. The assistant passes "" and is the zero Speaker.
+func (c *Conductor) speakerFor(src Source, playbook string) Speaker {
+	if playbook == "" {
+		return Speaker{}
+	}
+	own := src != nil && src.Kind() == SourceGitHub && playbook == c.profiles.Current().GitHubPlaybook()
+	return Speaker{Playbook: playbook, SourcePlaybook: own}
 }
 
 // rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
@@ -985,6 +1053,7 @@ func (c *Conductor) brief(
 			AllowedTools: append([]string{}, j.allowedTools...),
 			MaxTurns:     j.maxTurns,
 			Interactive:  j.playbook.Interactive,
+			GitHub:       j.playbook.GitHub,
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
@@ -1634,7 +1703,7 @@ func (c *Conductor) recover(ctx context.Context) {
 		// that ran it. So the job here is always a playbook's, and the session's playbook is
 		// always a real one.
 		run := &turnRun{
-			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID},
+			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook)},
 			sess:      sess,
 			job:       playbookJob(c.profiles.Current().Playbooks[sess.Playbook]),
 			turn:      turn,

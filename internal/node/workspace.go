@@ -33,8 +33,9 @@ func (n *Node) workspaceHooks(taskID string, sp *spec.TaskSpec) *docker.Workspac
 			return n.downloadWorkspace(ctx, taskID, session, repo)
 		},
 	}
-	// A repo on its own only seeds the volume. Publishing, or a session, is what stores.
-	if session != "" || publish {
+	// A repo on its own only seeds the volume. Publishing, or a session, is what stores,
+	// unless the task is read-only: it restores and stores nothing.
+	if (session != "" || publish) && !sp.WorkspaceReadOnly {
 		ws.Save = func(ctx context.Context, tarPath string, size int64) error {
 			var err error
 			if session != "" {

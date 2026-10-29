@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,4 +65,16 @@ func testRest(t *testing.T, base string) *restClient {
 	require.NoError(t, err)
 	c.tokens[7] = cachedToken{token: "ghs_test", expires: time.Now().Add(time.Hour)}
 	return c
+}
+
+func TestGraphQLIsBesideTheRESTRoot(t *testing.T) {
+	for base, want := range map[string]string{
+		"https://api.github.com":        "https://api.github.com/graphql",
+		"https://ghe.acme.test/api/v3":  "https://ghe.acme.test/api/graphql",
+		"https://ghe.acme.test/api/v3/": "https://ghe.acme.test/api/graphql",
+	} {
+		c, err := newRest(restOptions{BaseURL: base, AppID: "1", PrivateKey: testKey(t)})
+		require.NoError(t, err)
+		assert.Equal(t, want, c.graphqlURL(), base)
+	}
 }

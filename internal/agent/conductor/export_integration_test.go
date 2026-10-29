@@ -26,3 +26,13 @@ func PlacedForTest(ctx context.Context, st *store.Store, playbook profiles.Playb
 	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	return c.placed(ctx, playbook)
 }
+
+// DelegateForTest delegates for the conversation sessionID as the turn turnID would, with no
+// token: what a host turn's podium_delegate does once its token and menu have been checked.
+func (c *Conductor) DelegateForTest(
+	ctx context.Context, src Source, sessionID, turnID, ref, playbook, instruction string, opts DelegateOptions,
+) (store.Delegation, error) {
+	return c.delegate(ctx, turnGrant{
+		turnID: turnID, sessionID: sessionID, ref: ref, src: src, playbooks: []string{playbook},
+	}, playbook, instruction, opts)
+}

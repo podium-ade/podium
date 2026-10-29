@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // WebhookPath is the only route on the webhook mux. Funnel/a tunnel points here and
@@ -99,6 +100,10 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", reason)
 		return
 	}
+	if c.pushed {
+		s.handlePush(ctx, event, delivery, c)
+		return
+	}
 	if s.isAppUser(c.senderLogin, c.senderType) {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
@@ -125,6 +130,9 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	triggered := c.ready || c.mentioned || (phrases != nil && phrases.MatchString(c.body))
 	if !triggered && c.inReply {
 		triggered = s.replyTriggers(ctx, f, c, known)
+	}
+	if !triggered && known && f.ConversationReplies && c.kind == KindIssueComment {
+		triggered = s.answersTheApp(ctx, c)
 	}
 	if !triggered {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
@@ -156,19 +164,23 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	if phrases != nil {
 		text = strings.TrimSpace(phrases.ReplaceAllString(text, "$1$2"))
 	}
-	switch {
-	case c.ready && known:
-		commit, head := s.reviewBaseline(ctx, c)
-		text = followUpInstruction(pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action), commit, head)
-	case c.ready:
+	// A pull request opened or marked ready is the review playbook's, and nobody asked
+	// anything: the conductor runs it directly. Anything a person wrote is the assistant's,
+	// told who wrote it where, and where the last review stopped.
+	commit, head := "", ""
+	if known {
+		commit, head = s.reviewBaseline(ctx, c)
+	}
+	if !c.ready {
+		c.role, c.locked = s.speakerRole(ctx, c)
+	}
+	if c.ready {
 		text = pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action)
-	case !known:
-		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
-	case c.inReply:
-		text = reviewReplyInstruction(c.path, c.line, c.diffHunk, text)
-	default:
-		commit, head := s.reviewBaseline(ctx, c)
-		text = followUpInstruction(text, commit, head)
+		if known {
+			text = followUpInstruction(text, commit, head)
+		}
+	} else {
+		text = commentInstruction(c, text, commit, head)
 	}
 
 	s.emit(ctx, conductor.InboundEvent{
@@ -183,6 +195,8 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		TS:        c.ts,
 		URL:       PRURL(c.owner, c.repo, c.number),
 		BriefKind: conductor.SourceGitHub,
+		Automatic: c.ready,
+		Role:      c.role,
 	})
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
@@ -240,8 +254,14 @@ type classified struct {
 	action string
 	// base is the branch the pull request merges into. An issue_comment leaves it empty.
 	base string
+	// pushed is new commits on the pull request's head branch (synchronize).
+	pushed bool
 	// reason is why classify rejected the delivery. Empty when it accepted it.
 	reason string
+	// role is the author's role on the repository, which decides the playbooks the turn is
+	// offered. locked is a fork nobody here can push to; role is capped below write for it.
+	role   string
+	locked bool
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -399,8 +419,9 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 	case "pull_request":
 		// An open that is already ready, or a draft marked ready, starts the
 		// review. review_requested is not one: GitHub does not let you assign
-		// this App as a reviewer. A draft's own open waits for that mark.
-		if env.Action != "ready_for_review" && env.Action != "opened" {
+		// this App as a reviewer. A draft's own open waits for that mark. New
+		// commits are handlePush's to decide.
+		if env.Action != "ready_for_review" && env.Action != "opened" && env.Action != "synchronize" {
 			base.reason = "unsupported action"
 			return base, false
 		}
@@ -425,7 +446,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
 		base.ts = p.PullRequest.UpdatedAt
-		base.ready = true
+		base.ready = env.Action != "synchronize"
+		base.pushed = env.Action == "synchronize"
 		if base.number == 0 {
 			base.reason = "unhandled"
 			return base, false
@@ -460,11 +482,64 @@ func (s *Source) replyTriggers(ctx context.Context, f Filters, c classified, kno
 	}
 }
 
+// roleTTL is how long a person's role on a repository is remembered. A role taken away is
+// honoured within it; a delivery burst costs one read.
+const roleTTL = 5 * time.Minute
+
+type knownRole struct {
+	role string
+	at   time.Time
+}
+
+// speakerRole is the author's role on the pull request's repository, capped below write when
+// the pull request is a fork nobody here can push to. A role that cannot be read is no role:
+// the turn is then offered only what anybody may ask for.
+func (s *Source) speakerRole(ctx context.Context, c classified) (role string, locked bool) {
+	if c.installID == 0 || c.author == "" {
+		return "", false
+	}
+	key := strings.ToLower(c.owner + "/" + c.repo + "/" + c.author)
+	s.mu.Lock()
+	seen, ok := s.roles[key]
+	s.mu.Unlock()
+	if ok && s.now().Sub(seen.at) < roleTTL {
+		role = seen.role
+	} else {
+		r, err := s.client.Role(ctx, c.installID, c.owner, c.repo, c.author)
+		if err != nil {
+			s.logger.WarnContext(ctx, "github: reading the commenter's role failed",
+				"pr", PRURL(c.owner, c.repo, c.number), "login", c.author, "error", err)
+			return "", false
+		}
+		role = r
+		s.mu.Lock()
+		if len(s.roles) >= maxThreadBots {
+			clear(s.roles)
+		}
+		s.roles[key] = knownRole{role: role, at: s.now()}
+		s.mu.Unlock()
+	}
+	if !profiles.GitHubRoleAtLeast(role, "write") {
+		return role, false
+	}
+	info, err := s.client.Pull(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		// Whether a fork can be pushed to is unknown, so it is treated as one that cannot.
+		s.logger.WarnContext(ctx, "github: reading whether the pull request can be pushed to failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return "triage", false
+	}
+	if info.Locked {
+		return "triage", true
+	}
+	return role, false
+}
+
 // maxThreadBots bounds the thread cache. Forgetting it only costs one more read.
 const maxThreadBots = 4096
 
-// botThread reports whether the App started the thread c replies in. A thread that
-// cannot be read counts as a person's: the reply then needs the trigger.
+// botThread reports whether the App started the thread c replies in, or has replied in it.
+// A thread that cannot be read counts as a person's: the reply then needs the trigger.
 func (s *Source) botThread(ctx context.Context, c classified) bool {
 	if c.threadID == 0 || c.installID == 0 {
 		return false
@@ -473,7 +548,7 @@ func (s *Source) botThread(ctx context.Context, c classified) bool {
 	bot, ok := s.threadBots[c.threadID]
 	s.mu.Unlock()
 	if ok {
-		return bot
+		return bot || s.joinedThread(ctx, c)
 	}
 	root, err := s.client.ReviewComment(ctx, c.installID, c.owner, c.repo, c.threadID)
 	if err != nil {
@@ -488,7 +563,71 @@ func (s *Source) botThread(ctx context.Context, c classified) bool {
 	}
 	s.threadBots[c.threadID] = bot
 	s.mu.Unlock()
-	return bot
+	return bot || s.joinedThread(ctx, c)
+}
+
+// joinedThread reports whether the App has replied in the thread c replies in, though a
+// person started it. Only a yes is remembered: the App can join a thread later.
+func (s *Source) joinedThread(ctx context.Context, c classified) bool {
+	s.mu.Lock()
+	joined := s.threadJoined[c.threadID]
+	s.mu.Unlock()
+	if joined {
+		return true
+	}
+	comments, err := s.client.ListReviewComments(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading a review thread's replies failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "comment", c.threadID, "error", err)
+		return false
+	}
+	for _, cm := range comments {
+		if cm.InReplyTo == c.threadID && s.isAppUser(cm.User.Login, cm.User.Type) {
+			s.mu.Lock()
+			if len(s.threadJoined) >= maxThreadBots {
+				clear(s.threadJoined)
+			}
+			s.threadJoined[c.threadID] = true
+			s.mu.Unlock()
+			return true
+		}
+	}
+	return false
+}
+
+// conversationReplyWindow is how soon after the App's own comment a conversation-tab
+// comment counts as the answer to it.
+const conversationReplyWindow = 30 * time.Minute
+
+// answersTheApp reports whether the conversation-tab comment c follows the App's own comment
+// directly, within conversationReplyWindow of it being written or last edited. The tab has no
+// threads, so "right after the App spoke" is the nearest thing to a reply.
+func (s *Source) answersTheApp(ctx context.Context, c classified) bool {
+	if c.installID == 0 {
+		return false
+	}
+	comments, err := s.client.ListIssueComments(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the conversation before a comment failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return false
+	}
+	var prev *Comment
+	for i := range comments {
+		cm := &comments[i]
+		if cm.ID == c.commentID || !cm.CreatedAt.Before(c.ts) {
+			break
+		}
+		prev = cm
+	}
+	if prev == nil || !s.isAppUser(prev.User.Login, prev.User.Type) {
+		return false
+	}
+	at := prev.CreatedAt
+	if prev.UpdatedAt.After(at) {
+		at = prev.UpdatedAt
+	}
+	return c.ts.Sub(at) <= conversationReplyWindow
 }
 
 func (s *Source) mentioned(body string) bool {
@@ -520,6 +659,42 @@ func compileMention(slug string) *regexp.Regexp {
 	// @slug or @slug[bot], not @slug-extra. The trailing group is kept so stripMention
 	// can leave the following whitespace/punctuation in place via $1.
 	return regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(slug) + `(?:\[bot\])?([^A-Za-z0-9_-]|$)`)
+}
+
+// handlePush reviews again what this App pushed to a pull request it has already reviewed:
+// the commits a playbook made to fix the review. Anybody else's push is left alone, as it
+// always was — reviewing every push would be a review per commit. The trigger filters are not
+// asked: the push is this App's own, made for a request they already let through.
+func (s *Source) handlePush(ctx context.Context, event, delivery string, c classified) {
+	if !s.isAppUser(c.senderLogin, c.senderType) {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "unsupported action")
+		return
+	}
+	key := SourceKey(c.owner, c.repo, c.number)
+	if _, known := s.session(ctx, key); !known {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
+		return
+	}
+	commit, head := s.reviewBaseline(ctx, c)
+	if commit == "" {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
+		return
+	}
+	prURL := PRURL(c.owner, c.repo, c.number)
+	s.emit(ctx, conductor.InboundEvent{
+		SourceKind: Kind,
+		SourceKey:  key,
+		Ref: Ref(Parsed{
+			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID, Kind: KindPullRequest,
+		}),
+		Author:    c.author,
+		Text:      followUpInstruction("Podium pushed new commits to "+prURL+" to address the review.", commit, head),
+		TS:        c.ts,
+		URL:       prURL,
+		BriefKind: conductor.SourceGitHub,
+		Automatic: true,
+	})
+	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
 
 func pullInstruction(author, prURL, action string) string {
@@ -595,8 +770,47 @@ func (s *Source) reviewBaseline(ctx context.Context, c classified) (commit, head
 	return commit, info.SHA
 }
 
-func reviewInstruction(author, prURL, body string) string {
-	head := firstNonEmpty(author, "someone") + " asked for a review of " + prURL
+// commentInstruction is a person's comment as the assistant is told it: who wrote it, where,
+// and what. The commit the last review covered and the head now ride along, so a re-review
+// it delegates can be told where that review stopped.
+func commentInstruction(c classified, body, commit, head string) string {
+	who := firstNonEmpty(c.author, "someone")
+	pr := PRURL(c.owner, c.repo, c.number)
+	var b strings.Builder
+	switch {
+	case c.inReply:
+		b.WriteString(who + " replied in a review thread on " + pr + ".")
+	case c.kind == KindReviewComment:
+		b.WriteString(who + " commented on the diff of " + pr + ".")
+	case c.kind == KindReview:
+		b.WriteString(who + " submitted a review of " + pr + ".")
+	default:
+		b.WriteString(who + " commented on " + pr + ".")
+	}
+	if commit != "" {
+		b.WriteString(" The last review was on commit " + commit + ".")
+		if head != "" && head != commit {
+			b.WriteString(" The head is now " + head + ".")
+		}
+		if head == commit {
+			b.WriteString(" The head has not moved since.")
+		}
+	}
+	if c.locked {
+		b.WriteString(" This pull request comes from a fork that does not let maintainers push to it, so nothing here can change its code.")
+	}
+	b.WriteString("\n\n")
+	if c.kind == KindReviewComment {
+		b.WriteString(reviewReplyInstruction(c.path, c.line, c.diffHunk, body))
+	} else {
+		b.WriteString(strings.TrimSpace(body))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// slackInstruction is a Slack mention about a pull request, as the assistant is told it.
+func slackInstruction(author, prURL, body string) string {
+	head := firstNonEmpty(author, "someone") + " wrote in Slack about " + prURL + "."
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return head

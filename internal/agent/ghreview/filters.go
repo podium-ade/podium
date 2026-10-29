@@ -12,7 +12,7 @@ import (
 // A top-level comment always does.
 const (
 	// ReplyBotThreads lets a reply through without the trigger when the App started the
-	// thread. A reply in a thread a person started still needs it.
+	// thread or has replied in it. A reply in a thread the App is not in still needs it.
 	ReplyBotThreads = "bot_threads"
 	// ReplyAnyThread lets any reply through on a pull request that already has a session.
 	ReplyAnyThread = "any_thread"
@@ -41,6 +41,9 @@ type Filters struct {
 	// ExcludedBranches are patterns for base branches whose pull requests start nothing,
 	// as connections.CompileBranchPattern reads them.
 	ExcludedBranches []string
+	// ConversationReplies lets a conversation-tab comment through without the trigger when
+	// the comment right before it is the App's, posted within conversationReplyWindow.
+	ConversationReplies bool
 }
 
 // FilterLookup returns the filters in force now.

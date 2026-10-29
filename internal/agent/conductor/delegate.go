@@ -23,8 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/mcp"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
@@ -52,6 +54,9 @@ var (
 	ErrDelegationFailed = errors.New("conductor: the delegated task failed before it started")
 	// ErrNoPreview means the delegation's task left no preview up to release.
 	ErrNoPreview = errors.New("conductor: that delegation has no preview to release")
+	// ErrWorkspaceBusy means a task that writes this pull request's workspace is still
+	// working in it. The message says which, so a turn can inject into it instead.
+	ErrWorkspaceBusy = errors.New("conductor: another task is working in this pull request's workspace")
 	// ErrNoDelegation means this conductor cannot delegate at all, because it has no host
 	// runtime and therefore no host turns to delegate from.
 	ErrNoDelegation = errors.New("conductor: this conductor runs no host turns, so nothing can delegate")
@@ -96,6 +101,24 @@ func (c *Conductor) mintTurnToken(g turnGrant) (string, error) {
 	return token, nil
 }
 
+// PullRequestMCPName is the name a host turn on a pull request knows the conductor's
+// read-only pull-request MCP server by.
+const PullRequestMCPName = mcp.ReservedPullRequest
+
+// TurnPullRequest is the pull request a live turn token's conversation is, as its source key.
+// False for a token that names no live turn, and for a turn that is not on a pull request.
+func (c *Conductor) TurnPullRequest(ctx context.Context, token string) (string, bool) {
+	g, ok := c.grantFor(token)
+	if !ok {
+		return "", false
+	}
+	sess, err := c.store.GetSession(ctx, g.sessionID)
+	if err != nil || sess.SourceKind != SourceGitHub {
+		return "", false
+	}
+	return sess.SourceKey, true
+}
+
 func (c *Conductor) revokeTurnToken(token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -129,7 +152,26 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Browser: p.Browser,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
+			GitHub:  p.GitHub,
 		})
+	}
+	return out
+}
+
+// menuFor is the playbooks a turn from src may delegate to. Every playbook, except on a pull
+// request: anybody the GitHub triggers allow can comment there, so it is offered the review
+// playbook, and a playbook naming github_requires only when the speaker's role meets it.
+func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
+	all := c.DelegablePlaybooks()
+	if src == nil || src.Kind() != SourceGitHub {
+		return all
+	}
+	playbooks := c.profiles.Current().Playbooks
+	out := make([]DelegablePlaybook, 0, len(all))
+	for _, p := range all {
+		if p.GitHub || profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) {
+			out = append(out, p)
+		}
 	}
 	return out
 }
@@ -145,6 +187,9 @@ type DelegablePlaybook struct {
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`
+	// GitHub says this is the playbook that reviews pull requests. Only its answer becomes
+	// the review on one.
+	GitHub bool `json:"github,omitempty"`
 }
 
 // playbookSummary is the one line a menu entry carries. A playbook has no description field,
@@ -169,11 +214,23 @@ func repoNames(p profiles.Playbook) []string {
 	return out
 }
 
+// DelegateOptions is what a delegation asks of its task beyond the playbook and the words.
+type DelegateOptions struct {
+	// ReadOnly starts the task on the conversation's workspace and keeps nothing it changes.
+	ReadOnly bool
+	// Wait queues behind a pull request's writing task that is still working, where a
+	// delegation would otherwise be refused. It is for what the conductor starts itself: a
+	// review of commits a task just pushed arrives while that task is still finishing.
+	Wait bool
+}
+
 // Delegate starts a task for the conversation the token belongs to and returns once the task
 // has left the queue, or after delegateSettle. A task that fails before leaving it is the
 // turn's error. Nothing else waits for the task: it is followed in the background, and a
 // turn asks GetDelegation for where it got to.
-func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instruction string) (store.Delegation, error) {
+func (c *Conductor) Delegate(
+	ctx context.Context, token, playbookName, instruction string, opts DelegateOptions,
+) (store.Delegation, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
 		return store.Delegation{}, ErrNoTurn
@@ -185,6 +242,20 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		return store.Delegation{}, fmt.Errorf("%w: %q; this turn was offered %v",
 			ErrPlaybookNotOffered, playbookName, g.playbooks)
 	}
+	return c.delegate(ctx, g, playbookName, instruction, opts)
+}
+
+// delegate starts playbookName for the conversation g names. Delegate has already checked
+// the token and the menu. acceptAutomatic has no token: it is the conductor's own decision.
+//
+// A pull request has one workspace snapshot and a task that writes it replaces it when it
+// exits, so one writing task at a time works in it. One that is still working refuses the
+// next with ErrWorkspaceBusy. One that has answered and is only waiting for a follow-up is
+// released, and the new task starts once that one has stored its snapshot: the row is
+// returned at once, without a task, and the task follows in the background.
+func (c *Conductor) delegate(
+	ctx context.Context, g turnGrant, playbookName, instruction string, opts DelegateOptions,
+) (store.Delegation, error) {
 	profile := c.profiles.Current()
 	playbook, ok := profile.Playbooks[playbookName]
 	if !ok {
@@ -206,6 +277,24 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 	// reload apart would credit the spend to a model the task did not run on.
 	choice := profile.Resolve(playbook, profiles.Override{})
 
+	// The claim and the row are one step: a second delegation that looked before this row
+	// existed would find the workspace free as well.
+	guarded := !opts.ReadOnly && sess.SourceKind == SourceGitHub
+	c.workspaceMu.Lock()
+	ahead := 0
+	if guarded {
+		writers, err := c.writersAhead(ctx, sess.ID, "")
+		if err != nil {
+			c.workspaceMu.Unlock()
+			return store.Delegation{}, err
+		}
+		if busy := c.stillWorking(writers); busy != nil && !opts.Wait {
+			c.workspaceMu.Unlock()
+			return store.Delegation{}, fmt.Errorf("%w: the `%s` task (%s) is still working in it. "+
+				"Inject into that task, or wait for its answer", ErrWorkspaceBusy, busy.Playbook, busy.ID)
+		}
+		ahead = len(writers)
+	}
 	// The row first, and before the task: a task the control plane accepts must never be
 	// one this database has never heard of, because the row is what makes it owned.
 	dlg, err := c.store.CreateDelegation(ctx, store.NewDelegation{
@@ -220,12 +309,54 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 			Effort:   choice.Effort,
 			Provider: c.providerFor(choice.Agent).ID,
 		},
+		ReadOnly: opts.ReadOnly,
 	})
+	c.workspaceMu.Unlock()
 	if err != nil {
 		return store.Delegation{}, err
 	}
 
-	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice)
+	if ahead == 0 {
+		return c.launch(ctx, g, sess, playbook, dlg, choice, opts)
+	}
+	c.logger.InfoContext(ctx, "a delegation waits for the pull request's workspace",
+		"delegation_id", dlg.ID, "session_id", sess.ID, "playbook", playbookName, "ahead", ahead)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		bg := c.background()
+		limit := releaseWait
+		if opts.Wait {
+			limit = queueWait
+		}
+		if err := c.awaitWorkspace(bg, sess.ID, dlg.ID, limit); err != nil {
+			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
+				"delegation_id", dlg.ID, "error", err)
+			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
+				c.logger.ErrorContext(bg, "recording a delegation that never started failed",
+					"delegation_id", dlg.ID, "error", ferr)
+			}
+			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
+				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of this pull request's workspace.", playbookName)})
+			return
+		}
+		if _, err := c.launch(bg, g, sess, playbook, dlg, choice, opts); err != nil {
+			c.logger.WarnContext(bg, "starting a delegation that waited for its workspace failed",
+				"delegation_id", dlg.ID, "error", err)
+			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
+				Text: fmt.Sprintf("The `%s` task could not start.", playbookName)})
+		}
+	}()
+	return dlg, nil
+}
+
+// launch starts dlg's task, which the row already names, and follows it.
+func (c *Conductor) launch(
+	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
+	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
+) (store.Delegation, error) {
+	playbookName := playbook.Name
+	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice, opts)
 	if err != nil {
 		if ferr := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that never started failed",
@@ -268,11 +399,95 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		ref:    g.ref,
 		taskID: dlg.TaskID,
 		text: fmt.Sprintf("Working on this in a `%s` task: %s",
-			playbookName, firstLine(instruction, maxAnnouncedRunes)),
+			playbookName, firstLine(dlg.Instruction, maxAnnouncedRunes)),
+		speaker: c.speakerFor(g.src, playbookName),
 	})
 
 	c.followDelegation(ctx, g.src, dlg, playbook, 0)
 	return dlg, nil
+}
+
+// writersAhead is the pull request's running delegations that write its workspace and were
+// recorded before self — all of them when self is "". A delegation waits only for the ones
+// ahead of it, so two waiting delegations queue rather than wait for each other.
+func (c *Conductor) writersAhead(ctx context.Context, sessionID, self string) ([]store.Delegation, error) {
+	rows, err := c.store.RunningDelegationsForSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("conductor: reading what is running in this pull request: %w", err)
+	}
+	var out []store.Delegation
+	for _, d := range rows {
+		if d.ID == self {
+			break
+		}
+		if !d.ReadOnly {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// stillWorking is the first writer that has not answered: a task working, or one not
+// started yet. A writer that answered is only waiting for a follow-up, and can be released.
+func (c *Conductor) stillWorking(writers []store.Delegation) *store.Delegation {
+	for i, d := range writers {
+		if c.idleRun(d.ID) == nil {
+			return &writers[i]
+		}
+	}
+	return nil
+}
+
+// idleRun is the live run of a delegation that has answered, or nil.
+func (c *Conductor) idleRun(id string) *delegationRun {
+	c.mu.Lock()
+	run := c.liveDelegations[id]
+	c.mu.Unlock()
+	if run == nil || !run.answered.Load() {
+		return nil
+	}
+	return run
+}
+
+// releaseWait bounds how long a delegation waits for a released task to store its workspace
+// and exit. Storing is a tar of the volume, so it is minutes for a large one, not seconds.
+// queueWait bounds a delegation queued behind a task still working, which can take as long
+// as that task's playbook allows.
+const (
+	releaseWait = 10 * time.Minute
+	queueWait   = 4 * time.Hour
+)
+
+// workspacePoll is how often a waiting delegation looks at the writers ahead of it.
+var workspacePoll = time.Second
+
+// awaitWorkspace waits until no writer ahead of self is running. A writer that has answered
+// is released; one still working is waited for until it answers. The node stores a task's
+// snapshot before it reports the task exited, so a free workspace is a stored one.
+func (c *Conductor) awaitWorkspace(ctx context.Context, sessionID, self string, limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	for {
+		writers, err := c.writersAhead(ctx, sessionID, self)
+		if err != nil {
+			return err
+		}
+		if len(writers) == 0 {
+			return nil
+		}
+		for _, d := range writers {
+			if run := c.idleRun(d.ID); run != nil && !run.released.Load() {
+				run.release(ctx)
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%d task(s) still hold the workspace after %s", len(writers), limit)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(workspacePoll):
+		}
+	}
 }
 
 // delegateSettle bounds how long Delegate waits for a new task to leave the queue.
@@ -324,6 +539,9 @@ type announcement struct {
 	ref    string
 	taskID string
 	text   string
+	// speaker is the delegated playbook. The announcement is the first thing said about
+	// its task, so a source that posts by speaker places it with the task's own words.
+	speaker Speaker
 }
 
 // holdAnnouncement records that a task was started without saying so yet.
@@ -369,7 +587,7 @@ func (c *Conductor) sayAnnouncementsFor(ctx context.Context, turnID string) {
 // session behind one slow conversation.
 func (c *Conductor) sayHeld(ctx context.Context, match func(announcement) bool) {
 	for _, a := range c.takeHeld(match) {
-		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Text: a.text})
+		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Speaker: a.speaker, Text: a.text})
 	}
 }
 
@@ -401,7 +619,7 @@ func (c *Conductor) takeHeld(match func(announcement) bool) []announcement {
 // so a delegated task cannot delegate again.
 func (c *Conductor) startDelegatedTask(
 	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
-	dlg store.Delegation, choice profiles.Choice,
+	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
 ) (*podiumv1.Task, error) {
 	entries, err := g.src.FetchTranscript(ctx, g.ref)
 	if err != nil {
@@ -463,6 +681,10 @@ func (c *Conductor) startDelegatedTask(
 	}
 	taskSpec := c.taskSpec(g.src, c.placed(ctx, playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
 	applyWorkspace(taskSpec, sess.ID, playbook)
+	if opts.ReadOnly {
+		taskSpec.WorkspaceReadOnly = true
+		taskSpec.WorkspacePublishBase = false
+	}
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
 		if capabilitySecret != "" {
@@ -485,7 +707,8 @@ func (c *Conductor) followDelegation(
 			ref: dlg.TriggerRef,
 			// No placeholder: the conversation has nothing of this task's on screen to
 			// replace, so its progress arrives as its own messages.
-			taskID: dlg.TaskID,
+			taskID:  dlg.TaskID,
+			speaker: c.speakerFor(src, dlg.Playbook),
 		},
 		dlg:      dlg,
 		playbook: playbook,
@@ -580,6 +803,13 @@ func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string
 	if err := c.podium.InjectTask(ctx, dlg.TaskID, text); err != nil {
 		return store.Delegation{}, fmt.Errorf("conductor: injecting into the delegated task failed: %w", err)
 	}
+	c.mu.Lock()
+	run := c.liveDelegations[dlg.ID]
+	c.mu.Unlock()
+	if run != nil {
+		// Working again: a new instruction is not a follow-up it may be stopped for.
+		run.answered.Store(false)
+	}
 	return dlg, nil
 }
 
@@ -627,6 +857,11 @@ type delegationRun struct {
 	dlg      store.Delegation
 	playbook profiles.Playbook
 	lastSeq  uint64
+	// answered is set when the task's answer arrives and cleared when something is injected
+	// into it: an answered task is only waiting for a follow-up. released is set when the
+	// conductor stopped it to free its workspace for another task, which is not a failure.
+	answered atomic.Bool
+	released atomic.Bool
 
 	mu       sync.Mutex
 	progress string
@@ -683,7 +918,7 @@ func (r *delegationRun) run(ctx context.Context) {
 	if err != nil {
 		c.logger.ErrorContext(ctx, "reading a delegated task back failed",
 			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: fmt.Sprintf(
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: fmt.Sprintf(
 			"I lost track of the `%s` task I started for this. Task `%s`.", r.dlg.Playbook, r.dlg.TaskID)})
 		r.finish(ctx, store.TurnFailed)
 		return
@@ -691,15 +926,20 @@ func (r *delegationRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.playbook.Timeout.Std())
+	if r.released.Load() && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_CANCELLED {
+		// It had answered and was waiting for a follow-up when another task needed its
+		// workspace. Its work is done and was said; stopping it is not a failure.
+		result = outcome{Status: store.TurnSucceeded}
+	}
 	if result.Post != "" {
 		c.dropAnnouncement(r.dlg.ID)
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: result.Post})
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post})
 	}
 	if note := previewNote(task, true); note != "" {
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Text: note})
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: note})
 	}
 	r.finish(ctx, result.Status)
 }
@@ -735,6 +975,9 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 		r.setProgress(msg.GetText())
 	}
 	r.relay(ctx, e)
+	if msg.GetType() == OutFinal {
+		r.answered.Store(true)
+	}
 	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
 		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)
 		if err := r.src.React(ctx, r.ref, ReactionAwaiting); err != nil {
@@ -799,6 +1042,17 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	r.c.metrics.Delegations.WithLabelValues(r.dlg.Playbook, status).Inc()
 	r.c.logger.InfoContext(ctx, "a delegated task finished", "delegation_id", r.dlg.ID,
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)
+}
+
+// release stops a task that has answered and is waiting for a follow-up, so another task can
+// have its workspace. The node stores the snapshot on the way out, as it does for any cancel.
+func (r *delegationRun) release(ctx context.Context) {
+	r.released.Store(true)
+	if err := r.c.podium.CancelTask(ctx, r.dlg.TaskID,
+		"released: another task needs this pull request's workspace"); err != nil {
+		r.c.logger.WarnContext(ctx, "releasing a waiting task failed", "delegation_id", r.dlg.ID,
+			"task_id", r.dlg.TaskID, "error", err)
+	}
 }
 
 func (r *delegationRun) setProgress(text string) {

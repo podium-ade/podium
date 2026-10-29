@@ -9,6 +9,7 @@ import {
   definitionToYaml,
   docToDraft,
   draftToYaml,
+  GITHUB_ROLES,
   parsePlaybookYaml,
   type PlaybookDraft,
   type SandboxOverrides,
@@ -161,6 +162,7 @@ export function PlaybookEditor({
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [github, setGithub] = useState(playbook?.github ?? false);
+  const [githubRequires, setGithubRequires] = useState(playbook?.githubRequires ?? "");
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
   const [browser, setBrowser] = useState(playbook?.browser ?? false);
@@ -243,6 +245,7 @@ export function PlaybookEditor({
     slackChannels: splitList(channels),
     linear,
     github,
+    githubRequires: github ? "" : githubRequires,
     interactive,
     docker,
     browser,
@@ -1035,11 +1038,33 @@ export function PlaybookEditor({
                 This is the playbook pull-request reviews run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one playbook may set it. A review of a pull request runs this playbook
-                and nothing else, including when someone replies or @mentions the bot.
+                At most one playbook may set it. Only this playbook&rsquo;s answer becomes the review,
+                and it is always offered on a pull request.
               </p>
             </div>
           </div>
+
+          {github ? null : (
+            <Field
+              id={`${uid}-github-requires`}
+              label="Offered on pull requests to"
+              hint="Who may ask for this playbook in a pull-request comment. It shares the review's workspace, so it needs the review playbook's first repository."
+            >
+              <select
+                id={`${uid}-github-requires`}
+                value={githubRequires}
+                onChange={(e) => setGithubRequires(e.target.value)}
+                className="min-h-11 w-full rounded-md border border-input bg-panel px-3 text-sm text-fg"
+              >
+                <option value="">Nobody: not offered on pull requests</option>
+                {GITHUB_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    Commenters with {r} access or more
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
         </Section>
       </fieldset>
         </TabsContent>

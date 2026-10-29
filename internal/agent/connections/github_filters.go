@@ -44,6 +44,9 @@ type GitHubFilters struct {
 	TriggerPhrases []string `json:"trigger_phrases,omitempty"`
 	ReplyMode      string   `json:"reply_mode,omitempty"`
 	NoAutoReview   bool     `json:"no_auto_review,omitempty"`
+	// ConversationReplies lets a conversation-tab comment through without the trigger when
+	// it answers the App's own comment, posted moments before. Off by default.
+	ConversationReplies bool `json:"conversation_replies,omitempty"`
 	// ExcludedBranches are patterns for base branches whose pull requests start nothing.
 	// See CompileBranchPattern.
 	ExcludedBranches []string  `json:"excluded_branches,omitempty"`

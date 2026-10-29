@@ -17,6 +17,7 @@ retry_on_node_loss: false          # default: see below
 workspace_session: ""              # empty: the volume is ephemeral
 workspace_repo: ""                 # repository base, used when the session has no snapshot
 workspace_publish_base: false      # also store this workspace as that repo's base
+workspace_readonly: false          # restore the session's workspace and store nothing back
 workspace_warm: 0s                 # how long the runtime waits for a follow-up
 
 secrets: []                        # see below
@@ -121,6 +122,12 @@ It requires `workspace_repo`. A base is not a session snapshot and a session sna
 not published as a base unless this is set. The conductor sets it when the playbook env
 `PODIUM_PUBLISH_BASE=1` and the playbook names a repository. That task's workspace, after
 it has installed and built, becomes the tree the next session starts from.
+
+`workspace_readonly: true` restores the session's snapshot as usual and uploads nothing
+when the task exits, so what it changed goes away with the volume and the session's snapshot
+is the one the last writing task left. It requires `workspace_session` and cannot be combined
+with `workspace_publish_base`. Several read-only tasks of one session, and one writing task
+beside them, never race for the snapshot.
 
 `workspace_warm` is how long the runtime should stay up after a turn, waiting for the next
 instruction. The node forwards it as `PODIUM_WORKSPACE_WARM_SECONDS`. Zero means exit when
