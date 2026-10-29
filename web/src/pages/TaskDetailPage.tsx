@@ -88,8 +88,8 @@ function TaskDetail({ id }: { id: string }) {
   const { entries, phase, error } = useTaskEvents(id, reread);
   const [params, setParams] = useSearchParams();
   const story = hasStory(entries);
-  // A task that said nothing has no story: its logs are the page.
-  const view = story && params.get("view") !== "logs" ? "transcript" : "logs";
+  // The logs are the page by default; the transcript is there for a task that spoke.
+  const view = story && params.get("view") === "transcript" ? "transcript" : "logs";
   const selected = params.get("entry") ?? undefined;
   const search = params.get("q") ?? "";
 
@@ -320,7 +320,7 @@ function TaskDetail({ id }: { id: string }) {
         />
       ) : (
         <>
-          {/* The story by default, the evidence one click away: both tabs read the same
+          {/* The evidence by default, the story one click away: both tabs read the same
               entries, and every transcript step opens the explorer on itself. */}
           <Card className="min-w-0 overflow-hidden">
             <Tabs
@@ -328,16 +328,16 @@ function TaskDetail({ id }: { id: string }) {
               onValueChange={(v) => setLink({ view: v }, true)}
             >
               <TabsList className="border-hairline px-2">
+                <TabsTrigger value="logs">
+                  <ScrollText />
+                  Logs
+                </TabsTrigger>
                 {story ? (
                   <TabsTrigger value="transcript">
                     <MessagesSquare />
                     Transcript
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value="logs">
-                  <ScrollText />
-                  Logs
-                </TabsTrigger>
               </TabsList>
               {story ? (
                 <TabsContent value="transcript" className="pt-0">
