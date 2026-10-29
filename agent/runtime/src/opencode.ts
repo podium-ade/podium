@@ -247,8 +247,8 @@ export function chatgptAccountId(token: string): string | undefined {
  * The harness hands a provider the key it found in the environment only when that provider
  * lists exactly one variable. Google lists three, so with GOOGLE_API_KEY set the provider is
  * enabled and then its SDK looks for GOOGLE_GENERATIVE_AI_API_KEY instead. The turn does not
- * fail cleanly: it never sends a request and hangs until it is killed. Naming the variable
- * is what makes it the one spent.
+ * fail cleanly: traced against opencode 1.19.4, it never sends a request and hangs until it
+ * is killed. Naming the variable is what makes it the one spent.
  */
 export const NamedKeyProviders = new Set(["google"]);
 
