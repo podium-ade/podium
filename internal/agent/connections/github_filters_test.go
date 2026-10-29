@@ -25,10 +25,45 @@ func TestNormalizeGitHubFiltersRefuses(t *testing.T) {
 		"bad ignored": {IgnoredActors: []string{"-dash"}},
 		"long phrase": {TriggerPhrases: []string{strings.Repeat("x", maxPhraseRunes+1)}},
 		"bad mode":    {ReplyMode: "sometimes"},
+		"bad regexp":  {ExcludedBranches: []string{"/release-(/"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := NormalizeGitHubFilters(f)
 			require.Error(t, err)
 		})
+	}
+}
+
+func TestNormalizeGitHubFiltersKeepsBranches(t *testing.T) {
+	got, err := NormalizeGitHubFilters(GitHubFilters{
+		ExcludedBranches: []string{" dev ", "feature/*", "dev", "", "/^release-\\d+$/"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dev", "feature/*", "/^release-\\d+$/"}, got.ExcludedBranches)
+}
+
+func TestBranchPatterns(t *testing.T) {
+	cases := []struct {
+		pattern, branch string
+		want            bool
+	}{
+		{"dev", "dev", true},
+		{"dev", "develop", false},
+		{"dev", "Dev", false},
+		{"feature/*", "feature/login", true},
+		{"feature/*", "feature/login/ui", false},
+		{"feature/**", "feature/login/ui", true},
+		{"feature/*", "feature", false},
+		{"release-?", "release-1", true},
+		{"release-?", "release-10", false},
+		{"v1.0", "v1x0", false},
+		{"/^release-\\d+$/", "release-42", true},
+		{"/^release-\\d+$/", "release-x", false},
+		{"/hotfix/", "team/hotfix-1", true},
+	}
+	for _, tc := range cases {
+		re, err := CompileBranchPattern(tc.pattern)
+		require.NoError(t, err, tc.pattern)
+		assert.Equal(t, tc.want, re.MatchString(tc.branch), "%s against %s", tc.pattern, tc.branch)
 	}
 }

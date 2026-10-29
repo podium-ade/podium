@@ -131,6 +131,27 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		return
 	}
 
+	if len(f.ExcludedBranches) > 0 {
+		if c.base == "" && c.installID != 0 {
+			// An issue_comment does not carry the base branch.
+			info, err := s.client.Pull(ctx, c.installID, c.owner, c.repo, c.number)
+			if err != nil {
+				s.logger.WarnContext(ctx, "github: reading the pull request base branch failed",
+					"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+			}
+			c.base = info.Base
+		}
+		if c.base == "" {
+			// Without the base an exclusion could not be honoured, so nothing starts.
+			s.logWebhook(ctx, slog.LevelWarn, event, delivery, c, "ignored", "base branch unavailable")
+			return
+		}
+		if f.branchExcluded(c.base) {
+			s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "excluded branch")
+			return
+		}
+	}
+
 	text := s.stripMention(c.body)
 	if phrases != nil {
 		text = strings.TrimSpace(phrases.ReplaceAllString(text, "$1$2"))
@@ -182,6 +203,9 @@ func (s *Source) logWebhook(ctx context.Context, level slog.Level, event, delive
 	if c.number > 0 {
 		attrs = append(attrs, "pr", c.number)
 	}
+	if c.base != "" {
+		attrs = append(attrs, "base", c.base)
+	}
 	if c.senderLogin != "" {
 		attrs = append(attrs, "sender", c.senderLogin)
 	}
@@ -214,6 +238,8 @@ type classified struct {
 	// review instead. A draft's own open stays quiet.
 	ready  bool
 	action string
+	// base is the branch the pull request merges into. An issue_comment leaves it empty.
+	base string
 	// reason is why classify rejected the delivery. Empty when it accepted it.
 	reason string
 }
@@ -306,13 +332,15 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				User      User      `json:"user"`
 			} `json:"comment"`
 			PullRequest struct {
-				Number int `json:"number"`
+				Number int        `json:"number"`
+				Base   branchJSON `json:"base"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.base = p.PullRequest.Base.Ref
 		base.kind = KindReviewComment
 		base.commentID = p.Comment.ID
 		base.body = p.Comment.Body
@@ -343,13 +371,15 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				User        User      `json:"user"`
 			} `json:"review"`
 			PullRequest struct {
-				Number int `json:"number"`
+				Number int        `json:"number"`
+				Base   branchJSON `json:"base"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.base = p.PullRequest.Base.Ref
 		base.kind = KindReview
 		base.commentID = p.Review.ID
 		base.body = p.Review.Body
@@ -376,9 +406,10 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		}
 		var p struct {
 			PullRequest struct {
-				Number    int       `json:"number"`
-				Draft     bool      `json:"draft"`
-				UpdatedAt time.Time `json:"updated_at"`
+				Number    int        `json:"number"`
+				Draft     bool       `json:"draft"`
+				UpdatedAt time.Time  `json:"updated_at"`
+				Base      branchJSON `json:"base"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
@@ -390,6 +421,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.base = p.PullRequest.Base.Ref
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
 		base.ts = p.PullRequest.UpdatedAt
@@ -403,6 +435,10 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.reason = "unsupported event"
 		return base, false
 	}
+}
+
+type branchJSON struct {
+	Ref string `json:"ref"`
 }
 
 func (s *Source) currentFilters(ctx context.Context) (Filters, error) {

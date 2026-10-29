@@ -127,6 +127,7 @@ describe("ConnectionsPanel", () => {
           triggerPhrases: [],
           replyMode: "bot_threads",
           autoReview: true,
+          excludedBranches: ["dev"],
         },
       },
     });
@@ -141,6 +142,8 @@ describe("ConnectionsPanel", () => {
 
     await userEvent.type(screen.getByLabelText("Allowed people"), "\nbob, carol");
     await userEvent.type(screen.getByLabelText("Trigger phrases"), "/review{enter}take a look");
+    expect(screen.getByLabelText("Excluded branches")).toHaveValue("dev");
+    await userEvent.type(screen.getByLabelText("Excluded branches"), "{enter}feature/*{enter}/^v{{1,2}$/");
     await userEvent.click(screen.getByRole("checkbox", { name: /Ignore bot accounts/ }));
     await userEvent.click(screen.getByRole("radio", { name: /Never/ }));
     await userEvent.click(screen.getByRole("checkbox", { name: /Review new pull requests/ }));
@@ -154,6 +157,7 @@ describe("ConnectionsPanel", () => {
         triggerPhrases: ["/review", "take a look"],
         replyMode: "always",
         autoReview: false,
+        excludedBranches: ["dev", "feature/*", "/^v{1,2}$/"],
       },
     });
     expect(setGitHubConnection).not.toHaveBeenCalled();
