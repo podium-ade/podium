@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { TextMessagePartProvider } from "@assistant-ui/react";
-import { CircleAlert, CircleHelp, ScrollText } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleHelp, ScrollText } from "lucide-react";
 import { TaskStatus } from "../../gen/podium/v1/common_pb";
 import type { Task } from "../../gen/podium/v1/task_pb";
 import { firstError, type Entry } from "../../lib/entries";
 import { isTerminal } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { MarkdownText } from "../agent/chat/MarkdownText";
 import { Chip } from "../Badge";
 import { Button } from "../ui/button";
@@ -13,7 +14,9 @@ import { Card } from "../ui/card";
 /**
  * ResultCard is what a reader came to the page for, before anything else: the task's
  * answer, the question it is waiting on, or — when it failed — the first thing that went
- * wrong, one click from the logs around it.
+ * wrong, one click from the logs around it. A long answer shows its first lines and fades
+ * into a button that opens the rest: it can run to pages and would push the logs off the
+ * screen. A question or a first error is always shown whole.
  */
 export function ResultCard({
   task,
@@ -73,20 +76,80 @@ export function ResultCard({
         </div>
       ) : null}
       {answer?.message ? (
-        <div className="px-5 py-4">
-          <p className="mb-2 text-2xs font-medium tracking-wide text-faint uppercase">Result</p>
-          <TextMessagePartProvider text={answer.message.text}>
-            <MarkdownText className="text-sm leading-6" />
-          </TextMessagePartProvider>
-          {answer.message.attachments.length > 0 ? (
-            <span className="mt-2 flex flex-wrap gap-1">
-              {answer.message.attachments.map((name) => (
-                <Chip key={name}>{name}</Chip>
-              ))}
-            </span>
-          ) : null}
+        <div>
+          <p className="border-b border-hairline px-5 py-3.5 text-sm font-semibold tracking-tight text-fg">
+            Result
+          </p>
+          <div className="px-5 py-4">
+            <ReadMore>
+              <TextMessagePartProvider text={answer.message.text}>
+                <MarkdownText className="text-sm leading-6" />
+              </TextMessagePartProvider>
+            </ReadMore>
+            {answer.message.attachments.length > 0 ? (
+              <span className="mt-2 flex flex-wrap gap-1">
+                {answer.message.attachments.map((name) => (
+                  <Chip key={name}>{name}</Chip>
+                ))}
+              </span>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </Card>
+  );
+}
+
+/** CLAMP_PX is how much of a long answer shows before it is opened: about five lines. */
+const CLAMP_PX = 128;
+
+/**
+ * ReadMore shows the first CLAMP_PX of its children, fading into a button that grows them
+ * to full height in place. Children that fit are shown as they are, with no button.
+ */
+function ReadMore({ children }: { children: ReactNode }) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  // The answer's height changes after it first paints (fonts, code highlighting) and with
+  // the window's width, so it is measured for as long as it is on screen.
+  useEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const measure = () => setFull(el.scrollHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const long = full > CLAMP_PX + 24;
+  const clamped = long && !open;
+  return (
+    <div>
+      <div
+        className={cn(
+          "overflow-hidden transition-[max-height] duration-300 ease-out",
+          clamped && "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
+        )}
+        style={long ? { maxHeight: open ? full : CLAMP_PX } : undefined}
+        // Closed, the hidden part of the answer is not in the tab order.
+        inert={clamped || undefined}
+      >
+        <div ref={inner}>{children}</div>
+      </div>
+      {long ? (
+        <div className="mt-2 flex justify-center">
+          <Button variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            {open ? "Show less" : "Show full result"}
+            <ChevronDown
+              aria-hidden
+              className={cn("transition-transform duration-150", open && "rotate-180")}
+            />
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }
