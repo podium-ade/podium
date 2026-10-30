@@ -635,6 +635,31 @@ export function endedOnModelTurn(reason: string | undefined): boolean {
   return /ending with a model turn/i.test(reason ?? "");
 }
 
+/**
+ * NetworkResume is the user turn that resumes a session whose request to the model was lost
+ * to the network. The harness does not retry a connection that failed before the provider
+ * answered (it reports it as an UnknownError, not a retryable APIError), so one dropped TLS
+ * handshake would otherwise throw away every step the turn had already taken.
+ */
+export const NetworkResume =
+  "Your last request to the model was lost to a network error. Continue where you left off.";
+
+/** MaxNetworkResumes bounds how often one turn goes on after a network error. */
+export const MaxNetworkResumes = 2;
+
+/** NetworkResumeDelayMs is how long to wait before each attempt, by attempt. */
+export const NetworkResumeDelayMs = [2_000, 10_000];
+
+// The codes Node and Bun give a connection that failed or dropped, and the phrases they use
+// when no code comes with it. An error from the provider itself (a 4xx, a refusal) is not one.
+const networkError =
+  /\b(EPROTO|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN|EPIPE|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)\b|TLS handshake|socket hang up|socket connection was closed unexpectedly|other side closed|fetch failed|Unable to connect/i;
+
+/** lostToNetwork reports whether a harness error is a connection lost before the model answered. */
+export function lostToNetwork(reason: string | undefined): boolean {
+  return networkError.test(reason ?? "");
+}
+
 /** errorOf is the reason an error event gives, or undefined for any other event. */
 export function errorOf(event: Event): string | undefined {
   if (event.type !== "error") {
