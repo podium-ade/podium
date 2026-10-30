@@ -213,6 +213,31 @@ func TestToken(t *testing.T) {
 		// narrowed regardless, so a wider App is not a wider task.
 		assert.Equal(t, "write", sent.Permissions.Contents)
 		assert.Equal(t, "write", sent.Permissions.PullRequests)
+		assert.NotContains(t, calls[1].Body, "checks", "an installation without CI is not asked for it")
+	})
+
+	// A reviewer reads the CI on a pull request. GitHub refuses a token outright for a
+	// permission the installation lacks, so CI is asked for exactly where it was granted.
+	t.Run("reads CI where the installation was granted it", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 200,
+			`{"id":42,"permissions":{"contents":"write","pull_requests":"write",`+
+				`"checks":"write","statuses":"read","issues":"write"}}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		c := client(t, f, now)
+
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		calls := f.seen()
+		require.Len(t, calls, 2)
+		var sent tokenRequest
+		require.NoError(t, json.Unmarshal([]byte(calls[1].Body), &sent))
+		assert.Equal(t, tokenPermissions{
+			Contents: "write", PullRequests: "write",
+			// read, even where the App may write: a task reads CI and never sets it.
+			Checks: "read", Statuses: "read",
+		}, sent.Permissions, "no actions, which was not granted, and nothing unrelated like issues")
 	})
 
 	t.Run("authenticates with the app JWT and never with an installation token", func(t *testing.T) {

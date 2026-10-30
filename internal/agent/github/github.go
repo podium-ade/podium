@@ -130,7 +130,7 @@ type Client struct {
 	now   func() time.Time
 
 	mu            sync.Mutex
-	installations map[string]int64
+	installations map[string]installationResponse
 	tokens        map[string]Token
 	identity      *Identity
 }
@@ -166,7 +166,7 @@ func New(opts Options) (*Client, error) {
 		key:           key,
 		http:          client,
 		now:           now,
-		installations: map[string]int64{},
+		installations: map[string]installationResponse{},
 		tokens:        map[string]Token{},
 	}, nil
 }
@@ -224,22 +224,19 @@ func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token
 	}
 	c.mu.Unlock()
 
-	id, err := c.installation(ctx, owner)
+	install, err := c.installation(ctx, owner)
 	if err != nil {
 		return Token{}, err
 	}
 	body, err := json.Marshal(tokenRequest{
 		Repositories: scope,
-		// Exactly what a turn does and nothing else: write a branch, open a pull request.
-		// The App may be granted more in its settings; this narrows every token minted
-		// here regardless, so a wider grant on the App is not a wider grant to a task.
-		Permissions: tokenPermissions{Contents: "write", PullRequests: "write"},
+		Permissions:  install.tokenPermissions(),
 	})
 	if err != nil {
 		return Token{}, fmt.Errorf("github: encode token request: %w", err)
 	}
 	var out tokenResponse
-	path := fmt.Sprintf("/app/installations/%d/access_tokens", id)
+	path := fmt.Sprintf("/app/installations/%d/access_tokens", install.ID)
 	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return Token{}, err
 	}
@@ -299,12 +296,13 @@ func (c *Client) Identity(ctx context.Context) (Identity, error) {
 
 // installation is the App's installation on one account, cached. An installation id is
 // stable for the life of the installation; uninstalling and reinstalling makes a new one,
-// which shows up here as a 404 on the token call and is fixed by a restart.
-func (c *Client) installation(ctx context.Context, owner string) (int64, error) {
+// which shows up here as a 404 on the token call and is fixed by a restart. So is an owner
+// accepting new permissions for the App: the cached grant is the one read first.
+func (c *Client) installation(ctx context.Context, owner string) (installationResponse, error) {
 	c.mu.Lock()
-	if id, ok := c.installations[owner]; ok {
+	if install, ok := c.installations[owner]; ok {
 		c.mu.Unlock()
-		return id, nil
+		return install, nil
 	}
 	c.mu.Unlock()
 
@@ -319,16 +317,37 @@ func (c *Client) installation(ctx context.Context, owner string) (int64, error) 
 	}
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return 0, fmt.Errorf("%w: %s", ErrNotInstalled, owner)
+		return installationResponse{}, fmt.Errorf("%w: %s", ErrNotInstalled, owner)
 	case err != nil:
-		return 0, err
+		return installationResponse{}, err
 	case out.ID == 0:
-		return 0, fmt.Errorf("github: %s answered no installation id", path)
+		return installationResponse{}, fmt.Errorf("github: %s answered no installation id", path)
 	}
 	c.mu.Lock()
-	c.installations[owner] = out.ID
+	c.installations[owner] = out
 	c.mu.Unlock()
-	return out.ID, nil
+	return out, nil
+}
+
+// tokenPermissions is what a token minted on this installation carries: write a branch and
+// open a pull request, and read the CI on it. The App may be granted more in its settings;
+// this narrows every token minted here regardless, so a wider grant on the App is not a
+// wider grant to a task.
+//
+// CI is asked for only where the installation has it, because GitHub refuses the whole
+// token (422) for a permission the installation was never granted, and a review without
+// CI is better than no turn at all. Without it, a reviewer reads check runs as a 403.
+func (i installationResponse) tokenPermissions() tokenPermissions {
+	read := func(name string) string {
+		if level := i.Permissions[name]; level == "read" || level == "write" {
+			return "read"
+		}
+		return ""
+	}
+	return tokenPermissions{
+		Contents: "write", PullRequests: "write",
+		Checks: read("checks"), Statuses: read("statuses"), Actions: read("actions"),
+	}
 }
 
 // ErrNotFound is a 404. It is internal to this package's own retry between the org and user
@@ -464,6 +483,9 @@ type tokenRequest struct {
 type tokenPermissions struct {
 	Contents     string `json:"contents"`
 	PullRequests string `json:"pull_requests"`
+	Checks       string `json:"checks,omitempty"`
+	Statuses     string `json:"statuses,omitempty"`
+	Actions      string `json:"actions,omitempty"`
 }
 
 type tokenResponse struct {
@@ -473,6 +495,8 @@ type tokenResponse struct {
 
 type installationResponse struct {
 	ID int64 `json:"id"`
+	// Permissions is what the installation was granted, by name: "contents": "write".
+	Permissions map[string]string `json:"permissions"`
 }
 
 type appResponse struct {
