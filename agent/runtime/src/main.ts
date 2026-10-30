@@ -345,6 +345,7 @@ async function main(): Promise<number> {
 
   let steps = 0;
   let resumes = 0;
+  let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
   try {
@@ -488,6 +489,32 @@ async function main(): Promise<number> {
         instruction = oc.ModelTurnResume;
         harnessError = undefined;
         continue;
+      }
+      // The connection to the model dropped mid-turn. The work so far is in the session, so
+      // it goes on from there; with no session yet there is nothing to keep, and the same
+      // instruction is simply sent again.
+      if (
+        code !== 0 &&
+        !cancelled &&
+        summary.code === ExitOK &&
+        oc.lostToNetwork(harnessError) &&
+        networkResumes < oc.MaxNetworkResumes
+      ) {
+        const delay = oc.NetworkResumeDelayMs[networkResumes] ?? 0;
+        networkResumes += 1;
+        warn(
+          `the request to the model was lost to the network (${harnessError}); ` +
+            (sessionID ? `resuming session ${sessionID}` : `starting again`) +
+            ` in ${delay / 1000}s (${networkResumes}/${oc.MaxNetworkResumes})`,
+        );
+        await sleep(delay, undefined, { signal: controller.signal }).catch(() => undefined);
+        if (!controller.signal.aborted) {
+          if (sessionID) {
+            instruction = oc.NetworkResume;
+          }
+          harnessError = undefined;
+          continue;
+        }
       }
       // A non-zero exit with an answer already in hand is a harness that failed after saying
       // something useful; the answer is still the thing to relay, and the code says it ended
