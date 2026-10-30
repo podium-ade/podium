@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  endedOnModelTurn,
   errorOf,
   resetTakesThinking,
   takesThinking,
@@ -505,4 +506,12 @@ describe("takesThinking", () => {
     resetTakesThinking();
   });
 
+});
+
+describe("endedOnModelTurn", () => {
+  it("is Gemini refusing a request that ends on the model's turn", () => {
+    expect(endedOnModelTurn("Requests ending with a model turn are not supported.")).toBe(true);
+    expect(endedOnModelTurn("credit balance is too low")).toBe(false);
+    expect(endedOnModelTurn(undefined)).toBe(false);
+  });
 });

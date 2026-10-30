@@ -344,6 +344,7 @@ async function main(): Promise<number> {
   let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
 
   let steps = 0;
+  let resumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
   try {
@@ -467,6 +468,25 @@ async function main(): Promise<number> {
       if (steered && !cancelled) {
         await say(invoke, "progress", `continuing with: ${steered}`);
         instruction = steered;
+        continue;
+      }
+      // Gemini refused a request that ended on the model's turn. The work so far is in the
+      // session, so it goes on from there with a user turn rather than failing the turn.
+      if (
+        code !== 0 &&
+        !cancelled &&
+        summary.code === ExitOK &&
+        sessionID &&
+        oc.endedOnModelTurn(harnessError) &&
+        resumes < oc.MaxModelTurnResumes
+      ) {
+        resumes += 1;
+        warn(
+          `the provider refused a request ending on the model's turn; ` +
+            `resuming session ${sessionID} (${resumes}/${oc.MaxModelTurnResumes})`,
+        );
+        instruction = oc.ModelTurnResume;
+        harnessError = undefined;
         continue;
       }
       // A non-zero exit with an answer already in hand is a harness that failed after saying
