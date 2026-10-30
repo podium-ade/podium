@@ -139,7 +139,7 @@ type Source struct {
 	// turns is per-ref bookkeeping for edits other than progress, keyed by the triggering ref.
 	turns map[string]*turnState
 	// reviewIDs is the submitted review for a pull request, keyed by source key. It is the
-	// process cache of Reviews, so a second final in this process updates the review even
+	// process cache of Reviews, so a second final in this process knows the last review even
 	// when the save has not landed yet.
 	reviewIDs map[string]int64
 	// statusIDs is the one pull-request comment that says the review is running
@@ -637,28 +637,11 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 		return "", err
 	}
 	key := SourceKey(p.Owner, p.Repo, p.Number)
-	id, err := s.reviewID(ctx, key)
-	if err != nil {
-		return "", err
-	}
+	// Every answer is a review of its own, so each round stays on the pull request beside
+	// the ones before it, and its commit is where the next round starts from. The status
+	// comment above them is the one that changes.
 	summary, notes := splitInline(body)
 	event := s.reviewAction(ctx, p, body)
-	state := ""
-	if id > 0 {
-		state = s.reviewState(ctx, install, p, id)
-	}
-	// Updating a review replaces its summary. It cannot change the event or add
-	// inline comments, and a comment left on top of an approval keeps the pull
-	// request approved. This App cannot dismiss a review, so a follow-up that no
-	// longer approves has to request changes. That is the event that replaces it.
-	approvesAgain := event == eventApprove && state == "APPROVED"
-	commentsAgain := event == eventComment && state != "APPROVED"
-	if id > 0 && len(notes) == 0 && (approvesAgain || commentsAgain) {
-		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, summary); err != nil {
-			return "", err
-		}
-		return strconv.FormatInt(id, 10), nil
-	}
 	created, err := s.submitReview(ctx, install, p, event, summary, notes)
 	if err != nil {
 		return "", err
@@ -972,9 +955,8 @@ func groupedInt(n int) string {
 	return sign + b.String()
 }
 
-// reviewState is the GitHub state of the review this session already submitted.
-// Empty means the list failed or the id was not in it. A later approval is then
-// submitted again rather than written into a review that might not be one.
+// reviewState is the GitHub state of the review this session last submitted.
+// Empty means the list failed or the id was not in it.
 func (s *Source) reviewState(ctx context.Context, install int64, p Parsed, id int64) string {
 	reviews, err := s.client.ListReviews(ctx, install, p.Owner, p.Repo, p.Number)
 	if err != nil {
@@ -1044,7 +1026,7 @@ func (s *Source) rememberReview(key string, id int64) {
 	s.mu.Unlock()
 }
 
-// replaceReview points the session at the review a follow-up should edit.
+// replaceReview points the session at its latest review, the one a follow-up starts from.
 func (s *Source) replaceReview(key string, id int64) {
 	s.mu.Lock()
 	s.reviewIDs[key] = id

@@ -326,6 +326,23 @@ func (s *Service) Inject(ctx context.Context, nodeID, taskID, text string) error
 	return nil
 }
 
+// EndWait tells a task that has answered and is waiting for a follow-up to stop waiting. The
+// runtime then exits as it does when that wait runs out, so the task finishes succeeded.
+func (s *Service) EndWait(ctx context.Context, nodeID, taskID string) error {
+	sess, ok := s.reg.Get(nodeID)
+	if !ok {
+		return fmt.Errorf("end the wait of task %s on node %s: %w", taskID, nodeID, ErrNoSession)
+	}
+	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Inject{
+		Inject: &podiumv1.Inject{TaskId: taskID, EndWait: true},
+	}}
+	if err := sess.Send(ctx, msg); err != nil {
+		return fmt.Errorf("end the wait of task %s on node %s: %w", taskID, nodeID, err)
+	}
+	s.logger.InfoContext(ctx, "task end of wait sent", "node_id", nodeID, "task_id", taskID)
+	return nil
+}
+
 // Candidates is what the scheduler matches against.
 func (s *Service) Candidates() []Snapshot { return s.reg.Snapshot() }
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AskHub, newHandler, waitOnSocket } from "./ask.js";
+import { AskHub, EndWait, newHandler, readInbox, waitOnSocket } from "./ask.js";
 
 describe("ask tool", () => {
   it("emits a question and returns the inbox reply", async () => {
@@ -73,6 +73,27 @@ describe("waitOnSocket", () => {
       const text = await waitOnSocket(path)(2_000);
       expect(text).toBe("ship it");
     } finally {
+      ln.close();
+    }
+  });
+});
+
+describe("readInbox", () => {
+  it("yields the end of the wait apart from text, and skips a line with neither", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "inbox-")), "inbox.sock");
+    const ln = createServer((c) => {
+      c.write(JSON.stringify({ v: 1, text: "ship it" }) + "\n");
+      c.write(JSON.stringify({ v: 1 }) + "\n");
+      c.write(JSON.stringify({ v: 1, end_wait: true }) + "\n");
+    });
+    await new Promise<void>((resolve, reject) => ln.listen(path, (err?: Error) => (err ? reject(err) : resolve())));
+    const controller = new AbortController();
+    try {
+      const inbox = readInbox(path, controller.signal)[Symbol.asyncIterator]();
+      expect((await inbox.next()).value).toBe("ship it");
+      expect((await inbox.next()).value).toBe(EndWait);
+    } finally {
+      controller.abort();
       ln.close();
     }
   });

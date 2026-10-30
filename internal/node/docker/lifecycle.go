@@ -43,6 +43,22 @@ func (e *Executor) Inject(taskID, text string) error {
 	return nil
 }
 
+// EndWait tells a task that has answered to stop waiting for a follow-up. Its runtime exits
+// as it does when that wait runs out. A task this executor is not running is an error.
+func (e *Executor) EndWait(taskID string) error {
+	rs := e.lookup(taskID)
+	if rs == nil {
+		return fmt.Errorf("end wait: task %s is not running on this node", taskID)
+	}
+	rs.mu.Lock()
+	inbox := rs.inbox
+	rs.mu.Unlock()
+	if err := inbox.endWait(); err != nil {
+		return fmt.Errorf("end the wait of task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // Cancel asks the task's container to stop: SIGTERM, then SIGKILL after a 30s
 // grace period. It is idempotent, returns immediately, and does nothing for a
 // task this executor is not running. The run reports the resulting exit

@@ -210,8 +210,18 @@ export class AskHub {
   }
 }
 
+/**
+ * EndWait is what readInbox yields for the node's end_wait line: another task needs this
+ * one's workspace, so a task that has answered stops waiting for a follow-up and exits as
+ * if that wait had run out. A task still working ignores it.
+ */
+export const EndWait = Symbol("end_wait");
+
+/** InboxItem is one inject: a person's text, or EndWait. */
+export type InboxItem = string | typeof EndWait;
+
 /** readInbox yields each inject the node delivers, reconnecting if the socket drops. */
-export async function* readInbox(path: string, signal?: AbortSignal): AsyncGenerator<string> {
+export async function* readInbox(path: string, signal?: AbortSignal): AsyncGenerator<InboxItem> {
   while (!signal?.aborted) {
     try {
       yield* readInboxConnection(path, signal);
@@ -224,7 +234,7 @@ export async function* readInbox(path: string, signal?: AbortSignal): AsyncGener
   }
 }
 
-function readInboxConnection(path: string, signal?: AbortSignal): AsyncGenerator<string> {
+function readInboxConnection(path: string, signal?: AbortSignal): AsyncGenerator<InboxItem> {
   return (async function* () {
     const sock: Socket = createConnection(path);
     sock.setEncoding("utf8");
@@ -271,8 +281,10 @@ function readInboxConnection(path: string, signal?: AbortSignal): AsyncGenerator
           continue;
         }
         try {
-          const parsed = JSON.parse(line) as { text?: unknown };
-          if (typeof parsed.text === "string" && parsed.text.trim() !== "") {
+          const parsed = JSON.parse(line) as { text?: unknown; end_wait?: unknown };
+          if (parsed.end_wait === true) {
+            yield EndWait;
+          } else if (typeof parsed.text === "string" && parsed.text.trim() !== "") {
             yield parsed.text;
           }
         } catch {
