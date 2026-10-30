@@ -273,9 +273,26 @@ func (s *TaskService) ListTasks(
 	}
 	out := make([]*podiumv1.Task, 0, len(tasks))
 	for _, t := range tasks {
-		out = append(out, taskToProto(t))
+		out = append(out, listedTask(t))
 	}
 	return connect.NewResponse(&podiumv1.ListTasksResponse{Tasks: s.withPreviews(ctx, out...), NextCursor: next}), nil
+}
+
+// listedTask is a task as ListTasks shows it: the spec without its environment and without
+// the contents of its file mounts. An agent task carries its turn and its Agent Skills
+// there, hundreds of KB each, and the web UI polls the list every few seconds. GetTask
+// still answers with the whole spec.
+func listedTask(t store.Task) *podiumv1.Task {
+	out := taskToProto(t)
+	spec := out.GetSpec()
+	if spec == nil {
+		return out
+	}
+	spec.Env = nil
+	for _, m := range spec.GetMounts() {
+		m.Files = nil
+	}
+	return out
 }
 
 // CancelTask cancels a queued task outright and asks the node to stop anything further along.
