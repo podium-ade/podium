@@ -27,6 +27,9 @@ the same "nodes only ever talk to the server" invariant the transport design res
 `ListTasks` filters on `status`, `node_id`, `requested_by` and `search`. `search` matches a
 task whose ID starts with it or whose image contains it, case-insensitively — a substring
 match, not a query language, and `%` and `_` are characters rather than wildcards.
+A listed task's spec has no `env` and its `mounts` have targets but no `files`; an agent task
+carries its turn and its Agent Skills there, hundreds of KB per task. `GetTask` returns the
+whole spec.
 
 `IdentityService.WhoAmI` answers "who does the server think I am", and it sits behind the
 **same identity middleware as everything else** — which is the whole trick. A client that gets
