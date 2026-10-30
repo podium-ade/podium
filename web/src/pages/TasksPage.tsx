@@ -9,6 +9,7 @@ import {
   Copy,
   ListFilter,
   Plus,
+  RotateCw,
   Search,
   SearchX,
   X,
@@ -149,6 +150,14 @@ export function TasksPage() {
     void navigate(`/tasks/${id}`);
   };
 
+  // The list polls on its own; this is for not waiting for the next poll. Only a refresh
+  // asked for here spins the icon, or it would spin every few seconds.
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => {
+    setRefreshing(true);
+    void query.refetch().finally(() => setRefreshing(false));
+  };
+
   const copyId = (id: string) => {
     void navigator.clipboard?.writeText(id);
     toast("Task ID copied.", "ok");
@@ -159,10 +168,16 @@ export function TasksPage() {
         title="Tasks"
         lead="Work your nodes have been given. Open a task to follow its output and see how it finished."
         actions={
-          <Link to="/submit" className={buttonVariants({ size: "sm" })}>
-            <Plus />
-            New task
-          </Link>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled={refreshing} onClick={refresh}>
+              <RotateCw className={cn(refreshing && "animate-spin motion-reduce:animate-none")} />
+              Refresh
+            </Button>
+            <Link to="/submit" className={buttonVariants({ size: "sm" })}>
+              <Plus />
+              New task
+            </Link>
+          </div>
         }
       >
 
