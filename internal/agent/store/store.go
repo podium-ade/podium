@@ -438,8 +438,8 @@ func sessionFromRow(r db.Session) Session {
 	}
 }
 
-// SetGitHubReviewID records the pull-request review a session submitted. The next final
-// for that session updates the review instead of opening another.
+// SetGitHubReviewID records the latest pull-request review a session submitted. The next
+// round of review starts from its commit.
 func (s *Store) SetGitHubReviewID(ctx context.Context, sourceKey string, reviewID int64) error {
 	if reviewID <= 0 {
 		return fmt.Errorf("set github review %s: id must be positive", sourceKey)
