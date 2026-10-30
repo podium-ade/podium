@@ -17,7 +17,16 @@ import { fileURLToPath } from "node:url";
 import { activityOf } from "./activity.js";
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
-import { AskHub, AskWaitEnv, InboxSockEnv, askEntrypoint, inboxSock, readInbox } from "./ask.js";
+import {
+  AskHub,
+  AskWaitEnv,
+  EndWait,
+  InboxSockEnv,
+  type InboxItem,
+  askEntrypoint,
+  inboxSock,
+  readInbox,
+} from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
@@ -332,7 +341,7 @@ async function main(): Promise<number> {
   const inboxIter = onHost(brief)
     ? undefined
     : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
-  let pendingInject: Promise<IteratorResult<string>> | undefined;
+  let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
 
   let steps = 0;
   let instruction = brief.instruction;
@@ -365,7 +374,7 @@ async function main(): Promise<number> {
       for (;;) {
         pendingEvent ??= eventIter.next();
         const waiters: Promise<
-          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<string> }
+          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<InboxItem> }
         >[] = [pendingEvent.then((r) => ({ kind: "event" as const, r }))];
         if (inboxIter) {
           pendingInject ??= inboxIter.next();
@@ -378,7 +387,8 @@ async function main(): Promise<number> {
             continue;
           }
           const text = winner.r.value;
-          if (hub.tryDeliver(text)) {
+          // A turn still working has not answered, so there is no wait to end.
+          if (text === EndWait || hub.tryDeliver(text)) {
             continue;
           }
           steered = text;
@@ -479,7 +489,9 @@ async function main(): Promise<number> {
         await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
         const waited = await nextInboxLine(() => inboxIter.next(), pendingInject, warmMs, controller.signal);
         pendingInject = waited.pending;
-        if (waited.text !== undefined && !controller.signal.aborted) {
+        // EndWait falls through to the idle exit: the answer is already reported, and
+        // exiting 0 lets the node store the workspace for the task that asked for it.
+        if (waited.text !== undefined && waited.text !== EndWait && !controller.signal.aborted) {
           await say(invoke, "progress", `continuing with: ${waited.text}`);
           instruction = waited.text;
           finalText = "";

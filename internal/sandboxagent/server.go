@@ -31,6 +31,7 @@ type Strategy interface {
 	Run(ctx context.Context, req docker.Request, events chan<- docker.Event) (docker.Result, error)
 	Cancel(taskID string)
 	Inject(taskID, text string) error
+	EndWait(taskID string) error
 	HeldExit(taskID string) (int, bool)
 }
 
@@ -208,7 +209,8 @@ func (s *Server) handleCancel(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleInject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		EndWait bool   `json:"end_wait"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -221,7 +223,11 @@ func (s *Server) handleInject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no task", http.StatusConflict)
 		return
 	}
-	if err := st.Inject(id, body.Text); err != nil {
+	deliver := func() error { return st.Inject(id, body.Text) }
+	if body.EndWait {
+		deliver = func() error { return st.EndWait(id) }
+	}
+	if err := deliver(); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}

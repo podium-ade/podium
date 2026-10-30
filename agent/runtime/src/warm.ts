@@ -27,12 +27,12 @@ export function warmMillis(env: Record<string, string | undefined>): number {
  * dropped on the floor: the caller keeps it for the next wait. When this process
  * is about to exit, that pending read goes with it.
  */
-export async function nextInboxLine(
-  next: () => Promise<IteratorResult<string>>,
-  pending: Promise<IteratorResult<string>> | undefined,
+export async function nextInboxLine<T>(
+  next: () => Promise<IteratorResult<T>>,
+  pending: Promise<IteratorResult<T>> | undefined,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ text?: string; pending?: Promise<IteratorResult<string>> }> {
+): Promise<{ text?: T; pending?: Promise<IteratorResult<T>> }> {
   if (signal?.aborted || timeoutMs <= 0) {
     return { pending };
   }

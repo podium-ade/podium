@@ -320,6 +320,9 @@ message Cancel {
 message Inject {
   string task_id = 1;
   string text = 2;
+  // end_wait carries no text: it tells a runtime that has answered and is waiting for a
+  // follow-up to stop waiting and exit as its wait running out would.
+  bool end_wait = 3;
 }
 
 // Slots changes how many tasks the node runs at once, overriding the max_tasks in its own

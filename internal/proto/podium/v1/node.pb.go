@@ -2302,9 +2302,12 @@ func (x *Cancel) GetReason() string {
 // running, or whose runtime is not waiting, still accepts the bytes — they sit until
 // the next ask, or vanish when the container dies. It does not change task status.
 type Inject struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Text          string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Text   string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// end_wait carries no text: it tells a runtime that has answered and is waiting for a
+	// follow-up to stop waiting and exit as its wait running out would.
+	EndWait       bool `protobuf:"varint,3,opt,name=end_wait,json=endWait,proto3" json:"end_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2351,6 +2354,13 @@ func (x *Inject) GetText() string {
 		return x.Text
 	}
 	return ""
+}
+
+func (x *Inject) GetEndWait() bool {
+	if x != nil {
+		return x.EndWait
+	}
+	return false
 }
 
 // Slots changes how many tasks the node runs at once, overriding the max_tasks in its own
@@ -3487,10 +3497,11 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\"9\n" +
 	"\x06Cancel\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"P\n" +
 	"\x06Inject\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\"$\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x19\n" +
+	"\bend_wait\x18\x03 \x01(\bR\aendWait\"$\n" +
 	"\x05Slots\x12\x1b\n" +
 	"\tmax_tasks\x18\x01 \x01(\x05R\bmaxTasks\"\x1b\n" +
 	"\x05Drain\x12\x12\n" +
