@@ -92,7 +92,7 @@ is gone, so a resumed turn posts progress as new messages instead of editing.
 **The answer.** A `final` message is posted as a new message, verbatim. The runtime splits an
 answer over 32 KiB into several consecutive `final` messages; they are posted in order. Text over
 Slack's own 4000-character limit is split again, at the last newline that fits. A GitHub review
-is the exception: the first final submits one pull-request review and a later final updates it.
+is the exception: each final submits a pull-request review of its own, so earlier rounds stay.
 
 **Attachments.** A `final`'s `attachments` are artifact *names*. They are resolved once the task
 is terminal, because an artifact named in a message may still have been uploading when the
@@ -1750,8 +1750,11 @@ changes it**: a task that writes replaces the snapshot when it exits, and two at
 to. A delegation that writes, while another writing task of the pull request has not answered
 yet, is refused with `FailedPrecondition` and the running task's name and id, so the assistant
 can inject into it instead or say what is running. One that has answered and is only waiting in
-its warm window is released — cancelled, and recorded as succeeded, because its work is done and
-was said — and the new task starts once it has gone. The node stores a task's snapshot before it
+its warm window is released: the conductor sends it `InjectTask` with `end_wait`, its runtime
+stops waiting and exits 0 as it would when the window runs out, and the task finishes succeeded.
+A task that cannot be told — a server or runtime that predates `end_wait` — is cancelled
+instead, at once or five minutes after the release, and is still recorded as succeeded, because
+its work is done and was said. The new task starts once it has gone. The node stores a task's snapshot before it
 reports it exited, so the new task restores what the released one left. Until then the new
 delegation is running with no task, and `podium_delegate` returns at once without one. A task
 that never lets go within ten minutes fails the waiting delegation. Read-only tasks hold nothing:
@@ -1759,8 +1762,8 @@ they start at once beside the writer. A review the conductor starts itself — a
 marked ready, or new commits it pushed — does not get refused: it queues behind the task still
 working, for up to four hours, and starts once that task has answered and been released.
 
-After a review exits, the next review is a new task restored from the snapshot, and it updates
-the review already on the pull request. A killed task's files are in that snapshot. The
+After a review exits, the next review is a new task restored from the snapshot, and it submits
+a new review beside the ones already on the pull request. A killed task's files are in that snapshot. The
 restored checkout is kept when it is not on the default branch, so a review that left the
 pull-request head checked out starts there again. A pull request marked ready again reviews only
 the commits and files changed since the last review: the task is told the commit that review was
@@ -1889,11 +1892,11 @@ and the summary under it stays. An approval uses the same Note callout. The
 review under the comment is the approval. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
 an approval when the first line is `Approve` or `Nits`. Any other verdict is a
-comment review. The review id is stored on the session. A later answer that still
-agrees with that review updates it. A follow-up that approves for the first time
-submits a new approval. A follow-up that withdraws an approval submits a new
-review requesting changes, because rewriting the approval would leave the pull
-request approved and this App cannot dismiss a review. A review asked for from an inline
+comment review. Every answer submits a review of its own, so each round stays on the
+pull request beside the ones before it. The latest review's id is stored on the
+session, and its commit is where the next round starts. A follow-up that withdraws an
+approval requests changes, because a comment on top of the approval would leave the
+pull request approved and this App cannot dismiss a review. A review asked for from an inline
 thread is still the review, not a reply in that thread. A review that fails
 changes the status comment's title to **Review did not finish** when that comment
 already exists. The failure text and the task id are not written on the pull request.

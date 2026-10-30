@@ -297,13 +297,6 @@ func (c *restClient) PullHeadSHA(ctx context.Context, installID int64, owner, re
 	return info.SHA, nil
 }
 
-// UpdateReview replaces the summary of a review this App already submitted.
-func (c *restClient) UpdateReview(ctx context.Context, installID int64, owner, repo string, number int, reviewID int64, body string) error {
-	return c.do(ctx, installID, http.MethodPut,
-		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews/%d", owner, repo, number, reviewID),
-		map[string]string{"body": body}, nil)
-}
-
 // CreateReviewReply posts in an inline review thread.
 func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, owner, repo string, number int, inReplyTo int64, body string) (Comment, error) {
 	var out Comment

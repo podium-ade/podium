@@ -497,14 +497,15 @@ func TestPostOnAnIssueCommentTriggerSubmitsOneReview(t *testing.T) {
 	follow := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
 	id2, err := h.src.Post(context.Background(), follow, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "still looks good", TaskID: "task_2"})
 	require.NoError(t, err)
-	assert.Equal(t, id, id2)
-	assert.Len(t, h.stub.postedReviews(), 1, "a follow-up updates the review")
+	assert.NotEqual(t, id, id2)
+	created = h.stub.postedReviews()
+	require.Len(t, created, 2, "a follow-up is a review of its own, so the first one stays")
+	assert.Contains(t, asString(created[0]["body"]), "looks good")
+	assert.Equal(t, "COMMENT", created[1]["event"])
+	assert.Contains(t, asString(created[1]["body"]), "still looks good")
+	assert.NotContains(t, asString(created[1]["body"]), "task_2")
 	assert.Len(t, h.stub.postedIssueBodies(), 1, "the status comment is the same one")
 	assert.Empty(t, h.stub.postedIssueEdits(), "the title is already Reviewed")
-	edits := h.stub.postedReviewEdits()
-	require.Len(t, edits, 1)
-	assert.Contains(t, edits[0], "still looks good")
-	assert.NotContains(t, edits[0], "task_2")
 }
 
 func TestProgressPostsOneStatusCommentAndTheAnswerRetitlesIt(t *testing.T) {
@@ -652,13 +653,13 @@ func TestNitsApproveOnOneReview(t *testing.T) {
 	h.stub.listedReviews = []Review{{ID: n, State: "APPROVED"}}
 	id2, err := h.src.Post(ctx, ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
 	require.NoError(t, err)
-	assert.Equal(t, id, id2)
-	assert.Len(t, h.stub.postedReviews(), 1, "a later nit edits the approval")
+	assert.NotEqual(t, id, id2)
+	created = h.stub.postedReviews()
+	require.Len(t, created, 2, "a later nit approves again beside the first approval")
+	assert.Equal(t, "APPROVE", created[1]["event"])
+	assert.Contains(t, asString(created[1]["body"]), "Still just the name.")
 	assert.Len(t, h.stub.postedIssueBodies(), 1)
 	assert.Len(t, h.stub.postedIssueEdits(), 1, "the title stays Approved")
-	reviewEdits := h.stub.postedReviewEdits()
-	require.Len(t, reviewEdits, 1)
-	assert.Contains(t, reviewEdits[0], "Still just the name.")
 }
 
 func TestALaterTurnReusesTheStatusComment(t *testing.T) {
@@ -814,10 +815,9 @@ func TestAFollowUpApprovalIsANewReviewWhenTheOldOneWasAComment(t *testing.T) {
 	created := h.stub.postedReviews()
 	require.Len(t, created, 1)
 	assert.Equal(t, "APPROVE", created[0]["event"])
-	assert.Empty(t, h.stub.postedReviewEdits())
 }
 
-func TestAnApprovalFollowUpEditsTheSameReview(t *testing.T) {
+func TestAnApprovalFollowUpIsANewApproval(t *testing.T) {
 	h := newHarness(t)
 	h.src.reviews = ReviewMemory{
 		Get: func(context.Context, string) (int64, error) { return 77, nil },
@@ -826,11 +826,11 @@ func TestAnApprovalFollowUpEditsTheSameReview(t *testing.T) {
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
 	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
 	require.NoError(t, err)
-	assert.Equal(t, "77", id)
-	assert.Empty(t, h.stub.postedReviews())
-	edits := h.stub.postedReviewEdits()
-	require.Len(t, edits, 1)
-	assert.Contains(t, edits[0], "Still just the name.")
+	assert.NotEqual(t, "77", id, "the earlier approval stays as it was")
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "APPROVE", created[0]["event"])
+	assert.Contains(t, asString(created[0]["body"]), "Still just the name.")
 }
 
 func TestChangesNeededAfterAnApprovalRequestsChanges(t *testing.T) {
@@ -844,7 +844,6 @@ func TestChangesNeededAfterAnApprovalRequestsChanges(t *testing.T) {
 	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: text})
 	require.NoError(t, err)
 	assert.NotEqual(t, "77", id)
-	assert.Empty(t, h.stub.postedReviewEdits())
 	created := h.stub.postedReviews()
 	require.Len(t, created, 1)
 	assert.Equal(t, "REQUEST_CHANGES", created[0]["event"])
@@ -883,19 +882,23 @@ func TestADroppedReviewIsNotSubmittedAgain(t *testing.T) {
 	assert.Empty(t, h.stub.postedReviews())
 }
 
-func TestAStoredReviewIsUpdatedRatherThanSubmittedAgain(t *testing.T) {
+// A later round is a review of its own, so the one before it keeps what it said, and the
+// session points at the new one: its commit is where the next round starts.
+func TestAStoredReviewStaysAndTheNextRoundIsANewReview(t *testing.T) {
 	h := newHarness(t)
+	var stored int64
 	h.src.reviews = ReviewMemory{
 		Get: func(context.Context, string) (int64, error) { return 77, nil },
+		Set: func(_ context.Context, _ string, id int64) error { stored = id; return nil },
 	}
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
 	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "continued"})
 	require.NoError(t, err)
-	assert.Equal(t, "77", id)
-	assert.Empty(t, h.stub.postedReviews())
-	edits := h.stub.postedReviewEdits()
-	require.Len(t, edits, 1)
-	assert.Contains(t, edits[0], "continued")
+	assert.NotEqual(t, "77", id)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Contains(t, asString(created[0]["body"]), "continued")
+	assert.Equal(t, id, strconv.FormatInt(stored, 10))
 }
 
 func TestTheAssistantRepliesWhereItWasAsked(t *testing.T) {
