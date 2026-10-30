@@ -1721,7 +1721,8 @@ must appear as *your* bot.
 ### Setting it up
 
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
-   `pull_requests: write`, `contents: write` (clone and push use the same App). Events:
+   `pull_requests: write`, `contents: write` (clone and push use the same App), and `checks: read`,
+   `statuses: read`, `actions: read` so a reviewer can read the CI on a pull request. Events:
    `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.
    An App that already exists does not pick this up from the manifest: add `pull_request`
    on its webhook settings.
@@ -2032,8 +2033,10 @@ task reaches this process, not properties of the App. The task URL default is
 `http://host.docker.internal:8090`.
 
 On GitHub: create an App, give it **Contents: read and write** and **Pull requests: read and
-write** and nothing else, install it on the accounts holding the repositories your playbooks
-name, and generate a private key.
+write**, install it on the accounts holding the repositories your playbooks name, and generate a
+private key. Add **Checks**, **Commit statuses** and **Actions**, read-only, for a task to read the
+CI on a pull request. A token asks for those only where the installation has them, so an App
+without them still works and its reviews say CI could not be read.
 
 What you get over a personal access token:
 
