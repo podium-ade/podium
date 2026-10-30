@@ -82,14 +82,14 @@ export function TasksPage() {
   const [statuses, setStatuses] = useState<TaskStatus[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(25);
   const [cursors, setCursors] = useState<string[]>([""]);
   const cursor = cursors[cursors.length - 1];
   const navigate = useNavigate();
   const toast = useToast();
 
   // Search is a server-side filter (TaskFilter.search: an ID prefix or an image substring).
-  // Filtering the 50 rows already on screen would have been cheaper and a lie — it would find
+  // Filtering the rows already on screen would have been cheaper and a lie — it would find
   // nothing on page 1 for a task that exists on page 4.
   useEffect(() => {
     const t = setTimeout(() => {
