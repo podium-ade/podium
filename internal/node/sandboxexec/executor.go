@@ -394,6 +394,17 @@ func (e *Executor) Inject(taskID, text string) error {
 	return e.agentClient(t).postJSON(ctx, "/inject", map[string]string{"text": text}, nil)
 }
 
+// EndWait implements the node's executor.
+func (e *Executor) EndWait(taskID string) error {
+	t := e.task(taskID)
+	if t == nil {
+		return fmt.Errorf("sandboxexec: task %s is not running here", taskID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return e.agentClient(t).postJSON(ctx, "/inject", map[string]any{"end_wait": true}, nil)
+}
+
 // Teardown deletes the task's sandbox and forgets it. keepWorkspace has nothing to keep:
 // the workspace lives and dies with the sandbox.
 func (e *Executor) Teardown(ctx context.Context, taskID string, _ bool) error {

@@ -832,9 +832,14 @@ func (x *CancelTaskResponse) GetTask() *Task {
 }
 
 type InjectTaskRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Text          string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// text is required unless end_wait is set.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// end_wait tells a task that has answered and is waiting for a follow-up to stop
+	// waiting. It exits as it would when that wait runs out, so it finishes succeeded and
+	// stores its workspace, rather than being cancelled. A task still working ignores it.
+	EndWait       bool `protobuf:"varint,3,opt,name=end_wait,json=endWait,proto3" json:"end_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -881,6 +886,13 @@ func (x *InjectTaskRequest) GetText() string {
 		return x.Text
 	}
 	return ""
+}
+
+func (x *InjectTaskRequest) GetEndWait() bool {
+	if x != nil {
+		return x.EndWait
+	}
+	return false
 }
 
 type InjectTaskResponse struct {
@@ -1134,10 +1146,11 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"9\n" +
 	"\x12CancelTaskResponse\x12#\n" +
-	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"@\n" +
+	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"[\n" +
 	"\x11InjectTaskRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\"\x14\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x19\n" +
+	"\bend_wait\x18\x03 \x01(\bR\aendWait\"\x14\n" +
 	"\x12InjectTaskResponse\"0\n" +
 	"\x15ReleasePreviewRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\"=\n" +

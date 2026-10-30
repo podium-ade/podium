@@ -60,6 +60,7 @@ type TaskServiceClient interface {
 	// InjectTask delivers one human message into a running task's inbox. It does not
 	// cancel, finish, or otherwise move the task: the container stays up, and whatever
 	// is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+	// With end_wait, it ends a finished task's wait for a follow-up instead.
 	// Refused if the task is not running or has no node.
 	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.
@@ -180,6 +181,7 @@ type TaskServiceHandler interface {
 	// InjectTask delivers one human message into a running task's inbox. It does not
 	// cancel, finish, or otherwise move the task: the container stays up, and whatever
 	// is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+	// With end_wait, it ends a finished task's wait for a follow-up instead.
 	// Refused if the task is not running or has no node.
 	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.

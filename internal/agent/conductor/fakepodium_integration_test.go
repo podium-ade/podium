@@ -43,7 +43,7 @@ type fakePodium struct {
 	terminal podiumv1.TaskStatus
 	// queued makes a task read as queued until it is terminal, which is how one that fails
 	// at placement looks.
-	queued bool
+	queued   bool
 	exitCode *int32
 	reason   string
 	// replayAll makes StreamTaskEvents ignore from_seq and re-send everything, which is
@@ -54,8 +54,10 @@ type fakePodium struct {
 	// cancelled by their conversation being deleted and by the turn that started them, so
 	// the fake records rather than refuses.
 	cancels []*podiumv1.CancelTaskRequest
-	// injects is every InjectTask the conductor asked for, in order.
-	injects []*podiumv1.InjectTaskRequest
+	// injects is every InjectTask the conductor asked for, in order. refuseEndWait makes an
+	// end_wait one fail, as a server that predates it does.
+	injects       []*podiumv1.InjectTaskRequest
+	refuseEndWait bool
 	// previews is what a task's GetTask reports as its preview, and releases every task id
 	// ReleasePreview was asked about.
 	previews map[string]*podiumv1.TaskPreview
@@ -286,8 +288,17 @@ func (f *fakePodium) InjectTask(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.injects = append(f.injects, req.Msg)
-	if _, ok := f.tasks[req.Msg.GetTaskId()]; !ok {
+	ft, ok := f.tasks[req.Msg.GetTaskId()]
+	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
+	}
+	if req.Msg.GetEndWait() {
+		if f.refuseEndWait {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: text is required"))
+		}
+		// The runtime stops waiting and exits 0, which ends the task succeeded.
+		ft.task.Status = podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED
+		ft.doneOnce.Do(func() { close(ft.done) })
 	}
 	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
 }

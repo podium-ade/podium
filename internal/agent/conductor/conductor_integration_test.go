@@ -1570,14 +1570,56 @@ func TestAPullRequestsWorkspaceHasOneWriterAtATime(t *testing.T) {
 }
 
 // TestAWaitingTaskHandsThePullRequestsWorkspaceOn: a review that has answered and is only
-// waiting for a follow-up is released, quietly, and the next task starts once it has gone —
-// which is after its snapshot is stored.
+// waiting for a follow-up is told to stop waiting, quietly, and the next task starts once it
+// has gone — which is after its snapshot is stored. It ends succeeded, not cancelled.
 func TestAWaitingTaskHandsThePullRequestsWorkspaceOn(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	release := fake.HoldTasks()
 	t.Cleanup(release)
-	// What a node reports for a task it was told to stop.
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ev := openedPR()
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the first review to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	first := fake.TaskIDs()[0]
+
+	require.NoError(t, src.Send(ctx, openedPR()))
+	waitFor(t, 30*time.Second, "the second review to start", func() bool { return len(fake.Specs()) == 2 })
+	assert.Empty(t, fake.Cancels(), "the waiting review is not cancelled")
+	ends := endWaits(fake.Injects())
+	require.Len(t, ends, 1)
+	assert.Equal(t, first, ends[0], "the waiting review was told to stop waiting")
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
+
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 2)
+	var firstDlg store.Delegation
+	for _, d := range dlgs {
+		if d.TaskID == first {
+			firstDlg = d
+		}
+	}
+	assert.Equal(t, store.TurnSucceeded, firstDlg.Status, "it had answered; being released is not a failure")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure), "and nothing says it failed")
+}
+
+// TestAWaitingTaskThatCannotBeToldToStopIsCancelled: a server that predates end_wait refuses
+// it, and the waiting review is cancelled instead. That is still not a failure.
+func TestAWaitingTaskThatCannotBeToldToStopIsCancelled(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.refuseEndWait = true
 	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
 		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
@@ -1596,20 +1638,26 @@ func TestAWaitingTaskHandsThePullRequestsWorkspaceOn(t *testing.T) {
 
 	require.NoError(t, src.Send(ctx, openedPR()))
 	waitFor(t, 30*time.Second, "the second review to start", func() bool { return len(fake.Specs()) == 2 })
+	assert.Equal(t, []string{first}, endWaits(fake.Injects()))
 	require.Len(t, fake.Cancels(), 1)
-	assert.Equal(t, first, fake.Cancels()[0].GetTaskId(), "the waiting review was released")
-	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
-
-	dlgs := delegationsOf(t, st, ev.SourceKey)
-	require.Len(t, dlgs, 2)
-	var firstDlg store.Delegation
-	for _, d := range dlgs {
+	assert.Equal(t, first, fake.Cancels()[0].GetTaskId(), "the waiting review was cancelled instead")
+	for _, d := range delegationsOf(t, st, ev.SourceKey) {
 		if d.TaskID == first {
-			firstDlg = d
+			assert.Equal(t, store.TurnSucceeded, d.Status)
 		}
 	}
-	assert.Equal(t, store.TurnSucceeded, firstDlg.Status, "it had answered; being released is not a failure")
-	assert.Empty(t, posts(src.Records(), conductor.OutFailure), "and nothing says it failed")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
+}
+
+// endWaits is the task ids of the end_wait injects, in order.
+func endWaits(injects []*podiumv1.InjectTaskRequest) []string {
+	var out []string
+	for _, in := range injects {
+		if in.GetEndWait() {
+			out = append(out, in.GetTaskId())
+		}
+	}
+	return out
 }
 
 // TestAReadOnlyDelegationStoresNothing: a task asked for read-only starts from the
@@ -1647,7 +1695,6 @@ func TestAReviewIsFixedAndReviewedAgainOnOneWorkspace(t *testing.T) {
 	fake := newFakePodium(t)
 	release := fake.HoldTasks()
 	t.Cleanup(release)
-	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
 		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer of "+taskID)}
 	}
@@ -1686,7 +1733,8 @@ func TestAReviewIsFixedAndReviewedAgainOnOneWorkspace(t *testing.T) {
 	assert.True(t, finals[0].SourcePlaybook, "the review is the review")
 	assert.Equal(t, "fixer", finals[1].Playbook)
 	assert.False(t, finals[1].SourcePlaybook, "the fix is a reply")
-	assert.Len(t, fake.Cancels(), 2, "each task was released once the next needed the workspace")
+	assert.Len(t, endWaits(fake.Injects()), 2, "each task was released once the next needed the workspace")
+	assert.Empty(t, fake.Cancels(), "and none was cancelled")
 	for _, spec := range fake.Specs() {
 		assert.Equal(t, sess.ID, spec.GetWorkspaceSession())
 	}

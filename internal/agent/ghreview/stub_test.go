@@ -25,7 +25,6 @@ type stub struct {
 	issuePosts     []map[string]any
 	reviewPosts    []map[string]any
 	reviews        []map[string]any
-	reviewEdits    []map[string]any
 	edits          []map[string]any
 	issueComments  []Comment
 	reviewComments []Comment
@@ -184,14 +183,6 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(s.reviewComments)
 	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodPost:
 		s.writeReview(w, r)
-	case strings.Contains(path, "/pulls/") && strings.Contains(path, "/reviews/") && r.Method == http.MethodPut:
-		raw, _ := io.ReadAll(r.Body)
-		var body map[string]any
-		_ = json.Unmarshal(raw, &body)
-		s.mu.Lock()
-		s.reviewEdits = append(s.reviewEdits, body)
-		s.mu.Unlock()
-		w.WriteHeader(http.StatusOK)
 	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodGet:
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -373,16 +364,6 @@ func (s *stub) postedReviews() []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]map[string]any(nil), s.reviews...)
-}
-
-func (s *stub) postedReviewEdits() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, 0, len(s.reviewEdits))
-	for _, p := range s.reviewEdits {
-		out = append(out, asString(p["body"]))
-	}
-	return out
 }
 
 func (s *stub) postedReviewInReplyTo() []int64 {
