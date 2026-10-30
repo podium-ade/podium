@@ -132,6 +132,9 @@ func (p *ProcessExecutor) owner() string {
 // Inject delivers text to the task's inbox, as Executor.Inject does.
 func (p *ProcessExecutor) Inject(taskID, text string) error { return p.base.Inject(taskID, text) }
 
+// EndWait ends the task's wait for a follow-up, as Executor.EndWait does.
+func (p *ProcessExecutor) EndWait(taskID string) error { return p.base.EndWait(taskID) }
+
 // HeldExit is the exit of a held task's command, which the runner wrote down.
 func (p *ProcessExecutor) HeldExit(string) (int, bool) {
 	b, err := os.ReadFile(processRoot + "/hold/" + holdExitRel)

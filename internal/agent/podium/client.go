@@ -115,6 +115,19 @@ func (c *Client) InjectTask(ctx context.Context, taskID, text string) error {
 	return nil
 }
 
+// EndTaskWait tells a task that has answered to stop waiting for a follow-up. It exits as it
+// would when that wait runs out, so it finishes succeeded and stores its workspace.
+func (c *Client) EndTaskWait(ctx context.Context, taskID string) error {
+	_, err := c.Tasks.InjectTask(ctx, connect.NewRequest(&podiumv1.InjectTaskRequest{
+		TaskId:  taskID,
+		EndWait: true,
+	}))
+	if err != nil {
+		return fmt.Errorf("end the wait of task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // GetTask reads a task back, which is how a follow learns the terminal status.
 func (c *Client) GetTask(ctx context.Context, taskID string) (*podiumv1.Task, error) {
 	res, err := c.Tasks.GetTask(ctx, connect.NewRequest(&podiumv1.GetTaskRequest{TaskId: taskID}))

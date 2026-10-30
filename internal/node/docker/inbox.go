@@ -20,10 +20,13 @@ const (
 // be blocked on a read; anything slower means the connection is dead.
 const inboxWriteTimeout = 2 * time.Second
 
-// inboxEnvelope is one line the node writes and the runtime reads.
+// inboxEnvelope is one line the node writes and the runtime reads. EndWait carries no text:
+// it tells a runtime that has answered to stop waiting for a follow-up. A runtime that
+// does not know it sees a line with no text, and skips it.
 type inboxEnvelope struct {
-	V    int    `json:"v"`
-	Text string `json:"text"`
+	V       int    `json:"v"`
+	Text    string `json:"text,omitempty"`
+	EndWait bool   `json:"end_wait,omitempty"`
 }
 
 // inboxLink is the node's end of one task's inbox: a listener the runtime dials, and a
@@ -39,7 +42,7 @@ type inboxLink struct {
 	mu      sync.Mutex
 	ln      net.Listener
 	conn    net.Conn
-	pending []string
+	pending []inboxEnvelope
 	closed  bool
 }
 
@@ -105,8 +108,8 @@ func (l *inboxLink) accept(ln net.Listener) {
 		pending := l.pending
 		l.pending = nil
 		l.mu.Unlock()
-		for _, text := range pending {
-			if err := writeInbox(c, text); err != nil {
+		for _, env := range pending {
+			if err := writeInbox(c, env); err != nil {
 				l.dropConn(c)
 				break
 			}
@@ -117,6 +120,16 @@ func (l *inboxLink) accept(ln net.Listener) {
 // write delivers one human message. If the runtime is not connected yet, the text is
 // held and flushed when it dials.
 func (l *inboxLink) write(text string) error {
+	return l.send(inboxEnvelope{V: 1, Text: text})
+}
+
+// endWait tells the runtime to stop waiting for a follow-up, held like a message when the
+// runtime is not connected.
+func (l *inboxLink) endWait() error {
+	return l.send(inboxEnvelope{V: 1, EndWait: true})
+}
+
+func (l *inboxLink) send(env inboxEnvelope) error {
 	if l == nil {
 		return fmt.Errorf("inbox is not open")
 	}
@@ -126,13 +139,13 @@ func (l *inboxLink) write(text string) error {
 		return fmt.Errorf("inbox is closed")
 	}
 	if l.conn == nil {
-		l.pending = append(l.pending, text)
+		l.pending = append(l.pending, env)
 		return nil
 	}
-	if err := writeInbox(l.conn, text); err != nil {
+	if err := writeInbox(l.conn, env); err != nil {
 		_ = l.conn.Close()
 		l.conn = nil
-		l.pending = append(l.pending, text)
+		l.pending = append(l.pending, env)
 		return nil
 	}
 	return nil
@@ -165,8 +178,8 @@ func (l *inboxLink) close() {
 	_ = os.Remove(l.path)
 }
 
-func writeInbox(c net.Conn, text string) error {
-	body, err := json.Marshal(inboxEnvelope{V: 1, Text: text})
+func writeInbox(c net.Conn, env inboxEnvelope) error {
+	body, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}

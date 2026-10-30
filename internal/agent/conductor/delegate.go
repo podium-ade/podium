@@ -461,6 +461,12 @@ const (
 // workspacePoll is how often a waiting delegation looks at the writers ahead of it.
 var workspacePoll = time.Second
 
+// endWaitGrace is how long a released task has to stop waiting before it is cancelled. Its
+// runtime exits as soon as it hears, but the task only ends once the node has stored its
+// workspace, so this covers a large tar too. A runtime too old to know the signal keeps
+// waiting, and the cancel frees the workspace all the same.
+var endWaitGrace = 5 * time.Minute
+
 // awaitWorkspace waits until no writer ahead of self is running. A writer that has answered
 // is released; one still working is waited for until it answers. The node stores a task's
 // snapshot before it reports the task exited, so a free workspace is a stored one.
@@ -475,8 +481,13 @@ func (c *Conductor) awaitWorkspace(ctx context.Context, sessionID, self string, 
 			return nil
 		}
 		for _, d := range writers {
-			if run := c.idleRun(d.ID); run != nil && !run.released.Load() {
+			run := c.idleRun(d.ID)
+			switch {
+			case run == nil:
+			case !run.released.Load():
 				run.release(ctx)
+			case run.releasedFor() > endWaitGrace:
+				run.cancelRelease(ctx)
 			}
 		}
 		if time.Now().After(deadline) {
@@ -859,9 +870,13 @@ type delegationRun struct {
 	lastSeq  uint64
 	// answered is set when the task's answer arrives and cleared when something is injected
 	// into it: an answered task is only waiting for a follow-up. released is set when the
-	// conductor stopped it to free its workspace for another task, which is not a failure.
-	answered atomic.Bool
-	released atomic.Bool
+	// conductor told it to stop waiting to free its workspace for another task, which is not
+	// a failure, and releasedAt is when. cancelled is set once that release fell back to a
+	// cancel.
+	answered   atomic.Bool
+	released   atomic.Bool
+	releasedAt atomic.Int64
+	cancelled  atomic.Bool
 
 	mu       sync.Mutex
 	progress string
@@ -928,7 +943,8 @@ func (r *delegationRun) run(ctx context.Context) {
 	result := classify(task, r.playbook.Timeout.Std())
 	if r.released.Load() && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_CANCELLED {
 		// It had answered and was waiting for a follow-up when another task needed its
-		// workspace. Its work is done and was said; stopping it is not a failure.
+		// workspace, and did not stop waiting when told. Its work is done and was said;
+		// cancelling it is not a failure.
 		result = outcome{Status: store.TurnSucceeded}
 	}
 	if result.Post != "" {
@@ -1044,13 +1060,34 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)
 }
 
-// release stops a task that has answered and is waiting for a follow-up, so another task can
-// have its workspace. The node stores the snapshot on the way out, as it does for any cancel.
+// release tells a task that has answered and is waiting for a follow-up to stop waiting, so
+// another task can have its workspace. It exits as it does when the wait runs out: the node
+// stores the snapshot and the task finishes succeeded. Only when the task cannot be told is
+// it cancelled.
 func (r *delegationRun) release(ctx context.Context) {
+	r.releasedAt.Store(time.Now().UnixNano())
 	r.released.Store(true)
+	if err := r.c.podium.EndTaskWait(ctx, r.dlg.TaskID); err != nil {
+		r.c.logger.WarnContext(ctx, "telling a waiting task to stop waiting failed; cancelling it",
+			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
+		r.cancelRelease(ctx)
+	}
+}
+
+// releasedFor is how long ago the task was released.
+func (r *delegationRun) releasedFor() time.Duration {
+	return time.Since(time.Unix(0, r.releasedAt.Load()))
+}
+
+// cancelRelease cancels a released task that did not stop waiting. The node stores the
+// snapshot on the way out, as it does for any cancel.
+func (r *delegationRun) cancelRelease(ctx context.Context) {
+	if r.cancelled.Swap(true) {
+		return
+	}
 	if err := r.c.podium.CancelTask(ctx, r.dlg.TaskID,
 		"released: another task needs this pull request's workspace"); err != nil {
-		r.c.logger.WarnContext(ctx, "releasing a waiting task failed", "delegation_id", r.dlg.ID,
+		r.c.logger.WarnContext(ctx, "cancelling a released task failed", "delegation_id", r.dlg.ID,
 			"task_id", r.dlg.TaskID, "error", err)
 	}
 }
