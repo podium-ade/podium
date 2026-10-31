@@ -11,6 +11,11 @@ import (
 // RunsOnNodes is runs_on for the fleet's own machines.
 const RunsOnNodes = "nodes"
 
+// RunsOnHost is where the assistant runs: a child of the conductor itself. It is the
+// assistant's alone: a playbook always runs in a task, so "host" is never a playbook's
+// runs_on.
+const RunsOnHost = "host"
+
 // RunsOnKey is the conductor setting holding where a turn runs when its playbook does not
 // say.
 const RunsOnKey = "sessions.runs_on"
@@ -35,6 +40,11 @@ type PlaybookSandbox struct {
 func ValidateRunsOn(v string) error {
 	if v != strings.TrimSpace(v) || strings.ContainsAny(v, "=, ") {
 		return fmt.Errorf("runs_on %q is not %q or a sandbox provider's name", v, RunsOnNodes)
+	}
+	// The conductor's own process is the assistant's placement and nobody else's: a playbook
+	// is a container job, and "host" here would send it to a provider of that name.
+	if v == RunsOnHost {
+		return fmt.Errorf("runs_on %q is the assistant's alone: a playbook runs on %q or a sandbox provider", v, RunsOnNodes)
 	}
 	return nil
 }

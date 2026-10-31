@@ -302,3 +302,13 @@ func TestARefusedRefreshAsksThePersonToReconnect(t *testing.T) {
 		})
 	}
 }
+
+func (v *fakeVault) read(owner, name string) ([]byte, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	value, ok := v.values[v.key(owner, name)]
+	if !ok {
+		return nil, errors.New("no such secret")
+	}
+	return append([]byte(nil), value...), nil
+}
