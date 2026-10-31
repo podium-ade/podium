@@ -35,7 +35,8 @@ const (
 	ReasonFull           = "every node that could run this task is full"
 	ReasonNoPreview      = "no online node has a free preview address for this task"
 	ReasonSandboxFull    = "sandbox provider %s is running as many sandboxes as it may (%d)"
-	ReasonOnlySandboxes  = "only sandbox nodes could run this task, and it does not ask for a sandbox"
+	ReasonOnlySandboxes  = "no node is online for this task: only cloud sandboxes are, and it does not ask for one"
+	ReasonNoProvider     = "sandbox provider %s is not set up: add it on the Sandboxes screen"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
 	ReasonNoLease        = "the task is on no node and holds no lease"
@@ -479,6 +480,12 @@ func charge(c *nodes.Snapshot, cost nodes.TaskCost) {
 // It narrows the candidate set one constraint at a time and reports the constraint that
 // emptied it, because "unschedulable" on its own is unactionable.
 func placementReason(candidates []nodes.Snapshot, ts spec.TaskSpec, cost nodes.TaskCost) string {
+	// A task that asks for a cloud provider waits on that provider being configured, which is
+	// the operator's step to take; no node of theirs could ever run it.
+	if p := ts.Sandbox.ProviderName(); p != "" &&
+		!slices.ContainsFunc(candidates, func(c nodes.Snapshot) bool { return c.SandboxProvider == p }) {
+		return fmt.Sprintf(ReasonNoProvider, p)
+	}
 	if len(candidates) == 0 {
 		return ReasonNoNodes
 	}
