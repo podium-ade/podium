@@ -140,23 +140,22 @@ Two things this does not do, and one to keep in mind:
 already holds every capability, and it costs nothing: `docker:29-dind` starts and runs nested
 containers under it, which is asserted by an integration test.
 
-### A sandbox node
+### Cloud sandboxes
 
-A [sandbox node](sandboxes.md) runs each task in a cloud sandbox of its own, which moves the
-boundaries:
+A task on a [cloud sandbox provider](sandboxes.md) runs in a sandbox of its own, which
+podium-server makes and drives. That moves the boundaries:
 
 - **Isolation is the provider's.** A boat sandbox is a VM with its own kernel; a Modal
   sandbox is a gVisor container, or a VM with `runtime: vm`. Nothing but the task runs in it,
   and it is deleted when the task ends, so there is no other task to escape to.
-- **The provider credential, not a Docker socket, is what a sandbox node holds.** That key can
-  create and delete every sandbox on the account: make it a scoped key (boat: `sandbox.*`,
-  `exec`, `file.*`, `host`, `account.read`, `snapshot.read`; never `admin`). Set in the UI it
-  is stored like a registry login — encrypted under the master key, written by admins only,
-  no read endpoint — and sent only on the streams of that provider's nodes, which keep it in
-  memory; set in a node's own config file it never reaches the control plane at all.
-- **Secrets leave the node.** Resolved secrets and registry logins travel to the sandbox's
-  agent over the provider's HTTPS proxy, authenticated by the provider and by a per-task
-  bearer token the node hands the agent in a file it deletes. File secrets land on a tmpfs
+- **The provider credential is held by podium-server.** That key can create and delete every
+  sandbox on the account: make it a scoped key (boat: `sandbox.*`, `exec`, `file.*`, `host`,
+  `account.read`, `snapshot.read`; never `admin`). It is stored like a registry login —
+  encrypted under the master key, written by admins only, no read endpoint — and decrypted
+  only in the server's memory. No node ever receives it.
+- **Secrets leave Podium.** Resolved secrets and registry logins travel from the server to the
+  sandbox's agent over the provider's HTTPS proxy, authenticated by the provider and by a
+  per-task bearer token the server hands the agent in a file it deletes. File secrets land on a tmpfs
   where the provider allows one; on Modal's gVisor runtime they are in a 0700 directory
   removed at the end. boat sandboxes are created with `noEnv`, `snapshots: false` and
   `monitoring: false`, so boat holds no disk image of them and stores none of their output.
@@ -169,7 +168,7 @@ boundaries:
   In the docker strategy it is a container under the usual hardening.
 - **What the internet can reach.** The agent's port, through the provider's proxy, with the
   provider's credential and the bearer token. A boat VM also answers SSH (public key only;
-  the node adds none) and boat's own agent port. `expose: {via: sandbox}` previews are
+  Podium adds none) and boat's own agent port. `expose: {via: sandbox}` previews are
   internet-facing and gated only by their URL's token.
 - **Egress is open**, as it is for a container task.
 
@@ -1048,9 +1047,9 @@ Everything below is a real hole, not a hypothetical:
 - **The conductor can read its own credentials back from the secret store**, to refresh a
   sign-in and to run a host turn. A stolen conductor token reads them too. See
   [What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).
-- **A sandbox node sends a task's secrets to the cloud provider**, and its `via: sandbox`
-  previews are on the internet behind nothing but the token in their URL. The node's
-  provider key can create and delete every sandbox on that account. See *A sandbox node*.
+- **A cloud sandbox task's secrets go to the cloud provider**, and its `via: sandbox`
+  previews are on the internet behind nothing but the token in their URL. The provider key
+  the server holds can create and delete every sandbox on that account. See *Cloud sandboxes*.
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.

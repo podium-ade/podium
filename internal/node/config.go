@@ -14,6 +14,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/podium-ade/podium/internal/node/sandboxexec"
 	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
@@ -46,6 +47,10 @@ const (
 // Config is the whole of podium-node's configuration: /etc/podium/node.yaml overlaid by
 // PODIUM_NODE_* environment variables, which in turn are overlaid by flags.
 type Config struct {
+	// pool is a managed runner's sandbox pool, from its provider's settings. Never read from a
+	// file or the environment: see NewManaged.
+	pool sandboxexec.PoolOptions
+
 	// Server is the control plane base URL, PODIUM_NODE_SERVER.
 	Server string `yaml:"server"`
 	// Transport is PODIUM_NODE_TRANSPORT: dev only in MVP-0.
@@ -135,20 +140,12 @@ const (
 // SandboxConfig is the sandbox backend's block: which provider, and that provider's own
 // settings under its name.
 type SandboxConfig struct {
-	// Provider is PODIUM_NODE_SANDBOX_PROVIDER, for example "boat".
+	// Provider is the sandbox provider a managed runner drives, for example "boat".
 	Provider string `yaml:"provider"`
 	// Template is the provider snapshot a task with an image starts from on a provider
-	// that cannot boot images itself, PODIUM_NODE_SANDBOX_TEMPLATE. Empty is the
+	// that cannot boot images itself; the provider's settings override it. Empty is the
 	// provider's own base.
 	Template string `yaml:"template"`
-	// PoolSize is how many sandboxes this node keeps ready before any task asks,
-	// PODIUM_NODE_SANDBOX_POOL_SIZE. Zero, the default, is no pool. A task whose sandbox
-	// would be exactly the pool's shape takes one and skips making it. See
-	// internal/node/sandboxexec/pool.go.
-	PoolSize int `yaml:"pool_size"`
-	// PoolImage is the image pooled sandboxes boot, PODIUM_NODE_SANDBOX_POOL_IMAGE: the image
-	// the tasks it should serve run in — the assistant's, for a pool that serves the assistant.
-	PoolImage string `yaml:"pool_image"`
 	// Providers holds every other key: each provider's settings, by its name.
 	Providers map[string]map[string]any `yaml:",inline"`
 }
@@ -235,14 +232,7 @@ func applyEnv(cfg *Config) {
 	envBool("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", &cfg.AllowPrivilegedSidecars)
 	envString("PODIUM_NODE_RUNTIME", &cfg.Runtime)
 	envString("PODIUM_NODE_BACKEND", &cfg.Backend)
-	envString("PODIUM_NODE_SANDBOX_PROVIDER", &cfg.Sandbox.Provider)
-	envString("PODIUM_NODE_SANDBOX_TEMPLATE", &cfg.Sandbox.Template)
-	envString("PODIUM_NODE_SANDBOX_POOL_IMAGE", &cfg.Sandbox.PoolImage)
-	if v := os.Getenv("PODIUM_NODE_SANDBOX_POOL_SIZE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Sandbox.PoolSize = n
-		}
-	}
+
 }
 
 func envBool(key string, dst *bool) {
@@ -300,9 +290,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("transport %q is not a transport (want %s, %s or %s)",
 			c.Transport, TransportLocal, TransportTailnet, TransportHost)
 	}
-	if c.Sandbox.PoolSize < 0 {
-		return fmt.Errorf("sandbox pool_size is %d; 0 is no pool", c.Sandbox.PoolSize)
-	}
 	if c.MaxTasks < 1 {
 		return fmt.Errorf("max_tasks is %d: a node with no slots never gets work; set PODIUM_NODE_MAX_TASKS to 1 or more", c.MaxTasks)
 	}
@@ -323,12 +310,11 @@ func (c *Config) Validate() error {
 	switch c.Backend {
 	case BackendDocker, "":
 	case BackendSandbox:
-		if c.Sandbox.Provider == "" {
-			return errors.New("backend sandbox needs a provider: set PODIUM_NODE_SANDBOX_PROVIDER or `sandbox.provider`")
-		}
-		if len(c.PreviewLANAddresses) > 0 || c.PreviewTailnetSlots > 0 {
-			return errors.New("a sandbox node publishes previews through its provider; drop the LAN and tailnet preview settings")
-		}
+		// A node is a machine of your own. Cloud sandboxes are run by podium-server itself,
+		// for every provider configured on the Sandboxes screen: see NewManaged.
+		return errors.New("backend sandbox is gone from podium-node: podium-server runs cloud " +
+			"sandboxes itself. Configure the provider on the Sandboxes screen and remove " +
+			"`backend: sandbox` (PODIUM_NODE_BACKEND) from this node")
 	default:
 		return fmt.Errorf("backend %q is not %s or %s", c.Backend, BackendDocker, BackendSandbox)
 	}

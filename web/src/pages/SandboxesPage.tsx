@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
 
 import { Badge } from "../components/Badge";
 import { PageFrame } from "../components/PageHeader";
@@ -17,19 +16,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import type { Node } from "../gen/podium/v1/admin_pb";
-import { NodeStatus } from "../gen/podium/v1/common_pb";
 import type { SandboxProvider } from "../gen/podium/v1/sandbox_pb";
-import { admin, Code, connectCode, errorMessage, sandboxProviders } from "../lib/client";
+import { Code, connectCode, errorMessage, sandboxProviders } from "../lib/client";
 import { absolute, relative } from "../lib/format";
 import { useViewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
-import { SANDBOX_PROVIDERS, capacityText, providerLabel, type ProviderSpec } from "../lib/sandboxProviders";
+import { SANDBOX_PROVIDERS, capacityText, type ProviderSpec } from "../lib/sandboxProviders";
 
 /**
- * The Sandboxes screen: the cloud providers sandbox nodes run tasks on. A sandbox node names
- * its provider and takes the rest — the key, the template, the sizes — from here, so a key is
- * rotated in one place and every node of that provider has it at once.
+ * The Sandboxes screen: the cloud providers Podium runs tasks on. Setting one up here is the whole
+ * of it — podium-server runs that provider's sandboxes itself, with no node to install — and a
+ * key is rotated in one place.
  */
 export function SandboxesPage() {
   const viewer = useViewer();
@@ -43,7 +40,6 @@ export function SandboxesPage() {
     queryFn: () => sandboxProviders.listSandboxProviders({}),
     placeholderData: (prev) => prev,
   });
-  const nodes = useQuery({ queryKey: ["nodes"], queryFn: () => admin.listNodes({}) });
 
   useEffect(() => {
     if (providers.error) toast(`ListSandboxProviders: ${errorMessage(providers.error)}`);
@@ -78,7 +74,6 @@ export function SandboxesPage() {
               key={spec.name}
               spec={spec}
               current={byName.get(spec.name)}
-              nodes={(nodes.data?.nodes ?? []).filter((n) => n.labels.includes(providerLabel(spec.name)))}
               loading={providers.isPending}
               manage={manage && !noMasterKey}
               onEdit={() => setEditing(spec)}
@@ -106,7 +101,6 @@ export function SandboxesPage() {
 function ProviderRow({
   spec,
   current,
-  nodes,
   loading,
   manage,
   onEdit,
@@ -114,14 +108,12 @@ function ProviderRow({
 }: {
   spec: ProviderSpec;
   current?: SandboxProvider;
-  nodes: Node[];
   loading: boolean;
   manage: boolean;
   onEdit: () => void;
   onRemove: () => void;
 }) {
   const configured = current?.hasSecret ?? false;
-  const online = nodes.filter((n) => n.status === NodeStatus.ONLINE || n.status === NodeStatus.DRAINING).length;
   const set = spec.fields.filter((f) => current?.settings[f.key]);
 
   return (
@@ -150,20 +142,9 @@ function ProviderRow({
           </dl>
         ) : null}
         <p className="m-0 text-sm text-muted">
-          {nodes.length === 0 ? (
-            <>
-              No node runs on {spec.label} yet. Its nodes carry the label{" "}
-              <code className="font-mono text-xs">{providerLabel(spec.name)}</code>.
-            </>
-          ) : (
-            <>
-              <Link to="/nodes" className="underline underline-offset-2">
-                {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
-              </Link>
-              , {online} online.{" "}
-              {configured ? "They take work." : "They take no work until it is set up."}
-            </>
-          )}
+          {configured
+            ? `Podium runs ${spec.label} sandboxes itself: a task or playbook that runs on ${spec.label} gets one.`
+            : `Once set up, Podium runs ${spec.label} sandboxes itself. There is nothing to install.`}
         </p>
       </div>
       {manage ? (
@@ -222,8 +203,8 @@ function RemoveProviderDialog({
         <DialogHeader>
           <DialogTitle>Remove {spec.label}?</DialogTitle>
           <DialogDescription>
-            Its key is deleted and cannot be recovered. Its nodes stop taking work at once; tasks
-            already running keep their sandboxes until they finish.
+            Its key is deleted and cannot be recovered. No new task starts on it; tasks already
+            running keep their sandboxes until they finish.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

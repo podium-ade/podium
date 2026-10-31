@@ -65,7 +65,7 @@ runner-embed:
 	@GOOS=$$(go env GOHOSTOS) GOARCH=$$(go env GOHOSTARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o bin/podium-runner ./cmd/podium-runner
 
-# The agent podium-node uploads into a cloud sandbox. It embeds the runner, so it is built
+# The agent podium-server uploads into a cloud sandbox. It embeds the runner, so it is built
 # after it; it is linux/amd64 only, the one architecture sandbox providers run.
 sandbox-agent-embed: runner-embed
 	@mkdir -p $(AGENTBIN)
