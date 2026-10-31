@@ -55,6 +55,12 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// PODIUM_TEST_POSTGRES_URL is a server somebody already runs, for a machine with no
+	// Docker engine. Every test still gets a database of its own inside it.
+	if url := os.Getenv("PODIUM_TEST_POSTGRES_URL"); url != "" {
+		adminURL = url
+		os.Exit(m.Run())
+	}
 	ctx := context.Background()
 	ctr, err := runPostgres(ctx)
 	if err != nil {
@@ -87,7 +93,7 @@ func runPostgres(ctx context.Context) (*postgres.PostgresContainer, error) {
 func newDatabase(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	name := fmt.Sprintf("podium_server_test_%d", dbSeq.Add(1))
+	name := fmt.Sprintf("podium_server_test_%d_%d", os.Getpid(), dbSeq.Add(1))
 
 	conn, err := pgx.Connect(ctx, adminURL)
 	require.NoError(t, err)
@@ -926,6 +932,9 @@ func TestConnectJSONWithoutTheCLI(t *testing.T) {
 
 // TestReadyzTracksPostgres uses a Postgres of its own so it can take it away mid-test.
 func TestReadyzTracksPostgres(t *testing.T) {
+	if os.Getenv("PODIUM_TEST_POSTGRES_URL") != "" {
+		t.Skip("stops a Postgres container of its own, which needs Docker")
+	}
 	ctx := context.Background()
 	ctr, err := runPostgres(ctx)
 	require.NoError(t, err)
