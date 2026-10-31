@@ -220,6 +220,19 @@ func (s *Sandbox) validate() []error {
 	return errs
 }
 
+// ModalImagePrefix marks an image Modal holds rather than a registry: `modal:<name>` is one
+// published with Modal's own SDK (Image.publish), `modal:im-…` one by its ID. Modal builds and
+// stores it, so nothing is pulled from a registry when a sandbox starts — which is also how a
+// task uses an image that lives in a registry Modal cannot reach. Such an image runs only in
+// a Modal sandbox, so a task that names one is placed there.
+const ModalImagePrefix = "modal:"
+
+// ModalImage is the Modal image name or ID an image reference names, if it names one.
+func ModalImage(image string) (string, bool) {
+	name, ok := strings.CutPrefix(strings.TrimSpace(image), ModalImagePrefix)
+	return name, ok
+}
+
 // LabelSandbox is the label every sandbox node carries, and every task that needs one gets.
 // A sandbox node takes no task without it.
 const LabelSandbox = "backend=sandbox"
@@ -387,6 +400,14 @@ func (s *TaskSpec) ApplyDefaults() {
 		}
 	}
 	s.Resources.applyDefaults()
+	if _, ok := ModalImage(s.Image); ok {
+		if s.Sandbox == nil {
+			s.Sandbox = &Sandbox{}
+		}
+		if s.Sandbox.Provider == "" {
+			s.Sandbox.Provider = "modal"
+		}
+	}
 	if s.UsesSandbox() && !slices.Contains(s.Labels, LabelSandbox) {
 		s.Labels = append(s.Labels, LabelSandbox)
 	}
@@ -453,8 +474,30 @@ func (s *TaskSpec) Validate() error {
 	}
 	errs = append(errs, s.validateExpose()...)
 	errs = append(errs, s.Sandbox.validate()...)
+	errs = append(errs, s.validateModalImages()...)
 	errs = append(errs, s.validateMounts()...)
 	return errors.Join(errs...)
+}
+
+// validateModalImages: a Modal image runs only in a Modal sandbox, and only as the task's own
+// image — a sidecar is pulled by Docker, which has never heard of it.
+func (s *TaskSpec) validateModalImages() []error {
+	var errs []error
+	if name, ok := ModalImage(s.Image); ok {
+		if name == "" {
+			errs = append(errs, fmt.Errorf("image %q names no Modal image", s.Image))
+		}
+		if p := s.Sandbox.ProviderName(); p != "" && p != "modal" {
+			errs = append(errs, fmt.Errorf("image %q is a Modal image, but sandbox.provider is %s", s.Image, p))
+		}
+	}
+	for _, name := range sortedKeys(s.Sidecars) {
+		if _, ok := ModalImage(s.Sidecars[name].Image); ok {
+			errs = append(errs, fmt.Errorf("sidecar %s: image %q is a Modal image; a sidecar runs under Docker, from a registry",
+				name, s.Sidecars[name].Image))
+		}
+	}
+	return errs
 }
 
 func (s *TaskSpec) validateMounts() []error {

@@ -605,6 +605,9 @@ privileges to drop — and a spec that sets it is refused. File secrets go under
 `/podium/secrets` only, and a `working_dir` other than `/workspace` is created as the task's
 user: neither can name a path the task could not have written itself.
 
+An `image` written `modal:<name>` is one Modal holds, published with Modal's SDK, and places the
+task in a Modal sandbox: see [sandboxes.md](sandboxes.md#modal-images).
+
 Without `snapshot`, an `image` task in a cloud sandbox runs that image: inside the sandbox's
 Docker on boat, as the sandbox itself on Modal. `resources` choose the sandbox's size.
 

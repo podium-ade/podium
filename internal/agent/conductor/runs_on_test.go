@@ -38,7 +38,16 @@ func TestATurnRunsWhereItsPlaybookSays(t *testing.T) {
 		playbook.RunsOn = runsOn
 		sp = c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "", "")
 		assert.Nil(t, sp.Sandbox, "runs_on %q", runsOn)
+		assert.Empty(t, sp.Command, "a container takes its command from the image")
 	}
+
+	// A Modal image is one Modal holds, so the turn goes to Modal whatever runs_on says.
+	playbook.Image = spec.ModalImagePrefix + "podium-agent-runtime-dev:0.7.3"
+	sp = c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "", "")
+	require.NoError(t, sp.Validate())
+	require.NotNil(t, sp.Sandbox)
+	assert.Equal(t, "modal", sp.Sandbox.Provider)
+	assert.Equal(t, runtimeCommand, sp.Command)
 
 	c.store = nil
 	playbook.RunsOn = "modal"

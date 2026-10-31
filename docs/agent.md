@@ -2038,6 +2038,31 @@ first a missing image is known about is the pull failing on the node, which fail
   inside every assignment whose images are pulled from that host, and the playbook's `image:` is
   written the same way as a public one. See [task-spec.md](task-spec.md#private-registries).
 
+### On Modal: an image Modal holds
+
+A turn on Modal can run from an image **Modal builds and keeps**, so no registry is involved at
+all: not one Modal has to reach, and not one you have to run. Build it with Modal's own SDK and
+publish it by name, then write that name with a `modal:` prefix wherever an image goes — a
+playbook's `image:`, or Modal's **Ready sandbox image**:
+
+```sh
+pip install modal && modal token new
+python examples/modal/publish_image.py agent-warehouse.Dockerfile --context . \
+    --name agent-warehouse:2026-09-05
+```
+
+```yaml
+image: modal:agent-warehouse:2026-09-05     # or modal:im-… for one by its ID
+```
+
+[`examples/modal/publish_image.py`](../examples/modal/publish_image.py) is a short script around
+`modal.Image.from_dockerfile(...).publish(name)`; Podium itself builds nothing. The same
+Dockerfile as above works, with two differences: keep it single-stage, `FROM` the published
+runtime (Modal documents no multi-stage builds), and know that Modal ignores `USER` — Podium runs
+the turn as an unprivileged account of its own either way. A `modal:` image runs only on Modal,
+so a turn with one goes there whatever its `runs_on` says.
+
+
 ---
 
 ## Playbooks that clone repositories

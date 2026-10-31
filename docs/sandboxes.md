@@ -19,6 +19,7 @@ Supported providers:
 | What a sandbox is | a full VM: Ubuntu 24.04, Docker, systemd | a gVisor container booted from the task's image; `runtime: vm` for a VM |
 | `image` tasks run | under Docker inside the VM | as the sandbox itself |
 | `sandbox.snapshot` | a boat named snapshot | a Modal filesystem-snapshot image (`im-…`) |
+| An image Modal holds | — | `image: modal:<name>`, published with Modal's SDK |
 | Sidecars | yes | only with `runtime: vm` |
 | Secret files on tmpfs | yes | only with `runtime: vm`; otherwise a 0700 directory removed at the end |
 | Resource limits | `resources` picks the machine size; limits apply with systemd | `resources` is the sandbox's CPU and memory |
@@ -110,6 +111,14 @@ stores none of its command output.
 Build a snapshot from a sandbox that was itself created with `noEnv` (`boat new --no-env`), so
 no account credential is baked into its disk, then `boat snapshot <id> <name>`. A task names it
 with `sandbox: {snapshot: <name>}`.
+
+### Modal images
+
+Modal can start a sandbox from an image it holds rather than one it pulls: build it with Modal's
+SDK, publish it by name, and name it `modal:<name>` (or `modal:im-…` by ID) as the task's
+`image`. Nothing is pulled from a registry when the sandbox starts, which is also how a task uses
+an image from a registry Modal cannot reach, such as one on your own network. A task with a
+`modal:` image runs only on Modal. See [agent.md](agent.md#on-modal-an-image-modal-holds).
 
 ### A pool of ready sandboxes
 
