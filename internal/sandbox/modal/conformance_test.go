@@ -131,3 +131,32 @@ func TestDocker(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
+
+// TestAModalImageByName starts a sandbox from an image Modal holds, published by name with
+// Modal's SDK — MODAL_IMAGE, such as the dev runtime examples/modal/publish_image.py makes —
+// and checks it is that image: the runtime is there, and its ENTRYPOINT did not replace the
+// keep-alive.
+func TestAModalImageByName(t *testing.T) {
+	name := os.Getenv("MODAL_IMAGE")
+	if name == "" {
+		t.Skip("MODAL_IMAGE is not set")
+	}
+	p := newConformance(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	id, err := p.Create(ctx, sandbox.CreateRequest{
+		Key: fmt.Sprintf("conformance-named-%d", time.Now().UnixNano()), Image: "modal:" + name, TTL: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Delete(context.Background(), id) })
+	if err := p.WaitReady(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	res, err := p.Exec(ctx, id, "test -f /opt/podium-agent/dist/main.js && node --version && go version", false)
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("exec: %v, exit %d: %s%s", err, res.ExitCode, res.Stdout, res.Stderr)
+	}
+	t.Logf("%s", res.Stdout)
+}

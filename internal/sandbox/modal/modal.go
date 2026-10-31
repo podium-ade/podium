@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/podium-ade/podium/internal/sandbox"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 const (
@@ -249,8 +250,9 @@ func (p *Provider) getApp(ctx context.Context, env string) (*sdk.App, error) {
 	return app, nil
 }
 
-// Create makes the sandbox from req.Image, or from req.Snapshot, the image ID ("im-...") that
-// Sandbox.SnapshotFilesystem returned.
+// Create makes the sandbox from req.Image — a registry image, or `modal:<name>` for one Modal
+// holds — or from req.Snapshot, the image ID ("im-...") that Sandbox.SnapshotFilesystem
+// returned.
 func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (string, error) {
 	if req.Key == "" {
 		return "", &sandbox.Error{Op: "create", Code: "invalid", Err: errors.New("no key")}
@@ -287,6 +289,10 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		if img, err = p.c.Images.FromID(ctx, req.Snapshot, nil); err != nil {
 			return "", toError("create", err)
 		}
+	case isModalImage(req.Image):
+		if img, err = p.modalImage(ctx, req.Image, cfg.Environment); err != nil {
+			return "", toError("create", err)
+		}
 	case req.Image != "" && req.Registry != nil:
 		// Modal pulls the image before anything runs in the sandbox, so a private one needs
 		// the login here: an ephemeral secret, in the form Modal's registry pull reads.
@@ -316,6 +322,22 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 	}
 	p.remember(sb)
 	return sb.SandboxID, nil
+}
+
+func isModalImage(image string) bool {
+	_, ok := spec.ModalImage(image)
+	return ok
+}
+
+// modalImage is an image Modal already holds: one published by name with Modal's SDK
+// (Image.publish), looked up in the sandbox's environment, or one by its ID. Modal builds and
+// keeps it, so starting a sandbox pulls nothing from a registry.
+func (p *Provider) modalImage(ctx context.Context, image, env string) (*sdk.Image, error) {
+	name, _ := spec.ModalImage(image)
+	if strings.HasPrefix(name, "im-") {
+		return p.c.Images.FromID(ctx, name, nil)
+	}
+	return p.c.Images.FromName(ctx, name, &sdk.ImageFromNameParams{Environment: env})
 }
 
 // byName is the running sandbox called name, or "" when there is none.

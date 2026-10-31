@@ -1304,6 +1304,14 @@ func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) prof
 	return playbook
 }
 
+// runtimeCommand is the agent runtime's ENTRYPOINT, named again for a turn in a cloud sandbox.
+// A container gets a task's command from its image when the spec names none, but a sandbox
+// that runs the task as a process has no image config to read: Modal clears the ENTRYPOINT so
+// the sandbox stays up, and keeps none Podium can see on an image built with Modal's SDK. Under
+// Docker (a boat sandbox) a named command replaces the image's, so this is the same command
+// either way. An image of your own built FROM the runtime keeps this path.
+var runtimeCommand = []string{"node", "/opt/podium-agent/dist/main.js"}
+
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
 	servers []mcp.Server, choice profiles.Choice, capabilitySecret, login string,
@@ -1364,6 +1372,9 @@ func (c *Conductor) taskSpec(
 		s.Expose = &x
 	}
 	s.ApplyDefaults()
+	if s.UsesSandbox() {
+		s.Command = slices.Clone(runtimeCommand)
+	}
 	return s
 }
 
