@@ -37,6 +37,8 @@ var notConfiguration = map[string]string{
 	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
 	// this is the name the runtime reads it under.
 	"PODIUM_RUNNER_PATH": "set by the conductor on a host turn's runtime",
+	// Test-only: a Postgres to run the integration tests against without Docker.
+	"PODIUM_TEST_POSTGRES_URL": "test-only, read by integration tests",
 	// Minted per host turn by the conductor and read by the MCP server beside it, so that
 	// turn can delegate a task in its own conversation. It lives as long as the turn and
 	// an operator never sets one.
