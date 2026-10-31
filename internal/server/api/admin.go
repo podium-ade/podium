@@ -91,6 +91,11 @@ func (s *NodeAdminService) ListNodes(
 	}
 	out := make([]*podiumv1.Node, 0, len(rows))
 	for _, n := range rows {
+		if n.Managed() {
+			// A cloud provider's runner is the server's, not a machine: the Sandboxes screen
+			// shows the provider.
+			continue
+		}
 		live, connected := s.sessions.SnapshotOf(n.ID)
 		out = append(out, nodeToProto(n, live, connected))
 	}

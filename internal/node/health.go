@@ -30,7 +30,13 @@ func (m *metricsServer) addr() string {
 
 // serveMetrics binds cfg.MetricsListen and starts serving. A bind failure is fatal: an
 // operator who asked for a metrics endpoint should hear that they did not get one.
+//
+// An empty address serves nothing: a managed runner is inside podium-server, which has a
+// health endpoint of its own, and must not take a port a node on the same machine wants.
 func (n *Node) serveMetrics(ctx context.Context) error {
+	if n.cfg.MetricsListen == "" {
+		return nil
+	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		collectors.NewGoCollector(),

@@ -1,8 +1,8 @@
 import type { SandboxProvider } from "../gen/podium/v1/sandbox_pb";
 
 /**
- * The sandbox providers a sandbox node can run on, and what each one is configured with. The
- * names are the ones a node's `sandbox.provider` and the `sandbox.provider=` label use.
+ * The cloud sandbox providers podium-server runs tasks on, and what each one is configured
+ * with. The names are the ones a task's `sandbox.provider` and a playbook's `runs_on` use.
  * `secret` is the credential: written once, never read back. The fields are the provider's
  * settings, none of them secret.
  */
@@ -38,6 +38,25 @@ export const RUNS_ON_NODES = "nodes";
 /** RUNS_ON_HOST is where the assistant runs in the conductor's own process. Never a playbook's. */
 export const RUNS_ON_HOST = "host";
 
+/**
+ * POOL_FIELDS keep sandboxes ready before any task asks, on every provider. A task whose
+ * sandbox would be exactly the pool's — its image, the default size, nothing exposed — takes one.
+ */
+const POOL_FIELDS: ProviderField[] = [
+  {
+    key: "pool_size",
+    label: "Ready sandboxes",
+    help: "How many to keep made and waiting, so a task starts at once. Each costs what a running one does. Empty is none.",
+    placeholder: "0",
+  },
+  {
+    key: "pool_image",
+    label: "Ready sandbox image",
+    help: "The image they are made from: the one the tasks you want sped up run in, such as the agent runtime's.",
+    placeholder: "ghcr.io/podium-ade/podium-agent-runtime",
+  },
+];
+
 export const SANDBOX_PROVIDERS: ProviderSpec[] = [
   {
     name: "boat",
@@ -45,9 +64,9 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     blurb: "Every task gets a VM of its own with Docker, from boat's base image or a named snapshot.",
     secretLabel: "API key",
     secretHelp:
-      "A key with only what a node uses: boat api-key create podium-node --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
+      "A key with only what Podium uses: boat api-key create podium --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
     maxConcurrentHelp:
-      "How many tasks run on boat at once, across every boat node. Empty holds them to your account's own limit.",
+      "How many tasks run on boat at once. Empty holds them to your account's own limit.",
     fields: [
       {
         key: "template",
@@ -66,6 +85,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         label: "Organization",
         help: "Bill sandboxes to this boat organization instead of the key's owner.",
       },
+      ...POOL_FIELDS,
     ],
   },
   {
@@ -75,7 +95,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretLabel: "Token secret",
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
     maxConcurrentHelp:
-      "How many tasks run on Modal at once, across every Modal node. Modal reports no limit of its own, so this is what bounds the bill.",
+      "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill.",
     requireMaxConcurrent: true,
     fields: [
       { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…" },
@@ -89,11 +109,12 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
       { key: "environment", label: "Environment", help: "The Modal environment. Empty is the default one." },
       { key: "cpu", label: "Default CPU", help: "Cores for a task that asks for none.", placeholder: "1" },
       { key: "memory_mb", label: "Default memory (MB)", help: "Memory for a task that asks for none.", placeholder: "1024" },
+      ...POOL_FIELDS,
     ],
   },
 ];
 
-/** The label a sandbox node of this provider carries. */
+/** The label a task placed on this provider carries. */
 export function providerLabel(name: string): string {
   return `sandbox.provider=${name}`;
 }
