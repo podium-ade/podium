@@ -63,18 +63,27 @@ describe("SandboxesPage", () => {
     });
   });
 
-  it("shows each provider's settings and nodes, never its key", async () => {
+  it("shows each provider's settings, never its key, and no node to run", async () => {
     mount();
     const row = await screen.findByTestId("provider-boat");
     expect(await within(row).findByText("configured")).toBeInTheDocument();
     expect(within(row).getByText("ci-base")).toBeInTheDocument();
     expect(within(row).getByText("stored, hidden")).toBeInTheDocument();
-    expect(await within(row).findByText("1 node")).toBeInTheDocument();
     expect(within(row).getByTestId("capacity-boat")).toHaveTextContent("1 of account limit 2");
+    expect(within(row).getByText(/Podium runs boat.dev sandboxes itself/)).toBeInTheDocument();
+    expect(within(row).queryByText(/node/)).toBeNull();
 
     const modal = screen.getByTestId("provider-modal");
     expect(within(modal).getByText("not set up")).toBeInTheDocument();
-    expect(await within(modal).findByText(/They take no work until it is set up/)).toBeInTheDocument();
+    expect(within(modal).getByText(/There is nothing to install/)).toBeInTheDocument();
+  });
+
+  it("offers a pool of ready sandboxes on every provider", async () => {
+    mount();
+    await screen.findByTestId("provider-modal");
+    await userEvent.click(screen.getByRole("button", { name: "Set up Modal" }));
+    expect(screen.getByLabelText("Ready sandboxes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ready sandbox image")).toBeInTheDocument();
   });
 
   it("needs a key to set a provider up", async () => {

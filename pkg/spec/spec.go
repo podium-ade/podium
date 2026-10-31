@@ -160,6 +160,14 @@ var (
 	ModalRuntimes = []string{"gvisor", "vm"}
 )
 
+// ProviderName is the provider this sandbox is pinned to, empty for none — or for no sandbox.
+func (s *Sandbox) ProviderName() string {
+	if s == nil {
+		return ""
+	}
+	return s.Provider
+}
+
 // Settings is what the task overrides of provider's settings, under the keys the provider's
 // adapter reads. Empty when it overrides nothing there.
 func (s *Sandbox) Settings(provider string) map[string]string {

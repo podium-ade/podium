@@ -24,6 +24,7 @@ import (
 	"github.com/podium-ade/podium/internal/server/auth"
 	"github.com/podium-ade/podium/internal/server/logs"
 	"github.com/podium-ade/podium/internal/server/nodes"
+	"github.com/podium-ade/podium/internal/server/sandboxes"
 	"github.com/podium-ade/podium/internal/server/scheduler"
 	"github.com/podium-ade/podium/internal/server/secrets"
 	"github.com/podium-ade/podium/internal/server/snapshots"
@@ -61,6 +62,8 @@ type Server struct {
 	artifacts *artifacts.Service
 	snapshots *snapshots.Service
 	scheduler *scheduler.Service
+	// sandboxes runs every configured cloud sandbox provider. See internal/server/sandboxes.
+	sandboxes *sandboxes.Manager
 	http      *http.Server
 
 	ln         net.Listener
@@ -118,7 +121,15 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	secretSvc := secrets.New(st, masterKey, logger)
 	nodeSvc.SetSandboxResolver(func(ctx context.Context, nodeID, provider string) (map[string]string, []byte, bool, error) {
 		cfg, found, err := secretSvc.ResolveSandboxProvider(ctx, nodeID, provider)
-		return cfg.Settings, cfg.Secret, found, err
+		// The pool settings configure the server's runner for the provider, not the provider:
+		// they never reach its constructor.
+		settings := make(map[string]string, len(cfg.Settings))
+		for k, v := range cfg.Settings {
+			if k != sandboxes.SettingPoolSize && k != sandboxes.SettingPoolImage {
+				settings[k] = v
+			}
+		}
+		return settings, cfg.Secret, found, err
 	})
 	artifactSvc, err := newArtifacts(ctx, cfg, st, logger)
 	if err != nil {
@@ -155,6 +166,14 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		scheduler: sched,
 		serveErr:  make(chan error, 1),
 	}
+	// Cloud sandboxes are the server's to run: one runner per provider configured on the
+	// Sandboxes screen, talking to this server's own node service in memory.
+	nodeMux := http.NewServeMux()
+	nodeMux.Handle(podiumv1connect.NewNodeServiceHandler(nodeSvc))
+	s.sandboxes = sandboxes.New(sandboxes.Options{
+		Store: st, NodeService: nodeMux, ServerID: cfg.ServerID(),
+		Dir: cfg.SandboxStateDir(), Logger: logger.With("component", "sandboxes"),
+	})
 	s.http = &http.Server{
 		Handler:           s.mux(),
 		Protocols:         plaintextHTTP2(),
@@ -363,7 +382,7 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSandboxProviderServiceHandler(
-		api.NewSandboxProviderService(s.secrets, s.nodes, s.logger), opts...))
+		api.NewSandboxProviderService(s.secrets, sandboxPusher{s.nodes, s.sandboxes}, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSnapshotServiceHandler(
@@ -518,6 +537,13 @@ func (s *Server) Start(ctx context.Context) error {
 			s.logger.ErrorContext(baseCtx, "node health watchdog stopped", "error", err)
 		}
 	}()
+	if !s.cfg.NoSandboxRunners {
+		go func() {
+			if err := s.sandboxes.Run(baseCtx); err != nil && baseCtx.Err() == nil {
+				s.logger.ErrorContext(baseCtx, "running cloud sandbox providers stopped", "error", err)
+			}
+		}()
+	}
 	go func() {
 		if err := s.nodes.RunRelay(baseCtx); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "relaying node commands between servers stopped", "error", err)
@@ -621,4 +647,16 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()
 	return s.Shutdown(shutdownCtx)
+}
+
+// sandboxPusher is what a provider's change reaches: the nodes that run it, and the server's
+// own runner for it, which starts, restarts or stops at once.
+type sandboxPusher struct {
+	*nodes.Service
+	runners *sandboxes.Manager
+}
+
+func (p sandboxPusher) PushSandboxConfig(ctx context.Context, provider string) {
+	p.Service.PushSandboxConfig(ctx, provider)
+	p.runners.Wake()
 }

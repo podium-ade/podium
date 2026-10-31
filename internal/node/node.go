@@ -72,7 +72,7 @@ func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (exec ex
 	}
 	exec, err = sandboxexec.New(sandboxexec.Options{
 		Provider: p, DataDir: cfg.DataDir, Template: cfg.Sandbox.Template, Agent: agentbin.Linux, Logger: logger,
-		Pool: sandboxexec.PoolOptions{Size: cfg.Sandbox.PoolSize, Image: cfg.Sandbox.PoolImage},
+		Pool: cfg.pool,
 	})
 	return exec, swap, err
 }
@@ -153,11 +153,6 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 	}
 
 	facts := hostFacts(ctx, exec.ServerVersion())
-	if cfg.Backend == BackendSandbox {
-		// The machine this daemon runs on is not where tasks run; the scheduler reads a
-		// zero as "unmeasured" and places on slots alone.
-		facts.CPUCores, facts.MemoryMB = 0, 0
-	}
 	httpClient, ts, err := dialer(ctx, cfg, logger)
 	if err != nil {
 		_ = exec.Close()
@@ -194,6 +189,60 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 			"node_id", id.NodeID, "identity", filepath.Join(cfg.DataDir, identityFile))
 	}
 
+	return newNode(cfg, exec, swap, id, facts, client, ts, logger), nil
+}
+
+// ManagedOptions is a sandbox provider's runner inside podium-server: the node machinery,
+// driving a cloud provider, with no process, network or enrollment of its own.
+type ManagedOptions struct {
+	// Provider is the sandbox provider's name. Its configuration — key and settings — comes
+	// from the server over the stream, as it always has.
+	Provider string
+	// DataDir is where its sandboxes are recorded, so a restarted server adopts them.
+	DataDir string
+	// MaxTasks is how many sandboxes it may run at once; the scheduler holds the provider to
+	// its cap besides.
+	MaxTasks int
+	// Pool keeps sandboxes ready before any task asks.
+	Pool sandboxexec.PoolOptions
+	// Client reaches the server's node service, in memory.
+	Client podiumv1connect.NodeServiceClient
+	// Identity is the node row the server made for this provider.
+	Identity Identity
+}
+
+// NewManaged builds a provider's runner for podium-server. It is a node in everything but how
+// it is run: the same executor, relay, buffering, previews and adoption, the same stream to
+// the same node service — only in memory, and for a provider rather than a machine.
+func NewManaged(ctx context.Context, o ManagedOptions, logger *slog.Logger) (*Node, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if o.Provider == "" || o.DataDir == "" || o.Client == nil || o.Identity.NodeID == "" {
+		return nil, errors.New("node: a managed runner needs a provider, a data dir, a client and an identity")
+	}
+	cfg := DefaultConfig()
+	cfg.Backend = BackendSandbox
+	cfg.Sandbox.Provider = o.Provider
+	cfg.DataDir = o.DataDir
+	cfg.MaxTasks = max(o.MaxTasks, 1)
+	cfg.ImageCachePrune = false
+	cfg.MetricsListen = ""
+	cfg.pool = o.Pool
+	exec, swap, err := newExecutor(ctx, &cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	// The machine the server runs on is not where these tasks run; the scheduler reads a zero
+	// as "unmeasured" and places on slots alone.
+	facts := HostFacts{Hostname: "sandbox/" + o.Provider, DockerVersion: exec.ServerVersion()}
+	return newNode(cfg, exec, swap, o.Identity, facts, o.Client, nil, logger), nil
+}
+
+func newNode(
+	cfg Config, exec executor, swap *sandbox.Swappable, id Identity, facts HostFacts,
+	client podiumv1connect.NodeServiceClient, ts *tailnet.Client, logger *slog.Logger,
+) *Node {
 	n := &Node{
 		cfg:        cfg,
 		logger:     logger.With("node_id", id.NodeID),
@@ -215,7 +264,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 	if x, ok := exec.(reaper); ok {
 		x.OnDeleted(n.sandboxDeleted)
 	}
-	return n, nil
+	return n
 }
 
 // dialer builds the HTTP client every RPC goes through, and the tailnet device behind it when
@@ -534,6 +583,9 @@ func (n *Node) setSlots(maxTasks int32) (inForce int, changed bool) {
 	}
 	return n.maxTasks, n.maxTasks != was
 }
+
+// Running is how many tasks this node is running or still holding.
+func (n *Node) Running() int { return int(n.runningCount()) }
 
 func (n *Node) runningCount() int32 {
 	n.mu.Lock()

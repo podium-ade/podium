@@ -289,6 +289,21 @@ type Session struct {
 	CreatedAt time.Time
 }
 
+// ManagedNodeLabel marks a node row that is the server's runner for a cloud sandbox provider
+// rather than a machine. The node lists leave such rows out: a provider is shown on the
+// Sandboxes screen, not among nodes. See internal/server/sandboxes.
+const ManagedNodeLabel = "podium.managed=sandbox"
+
+// Managed reports whether the node is the server's runner for a sandbox provider.
+func (n Node) Managed() bool {
+	for _, l := range n.Labels {
+		if l == ManagedNodeLabel {
+			return true
+		}
+	}
+	return false
+}
+
 // NewNode is the input to CreateNode. An empty ID is minted.
 type NewNode struct {
 	ID          string
