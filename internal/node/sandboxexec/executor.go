@@ -47,6 +47,8 @@ type Options struct {
 	// Agent returns podium-sandbox-agent for linux/amd64.
 	Agent  func() ([]byte, error)
 	Logger *slog.Logger
+	// Pool keeps sandboxes of one shape ready before any task asks. See pool.go.
+	Pool PoolOptions
 }
 
 // Executor implements podium-node's executor on a sandbox provider.
@@ -65,6 +67,9 @@ type Executor struct {
 
 	mu    sync.Mutex
 	tasks map[string]*task
+
+	// pool is nil when no pool is configured.
+	pool *pool
 }
 
 // record is what the node keeps on disk about a task's sandbox, so a restarted daemon
@@ -104,6 +109,7 @@ func New(o Options) (*Executor, error) {
 	e := &Executor{p: o.Provider, dir: o.DataDir, agent: o.Agent, log: o.Logger,
 		client: &http.Client{Timeout: 0}, tasks: map[string]*task{}}
 	e.SetTemplate(o.Template)
+	e.pool = e.startPool(o.Pool)
 	return e, nil
 }
 
@@ -116,8 +122,17 @@ func (e *Executor) TaskDir(taskID string) string { return filepath.Join(e.dir, "
 // ServerVersion implements the node's executor.
 func (e *Executor) ServerVersion() string { return "sandbox/" + e.p.Name() }
 
-// Close implements the node's executor.
-func (e *Executor) Close() error { return nil }
+// Close implements the node's executor. A pool's waiting sandboxes are deleted: nothing would
+// take them before the node is back, and they cost what any sandbox costs.
+func (e *Executor) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	e.pool.close(ctx)
+	return nil
+}
+
+// PoolReady is how many pooled sandboxes are ready right now.
+func (e *Executor) PoolReady() int { return e.pool.size() }
 
 // PruneImages implements the node's executor.
 func (e *Executor) PruneImages(context.Context, docker.PruneRequest) ([]docker.ImageRecord, error) {
@@ -237,35 +252,8 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 	}
 	creq.Key = req.LeaseID
 	creq.Registry = registryFor(creq.Image, req.Registries)
-	id, err := e.p.Create(ctx, creq)
+	id, err := e.sandboxFor(ctx, t, em, strategy, caps, creq)
 	if err != nil {
-		return docker.Result{}, fmt.Errorf("create sandbox: %w", err)
-	}
-	token, err := randomToken()
-	if err != nil {
-		return docker.Result{}, err
-	}
-	t.mu.Lock()
-	t.rec.SandboxID, t.rec.Token = id, token
-	t.mu.Unlock()
-	if err := e.save(t); err != nil {
-		return docker.Result{}, err
-	}
-	em.emit(docker.KindSandbox, docker.SandboxPayload{Provider: e.p.Name(), ID: id})
-	if err := e.p.WaitReady(ctx, id); err != nil {
-		return docker.Result{}, fmt.Errorf("sandbox %s: %w", id, err)
-	}
-	if err := e.startAgent(ctx, id, token, strategy, caps); err != nil {
-		return docker.Result{}, err
-	}
-	ep, err := e.p.Expose(ctx, id, wire.AgentPort)
-	if err != nil {
-		return docker.Result{}, fmt.Errorf("expose agent: %w", err)
-	}
-	t.mu.Lock()
-	t.rec.URL, t.rec.Header, t.rec.Cookies = ep.URL, ep.Header, cookieMap(ep.Cookies)
-	t.mu.Unlock()
-	if err := e.save(t); err != nil {
 		return docker.Result{}, err
 	}
 
@@ -301,6 +289,62 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 		}
 	}
 	return res, err
+}
+
+// sandboxFor is the task's sandbox with its agent running and reachable: one from the pool
+// when the task's shape is the pool's, else one made now. Either way it is recorded before
+// anything that could leave it behind.
+func (e *Executor) sandboxFor(
+	ctx context.Context, t *task, em *emitter, strategy string, caps sandbox.Capabilities, creq sandbox.CreateRequest,
+) (string, error) {
+	if sb, ok := e.pool.take(strategy, creq); ok {
+		t.mu.Lock()
+		t.rec.SandboxID, t.rec.Token = sb.ID, sb.Token
+		t.rec.URL, t.rec.Header, t.rec.Cookies = sb.URL, sb.Header, sb.Cookies
+		t.mu.Unlock()
+		if err := e.save(t); err != nil {
+			return "", err
+		}
+		em.emit(docker.KindSandbox, docker.SandboxPayload{Provider: e.p.Name(), ID: sb.ID})
+		// It was made to wait, not to run this task: it gets the task's own lifetime.
+		if err := e.p.ExtendTTL(ctx, sb.ID, creq.TTL); err != nil {
+			e.log.Warn("giving a pooled sandbox its task's lifetime failed", "task", t.rec.TaskID, "error", err)
+		}
+		e.log.Info("task took a pooled sandbox", "task", t.rec.TaskID, "sandbox", sb.ID)
+		return sb.ID, nil
+	}
+	id, err := e.p.Create(ctx, creq)
+	if err != nil {
+		return "", fmt.Errorf("create sandbox: %w", err)
+	}
+	token, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	t.mu.Lock()
+	t.rec.SandboxID, t.rec.Token = id, token
+	t.mu.Unlock()
+	if err := e.save(t); err != nil {
+		return "", err
+	}
+	em.emit(docker.KindSandbox, docker.SandboxPayload{Provider: e.p.Name(), ID: id})
+	if err := e.p.WaitReady(ctx, id); err != nil {
+		return "", fmt.Errorf("sandbox %s: %w", id, err)
+	}
+	if err := e.startAgent(ctx, id, token, strategy, caps); err != nil {
+		return "", err
+	}
+	ep, err := e.p.Expose(ctx, id, wire.AgentPort)
+	if err != nil {
+		return "", fmt.Errorf("expose agent: %w", err)
+	}
+	t.mu.Lock()
+	t.rec.URL, t.rec.Header, t.rec.Cookies = ep.URL, ep.Header, cookieMap(ep.Cookies)
+	t.mu.Unlock()
+	if err := e.save(t); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // startAgent installs the agent and starts it detached. The token goes in a file the agent
@@ -452,7 +496,13 @@ func (e *Executor) AccountLimit() int32 {
 			}
 		}()
 	}
-	return e.limit.Load()
+	limit := e.limit.Load()
+	if limit > 0 && e.pool != nil {
+		// The pool's sandboxes count against the account and run no task, so the
+		// scheduler's room for tasks is what is left after them.
+		limit = max(limit-int32(e.pool.opts.Size), 0)
+	}
+	return limit
 }
 
 // ListOwned is every task this node recorded a sandbox for.

@@ -141,6 +141,28 @@ Build a snapshot from a sandbox that was itself created with `noEnv` (`boat new 
 no account credential is baked into its disk, then `boat snapshot <id> <name>`. A task names it
 with `sandbox: {snapshot: <name>}`.
 
+### A pool of ready sandboxes
+
+Making a sandbox, waiting for it, starting the agent and exposing its port is most of what a
+short task waits for. A node can keep a few ready:
+
+```yaml
+sandbox:
+  provider: modal
+  pool_size: 2                                              # PODIUM_NODE_SANDBOX_POOL_SIZE
+  pool_image: ghcr.io/podium-ade/podium-agent-runtime:1.4.0 # PODIUM_NODE_SANDBOX_POOL_IMAGE
+```
+
+A task whose sandbox would be exactly the pool's shape — the pool's image (or the template, on a
+provider that boots none), the default size, no per-task overrides, no exposed ports — takes a
+ready one and goes straight to its run; the pool makes a replacement. Anything else is made the
+ordinary way. Point `pool_image` at the assistant's image and conversations placed on this
+provider skip the sandbox's boot.
+
+A pooled sandbox costs what any sandbox costs while it waits, and counts against the account:
+the node reports its limit less the pool's size, so the scheduler leaves room for it. The pool is
+deleted when the node stops, and a node that died with one deletes it when it starts again.
+
 ## What the Nodes screen shows
 
 One row per sandbox node, not per sandbox: its running tasks against `max_tasks`, its labels,
