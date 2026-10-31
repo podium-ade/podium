@@ -3,7 +3,7 @@
 // having.
 
 import { ArtifactsDir, ChatTitleName } from "./artifacts.js";
-import { onHost, type SourceKind, type TurnBrief } from "./brief.js";
+import { isAssistant, onHost, type SourceKind, type TurnBrief } from "./brief.js";
 import { WorkspaceDir, artifactsUnder, workspaceOf } from "./repos.js";
 import { TitleServer, TitleTool, titleByTool } from "./title.js";
 
@@ -25,19 +25,19 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   const sections = [
     brief.profile.system_prompt,
     brief.playbook.system_prompt,
-    onHost(brief) ? hostBlock(brief) : runtimeBlock(brief),
+    isAssistant(brief) ? hostBlock(brief) : runtimeBlock(brief),
     channelBlock(brief),
   ];
   if (brief.delegation) {
     sections.push(delegationBlock(brief));
   }
-  if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
+  if (isAssistant(brief) && brief.source.kind === "slack" && brief.delegation) {
     sections.push(slackPlaybookBlock(brief));
   }
-  if (onHost(brief) && brief.source.kind === "github") {
+  if (isAssistant(brief) && brief.source.kind === "github") {
     sections.push(pullRequestBlock(brief));
   }
-  if (!onHost(brief) && brief.source.kind === "github" && !brief.playbook.github) {
+  if (!isAssistant(brief) && brief.source.kind === "github" && !brief.playbook.github) {
     sections.push(pullRequestTaskBlock());
   }
   if (titledConversation(brief) && firstChatTurn(brief)) {
@@ -112,9 +112,15 @@ function hostBlock(brief: TurnBrief): string {
       : "";
   return `# This turn
 
-You are ${brief.profile.display_name}, answering one message of ${where}. You are running in
+You are ${brief.profile.display_name}, answering one message of ${where}. ${
+    onHost(brief)
+      ? `You are running in
 the conductor's own process — NOT in a container — which is why this turn is fast and why it
-can do so little by itself.
+can do so little by itself.`
+      : `You are running in a
+small sandbox of your own with no repository checked out, which is why this turn is fast and
+why it can do so little by itself.`
+  }
 
 What you have here: this conversation, your memory if one is configured, the ability to fetch
 a URL${reach}, and the delegation tools below. What you do NOT have: a shell, a filesystem you should

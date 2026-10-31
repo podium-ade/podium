@@ -412,3 +412,49 @@ func TestLoggingAConfigLeaksNoAppKey(t *testing.T) {
 	assert.Contains(t, out, "github_app_key_set=true")
 	assert.Contains(t, out, "github_app_id=123456")
 }
+
+// The assistant's placement is checked for what can be decided here: its spelling, a host
+// placement on a conductor with no host runtime, and a task placement with no way back.
+func TestAssistantPlacementValidation(t *testing.T) {
+	inTask := func(t *testing.T) Config {
+		cfg := valid(t)
+		cfg.Listen = "0.0.0.0:8090"
+		cfg.TaskURL = DefaultTaskURL
+		cfg.AssistantRunsOn = "modal"
+		return cfg
+	}
+	require.NoError(t, inTask(t).Validate())
+
+	nodes := inTask(t)
+	nodes.AssistantRunsOn = "nodes"
+	require.NoError(t, nodes.Validate())
+
+	surface := inTask(t)
+	surface.Listen = DefaultListen
+	surface.SurfaceListen = "0.0.0.0:8091"
+	surface.SandboxURL = "https://surface.example.ts.net"
+	require.NoError(t, surface.Validate(), "a loopback operator API is fine beside a surface listener")
+
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		{"host with no host runtime", func(c *Config) { c.AssistantRunsOn = "host" }, "PODIUM_AGENT_HOST_RUNTIME"},
+		{"a placement that is not a name", func(c *Config) { c.AssistantRunsOn = "modal, boat" }, "PODIUM_AGENT_ASSISTANT_RUNS_ON"},
+		{"no task url", func(c *Config) { c.TaskURL = "" }, "PODIUM_AGENT_TASK_URL"},
+		{"loopback and no surface", func(c *Config) { c.Listen = DefaultListen }, "PODIUM_AGENT_SURFACE_LISTEN"},
+		{"relative sandbox url", func(c *Config) { c.SandboxURL = "surface:8091" }, "PODIUM_AGENT_SANDBOX_URL"},
+		{"surface that is not host:port", func(c *Config) { c.SurfaceListen = "8091" }, "PODIUM_AGENT_SURFACE_LISTEN"},
+		{"surface on the api's own address", func(c *Config) { c.SurfaceListen = c.Listen }, "must differ"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := inTask(t)
+			tc.mut(&cfg)
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}

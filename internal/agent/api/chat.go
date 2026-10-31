@@ -46,6 +46,14 @@ type TurnStopper interface {
 	CancelDelegationsForRef(ctx context.Context, ref, reason string) (int, error)
 }
 
+// AssistantPlacer is the conductor's answer to where the assistant runs: what the next turn
+// will use, what that falls back to without a saved choice, and whether this host can run it.
+type AssistantPlacer interface {
+	AssistantPlacement(ctx context.Context) string
+	AssistantDefault() string
+	HostAvailable() bool
+}
+
 // TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
 // the node gets SIGTERM and up to 30s, and nothing here waits.
 type TaskCanceller interface {

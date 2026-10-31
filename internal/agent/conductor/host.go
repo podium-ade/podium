@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -175,6 +176,21 @@ type HostRuntime struct {
 	// reaches it. A turn on a pull request gets it, authenticated with its own token. Empty
 	// leaves it out.
 	PullRequestMCPURL string
+	// Isolation is how a host turn is fenced from this machine and from every other turn:
+	// IsolationNone, the default, or IsolationBwrap. See isolation.go.
+	Isolation string
+	// Bwrap is the bubblewrap binary, "bwrap" if empty.
+	Bwrap string
+	// MemoryMax caps one turn's memory, in systemd's syntax ("1G", "768M"). Empty is no cap.
+	// It runs the turn in a transient systemd scope of its own, so a turn that balloons is
+	// killed alone rather than taking the conductor with it.
+	MemoryMax string
+	// SystemdRun is systemd-run, "systemd-run" if empty. Only read with MemoryMax set.
+	SystemdRun string
+	// Warm is how long a host turn stays up after it answers, for the next message of its
+	// conversation. Zero leaves as soon as the turn ends. A warm turn holds its slot while it
+	// waits, and gives it up to a turn that has work: see hostwarm.go.
+	Warm time.Duration
 }
 
 // validate reports what is missing, naming the environment variable that supplies it.
@@ -187,7 +203,7 @@ func (h *HostRuntime) validate() error {
 	case h.Credential == nil:
 		return errors.New("conductor: a host runtime needs a credential source")
 	}
-	return nil
+	return ValidateIsolation(h.Isolation, h.Bwrap)
 }
 
 // node is the binary that runs the runtime.
@@ -293,6 +309,11 @@ func (h *hostRun) run(ctx context.Context) {
 	r := h.r
 	c := r.c
 
+	// A host turn has no task for another conductor to find it by. Its lease is how a
+	// restart elsewhere tells it from one that died.
+	c.acquire(ctx, turnLease(r.turn.ID))
+	defer c.release(ctx, turnLease(r.turn.ID))
+
 	jail, err := hostJail(c.host.StateDir, r.turn.ID)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "preparing a host turn's directory failed",
@@ -347,7 +368,29 @@ func (h *hostRun) run(ctx context.Context) {
 	// and, by default, no step cap. It is the same context, so a turn that runs out of time
 	// is stopped exactly as a cancelled one is — SIGTERM, then hostGrace to say what it
 	// managed — and only the sentence afterwards differs.
-	runCtx, cancel := context.WithTimeout(ctx, r.job.assistantTimeout())
+	// A warm turn's inbox, in its jail, before the runtime starts so it never dials a socket
+	// that is not there yet. Without one the turn exits as soon as it has answered.
+	limit := r.job.assistantTimeout()
+	var inbox *hostInbox
+	if c.host.Warm > 0 {
+		if inbox, err = listenHostInbox(jail); err != nil {
+			c.logger.WarnContext(ctx, "opening a host turn's inbox failed; it will not stay warm",
+				"turn_id", r.turn.ID, "error", err)
+			inbox = nil
+		} else {
+			defer func() {
+				c.clearHostWarm(r.sess.ID, inbox)
+				inbox.close()
+			}()
+			env = append(env,
+				hostInboxSockEnv+"="+inbox.path,
+				hostWarmSecondsEnv+"="+strconv.Itoa(int(c.host.Warm.Round(time.Second).Seconds())))
+			// The wall clock bounds the work, not the wait: a turn that answered in a minute
+			// and then waited its window out has not run out of time.
+			limit += c.host.Warm
+		}
+	}
+	runCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
 	// The turn's authority to delegate, for exactly as long as the turn. Revoked below
@@ -357,13 +400,22 @@ func (h *hostRun) run(ctx context.Context) {
 		defer c.revokeTurnToken(h.token)
 	}
 
-	cmd := exec.CommandContext(runCtx, c.host.node(), c.host.Entry)
+	name, args := c.host.command(jail)
+	cmd := exec.CommandContext(runCtx, name, args...)
 	cmd.Dir = jail.work
 	cmd.Env = env
 	// SIGTERM and not a kill: the runtime forwards it to the harness, which is what lets a
 	// cancelled turn still say what it managed. WaitDelay is the backstop for a child that
 	// ignores it.
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	if c.host.isolated() {
+		// Inside a sandbox the runtime is not this process's child but bwrap's, and bwrap is
+		// the init of a PID namespace of its own, which ignores a SIGTERM from outside. So the
+		// turn gets a process group, and the signal goes to the group: the runtime still hears
+		// it directly and still says what it managed.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	}
 	cmd.WaitDelay = hostGrace
 	// The harness's own diagnostics. They are the only trace a host turn leaves — there is
 	// no task log to read afterwards — so they go to this process's log.
@@ -419,7 +471,12 @@ func (h *hostRun) run(ctx context.Context) {
 			r.readAccounting(ctx, acctFromMessage, []byte(ev.Text))
 			continue
 		}
+		r.noteFirstMessage()
 		r.deliver(ctx, ev.Type, ev.Text, ev.Attachments)
+		if inbox != nil && ev.Type == OutFinal {
+			// Answered, and still up: the conversation's next message is written into it.
+			c.setHostWarm(r.sess.ID, inbox)
+		}
 	}
 
 	waitErr := <-waited
@@ -871,6 +928,9 @@ func (c *Conductor) acquireHostSlot(ctx context.Context) (func(), bool) {
 	default:
 	}
 	c.metrics.HostTurnsQueued.Inc()
+	// A conversation that is only waiting for its next message gives its slot to one that
+	// has work. The slot frees once that turn has exited, which the select below waits for.
+	c.evictIdleHost()
 	select {
 	case c.hostSlots <- struct{}{}:
 		return func() { <-c.hostSlots }, true

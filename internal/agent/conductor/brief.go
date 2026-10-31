@@ -93,6 +93,12 @@ type Brief struct {
 	// prompt tells a container turn it has a disposable filesystem and may leave files to
 	// be attached, and both of those are false on a host.
 	RunsOn string `json:"runs_on,omitempty"`
+	// Assistant is true for the assistant running in a task of its own, on the fleet's
+	// nodes or a sandbox provider. RunsOn says where the process is and this says what the
+	// turn is: an assistant task has a container and an inbox like any task, and the
+	// assistant's prompt, tools and delegation menu like a host turn. Absent everywhere
+	// else, a host turn included: RunsOnHost already says it is the assistant.
+	Assistant bool `json:"assistant,omitempty"`
 }
 
 // RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a

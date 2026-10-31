@@ -8,14 +8,14 @@
 //   3  max turns reached
 //   4  harness or API error, a missing key, a failed clone, a network failure
 
-import { mkdtempSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { activityOf } from "./activity.js";
-import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
+import { ArtifactsDir, ChatTitleName, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
 import {
   AskHub,
@@ -338,9 +338,12 @@ async function main(): Promise<number> {
   const stopHub = hub.listen(askPath);
   env[AskWaitEnv] = askPath;
 
-  const inboxIter = onHost(brief)
-    ? undefined
-    : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
+  // A task always has an inbox. A host turn has one only when the conductor kept it warm and
+  // put the socket in its jail; without one there is nothing to read and nothing to wait for.
+  const inboxIter =
+    onHost(brief) && !process.env[InboxSockEnv]
+      ? undefined
+      : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
   let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
 
   let steps = 0;
@@ -348,6 +351,7 @@ async function main(): Promise<number> {
   let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
+  let titleSent = false;
   try {
     for (;;) {
       const run = oc.start({
@@ -533,6 +537,15 @@ async function main(): Promise<number> {
       // so the node can tar the workspace.
       const warmMs = warmMillis(process.env);
       if (warmMs > 0 && !cancelled && summary.code === ExitOK && inboxIter) {
+        // The chat's title is an artifact, and a task's artifacts are collected when it exits —
+        // which a warm turn does minutes from now. So it goes up now, before the answer, and the
+        // conversation is named while the person is still reading it.
+        if (!titleSent && !onHost(brief) && env[TitleFileEnv] && existsSync(env[TitleFileEnv])) {
+          titleSent = true;
+          await invoke(["artifact", "add", env[TitleFileEnv], "--name", ChatTitleName], "").catch((err: unknown) =>
+            warn(`could not upload the chat title early: ${messageOf(err)}`),
+          );
+        }
         await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
         const waited = await nextInboxLine(() => inboxIter.next(), pendingInject, warmMs, controller.signal);
         pendingInject = waited.pending;

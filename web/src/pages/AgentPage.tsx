@@ -14,6 +14,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { AssistantRunsOnSettings } from "../components/agent/AssistantRunsOnSettings";
 import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
@@ -179,7 +180,7 @@ const SETTINGS_SECTIONS: {
   {
     id: "runs-on",
     title: "Backend",
-    lead: "Where your assistants do their work when a playbook doesn't say: on your own nodes, or in a cloud sandbox.",
+    lead: "Where the assistant answers conversations, and where playbooks do their work when they don't say: this conductor, your own nodes, or a cloud sandbox.",
     show: (v) => Boolean(v?.agentEnabled),
   },
   // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
@@ -236,7 +237,14 @@ function SettingsTab() {
             </>
           ) : null}
           {current === "users" ? <UsersPage /> : null}
-          {current === "runs-on" ? <RunsOnSettings /> : null}
+          {current === "runs-on" ? (
+            <>
+              <AssistantRunsOnSettings />
+              <hr className="border-border" />
+              <h2 className="text-sm font-semibold">Where playbooks run</h2>
+              <RunsOnSettings />
+            </>
+          ) : null}
           {current === "connections" ? <ConnectionsPanel /> : null}
           {current === "models" ? <ModelsPanel /> : null}
         </div>

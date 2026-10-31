@@ -584,6 +584,21 @@ Give each server its own `PODIUM_SERVER_ID` if two would share a host name and l
 the default is `<hostname>/<listen>`. Put them behind one address for the CLI, the UI and the
 conductor, and let nodes dial whichever they reach.
 
+### Two conductors on one database
+
+Supported. Each conductor leases the work it does — a session's turns, a delegated task, polling
+Linear — and a conductor that stops renewing has its work adopted by another within about a
+minute. Give each its own `PODIUM_AGENT_REPLICA_ID` if two would share a host name and a listen
+address; the default is `<hostname>/<listen>`. See [agent.md](agent.md#more-than-one-conductor).
+
+A conversation answered on one conductor's **host** is only reachable through that conductor
+while its turn runs. Place the assistant on nodes or a sandbox provider to make every
+conversation reachable from every conductor.
+
+To scale conversations past one machine without a second conductor, move the assistant off it:
+**Backend → Where the assistant runs**. A conductor with the assistant on a provider only routes,
+and a few hundred conversations at once are a few hundred event streams to it.
+
 ---
 
 ## Tuning

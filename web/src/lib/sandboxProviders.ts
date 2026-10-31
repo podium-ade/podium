@@ -35,6 +35,9 @@ export const MODAL_RUNTIMES = ["gvisor", "vm"];
 /** RUNS_ON_NODES is where a turn runs on this fleet's own machines. */
 export const RUNS_ON_NODES = "nodes";
 
+/** RUNS_ON_HOST is where the assistant runs in the conductor's own process. Never a playbook's. */
+export const RUNS_ON_HOST = "host";
+
 export const SANDBOX_PROVIDERS: ProviderSpec[] = [
   {
     name: "boat",
