@@ -69,6 +69,17 @@ type turnRun struct {
 	// warm is set when this task stays up after it answers. The next message in the
 	// session is injected into it until the task exits.
 	warm bool
+	// spoke is set once the turn has said anything, so its first word is timed once.
+	spoke bool
+}
+
+// noteFirstMessage times the turn's first word, once: the boot a person waited through.
+func (r *turnRun) noteFirstMessage() {
+	if r.spoke || r.startedAt.IsZero() {
+		return
+	}
+	r.spoke = true
+	r.c.metrics.TurnFirstMessage.WithLabelValues(r.job.placement()).Observe(time.Since(r.startedAt).Seconds())
 }
 
 // run relays the task's messages and then records how the turn ended.
@@ -262,6 +273,7 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			r.readAccounting(ctx, acctFromMessage, []byte(msg.GetText()))
 			return
 		}
+		r.noteFirstMessage()
 		r.relay(ctx, e)
 		if msg := e.GetMessage(); msg != nil {
 			r.noteInteractive(ctx, msg.GetType())

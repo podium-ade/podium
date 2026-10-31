@@ -84,14 +84,21 @@ type turnGrant struct {
 	login string
 }
 
-// mintTurnToken issues a token for one host turn. It lives until revokeTurnToken, which
-// host.go calls when the turn ends — a turn's authority does not outlive the turn.
+// mintTurnToken issues a token for one assistant turn. It lives until revokeTurnToken, which
+// the turn calls when it ends — a turn's authority does not outlive the turn.
+//
+// With a mint secret the token is SIGNED (turntoken.go): this process still remembers it, and
+// another conductor, or this one after a restart, can verify it too and check the turn is still
+// running. Without one it is 32 random bytes this process alone knows.
 func (c *Conductor) mintTurnToken(g turnGrant) (string, error) {
 	raw := make([]byte, turnTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("conductor: minting a turn token failed: %w", err)
 	}
 	token := hex.EncodeToString(raw)
+	if c.mintSecret != "" {
+		token = c.signTurnToken(token, g)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.turnTokens == nil {
@@ -108,7 +115,7 @@ const PullRequestMCPName = mcp.ReservedPullRequest
 // TurnPullRequest is the pull request a live turn token's conversation is, as its source key.
 // False for a token that names no live turn, and for a turn that is not on a pull request.
 func (c *Conductor) TurnPullRequest(ctx context.Context, token string) (string, bool) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return "", false
 	}
@@ -125,11 +132,19 @@ func (c *Conductor) revokeTurnToken(token string) {
 	delete(c.turnTokens, token)
 }
 
-func (c *Conductor) grantFor(token string) (turnGrant, bool) {
+// grantFor is what a token may do. A token this process minted and has not revoked is
+// answered from memory. Any other is answered only if it is signed by this deployment and its
+// turn is still running — which is how a turn survives a restart of the conductor that started
+// it, and how a second conductor serves a turn the first one started. The turn's own status is
+// the revocation list: a finished turn's token is refused everywhere at once.
+func (c *Conductor) grantFor(ctx context.Context, token string) (turnGrant, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	g, ok := c.turnTokens[token]
-	return g, ok
+	c.mu.Unlock()
+	if ok {
+		return g, true
+	}
+	return c.verifyTurnToken(ctx, token)
 }
 
 // DelegablePlaybooks is the menu a host turn is shown, and therefore the only playbooks it
@@ -231,7 +246,7 @@ type DelegateOptions struct {
 func (c *Conductor) Delegate(
 	ctx context.Context, token, playbookName, instruction string, opts DelegateOptions,
 ) (store.Delegation, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return store.Delegation{}, ErrNoTurn
 	}
@@ -736,6 +751,9 @@ func (c *Conductor) followDelegation(
 	// cancelled as soon as the response is written, whereas the task being followed here
 	// runs for as long as it runs. See Conductor.background.
 	runCtx := c.background()
+	// Followed here, and nowhere else while this conductor lives: a second conductor adopts it
+	// only once this one stops renewing.
+	c.acquire(runCtx, store.DelegationLease(dlg.ID))
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -743,6 +761,9 @@ func (c *Conductor) followDelegation(
 			c.mu.Lock()
 			delete(c.liveDelegations, dlg.ID)
 			c.mu.Unlock()
+			if runCtx.Err() == nil {
+				c.release(runCtx, store.DelegationLease(dlg.ID))
+			}
 		}()
 		run.run(runCtx)
 	}()
@@ -752,7 +773,7 @@ func (c *Conductor) followDelegation(
 // A turn may ask about work of this conversation, including a task an earlier turn started
 // that is still running — that is how a follow-up injects into it.
 func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return store.Delegation{}, "", ErrNoTurn
 	}
@@ -774,7 +795,7 @@ func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.
 // Delegations is this conversation's delegated tasks: everything this turn has started,
 // plus any still running from an earlier turn of the same conversation, oldest first.
 func (c *Conductor) Delegations(ctx context.Context, token string) ([]store.Delegation, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return nil, ErrNoTurn
 	}
@@ -1107,7 +1128,7 @@ func (r *delegationRun) progressText() string {
 // recoverDelegations resumes following every delegated task that was in flight when this
 // process stopped. A delegation's task runs on a NODE and does not care that the conductor
 // died, so the alternative to this is a container finishing work nobody is listening for.
-func (c *Conductor) recoverDelegations(ctx context.Context) {
+func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 	running, err := c.store.RunningDelegations(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "reading the delegations that were in flight failed", "error", err)
@@ -1122,6 +1143,18 @@ func (c *Conductor) recoverDelegations(ctx context.Context) {
 			continue
 		}
 		src := c.sourceOf(sess.SourceKind)
+		c.mu.Lock()
+		_, following := c.liveDelegations[dlg.ID]
+		c.mu.Unlock()
+		if following || (dlg.TaskID == "" && !startup) {
+			// Followed here already; or not started yet, which only the conductor that
+			// recorded it can tell apart from one that never will be.
+			continue
+		}
+		if !c.acquire(ctx, store.DelegationLease(dlg.ID)) {
+			// Another conductor is following it.
+			continue
+		}
 		if dlg.TaskID == "" {
 			// Recorded, and its task never was. Nothing is running.
 			c.logger.WarnContext(ctx, "a delegation was recorded but its task never was; failing it",
@@ -1130,6 +1163,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context) {
 				c.logger.ErrorContext(ctx, "failing an orphaned delegation failed",
 					"delegation_id", dlg.ID, "error", err)
 			}
+			c.release(ctx, store.DelegationLease(dlg.ID))
 			continue
 		}
 		if src == nil {

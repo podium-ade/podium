@@ -338,9 +338,12 @@ async function main(): Promise<number> {
   const stopHub = hub.listen(askPath);
   env[AskWaitEnv] = askPath;
 
-  const inboxIter = onHost(brief)
-    ? undefined
-    : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
+  // A task always has an inbox. A host turn has one only when the conductor kept it warm and
+  // put the socket in its jail; without one there is nothing to read and nothing to wait for.
+  const inboxIter =
+    onHost(brief) && !process.env[InboxSockEnv]
+      ? undefined
+      : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
   let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
 
   let steps = 0;

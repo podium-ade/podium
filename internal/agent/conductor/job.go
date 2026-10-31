@@ -129,3 +129,12 @@ func (j job) assistantTimeout() time.Duration {
 	}
 	return profiles.DefaultAssistantTimeout.Std()
 }
+
+// placement names where this job's turn runs, for a metric: "host" for the assistant, or
+// "playbook" for a playbook's task.
+func (j job) placement() string {
+	if j.onHost {
+		return profiles.RunsOnHost
+	}
+	return "playbook"
+}

@@ -169,6 +169,8 @@ func startWith(
 		Profiles: profiles.NewLive(testProfile(t)),
 		Sources:  []conductor.Source{src},
 		Logger:   quietLogger(),
+		// One replica, restarted: what a conductor is to its own leases across a restart.
+		ReplicaID: "test-conductor",
 	}
 	if tweak != nil {
 		tweak(&opts)

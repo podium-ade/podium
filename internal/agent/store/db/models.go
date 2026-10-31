@@ -165,3 +165,11 @@ type Turn struct {
 	Effort     *string
 	Provider   *string
 }
+
+type WorkLease struct {
+	Key        string
+	Owner      string
+	ExpiresAt  time.Time
+	Pending    []byte
+	WarmTaskID string
+}

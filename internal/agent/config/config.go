@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -274,6 +275,35 @@ type Config struct {
 	// credential helper calls to mint a token. See docs/security.md: it makes one narrow,
 	// turn-authenticated method reachable from a task, where before nothing was.
 	TaskURL string
+	// HostIsolation is PODIUM_AGENT_HOST_ISOLATION: how a host turn is fenced from this
+	// machine and from other turns. Empty is none; "bwrap" runs each turn in a bubblewrap
+	// sandbox of its own. See internal/agent/conductor/isolation.go.
+	HostIsolation string
+	// HostBwrap is PODIUM_AGENT_HOST_BWRAP: the bubblewrap binary. Empty means bwrap on PATH.
+	HostBwrap string
+	// HostMemoryMax is PODIUM_AGENT_HOST_MEMORY_MAX: one host turn's memory ceiling in
+	// systemd's syntax ("1G"). Empty is none. Set, each turn runs in a transient user scope.
+	HostMemoryMax string
+	// HostWarm is PODIUM_AGENT_HOST_WARM: how long a host turn stays up after it answers,
+	// for the next message of its conversation. Zero, the default, exits as soon as the turn
+	// ends. A warm turn holds a host slot while it waits and gives it up to a turn with work.
+	HostWarm time.Duration
+	// ReplicaID is PODIUM_AGENT_REPLICA_ID: this conductor's identity among the conductors
+	// that share its database, which its leases on sessions and delegations are held under.
+	// Default ReplicaIDFor(hostname, Listen): stable across this conductor's restarts, so it
+	// picks its own work up at once, and different for each conductor on its own host and
+	// port. Set it when two conductors would otherwise share both.
+	ReplicaID string
+	// SandboxURL is PODIUM_AGENT_SANDBOX_URL: this conductor's turn surface as a cloud
+	// SANDBOX reaches it — a third vantage point, after Listen and TaskURL, because a sandbox
+	// is on nobody's Docker network. Empty means TaskURL. Point it at SurfaceListen through
+	// whatever exposes that listener (a Funnel, a tunnel).
+	SandboxURL string
+	// SurfaceListen is PODIUM_AGENT_SURFACE_LISTEN: an optional second listener serving the
+	// turn surface and nothing else — TurnService, the pull-request MCP server and the git
+	// credential minting endpoint, each authenticated by the turn's own token or capability.
+	// It is the one to expose to sandboxes: the operator API is not on it. Empty means none.
+	SurfaceListen string
 	// DevSource is PODIUM_AGENT_DEV_SOURCE. TEST ONLY: it mounts an in-process source and
 	// two unauthenticated-by-anything-but-the-bearer routes that inject inbound events.
 	DevSource bool
@@ -317,6 +347,13 @@ func FromEnv() Config {
 		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
 		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
 		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
+		HostIsolation:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
+		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
+		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
+		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
+		ReplicaID:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
+		SandboxURL:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
+		SurfaceListen:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
 		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
@@ -426,6 +463,9 @@ func (c Config) Validate() error {
 	if err := c.validateGitHubSource(); err != nil {
 		return err
 	}
+	if err := c.validateHostAndSurface(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -512,6 +552,12 @@ func (c Config) LogValue() slog.Value {
 		slog.String("github_app_key_file", c.GitHubAppKeyFile),
 		slog.Bool("github_app_key_set", c.GitHubAppKey != ""),
 		slog.String("task_url", c.TaskURL),
+		slog.String("host_isolation", c.HostIsolation),
+		slog.String("host_memory_max", c.HostMemoryMax),
+		slog.Duration("host_warm", c.HostWarm),
+		slog.String("replica_id", c.Replica()),
+		slog.String("sandbox_url", c.SandboxURL),
+		slog.String("surface_listen", c.SurfaceListen),
 		slog.Bool("dev_source", c.DevSource),
 	)
 }
@@ -764,4 +810,64 @@ func envInt(key string) int {
 func envBool(key string) bool {
 	v, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && v
+}
+
+// validateHostAndSurface checks how host turns are fenced and how a turn off this host — a
+// playbook's task on a node or in a sandbox — gets back to the turn surface.
+func (c Config) validateHostAndSurface() error {
+	switch c.HostIsolation {
+	case "", "none":
+	case "bwrap":
+		bin := c.HostBwrap
+		if bin == "" {
+			bin = "bwrap"
+		}
+		if _, err := exec.LookPath(bin); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_HOST_ISOLATION=bwrap needs bubblewrap (PODIUM_AGENT_HOST_BWRAP=%q): %w", c.HostBwrap, err)
+		}
+	default:
+		return fmt.Errorf("PODIUM_AGENT_HOST_ISOLATION=%q is not \"bwrap\" or empty", c.HostIsolation)
+	}
+	if c.HostWarm < 0 {
+		return errors.New("PODIUM_AGENT_HOST_WARM must not be negative; 0s turns the warm window off")
+	}
+	if c.HostMemoryMax != "" && !memoryMaxRE.MatchString(c.HostMemoryMax) {
+		return fmt.Errorf("PODIUM_AGENT_HOST_MEMORY_MAX=%q is not a size systemd reads, like 1G or 768M", c.HostMemoryMax)
+	}
+	if c.SandboxURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_SANDBOX_URL", c.SandboxURL); err != nil {
+			return err
+		}
+	}
+	if c.SurfaceListen != "" {
+		if _, _, err := net.SplitHostPort(c.SurfaceListen); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_SURFACE_LISTEN=%q is not host:port: %w", c.SurfaceListen, err)
+		}
+		if c.SurfaceListen == c.Listen {
+			return errors.New("PODIUM_AGENT_SURFACE_LISTEN must differ from PODIUM_AGENT_LISTEN: " +
+				"the surface listener exists to serve the turn surface WITHOUT the operator API")
+		}
+	}
+	return nil
+}
+
+// memoryMaxRE is a systemd byte size: digits with an optional K, M, G or T.
+var memoryMaxRE = regexp.MustCompile(`^[0-9]+[KMGT]?$`)
+
+// Replica is this conductor's replica id: PODIUM_AGENT_REPLICA_ID, or one made from this host's
+// name and the listen address.
+func (c Config) Replica() string {
+	if c.ReplicaID != "" {
+		return c.ReplicaID
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "localhost"
+	}
+	return ReplicaIDFor(host, c.Listen)
+}
+
+// ReplicaIDFor is the default replica id of a conductor on host listening on listen.
+func ReplicaIDFor(host, listen string) string {
+	return host + "/" + listen
 }
