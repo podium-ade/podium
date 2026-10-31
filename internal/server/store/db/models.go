@@ -61,6 +61,14 @@ type Node struct {
 	TsStableID       *string
 	Draining         bool
 	MaxTasksOverride *int32
+	SessionServer    string
+}
+
+type NodeCommand struct {
+	ID        int64
+	NodeID    string
+	Payload   []byte
+	CreatedAt time.Time
 }
 
 type Preview struct {

@@ -41,6 +41,13 @@ func (s *Service) sweep(ctx context.Context) {
 
 	for _, task := range tasks {
 		_, connected := live[task.NodeID]
+		if !connected && task.NodeID != "" && s.nodes.ServerID() != "" {
+			// Connected to another server is connected: its node is working, and the cancel
+			// sent below is relayed to it.
+			if node, err := s.nodeRow(ctx, task.NodeID, nodeCache); err == nil {
+				connected = s.nodes.HeldElsewhere(node)
+			}
+		}
 		switch {
 		case task.CancelRequestedAt != nil:
 			s.chaseCancel(ctx, task, connected, now)

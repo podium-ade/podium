@@ -67,6 +67,9 @@ type Service struct {
 	sandbox SandboxResolver
 	// lastReapSweep is the watchdog's own: when it last asked for queued deletions again.
 	lastReapSweep time.Time
+	// serverID is this server's name among the servers sharing its database; empty when it is
+	// the only one. See relay.go.
+	serverID string
 }
 
 // NewService returns the node-facing service and its (empty) session registry.
@@ -236,7 +239,7 @@ func (s *Service) Assign(ctx context.Context, nodeID string, a *podiumv1.Assign,
 func (s *Service) SetDrain(ctx context.Context, nodeID string, draining bool) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("drain node %s: %w", nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdDrain, NodeID: nodeID, Draining: draining}, "drain")
 	}
 	sess.setDraining(draining)
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Drain{
@@ -261,7 +264,7 @@ func (s *Service) SetDrain(ctx context.Context, nodeID string, draining bool) er
 func (s *Service) SetSlots(ctx context.Context, nodeID string, maxTasks int32) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("set slots of node %s: %w", nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdSlots, NodeID: nodeID, MaxTasks: maxTasks}, "set slots")
 	}
 	sess.setMaxTasks(maxTasks)
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Slots{
@@ -280,7 +283,8 @@ func (s *Service) SetSlots(ctx context.Context, nodeID string, maxTasks int32) e
 func (s *Service) Cancel(ctx context.Context, nodeID, taskID, reason string) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("cancel task %s on node %s: %w", taskID, nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdCancel, NodeID: nodeID, TaskID: taskID, Reason: reason},
+			"cancel task "+taskID)
 	}
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Cancel{
 		Cancel: &podiumv1.Cancel{TaskId: taskID, Reason: reason},
@@ -296,7 +300,8 @@ func (s *Service) Cancel(ctx context.Context, nodeID, taskID, reason string) err
 func (s *Service) ReleasePreview(ctx context.Context, nodeID, taskID, reason string) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("release preview %s on node %s: %w", taskID, nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdReleasePreview, NodeID: nodeID, TaskID: taskID, Reason: reason},
+			"release preview "+taskID)
 	}
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Release{
 		Release: &podiumv1.Release{TaskId: taskID, Reason: reason},
@@ -314,7 +319,8 @@ func (s *Service) ReleasePreview(ctx context.Context, nodeID, taskID, reason str
 func (s *Service) Inject(ctx context.Context, nodeID, taskID, text string) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("inject into task %s on node %s: %w", taskID, nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdInject, NodeID: nodeID, TaskID: taskID, Text: text},
+			"inject into task "+taskID)
 	}
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Inject{
 		Inject: &podiumv1.Inject{TaskId: taskID, Text: text},
@@ -331,7 +337,7 @@ func (s *Service) Inject(ctx context.Context, nodeID, taskID, text string) error
 func (s *Service) EndWait(ctx context.Context, nodeID, taskID string) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
-		return fmt.Errorf("end the wait of task %s on node %s: %w", taskID, nodeID, ErrNoSession)
+		return s.relay(ctx, nodeCommand{Kind: cmdEndWait, NodeID: nodeID, TaskID: taskID}, "end the wait of task "+taskID)
 	}
 	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Inject{
 		Inject: &podiumv1.Inject{TaskId: taskID, EndWait: true},
