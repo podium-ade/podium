@@ -72,6 +72,7 @@ func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (exec ex
 	}
 	exec, err = sandboxexec.New(sandboxexec.Options{
 		Provider: p, DataDir: cfg.DataDir, Template: cfg.Sandbox.Template, Agent: agentbin.Linux, Logger: logger,
+		Pool: sandboxexec.PoolOptions{Size: cfg.Sandbox.PoolSize, Image: cfg.Sandbox.PoolImage},
 	})
 	return exec, swap, err
 }

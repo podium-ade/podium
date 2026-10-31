@@ -141,6 +141,14 @@ type SandboxConfig struct {
 	// that cannot boot images itself, PODIUM_NODE_SANDBOX_TEMPLATE. Empty is the
 	// provider's own base.
 	Template string `yaml:"template"`
+	// PoolSize is how many sandboxes this node keeps ready before any task asks,
+	// PODIUM_NODE_SANDBOX_POOL_SIZE. Zero, the default, is no pool. A task whose sandbox
+	// would be exactly the pool's shape takes one and skips making it. See
+	// internal/node/sandboxexec/pool.go.
+	PoolSize int `yaml:"pool_size"`
+	// PoolImage is the image pooled sandboxes boot, PODIUM_NODE_SANDBOX_POOL_IMAGE: the image
+	// the tasks it should serve run in — the assistant's, for a pool that serves the assistant.
+	PoolImage string `yaml:"pool_image"`
 	// Providers holds every other key: each provider's settings, by its name.
 	Providers map[string]map[string]any `yaml:",inline"`
 }
@@ -229,6 +237,12 @@ func applyEnv(cfg *Config) {
 	envString("PODIUM_NODE_BACKEND", &cfg.Backend)
 	envString("PODIUM_NODE_SANDBOX_PROVIDER", &cfg.Sandbox.Provider)
 	envString("PODIUM_NODE_SANDBOX_TEMPLATE", &cfg.Sandbox.Template)
+	envString("PODIUM_NODE_SANDBOX_POOL_IMAGE", &cfg.Sandbox.PoolImage)
+	if v := os.Getenv("PODIUM_NODE_SANDBOX_POOL_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Sandbox.PoolSize = n
+		}
+	}
 }
 
 func envBool(key string, dst *bool) {
@@ -285,6 +299,9 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("transport %q is not a transport (want %s, %s or %s)",
 			c.Transport, TransportLocal, TransportTailnet, TransportHost)
+	}
+	if c.Sandbox.PoolSize < 0 {
+		return fmt.Errorf("sandbox pool_size is %d; 0 is no pool", c.Sandbox.PoolSize)
 	}
 	if c.MaxTasks < 1 {
 		return fmt.Errorf("max_tasks is %d: a node with no slots never gets work; set PODIUM_NODE_MAX_TASKS to 1 or more", c.MaxTasks)
