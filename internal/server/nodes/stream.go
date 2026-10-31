@@ -62,6 +62,13 @@ func (s *Service) Stream(
 		hello.GetRunningTaskIds(), node.Draining)
 	s.reg.add(sess)
 	defer s.endSession(ctx, sess)
+	if s.serverID != "" {
+		// Before the node is marked online, so no other server ever sees it online and held
+		// by nobody.
+		if err := s.store.ClaimNodeSession(ctx, node.ID, s.serverID); err != nil {
+			s.logger.WarnContext(ctx, "recording which server holds the node failed", "node_id", node.ID, "error", err)
+		}
+	}
 
 	online := store.NodeOnline
 	if node.Draining {
@@ -249,7 +256,13 @@ func (s *Service) endSession(ctx context.Context, sess *Session) {
 	// The request context is already dead on a disconnect, and on shutdown it is cancelled.
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.store.SetNodeStatus(bg, sess.nodeID, store.NodeUnreachable); err != nil {
+	if s.serverID != "" {
+		// Only if this server still holds it: a node that reconnected to another server
+		// meanwhile is not unreachable.
+		if _, err := s.store.EndNodeSession(bg, sess.nodeID, s.serverID); err != nil {
+			s.logger.WarnContext(bg, "marking node unreachable failed", "node_id", sess.nodeID, "error", err)
+		}
+	} else if err := s.store.SetNodeStatus(bg, sess.nodeID, store.NodeUnreachable); err != nil {
 		s.logger.WarnContext(bg, "marking node unreachable failed", "node_id", sess.nodeID, "error", err)
 	}
 	s.logger.InfoContext(bg, "node stream closed", "node_id", sess.nodeID)

@@ -28,6 +28,8 @@ const (
 
 // Config is the whole of podium-server's configuration. The names are the canonical ones.
 type Config struct {
+	// ServerIDOverride is PODIUM_SERVER_ID. Empty means ServerID's default.
+	ServerIDOverride string
 	// DatabaseURL is PODIUM_DATABASE_URL. Required.
 	DatabaseURL string
 	// Transport is PODIUM_TRANSPORT: dev (default), tailnet or host.
@@ -133,7 +135,26 @@ func ConfigFromEnv() Config {
 		GoogleClientSecret:     os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_SECRET"),
 		PublicURL:              os.Getenv("PODIUM_PUBLIC_URL"),
 		PreviewMaxTTL:          envDuration("PODIUM_PREVIEW_MAX_TTL"),
+		ServerIDOverride:       strings.TrimSpace(os.Getenv("PODIUM_SERVER_ID")),
 	}
+}
+
+// ServerID is this server's name among the podium-servers sharing its database:
+// PODIUM_SERVER_ID, or this host's name and the address it listens on. It must differ between
+// servers and stay the same across one server's restarts.
+func (c Config) ServerID() string {
+	if c.ServerIDOverride != "" {
+		return c.ServerIDOverride
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "localhost"
+	}
+	listen := c.LocalListen
+	if c.Transport != TransportLocal {
+		listen = c.TSHostname
+	}
+	return host + "/" + listen
 }
 
 // envDuration is a Go duration, or zero when the variable is unset or unparseable.

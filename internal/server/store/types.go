@@ -244,6 +244,10 @@ type Node struct {
 	// they have set none. It is separate from Capacity.MaxTasks because that field is
 	// whatever the node last advertised, and every Hello overwrites it.
 	MaxTasksOverride *int32
+	// SessionServer is the podium-server holding this node's stream, empty when none is.
+	// With one server it is that server or nothing; with several it is what lets the others
+	// tell a node connected elsewhere from one that is gone.
+	SessionServer string
 }
 
 // Roles stored on users.roles. The first person to claim the instance is RoleOwner;

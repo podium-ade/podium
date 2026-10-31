@@ -106,6 +106,9 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	logSvc := logs.New(st, logger)
 	nodeSvc := nodes.NewService(st, logSvc, logger)
 	nodeSvc.SetAllowUntaggedNodes(cfg.TSAllowUntaggedNodes)
+	// Which server this is among those sharing the database: what a node's session is
+	// recorded under, and what lets another server relay a command to it.
+	nodeSvc.SetServerID(cfg.ServerID())
 	nodeSvc.SetWatchdog(nodes.Watchdog{
 		Interval:         timing.Watchdog,
 		UnreachableAfter: timing.UnreachableAfter,
@@ -516,12 +519,19 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 	go func() {
-		if err := s.logs.RunRollUp(baseCtx); err != nil && baseCtx.Err() == nil {
+		if err := s.nodes.RunRelay(baseCtx); err != nil && baseCtx.Err() == nil {
+			s.logger.ErrorContext(baseCtx, "relaying node commands between servers stopped", "error", err)
+		}
+	}()
+	// One server rolls logs up and prunes snapshots, whichever holds the lock: two would race
+	// on the same rows and objects.
+	go func() {
+		if err := s.store.RunAsLeader(baseCtx, "podium.log_rollup", s.logs.RunRollUp); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "log roll-up stopped", "error", err)
 		}
 	}()
 	go func() {
-		if err := s.snapshots.Run(baseCtx); err != nil && baseCtx.Err() == nil {
+		if err := s.store.RunAsLeader(baseCtx, "podium.snapshot_retention", s.snapshots.Run); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "workspace snapshot retention stopped", "error", err)
 		}
 	}()
