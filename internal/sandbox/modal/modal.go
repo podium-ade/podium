@@ -185,6 +185,16 @@ func sandboxName(key string) string {
 	return "podium-" + hex.EncodeToString(sum[:10])
 }
 
+// withoutEntrypoint clears an image's ENTRYPOINT. Modal runs a sandbox's command as the image's
+// entrypoint ARGUMENTS, so on an image that has one — the agent runtime's is `node main.js` —
+// the entrypoint ran instead of the keep-alive, with the keep-alive as its arguments: the
+// runtime started with no brief, said so, and exited, and the sandbox with it. A task's own
+// command is run by the agent, never by the entrypoint, so nothing is lost. Modal builds the
+// layer once per image and caches it.
+func withoutEntrypoint(img *sdk.Image) *sdk.Image {
+	return img.DockerfileCommands([]string{"ENTRYPOINT []"}, nil)
+}
+
 // dockerd starts the image's Docker engine, if it has one.
 const dockerd = "command -v dockerd >/dev/null && { dockerd >/var/log/podium-dockerd.log 2>&1 & }\n"
 
@@ -292,6 +302,9 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		img = p.c.Images.FromRegistry(req.Image, nil)
 	default:
 		img = p.c.Images.FromRegistry(cfg.Image, nil)
+	}
+	if req.Snapshot == "" {
+		img = withoutEntrypoint(img)
 	}
 	sb, err := p.c.Sandboxes.Create(ctx, app, img, params)
 	var exists sdk.AlreadyExistsError
