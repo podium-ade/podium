@@ -38,6 +38,8 @@ const listUsers = vi.fn();
 const getConnections = vi.fn();
 const getRunsOn = vi.fn();
 const setRunsOn = vi.fn();
+const getAssistantRunsOn = vi.fn();
+const setAssistantRunsOn = vi.fn();
 const listSandboxProviders = vi.fn();
 
 vi.mock("../lib/client", async () => {
@@ -71,6 +73,8 @@ vi.mock("../lib/client", async () => {
       getConnections: (...a: unknown[]) => getConnections(...a),
       getRunsOn: (...a: unknown[]) => getRunsOn(...a),
       setRunsOn: (...a: unknown[]) => setRunsOn(...a),
+      getAssistantRunsOn: (...a: unknown[]) => getAssistantRunsOn(...a),
+      setAssistantRunsOn: (...a: unknown[]) => setAssistantRunsOn(...a),
       getGitHubAccount: () => Promise.resolve({ account: { available: true, connected: false } }),
       setSlackConnection: () => Promise.resolve({}),
       clearSlackConnection: () => Promise.resolve({}),
@@ -464,6 +468,45 @@ describe("AgentPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+  });
+
+  it("chooses where the assistant runs, apart from the playbooks", async () => {
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "nodes" } });
+    getAssistantRunsOn.mockResolvedValue({ placement: { effective: "host", default: "host", hostAvailable: true } });
+    setAssistantRunsOn.mockResolvedValue({
+      placement: { saved: { runsOn: "modal" }, effective: "modal", default: "host", hostAvailable: true },
+    });
+    listSandboxProviders.mockResolvedValue({
+      providers: [{ name: "modal", settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 }],
+    });
+    getProfile.mockResolvedValue(profileResponse);
+    mount("/agent/settings/runs-on");
+
+    const group = await screen.findByRole("radiogroup", { name: "Assistant runs on" });
+    expect(await within(group).findByRole("radio", { name: /This conductor/ })).toBeChecked();
+    expect(screen.getByTestId("assistant-runs-on-host")).toHaveTextContent("In use");
+    expect(screen.getByTestId("assistant-runs-on-host")).toHaveTextContent("Default");
+    const playbookSaves = setRunsOn.mock.calls.length;
+    const save = screen.getByRole("button", { name: "Save where the assistant runs" });
+    expect(save).toBeDisabled();
+
+    await userEvent.click(await within(group).findByRole("radio", { name: /Modal/ }));
+    await userEvent.click(save);
+    await waitFor(() => expect(setAssistantRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    expect(setRunsOn.mock.calls.length).toBe(playbookSaves);
+  });
+
+  it("cannot put the assistant on a conductor with no host runtime", async () => {
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "nodes" } });
+    getAssistantRunsOn.mockResolvedValue({ placement: { effective: "", default: "", hostAvailable: false } });
+    listSandboxProviders.mockResolvedValue({ providers: [] });
+    getProfile.mockResolvedValue(profileResponse);
+    mount("/agent/settings/runs-on");
+
+    const group = await screen.findByRole("radiogroup", { name: "Assistant runs on" });
+    expect(await within(group).findByRole("radio", { name: /This conductor/ })).toBeDisabled();
+    expect(screen.getByTestId("assistant-runs-on-host")).toHaveTextContent("No host runtime");
+    expect(screen.getByText("No assistant")).toBeInTheDocument();
   });
 
   it("has no Backend page without a conductor", async () => {

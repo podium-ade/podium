@@ -25,7 +25,7 @@ import (
 )
 
 // TestTheAssistantRunsInASandboxAndAPooledOneAnswersSooner runs the real agent runtime and its
-// harness as the assistant would run on a provider: in a sandbox, with the assistant's tools, its
+// harness as the assistant would run on a provider: in a sandbox, with an assistant brief, its
 // model a stub that records when the first request arrives. It measures that wait twice — from a
 // pooled sandbox and from one made for the task — which is the number a placement is chosen by.
 //
@@ -80,7 +80,8 @@ func TestTheAssistantRunsInASandboxAndAPooledOneAnswersSooner(t *testing.T) {
 			"profile":    map[string]any{"name": "podium", "display_name": "Podium", "system_prompt": "be brief", "model": "gpt-5"},
 			"playbook":   map[string]any{"name": "assistant", "system_prompt": "", "allowed_tools": []string{"webfetch", "todoread", "todowrite"}},
 			"transcript": []any{}, "transcript_truncated": false, "instruction": "hello",
-			"provider": map[string]any{"id": "openai", "api_key_env": "OPENAI_API_KEY", "base_url": model.URL + "/" + id + "/v1"},
+			"provider":  map[string]any{"id": "openai", "api_key_env": "OPENAI_API_KEY", "base_url": model.URL + "/" + id + "/v1"},
+			"assistant": true,
 		}
 	}
 

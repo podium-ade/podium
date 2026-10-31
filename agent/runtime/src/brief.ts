@@ -276,6 +276,11 @@ const briefSchema = z.strictObject({
   // container around it, no repository checked out and nothing collecting its files. The
   // prompt says different things in the two cases and must not have to guess which it is.
   runs_on: z.enum(["task", "host"]).optional(),
+  // True for the assistant running in a task of its own, on the fleet's nodes or a sandbox
+  // provider. runs_on says where the process is and this says what the turn is: such a turn
+  // has a container and an inbox like any task, and the assistant's prompt, tools and
+  // delegation menu like a host turn. Absent on a host turn, where runs_on already says so.
+  assistant: z.boolean().optional(),
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
@@ -290,6 +295,15 @@ export type DelegationRef = NonNullable<TurnBrief["delegation"]>;
 /** onHost reports whether this turn is a child of the conductor rather than a container. */
 export function onHost(brief: TurnBrief): boolean {
   return brief.runs_on === "host";
+}
+
+/**
+ * isAssistant reports whether this turn is the assistant — the conversation's own turn, which
+ * answers or delegates — wherever it runs: on the host, or in a task of its own. The prompt
+ * asks this; how the process finds its workspace and inbox asks onHost.
+ */
+export function isAssistant(brief: TurnBrief): boolean {
+  return onHost(brief) || brief.assistant === true;
 }
 
 export type DelegablePlaybook = z.infer<typeof delegablePlaybookSchema>;

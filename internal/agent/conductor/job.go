@@ -14,9 +14,10 @@ import (
 //   - A TASK's job comes from a playbook. It runs in a container on a node, with whatever
 //     that playbook declares — an image, a workspace, repositories, a Docker daemon, a
 //     browser — and whichever tools it allows.
-//   - A CONVERSATION's job is the ASSISTANT. It runs in the conductor's own process, with
-//     the fixed short tool list in host.go, no container and no filesystem it should touch.
-//     The playbooks are what it delegates to, not something it is configured from.
+//   - A CONVERSATION's job is the ASSISTANT. It runs with the fixed short tool list in
+//     host.go and no workspace, wherever it is placed: in the conductor's own process, or in
+//     a task of its own on the fleet's nodes or a sandbox provider (assistant.go). The
+//     playbooks are what it delegates to, not something it is configured from.
 //
 // One type for both is what keeps runTurn, the brief and the accounting single-path. Keeping
 // the container half in one field is what stops it being read where none of it exists: a
@@ -47,8 +48,17 @@ type job struct {
 	// playbook is the container half, and the zero Playbook for the assistant. Only the
 	// task path reads it.
 	playbook profiles.Playbook
-	// onHost is true for the assistant: this turn is a child of the conductor.
+	// assistant is true for the ASSISTANT, wherever it runs: the fixed tool list, the
+	// delegation menu, the assistant's own model. It is what every question about what the
+	// turn IS asks.
+	assistant bool
+	// onHost is true for an assistant turn that is a child of the conductor. It is what every
+	// question about how the turn RUNS asks — a process and a slot here, or a task. Never true
+	// for a playbook.
 	onHost bool
+	// runsOn is where an assistant turn that is not on this host runs: "nodes" or a sandbox
+	// provider's name. Empty for a host turn and for a playbook, whose placement is its own.
+	runsOn string
 }
 
 // AssistantName is what a turn the conductor answers a conversation with is called. It is a
@@ -69,7 +79,8 @@ func playbookJob(p profiles.Playbook) job {
 	}
 }
 
-// assistantJob is the turn that answers a conversation, run here.
+// assistantJob is the turn that answers a conversation. runsOn is where it runs:
+// profiles.RunsOnHost for a child of this process, "nodes" or a provider for a task.
 //
 // Its step cap is the profile's, zero included: unset means no cap, because the
 // assistant is a relay and the thing worth bounding is the container it starts. An override
@@ -79,23 +90,28 @@ func playbookJob(p profiles.Playbook) job {
 // the profile, so its prompt is already the brief's profile.system_prompt. A second copy in
 // the playbook slot would be the same words twice, and a different second prompt would be a
 // persona nobody wrote.
-func assistantJob(a profiles.Assistant) job {
-	return job{
+func assistantJob(a profiles.Assistant, runsOn string) job {
+	j := job{
 		name:         AssistantName,
 		allowedTools: hostTools,
 		maxTurns:     a.MaxTurns,
 		timeout:      a.Timeout,
 		skills:       a.Skills,
 		mcpServers:   a.MCPServers,
-		onHost:       true,
+		assistant:    true,
+		onHost:       runsOn == profiles.RunsOnHost,
 	}
+	if !j.onHost {
+		j.runsOn = runsOn
+	}
+	return j
 }
 
 // choose is what this turn runs on. The two kinds inherit from different places — a task
 // from its playbook, then the profile; the assistant from the profile alone — and the
 // override on top of either is the composer's model picker.
 func (j job) choose(p *profiles.Profile, o profiles.Override) profiles.Choice {
-	if j.onHost {
+	if j.assistant {
 		return p.ResolveAssistant(o)
 	}
 	return p.Resolve(j.playbook, o)
@@ -104,7 +120,7 @@ func (j job) choose(p *profiles.Profile, o profiles.Override) profiles.Choice {
 // provenance is what a retained memory says produced it. The assistant is named as itself
 // rather than as a playbook, because there is no playbook of that name to go and read.
 func (j job) provenance() string {
-	if j.onHost {
+	if j.assistant {
 		return "podium agent, the assistant"
 	}
 	return "podium agent, playbook " + j.name
@@ -114,7 +130,7 @@ func (j job) provenance() string {
 // the assistant's carries nothing extra, because `playbook:assistant` would be a tag naming
 // a playbook that does not exist and would then be searched for.
 func (j job) memoryTags() []string {
-	if j.onHost {
+	if j.assistant {
 		return nil
 	}
 	return []string{"playbook:" + j.name}
@@ -128,4 +144,17 @@ func (j job) assistantTimeout() time.Duration {
 		return j.timeout
 	}
 	return profiles.DefaultAssistantTimeout.Std()
+}
+
+// placement names where this job's turn runs, for a metric: "host", the assistant's runs_on,
+// or "playbook" for a playbook's task.
+func (j job) placement() string {
+	switch {
+	case j.onHost:
+		return profiles.RunsOnHost
+	case j.assistant:
+		return cmpRunsOn(j.runsOn)
+	default:
+		return "playbook"
+	}
 }

@@ -308,6 +308,12 @@ describe("decodeBrief", () => {
     ).toThrow(BriefError);
   });
 
+  it("reads the assistant flag, and refuses one that is not a boolean", () => {
+    expect(decodeBrief(encode({ ...minimal, assistant: true })).assistant).toBe(true);
+    expect(decodeBrief(encode(minimal)).assistant).toBeUndefined();
+    expect(() => decodeBrief(encode({ ...minimal, assistant: "yes" }))).toThrow(BriefError);
+  });
+
   it("refuses a runs_on it does not know", () => {
     expect(() => decodeBrief(encode({ ...minimal, runs_on: "somewhere-else" }))).toThrow(BriefError);
     expect(decodeBrief(encode({ ...minimal, runs_on: "task" })).runs_on).toBe("task");

@@ -143,6 +143,11 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
   - {name: podium.agent.anthropic_api_key, target: env, key: ANTHROPIC_API_KEY}
 `
 		}, []string{"playbooks/general.yaml", "the conductor decides"}},
+		{"another turn's delegation token", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + `secrets:
+  - {name: podium.agent.turn_token.turn_1, target: env, key: PODIUM_TURN_TOKEN}
+`
+		}, []string{"playbooks/general.yaml", "delegation token"}},
 		{"a personal mcp token", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + `user_secrets:
   - {name: mcp.linear_token, target: env, key: LINEAR_TOKEN}

@@ -28,6 +28,12 @@ service AgentService {
   rpc GetRunsOn(GetRunsOnRequest) returns (GetRunsOnResponse);
   // SetRunsOn changes it, for the turns that start after.
   rpc SetRunsOn(SetRunsOnRequest) returns (SetRunsOnResponse);
+  // GetAssistantRunsOn is where the assistant runs: "host", "nodes" or a sandbox provider.
+  // It is a setting of its own, so moving the playbooks never moves the assistant.
+  rpc GetAssistantRunsOn(GetAssistantRunsOnRequest) returns (GetAssistantRunsOnResponse);
+  // SetAssistantRunsOn changes it, for the turns that start after. Empty clears the saved
+  // choice back to the conductor's default.
+  rpc SetAssistantRunsOn(SetAssistantRunsOnRequest) returns (SetAssistantRunsOnResponse);
   // SetProviderKey validates a provider key with the provider itself and, only if that
   // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
   rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
@@ -413,6 +419,34 @@ message SetRunsOnRequest {
 
 message SetRunsOnResponse {
   RunsOn runs_on = 1;
+}
+
+message GetAssistantRunsOnRequest {}
+
+// AssistantPlacement is where the assistant runs. saved is the operator's choice, absent
+// until somebody saves one; effective is what the next turn will actually use, which is
+// the saved choice when it can be honoured and the conductor's default otherwise. Empty
+// effective means this conductor has no assistant at all.
+message AssistantPlacement {
+  RunsOn saved = 1;
+  string effective = 2;
+  // default is what effective falls back to: PODIUM_AGENT_ASSISTANT_RUNS_ON, else the host
+  // when there is a host runtime.
+  string default = 3;
+  // host_available is whether this conductor has a host runtime, so "host" can be chosen.
+  bool host_available = 4;
+}
+
+message GetAssistantRunsOnResponse {
+  AssistantPlacement placement = 1;
+}
+
+message SetAssistantRunsOnRequest {
+  string runs_on = 1;
+}
+
+message SetAssistantRunsOnResponse {
+  AssistantPlacement placement = 1;
 }
 
 // ProviderSettings is everything the UI may know about a stored provider credential.

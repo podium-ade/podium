@@ -69,6 +69,19 @@ type turnRun struct {
 	// warm is set when this task stays up after it answers. The next message in the
 	// session is injected into it until the task exits.
 	warm bool
+	// spoke is set once the turn has said anything, so its first word is timed once.
+	spoke bool
+	// titled is set once a warm assistant task's early title has been looked for.
+	titled bool
+}
+
+// noteFirstMessage times the turn's first word, once: the boot a person waited through.
+func (r *turnRun) noteFirstMessage() {
+	if r.spoke || r.startedAt.IsZero() {
+		return
+	}
+	r.spoke = true
+	r.c.metrics.TurnFirstMessage.WithLabelValues(r.job.placement()).Observe(time.Since(r.startedAt).Seconds())
 }
 
 // run relays the task's messages and then records how the turn ended.
@@ -262,9 +275,13 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			r.readAccounting(ctx, acctFromMessage, []byte(msg.GetText()))
 			return
 		}
+		r.noteFirstMessage()
 		r.relay(ctx, e)
 		if msg := e.GetMessage(); msg != nil {
 			r.noteInteractive(ctx, msg.GetType())
+			if msg.GetType() == OutFinal {
+				r.titleEarly(ctx)
+			}
 		}
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
 		if err := e.GetError(); err != nil && !err.GetRetryable() {
@@ -323,6 +340,30 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) {
 		r.applyChatTitle(ctx, art)
 	}
 	r.attachAll(ctx, byName, chatTitleArtifact)
+}
+
+// titleEarly names a chat from a warm assistant task as soon as it has answered. Its artifacts
+// are otherwise read once the task exits, which a warm one does minutes later; the runtime
+// uploads the title before its answer for exactly this. Looked for once, and a title that is
+// not there yet is not an error: settle reads it again at the end.
+func (r *turnRun) titleEarly(ctx context.Context) {
+	if r.titled || !r.warm || !r.job.assistant {
+		return
+	}
+	r.titled = true
+	if _, ok := r.src.(autoTitler); !ok {
+		return
+	}
+	list, err := r.c.podium.ListArtifacts(ctx, r.turn.TaskID)
+	if err != nil {
+		return
+	}
+	for _, a := range list {
+		if a.GetName() == chatTitleArtifact {
+			r.applyChatTitle(ctx, a)
+			return
+		}
+	}
 }
 
 // applyChatTitle reads the model-written name of a web chat. A title the caller supplied

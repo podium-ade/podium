@@ -106,7 +106,7 @@ func TestTheAssistantsBriefHasNoContainerInIt(t *testing.T) {
 		}},
 	})}
 	profile := c.profiles.Current()
-	j := assistantJob(profile.Assistant())
+	j := assistantJob(profile.Assistant(), profiles.RunsOnHost)
 
 	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
@@ -223,7 +223,7 @@ func TestASlackBriefCarriesTheChannel(t *testing.T) {
 		Playbooks: map[string]profiles.Playbook{"coder": {Name: "coder"}},
 	})}
 	profile := c.profiles.Current()
-	j := assistantJob(profile.Assistant())
+	j := assistantJob(profile.Assistant(), profiles.RunsOnHost)
 
 	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
 		InboundEvent{
@@ -252,7 +252,7 @@ func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 		Playbooks: map[string]profiles.Playbook{"coder": {Name: "coder", MaxTurns: 200}},
 	})}
 	profile := c.profiles.Current()
-	j := assistantJob(profile.Assistant())
+	j := assistantJob(profile.Assistant(), profiles.RunsOnHost)
 	require.Zero(t, j.maxTurns)
 
 	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
@@ -271,11 +271,11 @@ func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 func TestTheAssistantsTurnIsBoundedByAClock(t *testing.T) {
 	t.Run("profile.yaml's own", func(t *testing.T) {
 		p := &profiles.Profile{Timeout: spec.Duration(90 * time.Second)}
-		assert.Equal(t, 90*time.Second, assistantJob(p.Assistant()).assistantTimeout())
+		assert.Equal(t, 90*time.Second, assistantJob(p.Assistant(), profiles.RunsOnHost).assistantTimeout())
 	})
 
 	t.Run("defaulted when the file names none", func(t *testing.T) {
-		j := assistantJob((&profiles.Profile{}).Assistant())
+		j := assistantJob((&profiles.Profile{}).Assistant(), profiles.RunsOnHost)
 		assert.Equal(t, profiles.DefaultAssistantTimeout.Std(), j.assistantTimeout())
 		assert.Positive(t, j.assistantTimeout(), "there is no 'off': it is the only bound left")
 	})

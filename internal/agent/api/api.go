@@ -179,6 +179,9 @@ type AgentServiceOptions struct {
 	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
 	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
 	Turns TurnStopper
+	// Assistant reports where the assistant runs, for GetAssistantRunsOn. Nil answers with
+	// the saved choice alone.
+	Assistant AssistantPlacer
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
 	Slack  SlackDirectory
@@ -231,6 +234,7 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
+	assistant  AssistantPlacer
 	logger     *slog.Logger
 
 	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
@@ -335,6 +339,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		chat:               opts.Chat,
 		tasks:              opts.Tasks,
 		turns:              opts.Turns,
+		assistant:          opts.Assistant,
 		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}

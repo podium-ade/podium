@@ -105,6 +105,15 @@ const MemoryKeySecret = "podium.agent.memory_api_key"
 // that turn's repositories. See internal/agent/conductor/gitcred.go.
 const GitCapabilityPrefix = "podium.agent.git_capability."
 
+// TurnTokenPrefix is the reserved prefix of the per-turn secret that carries an assistant
+// turn's delegation token into a task. Only an assistant placed off this host has one: the
+// conductor writes it before the task and deletes it when the turn ends.
+//
+// A playbook may not name one, for the reason it may not name a git capability: the token
+// is that conversation's authority to start tasks, and naming another turn's would be
+// borrowing its conversation.
+const TurnTokenPrefix = "podium.agent.turn_token."
+
 // MemoryKeyEnv is where that secret lands in the task container. The brief's
 // memory.api_key_env names it, and the runtime reads it to authenticate its MCP client.
 const MemoryKeyEnv = "PODIUM_MEMORY_API_KEY"
@@ -698,6 +707,11 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 			errs = append(errs, fmt.Errorf("%s may not name %s: a turn's authority to mint "+
 				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
 				"repositories that turn's playbook listed", field, ref.Name))
+		}
+		if strings.HasPrefix(ref.Name, TurnTokenPrefix) {
+			errs = append(errs, fmt.Errorf("%s may not name %s: a turn's delegation token is "+
+				"written by the conductor, for one assistant turn, and is that conversation's "+
+				"authority to start tasks", field, ref.Name))
 		}
 		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) ||
 			spec.IsPersonalMCPOAuthSecret(ref.Name) {

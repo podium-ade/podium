@@ -291,6 +291,80 @@ The rules that matter:
 Slack and Linear turns are unaffected: they keep running as tasks. Their playbooks are the ones
 that want a repository and a Docker daemon, and neither surface is somebody watching a cursor.
 
+### Where the assistant runs
+
+The assistant runs in one of three places, chosen on the **Backend** screen (`assistant.runs_on`,
+apart from where playbooks run) or by `PODIUM_AGENT_ASSISTANT_RUNS_ON`:
+
+| | `host` | `nodes` | a provider (`modal`, `boat`, …) |
+|---|---|---|---|
+| What runs it | a child of this process | a task on the fleet's nodes | a task in a cloud sandbox of its own |
+| First word | fastest: no container | a container start | a sandbox start |
+| The bound | this machine: `PODIUM_AGENT_HOST_MAX_TURNS` | `max_tasks` on the nodes | the provider's **Max concurrent sandboxes** |
+| Fenced by | `PODIUM_AGENT_HOST_ISOLATION=bwrap`, else nothing | the container | the provider's sandbox (gVisor on Modal, a VM on boat) |
+| Turn surface | loopback | `PODIUM_AGENT_TASK_URL` | `PODIUM_AGENT_SANDBOX_URL` |
+
+What the assistant **is** does not change with where it runs: the same brief, the same three
+tools, the same delegation menu, no repository and no workspace. Off the host it is a task like
+any other — its turn row has a `task_id`, its relay and accounting are a task's — with three
+differences from a playbook's:
+
+- **No snapshot.** It has no workspace, so nothing is restored and nothing is stored. The
+  transcript is its continuity. The most frequent task in the system never touches the object
+  store.
+- **It stays warm** (`PODIUM_AGENT_ASSISTANT_WARM`, five minutes): the conversation's next
+  message is injected into it rather than starting another. The chat's title is uploaded as soon
+  as it is written, so a warm turn names the chat before it exits.
+- **Its delegation token is a secret**, `podium.agent.turn_token.<turn>`, written before the task
+  and deleted when the turn ends. A playbook may not name one.
+
+A host turn can stay warm too (`PODIUM_AGENT_HOST_WARM`): the conductor serves the runtime an
+inbox in the turn's jail, exactly as a node serves a task's. A warm turn holds its slot, so when
+every slot is taken the longest-idle warm conversation is told to stop waiting and gives its slot
+to one with work (`podium_agent_host_warm_evictions_total`).
+
+`podium_agent_turn_first_message_seconds{placement}` is how long a person waits for the first
+word in each placement, which is the number to choose one by.
+
+#### The turn surface
+
+A running turn calls back into this conductor for three things, each authenticated by its own
+credential and never the operator's bearer: `TurnService` (delegate, check, inject) and the
+`pull-request` MCP server with the turn's token, and `GitCredentialService` with the task's signed
+capability. A turn on the host reaches them over loopback and one on a node at
+`PODIUM_AGENT_TASK_URL`. A cloud sandbox is on nobody's Docker network, so
+`host.docker.internal` resolves to nothing there: it uses `PODIUM_AGENT_SANDBOX_URL`, which should
+point — through a Funnel or a tunnel — at `PODIUM_AGENT_SURFACE_LISTEN`, a listener that serves
+those three and a health probe and nothing else.
+
+Turn tokens are **signed** with a key derived from the conductor's bearer, the way a git
+capability is. The conductor that minted one answers it from memory; any other — a second
+conductor, or this one after a restart — checks the signature and that the turn is still running.
+That check is the revocation: a finished turn's token is refused everywhere at once.
+
+### More than one conductor
+
+Conductors can share one database. Each piece of work one of them does is **leased**
+(`work_leases`): a session's turns, a delegated task being followed, a turn with no task, and
+polling Linear.
+
+- A conductor serves a session only while it holds its lease. A message that lands on another
+  conductor is handed over: injected into the owner's warm task when there is one, and otherwise
+  left on the lease for the owner to take as its next turn.
+- Leases last 30 seconds unrenewed. A conductor that dies stops renewing, and every other
+  conductor looks for such work about every half a minute and adopts it: a running task is
+  followed from where its relay stopped, and the relayed ledger keeps anything from being said
+  twice.
+- One conductor polls Linear at a time; another takes over when it stops.
+
+`PODIUM_AGENT_REPLICA_ID` is what the leases are held under. It defaults to
+`<hostname>/<listen>`, which is stable across a conductor's restarts — a restarted conductor picks
+its own work up at once — and different for each conductor unless two share a host and a port.
+
+A host turn is still a process on one machine: a message handed over to a conductor whose turn is
+on its host waits for that turn to finish. Place the assistant on nodes or a provider to make every
+conversation reachable from every conductor.
+
 ### Cancelling a turn
 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees
@@ -326,6 +400,16 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
+| `PODIUM_AGENT_HOST_ISOLATION` | no | none | `bwrap` runs every host turn in a bubblewrap sandbox of its own: its own PID namespace, the system read-only, nothing of this user's home but the runtime, and its jail as the only writable directory. Set it wherever more than one person talks to this conductor. See [Where the assistant runs](#where-the-assistant-runs) |
+| `PODIUM_AGENT_HOST_BWRAP` | no | `bwrap` on `PATH` | the bubblewrap binary |
+| `PODIUM_AGENT_HOST_MEMORY_MAX` | no | none | one host turn's memory ceiling in systemd's syntax (`1G`). Each turn then runs in a transient `systemd-run --user --scope`, and a turn that balloons is killed alone |
+| `PODIUM_AGENT_HOST_WARM` | no | `0s` | how long a host turn stays up after it answers, for the next message of its conversation. A warm turn holds its slot while it waits and gives it up to a conversation with work |
+| `PODIUM_AGENT_ASSISTANT_RUNS_ON` | no | `host` with a host runtime, else none | where the assistant runs when the **Backend** screen saves nothing: `host`, `nodes` or a sandbox provider's name |
+| `PODIUM_AGENT_ASSISTANT_IMAGE` | no | the runtime image | the image an assistant placed off this host runs in |
+| `PODIUM_AGENT_ASSISTANT_WARM` | no | `5m` | how long an assistant task stays up after it answers. Negative turns it off |
+| `PODIUM_AGENT_SANDBOX_URL` | for a provider | `PODIUM_AGENT_TASK_URL` | this conductor's turn surface as a cloud **sandbox** reaches it: where an assistant in a sandbox delegates and reads its pull request, and where a playbook in one mints a clone token |
+| `PODIUM_AGENT_SURFACE_LISTEN` | no | none | a second listener serving the turn surface and nothing else — no operator API. It is the one to expose to sandboxes |
+| `PODIUM_AGENT_REPLICA_ID` | no | `<hostname>/<listen>` | this conductor's identity among the conductors on its database. Different for each, and the same across one conductor's restarts |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these as soon as it is saved |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |

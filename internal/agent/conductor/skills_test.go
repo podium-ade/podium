@@ -138,7 +138,7 @@ func TestTheAssistantsSkillsComeFromTheProfile(t *testing.T) {
 	profile := c.profiles.Current()
 	profile.Skills = []string{"pr-review"}
 
-	bundles, err := c.skillBundles(context.Background(), assistantJob(profile.Assistant()))
+	bundles, err := c.skillBundles(context.Background(), assistantJob(profile.Assistant(), profiles.RunsOnHost))
 	require.NoError(t, err)
 	require.Len(t, bundles, 1)
 	assert.Equal(t, "pr-review", bundles[0].Name)

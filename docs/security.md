@@ -993,13 +993,24 @@ Everything below is a real hole, not a hypothetical:
   conductor has no allowlist and no roles. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
-  environment built from empty. Unset `PODIUM_AGENT_HOST_RUNTIME` to keep every turn in a
-  container.
+  environment built from empty — unless `PODIUM_AGENT_HOST_ISOLATION=bwrap` puts each turn in a
+  bubblewrap sandbox: its own PID namespace, so it cannot read another turn's
+  `/proc/<pid>/environ`; the system read-only; nothing of this user's home but the runtime; and
+  its jail as the only writable directory. `PODIUM_AGENT_HOST_MEMORY_MAX` adds a memory ceiling
+  per turn. To take the assistant off this machine entirely, place it on nodes or a sandbox
+  provider (`PODIUM_AGENT_ASSISTANT_RUNS_ON`, or the **Backend** screen): it then runs in a task
+  of its own, with its model credential resolved as a task secret.
 - **The assistant's model credential is in the conductor's database and in that turn's
   environment**, because the secret store has no read path and a turn running here has no node
   to resolve one for it.
-- **Nothing caps how many assistant turns run at once.** Every open chat that is answering is another
-  `node` and another `opencode` process on the conductor's machine, with no queue and no limit.
+- **Host turns are capped, not queued for free.** At most `PODIUM_AGENT_HOST_MAX_TURNS` (4)
+  run at once, each a `node` and an `opencode` process on the conductor's machine; the rest wait.
+- **The turn surface can face the internet.** With the assistant in a cloud sandbox,
+  `PODIUM_AGENT_SANDBOX_URL` has to reach this conductor from outside the operator's network.
+  Point it at `PODIUM_AGENT_SURFACE_LISTEN`, which serves the turn surface and nothing else:
+  delegation and the pull-request reader take a turn's signed token, minting takes a task's
+  signed capability, and both are refused once their turn has finished. The operator API is not
+  on that listener.
 - **An assistant turn has no step cap unless `profile.yaml: max_turns` sets one.** It always
   has a wall clock, though — `timeout`, fifteen minutes by default and with no "off" — so a
   stuck turn stops on its own rather than running until somebody notices.

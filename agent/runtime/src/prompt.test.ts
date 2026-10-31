@@ -219,6 +219,36 @@ describe("buildSystemPrompt", () => {
     expect(slack).not.toContain("# This pull request");
   });
 
+  it("gives the assistant in a task of its own the assistant's prompt, not a playbook's", () => {
+    const delegation = { url: "http://surface:8091", token_env: "T", playbooks: [{ name: "coder" }] };
+    const task = buildSystemPrompt({ ...golden(), assistant: true, delegation });
+    const flat = task.replace(/\s+/g, " ");
+    expect(flat).toContain("small sandbox of your own with no repository checked out");
+    expect(flat).not.toContain("the conductor's own process");
+    expect(flat).toContain("**Delegate it** otherwise");
+    // Not the playbook runtime block: no disposable container with files to leave behind.
+    expect(flat).not.toContain("running one turn inside a disposable Linux container");
+
+    const host = buildSystemPrompt({ ...golden(), runs_on: "host" as const, delegation });
+    expect(host.replace(/\s+/g, " ")).toContain("the conductor's own process");
+
+    // The Slack menu rules and the pull request block follow the assistant, not the host.
+    const slack = buildSystemPrompt({
+      ...golden(),
+      assistant: true,
+      delegation,
+      source: { kind: "slack" as const, ref: "C1/1.1/1.1", channel: { id: "C1", name: "eng" } },
+    });
+    expect(slack.replace(/\s+/g, " ")).toContain("There is no default playbook");
+    const pr = buildSystemPrompt({
+      ...golden(),
+      assistant: true,
+      source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
+    });
+    expect(pr).toContain("# This pull request");
+    expect(pr).not.toContain("Never open another pull request");
+  });
+
   it("tells a task fixing a pull request to answer under each finding, and not the review", () => {
     const base = golden();
     const fix = buildSystemPrompt({

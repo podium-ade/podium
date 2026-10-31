@@ -15,6 +15,7 @@ package conductor_test
 // with no task on it, and that no task was created at all.
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -50,6 +52,9 @@ const (
 	hostCanaryEnv     = "CONDUCTOR_TEST_LEAK_CANARY"
 	hostFakeSilentEnv = "CONDUCTOR_TEST_FAKE_SILENT"
 	hostFakeHangEnv   = "CONDUCTOR_TEST_FAKE_HANG"
+	// hostFakeWarmEnv makes the fake runtime wait on its inbox after it answers, as the real
+	// one does with a warm window, and answer each injected message with "echo: <text>".
+	hostFakeWarmEnv = "CONDUCTOR_TEST_FAKE_WARM"
 )
 
 // hostReport is what the fake runtime says as its answer: everything about the turn it was
@@ -151,6 +156,9 @@ func hostFakeRuntime() {
 	// One dial per message, as the real one does.
 	hostSay(sock, "progress", "reading the handler")
 	hostSay(sock, "final", string(answer))
+	if os.Getenv(hostFakeWarmEnv) != "" {
+		hostFakeWait()
+	}
 	hostSay(sock, "accounting", `{"num_turns":4,"total_cost_usd":0.0125}`)
 
 	code := 0
@@ -559,4 +567,37 @@ func TestASlackThreadStillRunsAPlaybookWithNoHostRuntime(t *testing.T) {
 	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
 	require.NoError(t, err)
 	assert.Equal(t, "general", sess.Playbook, "the profile's default, as it always was")
+}
+
+// hostFakeWait is the warm window: read the inbox the conductor put in the jail, answer each
+// message, and leave on end_wait or when the window runs out — what main.ts does.
+func hostFakeWait() {
+	path := os.Getenv("PODIUM_INBOX_SOCK")
+	secs, _ := strconv.Atoi(os.Getenv("PODIUM_WORKSPACE_WARM_SECONDS"))
+	if path == "" || secs <= 0 {
+		fmt.Fprintln(os.Stderr, "fake runtime: asked to stay warm with no inbox")
+		os.Exit(4)
+	}
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fake runtime: dial inbox: %v\n", err)
+		os.Exit(4)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(secs) * time.Second))
+	sc := bufio.NewScanner(conn)
+	for sc.Scan() {
+		var line struct {
+			Text    string `json:"text"`
+			EndWait bool   `json:"end_wait"`
+		}
+		if json.Unmarshal(sc.Bytes(), &line) != nil {
+			continue
+		}
+		if line.EndWait {
+			return
+		}
+		hostSay(os.Getenv("PODIUM_EVENTS_SOCK"), "final", "echo: "+line.Text)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Duration(secs) * time.Second))
+	}
 }

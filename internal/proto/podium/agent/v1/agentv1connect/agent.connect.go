@@ -49,6 +49,12 @@ const (
 	AgentServiceGetRunsOnProcedure = "/podium.agent.v1.AgentService/GetRunsOn"
 	// AgentServiceSetRunsOnProcedure is the fully-qualified name of the AgentService's SetRunsOn RPC.
 	AgentServiceSetRunsOnProcedure = "/podium.agent.v1.AgentService/SetRunsOn"
+	// AgentServiceGetAssistantRunsOnProcedure is the fully-qualified name of the AgentService's
+	// GetAssistantRunsOn RPC.
+	AgentServiceGetAssistantRunsOnProcedure = "/podium.agent.v1.AgentService/GetAssistantRunsOn"
+	// AgentServiceSetAssistantRunsOnProcedure is the fully-qualified name of the AgentService's
+	// SetAssistantRunsOn RPC.
+	AgentServiceSetAssistantRunsOnProcedure = "/podium.agent.v1.AgentService/SetAssistantRunsOn"
 	// AgentServiceSetProviderKeyProcedure is the fully-qualified name of the AgentService's
 	// SetProviderKey RPC.
 	AgentServiceSetProviderKeyProcedure = "/podium.agent.v1.AgentService/SetProviderKey"
@@ -223,6 +229,12 @@ type AgentServiceClient interface {
 	GetRunsOn(context.Context, *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error)
 	// SetRunsOn changes it, for the turns that start after.
 	SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error)
+	// GetAssistantRunsOn is where the assistant runs: "host", "nodes" or a sandbox provider.
+	// It is a setting of its own, so moving the playbooks never moves the assistant.
+	GetAssistantRunsOn(context.Context, *connect.Request[v1.GetAssistantRunsOnRequest]) (*connect.Response[v1.GetAssistantRunsOnResponse], error)
+	// SetAssistantRunsOn changes it, for the turns that start after. Empty clears the saved
+	// choice back to the conductor's default.
+	SetAssistantRunsOn(context.Context, *connect.Request[v1.SetAssistantRunsOnRequest]) (*connect.Response[v1.SetAssistantRunsOnResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
@@ -461,6 +473,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceSetRunsOnProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("SetRunsOn")),
+			connect.WithClientOptions(opts...),
+		),
+		getAssistantRunsOn: connect.NewClient[v1.GetAssistantRunsOnRequest, v1.GetAssistantRunsOnResponse](
+			httpClient,
+			baseURL+AgentServiceGetAssistantRunsOnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetAssistantRunsOn")),
+			connect.WithClientOptions(opts...),
+		),
+		setAssistantRunsOn: connect.NewClient[v1.SetAssistantRunsOnRequest, v1.SetAssistantRunsOnResponse](
+			httpClient,
+			baseURL+AgentServiceSetAssistantRunsOnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetAssistantRunsOn")),
 			connect.WithClientOptions(opts...),
 		),
 		setProviderKey: connect.NewClient[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse](
@@ -793,6 +817,8 @@ type agentServiceClient struct {
 	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	getRunsOn                  *connect.Client[v1.GetRunsOnRequest, v1.GetRunsOnResponse]
 	setRunsOn                  *connect.Client[v1.SetRunsOnRequest, v1.SetRunsOnResponse]
+	getAssistantRunsOn         *connect.Client[v1.GetAssistantRunsOnRequest, v1.GetAssistantRunsOnResponse]
+	setAssistantRunsOn         *connect.Client[v1.SetAssistantRunsOnRequest, v1.SetAssistantRunsOnResponse]
 	setProviderKey             *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
 	clearProviderKey           *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
 	getConnections             *connect.Client[v1.GetConnectionsRequest, v1.GetConnectionsResponse]
@@ -881,6 +907,16 @@ func (c *agentServiceClient) GetRunsOn(ctx context.Context, req *connect.Request
 // SetRunsOn calls podium.agent.v1.AgentService.SetRunsOn.
 func (c *agentServiceClient) SetRunsOn(ctx context.Context, req *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error) {
 	return c.setRunsOn.CallUnary(ctx, req)
+}
+
+// GetAssistantRunsOn calls podium.agent.v1.AgentService.GetAssistantRunsOn.
+func (c *agentServiceClient) GetAssistantRunsOn(ctx context.Context, req *connect.Request[v1.GetAssistantRunsOnRequest]) (*connect.Response[v1.GetAssistantRunsOnResponse], error) {
+	return c.getAssistantRunsOn.CallUnary(ctx, req)
+}
+
+// SetAssistantRunsOn calls podium.agent.v1.AgentService.SetAssistantRunsOn.
+func (c *agentServiceClient) SetAssistantRunsOn(ctx context.Context, req *connect.Request[v1.SetAssistantRunsOnRequest]) (*connect.Response[v1.SetAssistantRunsOnResponse], error) {
+	return c.setAssistantRunsOn.CallUnary(ctx, req)
 }
 
 // SetProviderKey calls podium.agent.v1.AgentService.SetProviderKey.
@@ -1169,6 +1205,12 @@ type AgentServiceHandler interface {
 	GetRunsOn(context.Context, *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error)
 	// SetRunsOn changes it, for the turns that start after.
 	SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error)
+	// GetAssistantRunsOn is where the assistant runs: "host", "nodes" or a sandbox provider.
+	// It is a setting of its own, so moving the playbooks never moves the assistant.
+	GetAssistantRunsOn(context.Context, *connect.Request[v1.GetAssistantRunsOnRequest]) (*connect.Response[v1.GetAssistantRunsOnResponse], error)
+	// SetAssistantRunsOn changes it, for the turns that start after. Empty clears the saved
+	// choice back to the conductor's default.
+	SetAssistantRunsOn(context.Context, *connect.Request[v1.SetAssistantRunsOnRequest]) (*connect.Response[v1.SetAssistantRunsOnResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
@@ -1403,6 +1445,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceSetRunsOnProcedure,
 		svc.SetRunsOn,
 		connect.WithSchema(agentServiceMethods.ByName("SetRunsOn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetAssistantRunsOnHandler := connect.NewUnaryHandler(
+		AgentServiceGetAssistantRunsOnProcedure,
+		svc.GetAssistantRunsOn,
+		connect.WithSchema(agentServiceMethods.ByName("GetAssistantRunsOn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetAssistantRunsOnHandler := connect.NewUnaryHandler(
+		AgentServiceSetAssistantRunsOnProcedure,
+		svc.SetAssistantRunsOn,
+		connect.WithSchema(agentServiceMethods.ByName("SetAssistantRunsOn")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceSetProviderKeyHandler := connect.NewUnaryHandler(
@@ -1739,6 +1793,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetRunsOnHandler.ServeHTTP(w, r)
 		case AgentServiceSetRunsOnProcedure:
 			agentServiceSetRunsOnHandler.ServeHTTP(w, r)
+		case AgentServiceGetAssistantRunsOnProcedure:
+			agentServiceGetAssistantRunsOnHandler.ServeHTTP(w, r)
+		case AgentServiceSetAssistantRunsOnProcedure:
+			agentServiceSetAssistantRunsOnHandler.ServeHTTP(w, r)
 		case AgentServiceSetProviderKeyProcedure:
 			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
 		case AgentServiceClearProviderKeyProcedure:
@@ -1880,6 +1938,14 @@ func (UnimplementedAgentServiceHandler) GetRunsOn(context.Context, *connect.Requ
 
 func (UnimplementedAgentServiceHandler) SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRunsOn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetAssistantRunsOn(context.Context, *connect.Request[v1.GetAssistantRunsOnRequest]) (*connect.Response[v1.GetAssistantRunsOnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetAssistantRunsOn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetAssistantRunsOn(context.Context, *connect.Request[v1.SetAssistantRunsOnRequest]) (*connect.Response[v1.SetAssistantRunsOnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetAssistantRunsOn is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error) {

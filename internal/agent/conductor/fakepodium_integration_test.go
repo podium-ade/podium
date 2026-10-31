@@ -63,6 +63,10 @@ type fakePodium struct {
 	previews map[string]*podiumv1.TaskPreview
 	releases []string
 
+	// vault is the control plane's secret store, so a turn's per-turn secrets — a git
+	// capability, an assistant task's delegation token — land somewhere a test can read.
+	vault *fakeVault
+
 	srv *httptest.Server
 }
 
@@ -79,8 +83,10 @@ func newFakePodium(t *testing.T) *fakePodium {
 		arts:     map[string][]*podiumv1.Artifact{},
 		blobs:    map[string][]byte{},
 		terminal: podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED,
+		vault:    &fakeVault{values: map[string][]byte{}},
 	}
 	mux := http.NewServeMux()
+	mux.Handle(podiumv1connect.NewSecretServiceHandler(f.vault))
 	mux.Handle(podiumv1connect.NewTaskServiceHandler(f))
 	mux.Handle(podiumv1connect.NewArtifactServiceHandler(f))
 	mux.HandleFunc("/artifacts/", f.download)

@@ -96,3 +96,70 @@ func playbookSandboxToProto(in *profiles.PlaybookSandbox) *agentv1.PlaybookSandb
 	}
 	return out
 }
+
+// GetAssistantRunsOn reports where the assistant runs: the saved choice, the conductor's
+// default, and what the next turn will actually use.
+func (s *AgentService) GetAssistantRunsOn(
+	ctx context.Context, _ *connect.Request[agentv1.GetAssistantRunsOnRequest],
+) (*connect.Response[agentv1.GetAssistantRunsOnResponse], error) {
+	if s.store == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this conductor has no database"))
+	}
+	placement, err := s.assistantPlacement(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&agentv1.GetAssistantRunsOnResponse{Placement: placement}), nil
+}
+
+// SetAssistantRunsOn saves where the assistant runs. Empty clears the choice back to the
+// conductor's default. A turn already running stays where it is.
+//
+// "host" on a conductor with no host runtime is refused here rather than saved and ignored:
+// the conductor would fall back to its default, and the screen would say one thing while
+// conversations did another.
+func (s *AgentService) SetAssistantRunsOn(
+	ctx context.Context, req *connect.Request[agentv1.SetAssistantRunsOnRequest],
+) (*connect.Response[agentv1.SetAssistantRunsOnResponse], error) {
+	if s.store == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this conductor has no database"))
+	}
+	v := strings.TrimSpace(req.Msg.GetRunsOn())
+	if err := profiles.ValidateAssistantRunsOn(v); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if v == profiles.RunsOnHost && s.assistant != nil && !s.assistant.HostAvailable() {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this conductor has no host "+
+			"runtime (PODIUM_AGENT_HOST_RUNTIME), so the assistant cannot run on its host"))
+	}
+	row := profiles.RunsOn{RunsOn: v, UpdatedBy: Login(ctx), UpdatedAt: time.Now().UTC()}
+	if err := s.store.PutSetting(ctx, profiles.AssistantRunsOnKey, row); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.logger.InfoContext(ctx, "where the assistant runs changed", "login", row.UpdatedBy, "runs_on", v)
+	placement, err := s.assistantPlacement(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&agentv1.SetAssistantRunsOnResponse{Placement: placement}), nil
+}
+
+func (s *AgentService) assistantPlacement(ctx context.Context) (*agentv1.AssistantPlacement, error) {
+	var row profiles.RunsOn
+	if err := s.store.GetSetting(ctx, profiles.AssistantRunsOnKey, &row); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	out := &agentv1.AssistantPlacement{Effective: row.RunsOn}
+	if row.RunsOn != "" {
+		out.Saved = &agentv1.RunsOn{RunsOn: row.RunsOn, UpdatedBy: row.UpdatedBy}
+		if !row.UpdatedAt.IsZero() {
+			out.Saved.UpdatedAt = timestamppb.New(row.UpdatedAt)
+		}
+	}
+	if s.assistant != nil {
+		out.Effective = s.assistant.AssistantPlacement(ctx)
+		out.Default = s.assistant.AssistantDefault()
+		out.HostAvailable = s.assistant.HostAvailable()
+	}
+	return out, nil
+}
