@@ -43,14 +43,19 @@ func (c *Conductor) ChatHostGateway() http.Handler {
 			http.Error(w, "no endpoint for provider "+provider, http.StatusBadGateway)
 			return
 		}
+		creds := credentialProvider(provider)
 		key, whose := "", "company"
 		if login != "" && c.host.PersonalCredential != nil {
-			if k, err := c.host.PersonalCredential(r.Context(), login, provider); err == nil && k != "" {
+			k, err := c.host.PersonalCredential(r.Context(), login, creds)
+			// A Claude sign-in is spent only by Claude Code (claude-agent). opencode's own
+			// anthropic provider would send it from a client that is not Claude Code, so a
+			// conversation on that provider spends the company key instead.
+			if err == nil && k != "" && (provider == claudeAgentProvider || !claudeOAuthToken(k)) {
 				key, whose = k, "personal"
 			}
 		}
 		if key == "" {
-			k, err := c.host.Credential(r.Context(), provider)
+			k, err := c.host.Credential(r.Context(), creds)
 			if err != nil || k == "" {
 				http.Error(w, "no credential is stored for "+provider, http.StatusBadGateway)
 				return
@@ -85,11 +90,32 @@ func (c *Conductor) ChatHostGateway() http.Handler {
 	})
 }
 
+// claudeOAuthPrefix starts every Claude OAuth access token; an API key starts sk-ant-api.
+const claudeOAuthPrefix = "sk-ant-oat"
+
+func claudeOAuthToken(key string) bool { return strings.HasPrefix(key, claudeOAuthPrefix) }
+
 // setProviderAuth writes key the way provider expects it.
 func setProviderAuth(h http.Header, provider, key string) {
 	switch provider {
-	case "anthropic":
-		h.Set("x-api-key", key)
+	case "anthropic", claudeAgentProvider:
+		if !claudeOAuthToken(key) {
+			h.Set("x-api-key", key)
+			return
+		}
+		// A Claude sign-in is a bearer, and Anthropic wants the OAuth beta named beside
+		// whatever betas Claude Code asked for.
+		h.Set("Authorization", "Bearer "+key)
+		betas := h.Values("anthropic-beta")
+		h.Del("anthropic-beta")
+		joined := strings.Join(betas, ",")
+		if !strings.Contains(joined, "oauth-2025-04-20") {
+			if joined != "" {
+				joined += ","
+			}
+			joined += "oauth-2025-04-20"
+		}
+		h.Set("anthropic-beta", joined)
 	case "google":
 		h.Set("x-goog-api-key", key)
 	default:

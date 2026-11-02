@@ -30,8 +30,11 @@ export type Provider = {
   keyPlaceholder: string;
   /** consoleURL is where a human gets a key. */
   consoleURL: string;
-  /** subscription is the sign-in offer, or undefined for a provider that has none. */
-  subscription?: { label: string; hint: string };
+  /**
+   * subscription is the sign-in offer, or undefined for a provider that has none. personalOnly
+   * is a sign-in that is never the global credential: it is only ever spent as its person's.
+   */
+  subscription?: { label: string; hint: string; personalOnly?: boolean };
 };
 
 export const ANTHROPIC: Provider = {
@@ -43,6 +46,11 @@ export const ANTHROPIC: Provider = {
   secretName: "podium.agent.anthropic_api_key",
   keyPlaceholder: "sk-ant-…",
   consoleURL: "https://console.anthropic.com/settings/keys",
+  subscription: {
+    label: "Sign in with a Claude Pro or Max subscription",
+    hint: "Your chats with the assistant run on your Claude plan, through Claude Code. Delegated tasks keep using the global key.",
+    personalOnly: true,
+  },
 };
 
 export const XAI: Provider = {

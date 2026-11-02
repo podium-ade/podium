@@ -46,7 +46,10 @@ type Result =
   | { tone: "ok"; text: string; models: string[]; note?: string }
   | { tone: "err" | "warn"; text: string; detail?: { label: string; text: string } };
 
-/** Signing is the device-code flow as this card sees it. */
+/**
+ * Signing is a sign-in in flight as this card sees it: a device code the human types on the
+ * provider's site, or — codePaste — a code the provider's site shows that is pasted back here.
+ */
 type Signing = {
   flowID: string;
   userCode: string;
@@ -54,6 +57,7 @@ type Signing = {
   urlComplete: string;
   expiresAt: number;
   interval: number;
+  codePaste: boolean;
 };
 
 export type ProviderCardProps = {
@@ -74,7 +78,7 @@ export type ProviderCardProps = {
   onClear: () => Promise<void>;
   /** Present only for a provider whose descriptor offers a subscription. */
   onStartOAuth?: () => Promise<StartProviderOAuthResponse>;
-  onPollOAuth?: (flowID: string) => Promise<PollProviderOAuthResponse>;
+  onPollOAuth?: (flowID: string, code?: string) => Promise<PollProviderOAuthResponse>;
   /** Called when a sign-in stored a credential, so the page can re-read the settings. */
   onSignedIn?: () => void;
 };
@@ -117,6 +121,7 @@ export function ProviderCard({
   const [open, setOpen] = useState(false);
   const [signing, setSigning] = useState<Signing>();
   const [starting, setStarting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const keySet = settings?.keySet ?? false;
   const hint = settings?.keyHint ?? "";
@@ -124,11 +129,45 @@ export function ProviderCard({
   const stored = keySet && !loading;
   const tid = (name: string) => `${name}-${provider.id}`;
 
+  // ended settles a poll that finished the sign-in one way or the other, and is false when it
+  // is still waiting.
+  const ended = (res: PollProviderOAuthResponse): boolean => {
+    switch (res.state) {
+      case "done":
+        setSigning(undefined);
+        setRotating(false);
+        setResult({
+          tone: "ok",
+          text: res.provider?.account
+            ? `Signed in as ${res.provider.account}. ${provider.models} turns will run.`
+            : `Signed in. ${provider.models} turns will run.`,
+          models: [],
+        });
+        onSignedIn?.();
+        return true;
+      case "denied":
+      case "expired":
+        setSigning(undefined);
+        setResult({
+          tone: res.state === "denied" ? "err" : "warn",
+          text:
+            res.state === "denied"
+              ? "The sign-in was refused."
+              : "The code expired before it was approved.",
+          detail: res.detail ? { label: `${provider.name} said`, text: res.detail } : undefined,
+        });
+        return true;
+      default:
+        return false;
+    }
+  };
+
   // The polling loop. It lives in an effect so that leaving the tab, cancelling, or the
   // component unmounting all stop it — a poll that outlived its card would keep asking the
-  // provider about a sign-in nobody is waiting for.
+  // provider about a sign-in nobody is waiting for. A pasted-code sign-in has nothing to
+  // poll for: it is finished by finishSignIn when the code is pasted.
   useEffect(() => {
-    if (!signing || !onPollOAuth) return;
+    if (!signing || !onPollOAuth || signing.codePaste) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -139,28 +178,9 @@ export function ProviderCard({
         if (!live) return;
         switch (res.state) {
           case "done":
-            setSigning(undefined);
-            setRotating(false);
-            setResult({
-              tone: "ok",
-              text: res.provider?.account
-                ? `Signed in as ${res.provider.account}. ${provider.models} turns will run.`
-                : `Signed in. ${provider.models} turns will run.`,
-              models: [],
-            });
-            onSignedIn?.();
-            return;
           case "denied":
           case "expired":
-            setSigning(undefined);
-            setResult({
-              tone: res.state === "denied" ? "err" : "warn",
-              text:
-                res.state === "denied"
-                  ? "The sign-in was refused."
-                  : "The code expired before it was approved.",
-              detail: res.detail ? { label: `${provider.name} said`, text: res.detail } : undefined,
-            });
+            ended(res);
             return;
           default: {
             // pending and slow_down are the same instruction with a different delay, and
@@ -181,7 +201,29 @@ export function ProviderCard({
       live = false;
       clearTimeout(timer);
     };
+    // ended is rebuilt each render from the same props listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signing, onPollOAuth, onSignedIn, provider]);
+
+  async function finishSignIn(code: string) {
+    if (!signing || !onPollOAuth || finishing || code.trim() === "") return;
+    setFinishing(true);
+    setResult(undefined);
+    try {
+      const res = await onPollOAuth(signing.flowID, code.trim());
+      if (!ended(res)) {
+        setResult({
+          tone: "warn",
+          text: "That code was not accepted yet. Paste the whole code and try again.",
+        });
+      }
+    } catch (err) {
+      setSigning(undefined);
+      setResult(failure(err, provider));
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   async function save() {
     const key = value.trim();
@@ -223,6 +265,7 @@ export function ProviderCard({
         urlComplete: res.verificationUriComplete,
         expiresAt: Number(res.expiresAt?.seconds ?? 0) * 1000,
         interval: Math.max(1, res.interval || 5),
+        codePaste: res.codePaste,
       });
     } catch (err) {
       setResult(failure(err, provider));
@@ -405,7 +448,9 @@ export function ProviderCard({
                   provider={provider}
                   signing={signing}
                   starting={starting}
+                  finishing={finishing}
                   onStart={() => void startSignIn()}
+                  onFinish={(code) => void finishSignIn(code)}
                   onCancel={() => setSigning(undefined)}
                   tid={tid}
                 />
@@ -592,18 +637,23 @@ function SubscriptionPanel({
   provider,
   signing,
   starting,
+  finishing,
   onStart,
+  onFinish,
   onCancel,
   tid,
 }: {
   provider: Provider;
   signing?: Signing;
   starting: boolean;
+  finishing: boolean;
   onStart: () => void;
+  onFinish: (code: string) => void;
   onCancel: () => void;
   tid: (name: string) => string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState("");
   const left = useCountdown(signing?.expiresAt);
 
   if (!signing) {
@@ -625,6 +675,71 @@ function SubscriptionPanel({
           background, so you sign in once.
         </p>
       </div>
+    );
+  }
+
+  if (signing.codePaste) {
+    return (
+      <form
+        data-testid={tid("provider-oauth-panel")}
+        className="space-y-4 rounded-xl border border-line-strong bg-raised p-4 animate-in fade-in-0 duration-200"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onFinish(code);
+        }}
+      >
+        <ol className="space-y-3.5 text-xs">
+          <li className="flex flex-wrap items-center gap-2">
+            <Step n={1} />
+            <span className="text-fg">Approve the sign-in on</span>
+            <a
+              data-testid={tid("provider-oauth-link")}
+              href={signing.urlComplete || signing.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 font-mono text-accent hover:underline"
+            >
+              {hostOf(signing.url)}
+              <ExternalLink aria-hidden className="size-3" />
+            </a>
+          </li>
+          <li className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Step n={2} />
+              <Label htmlFor={tid("provider-oauth-paste")} className="text-xs font-normal text-fg">
+                Paste the code {provider.name} shows you
+              </Label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pl-7">
+              <Input
+                id={tid("provider-oauth-paste")}
+                data-testid={tid("provider-oauth-paste")}
+                autoComplete="off"
+                spellCheck={false}
+                value={code}
+                onChange={(e) => setCode(trimPasted(e.target.value))}
+                placeholder="code#state"
+                className="max-w-sm font-mono text-sm"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                data-testid={tid("provider-oauth-finish")}
+                disabled={code.trim() === "" || finishing}
+              >
+                {finishing ? <Spinner /> : null}
+                {finishing ? `Checking with ${provider.name}…` : "Finish sign-in"}
+              </Button>
+            </div>
+          </li>
+        </ol>
+        <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-3 text-xs">
+          {left ? <span className="tabular text-faint">expires in {left}</span> : null}
+          <Button type="button" variant="ghost" size="xs" className="ml-auto" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </form>
     );
   }
 
@@ -782,6 +897,15 @@ function providerMessage(err: unknown): string | undefined {
   if (!(err instanceof ConnectError)) return undefined;
   const [detail] = err.findDetails(ProviderKeyErrorSchema);
   return detail?.providerMessage.trim() || undefined;
+}
+
+/** hostOf is a URL's host, for a link whose full address is too long to show. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** trimPasted strips the whitespace and the matched quotes a paste brings with it. */
