@@ -237,7 +237,10 @@ type Conductor struct {
 	publicURL       string
 	// replicaID, leaseTTL and heldLeases are this conductor's share of the work with the
 	// others on its database. heldLeases is guarded by mu. See lease.go.
-	replicaID  string
+	replicaID string
+	// runStarted is when Run began. The recovery pass at startup is about work from before
+	// this process; anything recorded after it is this process's own, and in flight.
+	runStarted time.Time
 	leaseTTL   time.Duration
 	heldLeases map[string]bool
 	// githubAPIURL is where a person's token is scoped and revoked, and userTokens the
@@ -380,6 +383,7 @@ func New(opts Options) (*Conductor, error) {
 func (c *Conductor) Run(ctx context.Context) error {
 	c.mu.Lock()
 	c.baseCtx = ctx
+	c.runStarted = time.Now().UTC()
 	c.mu.Unlock()
 	c.recover(ctx)
 

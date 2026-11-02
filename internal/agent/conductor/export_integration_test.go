@@ -52,3 +52,9 @@ func (c *Conductor) SummariseNowForTest(ctx context.Context) {
 func (c *Conductor) WithSummaryForTest(ctx context.Context, sessionID string, entries []BriefEntry) []BriefEntry {
 	return c.withSummary(ctx, sessionID, entries)
 }
+
+// RecoverAtStartupForTest runs the startup recovery pass again, as it runs while the turn
+// surface is already serving.
+func (c *Conductor) RecoverAtStartupForTest(ctx context.Context) {
+	c.recoverWork(ctx, true)
+}

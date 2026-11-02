@@ -1171,7 +1171,17 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 		return
 	}
 	profile := c.profiles.Current()
+	c.mu.Lock()
+	runStarted := c.runStarted
+	c.mu.Unlock()
 	for _, dlg := range running {
+		if startup && !runStarted.IsZero() && !dlg.CreatedAt.Before(runStarted) {
+			// Recorded by this process while the pass ran: the turn surface serves before
+			// Run's recovery finishes, and a delegation's row comes before its task. It is
+			// in flight here, not left behind — failing it as "its task never was" would
+			// fail a task that is about to start.
+			continue
+		}
 		sess, err := c.store.GetSession(ctx, dlg.SessionID)
 		if err != nil {
 			c.logger.ErrorContext(ctx, "a running delegation has no session",
