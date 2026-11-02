@@ -14,6 +14,16 @@ Modal can reach, and never needs a registry of yours at all.
 then point a playbook (or a provider's Ready sandbox image)
 at `modal:podium-agent-runtime-dev:0.7.3`.
 
+A base in a private registry Modal cannot reach on its own is pulled with a login:
+--registry-username names the user and REGISTRY_PASSWORD holds the password, which goes to
+Modal as an ephemeral secret for this build only. On Google Artifact Registry a short-lived
+token does, since the pull happens once, at build:
+
+    REGISTRY_PASSWORD=$(gcloud auth print-access-token) python examples/modal/publish_image.py \
+        examples/modal/docker-engine.Dockerfile \
+        --build-arg BASE=us-docker.pkg.dev/<project>/<repo>/<image>:<tag> \
+        --registry-username oauth2accesstoken --name <image>-docker:<tag>
+
 Keep the Dockerfile single-stage, FROM the published runtime: Modal documents no multi-stage
 support. Build FROM ghcr.io/podium-ade/podium-agent-runtime and the runtime's own build is
 already done. Modal ignores USER (its sandboxes run as root; Podium runs the turn as an
@@ -54,6 +64,28 @@ def with_from_args(dockerfile: str, build_args: dict[str, str]) -> str:
     return path
 
 
+def from_private_base(dockerfile: str, context: str, build_args: dict[str, str], username: str) -> modal.Image:
+    """The Dockerfile's base pulled with a registry login, and the rest of it applied on top.
+
+    Modal pulls a Dockerfile's FROM with no credentials, so the base is pulled the way
+    Image.from_registry pulls one, and the lines after FROM are run as the Dockerfile's own.
+    """
+    password = os.environ.get("REGISTRY_PASSWORD", "")
+    if not password:
+        raise SystemExit("--registry-username needs REGISTRY_PASSWORD in the environment")
+    with open(dockerfile) as f:
+        lines = f.read().splitlines()
+    froms = [i for i, line in enumerate(lines) if re.match(r"\s*FROM\s", line, re.I)]
+    if len(froms) != 1:
+        raise SystemExit("a private base needs a single-stage Dockerfile: exactly one FROM")
+    base = lines[froms[0]].split()[1]
+    login = modal.Secret.from_dict({"REGISTRY_USERNAME": username, "REGISTRY_PASSWORD": password})
+    rest = [line for i, line in enumerate(lines) if i > froms[0]]
+    return modal.Image.from_registry(base, secret=login).dockerfile_commands(
+        rest, context_dir=context, build_args=build_args
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("dockerfile")
@@ -62,11 +94,18 @@ def main() -> None:
     ap.add_argument("--build-arg", action="append", default=[], metavar="KEY=VALUE")
     ap.add_argument("--app", default="podium-sandbox", help="the Modal app the build runs in")
     ap.add_argument("--env", default=None, help="the Modal environment; the profile's by default")
+    ap.add_argument(
+        "--registry-username",
+        help="pull the FROM image with this user and REGISTRY_PASSWORD, for a private registry",
+    )
     args = ap.parse_args()
 
     build_args = dict(kv.split("=", 1) for kv in args.build_arg)
     dockerfile = with_from_args(args.dockerfile, build_args)
-    image = modal.Image.from_dockerfile(dockerfile, context_dir=args.context, build_args=build_args)
+    if args.registry_username:
+        image = from_private_base(dockerfile, args.context, build_args, args.registry_username)
+    else:
+        image = modal.Image.from_dockerfile(dockerfile, context_dir=args.context, build_args=build_args)
     app = modal.App.lookup(args.app, create_if_missing=True, environment_name=args.env)
     with modal.enable_output():
         image.build(app)

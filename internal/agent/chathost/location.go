@@ -26,6 +26,11 @@ type Provider struct {
 	BaseURL string
 	// APIKey is what opencode sends as the provider's credential. The gateway replaces it.
 	APIKey string
+	// AuthToken is sent as a bearer instead of APIKey, for claude-agent: opencode hands it to
+	// Claude Code as ANTHROPIC_AUTH_TOKEN, and the gateway replaces it the same way.
+	AuthToken string
+	// Builtin is a provider opencode ships in its core (claude-agent), which names no package.
+	Builtin bool
 	// Models are extra models to declare, for a provider opencode's catalog does not know.
 	Models []string
 }
@@ -129,9 +134,15 @@ func (h *Host) Close(name string) error {
 func locationConfig(loc Location) ([]byte, error) {
 	providers := map[string]any{}
 	for _, p := range loc.Providers {
-		entry := map[string]any{
-			"package":  cmpString(p.Package, "@opencode/ai/providers/"+p.ID),
-			"settings": map[string]any{"baseURL": p.BaseURL, "apiKey": p.APIKey},
+		settings := map[string]any{"baseURL": p.BaseURL}
+		if p.AuthToken != "" {
+			settings["authToken"] = p.AuthToken
+		} else {
+			settings["apiKey"] = p.APIKey
+		}
+		entry := map[string]any{"settings": settings}
+		if !p.Builtin {
+			entry["package"] = cmpString(p.Package, "@opencode/ai/providers/"+p.ID)
 		}
 		if len(p.Models) > 0 {
 			models := map[string]any{}

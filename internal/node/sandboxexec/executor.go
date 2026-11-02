@@ -188,6 +188,12 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, caps sandbox.Capabil
 	} else {
 		return "", caps, req, fmt.Errorf("%w: provider %s can neither boot an image nor run Docker", errSpec, e.p.Name())
 	}
+	for name, sc := range sp.Sidecars {
+		if sc.Privileged && !caps.PrivilegedSidecars {
+			return "", caps, req, fmt.Errorf("%w: sidecar %s is privileged, which provider %s does not allow: "+
+				"an operator turns it on in the provider's settings, where the provider supports it", errSpec, name, e.p.Name())
+		}
+	}
 	if strategy == wire.StrategyProcess && len(sp.Sidecars) > 0 && !caps.Docker {
 		return "", caps, req, fmt.Errorf("%w: sidecars need Docker inside the sandbox, which provider %s does not have", errSpec, e.p.Name())
 	}
@@ -386,6 +392,9 @@ func (e *Executor) startAgent(ctx context.Context, id, token, strategy string, c
 		agentBinPath, agentBinPath, host, wire.AgentPort, agentToken, agentDir)
 	if caps.Tmpfs {
 		cmd += " -tmpfs"
+	}
+	if caps.PrivilegedSidecars {
+		cmd += " -allow-privileged-sidecars"
 	}
 	cmd += " >>" + agentDir + "/agent.log 2>&1"
 	if _, err := e.p.Exec(ctx, id, cmd, true); err != nil {

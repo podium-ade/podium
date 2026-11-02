@@ -72,7 +72,7 @@ func TestATurnSpendsItsPersonsOwnCredential(t *testing.T) {
 func TestATurnWithNoPersonSpendsTheGlobalCredential(t *testing.T) {
 	c := &Conductor{}
 	for _, login := range []string{"", "unknown", "local", "agent"} {
-		assert.Empty(t, c.credentialOwner(context.Background(), login, profiles.AgentClaude), login)
+		assert.Empty(t, c.credentialOwner(context.Background(), login, profiles.AgentClaude, false), login)
 	}
 }
 

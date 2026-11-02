@@ -90,6 +90,9 @@ type Options struct {
 	// the memory secret to every task spec. Nil means this host has no shared memory:
 	// briefs carry no memory block and nothing is retained.
 	Memory *BriefMemory
+	// MemorySandboxMCPURL is Memory's MCP URL as a cloud sandbox reaches it, for a turn
+	// placed on a provider. Empty briefs such a turn with Memory as it is.
+	MemorySandboxMCPURL string
 	// MemoryClient is what the end-of-turn retain writes through. Nil disables retaining
 	// while leaving the briefs alone, which is what a test that only cares about the brief
 	// wants; in production the two are set together.
@@ -156,6 +159,10 @@ type Options struct {
 	NotifyAwayAfter time.Duration
 	// PublicURL is this deployment's web UI, for the link in a notification. Empty sends none.
 	PublicURL string
+	// ChatHostClaude is true when the chat host can run Claude Code, so a person signed in
+	// with their Claude subscription has their conversations answered by opencode's
+	// claude-agent provider on it. Nowhere else spends a Claude sign-in.
+	ChatHostClaude bool
 	// AnthropicBaseURL is where the chat host's gateway sends Anthropic requests: the host,
 	// without /v1. Empty is https://api.anthropic.com.
 	AnthropicBaseURL string
@@ -188,6 +195,8 @@ type Conductor struct {
 	metrics *Metrics
 	logger  *slog.Logger
 	memory  *BriefMemory
+	// memorySandboxMCPURL is Options.MemorySandboxMCPURL.
+	memorySandboxMCPURL string
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
 	// pending is the delegation announcements not said yet, oldest first. Guarded by mu;
@@ -231,6 +240,8 @@ type Conductor struct {
 	chat        chatState
 	// anthropicBaseURL is AnthropicBaseURL.
 	anthropicBaseURL string
+	// chatHostClaude is ChatHostClaude.
+	chatHostClaude bool
 	// notifiers, notifyAwayAfter and publicURL are notify.go's.
 	notifiers       []Notifier
 	notifyAwayAfter time.Duration
@@ -337,44 +348,46 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:              opts.Store,
-		podium:             opts.Podium,
-		profiles:           opts.Profiles,
-		sources:            opts.Sources,
-		metrics:            metrics,
-		logger:             logger,
-		memory:             opts.Memory,
-		memories:           opts.MemoryClient,
-		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
-		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
-		googleBaseURL:      cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
-		skillsDir:          opts.SkillsDir,
-		host:               opts.Host,
-		mirror:             opts.Mirror,
-		hostSlots:          make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
-		github:             opts.GitHub,
-		gitTaskURL:         opts.GitTaskURL,
-		mintSecret:         opts.MintSecret,
-		sandboxTaskURL:     opts.SandboxTaskURL,
-		chatHost:           opts.ChatHost,
-		chatHostURL:        opts.ChatHostURL,
-		chatRender:         opts.ChatHostRender,
-		anthropicBaseURL:   opts.AnthropicBaseURL,
-		notifiers:          opts.Notifiers,
-		notifyAwayAfter:    cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
-		publicURL:          opts.PublicURL,
-		chatSlots:          make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
-		chatPerUser:        cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
-		replicaID:          cmp.Or(opts.ReplicaID, newReplicaID()),
-		leaseTTL:           cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
-		heldLeases:         map[string]bool{},
-		githubAPIURL:       opts.GitHubAPIURL,
-		githubURL:          opts.GitHubURL,
-		sessions:           map[string]*sessionState{},
-		hostRuns:           map[string]func(){},
-		turnTokens:         map[string]turnGrant{},
-		liveDelegations:    map[string]*delegationRun{},
+		store:               opts.Store,
+		podium:              opts.Podium,
+		profiles:            opts.Profiles,
+		sources:             opts.Sources,
+		metrics:             metrics,
+		logger:              logger,
+		memory:              opts.Memory,
+		memorySandboxMCPURL: opts.MemorySandboxMCPURL,
+		memories:            opts.MemoryClient,
+		xaiBaseURL:          cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		openaiBaseURL:       cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
+		openaiCodexBaseURL:  cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		googleBaseURL:       cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
+		skillsDir:           opts.SkillsDir,
+		host:                opts.Host,
+		mirror:              opts.Mirror,
+		hostSlots:           make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:              opts.GitHub,
+		gitTaskURL:          opts.GitTaskURL,
+		mintSecret:          opts.MintSecret,
+		sandboxTaskURL:      opts.SandboxTaskURL,
+		chatHost:            opts.ChatHost,
+		chatHostURL:         opts.ChatHostURL,
+		chatRender:          opts.ChatHostRender,
+		anthropicBaseURL:    opts.AnthropicBaseURL,
+		chatHostClaude:      opts.ChatHostClaude && opts.ChatHost != nil,
+		notifiers:           opts.Notifiers,
+		notifyAwayAfter:     cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
+		publicURL:           opts.PublicURL,
+		chatSlots:           make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
+		chatPerUser:         cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
+		replicaID:           cmp.Or(opts.ReplicaID, newReplicaID()),
+		leaseTTL:            cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
+		heldLeases:          map[string]bool{},
+		githubAPIURL:        opts.GitHubAPIURL,
+		githubURL:           opts.GitHubURL,
+		sessions:            map[string]*sessionState{},
+		hostRuns:            map[string]func(){},
+		turnTokens:          map[string]turnGrant{},
+		liveDelegations:     map[string]*delegationRun{},
 	}, nil
 }
 
@@ -1022,7 +1035,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent)
+	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent, j.onHost && c.chatHost != nil)
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
@@ -1276,7 +1289,7 @@ func (c *Conductor) brief(
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
-		Memory:      c.memory,
+		Memory:      c.memoryFor(c.placedRunsOn(ctx, j)),
 	}
 	b.Provider = c.providerFor(choice.Agent, choice.CredentialOwner)
 	// Where this turn redeems its capability. The capability itself is a secret and is
@@ -1366,13 +1379,15 @@ func (c *Conductor) providerFor(agent, owner string) *BriefProvider {
 // Conductor with no store produces.
 func (c *Conductor) openaiEndpoint(owner string) string {
 	api := strings.TrimSuffix(c.openaiBaseURL, "/") + "/v1"
-	if c.openaiAuthKind(owner) == "oauth" {
+	if c.authKind(profiles.ProviderOpenAI, owner) == "oauth" {
 		return strings.TrimSuffix(c.openaiCodexBaseURL, "/")
 	}
 	return api
 }
 
-func (c *Conductor) openaiAuthKind(owner string) string {
+// authKind is how owner's credential for provider was obtained, "oauth" for a sign-in, as the
+// settings row records it. A missing row is "", the key path.
+func (c *Conductor) authKind(provider, owner string) string {
 	if c.store == nil {
 		return ""
 	}
@@ -1380,10 +1395,15 @@ func (c *Conductor) openaiAuthKind(owner string) string {
 		AuthKind string `json:"auth_kind"`
 	}
 	if err := c.store.GetSetting(context.Background(),
-		profiles.ProviderSettingKey(profiles.ProviderOpenAI, owner), &row); err != nil {
+		profiles.ProviderSettingKey(provider, owner), &row); err != nil {
 		return ""
 	}
 	return row.AuthKind
+}
+
+// claudeSignIn is whether owner's own Anthropic credential is a Claude subscription sign-in.
+func (c *Conductor) claudeSignIn(owner string) bool {
+	return owner != "" && c.authKind(profiles.ProviderAnthropic, owner) == "oauth"
 }
 
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
@@ -1532,7 +1552,11 @@ func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.
 // A control plane that cannot be asked falls back to the global credential and says so: a
 // turn that runs on the company key beats a turn that does not run, and the log is where an
 // operator finds out it happened.
-func (c *Conductor) credentialOwner(ctx context.Context, login, agent string) string {
+//
+// onChatHost is whether the turn is answered on the chat host. A Claude subscription sign-in
+// is spent only there, by opencode's claude-agent provider running Claude Code: every other
+// turn runs a harness that would send the token as an API key, so it spends the global key.
+func (c *Conductor) credentialOwner(ctx context.Context, login, agent string, onChatHost bool) string {
 	owner := turnOwner(login)
 	if owner == "" || c.podium == nil {
 		return ""
@@ -1547,10 +1571,15 @@ func (c *Conductor) credentialOwner(ctx context.Context, login, agent string) st
 			"spends the global one", "login", owner, "provider", b.Provider, "error", err)
 		return ""
 	}
-	if v > 0 {
-		return owner
+	if v == 0 {
+		return ""
 	}
-	return ""
+	if b.Provider == profiles.ProviderAnthropic && c.claudeSignIn(owner) && (!onChatHost || !c.chatHostClaude) {
+		c.logger.InfoContext(ctx, "a Claude subscription is only spent by the assistant on the chat host; "+
+			"this turn spends the global key", "login", owner)
+		return ""
+	}
+	return owner
 }
 
 // turnOwner is the MCP registry a turn reads. A Slack turn, the dev token, and the

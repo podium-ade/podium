@@ -317,7 +317,10 @@ function ModelsPanel() {
             // A subscription belongs to the person who signed in, so it is offered on Yours.
             // Global takes an API key — except for a caller with no list of its own, which
             // keeps the sign-in it always had.
-            const subscription = p.subscription !== undefined && !readOnly && (mine || !personal);
+            const subscription =
+              p.subscription !== undefined &&
+              !readOnly &&
+              (mine || (!personal && !p.subscription.personalOnly));
             return (
               <ProviderCard
                 key={`${scope}-${p.id}`}
@@ -336,7 +339,7 @@ function ModelsPanel() {
                 }
                 onPollOAuth={
                   subscription
-                    ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                    ? (flowId, code) => agent.pollProviderOAuth({ provider: p.id, flowId, code })
                     : undefined
                 }
                 onSignedIn={reload}

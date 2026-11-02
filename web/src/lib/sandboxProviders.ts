@@ -161,6 +161,13 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         section: "sandboxes",
       },
       {
+        key: "privileged_sidecars",
+        label: "Privileged sidecars",
+        help: "Under the vm runtime, let a task have a privileged sidecar, such as a Docker daemon for `docker: true`. It is root on the sandbox, which is a VM of the task's own holding no Modal credential. Empty is off.",
+        options: ["true"],
+        section: "sandboxes",
+      },
+      {
         key: "image",
         label: "Base image",
         help: "What a task that names no image or snapshot runs in. It needs sh, date and sleep; on the vm runtime, one with dockerd also gets Docker. Empty is Modal's default for the runtime, shown in the field.",
@@ -281,4 +288,29 @@ export function capacityText(p: SandboxProvider): string {
     p.accountLimit > 0 ? `account limit ${p.accountLimit}` : "",
   ].filter(Boolean);
   return caps.length > 0 ? `${p.inUse} of ${caps.join(", ")}` : `${p.inUse}, no cap`;
+}
+
+/**
+ * sidecarProblem is why a turn with these sidecars cannot run on provider, or "" when it can.
+ * A Docker daemon is a privileged sidecar, which only Modal's vm runtime takes, and only when
+ * the operator allowed it; a browser needs Docker in the sandbox, which boat has and Modal
+ * has under vm. On Modal the turn's image must also carry dockerd, which no setting shows.
+ */
+export function sidecarProblem(
+  provider: string,
+  settings: Record<string, string> | undefined,
+  modalRuntime: string,
+  want: { docker: boolean; browser: boolean },
+): string {
+  if (provider === "" || provider === RUNS_ON_NODES || (!want.docker && !want.browser)) return "";
+  if (provider === "modal") {
+    const vm = (modalRuntime || settings?.runtime || "gvisor") === "vm";
+    if (!vm) return "Modal runs sidecars only under the vm runtime. Set it on the provider or on the playbook.";
+    if (want.docker && settings?.privileged_sidecars !== "true") {
+      return "A Docker daemon is a privileged sidecar, which the Modal provider allows only with Privileged sidecars on.";
+    }
+    return "";
+  }
+  if (want.docker) return `A Docker daemon is a privileged sidecar, which ${provider} sandboxes do not run.`;
+  return "";
 }
