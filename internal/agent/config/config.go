@@ -219,6 +219,10 @@ type Config struct {
 	// MemoryTaskURL is PODIUM_AGENT_MEMORY_TASK_URL: Hindsight's base URL as seen from a
 	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
 	MemoryTaskURL string
+	// MemorySandboxURL is PODIUM_AGENT_MEMORY_SANDBOX_URL: Hindsight's base URL as a cloud
+	// sandbox reaches it. Empty means MemoryTaskURL, which a sandbox outside this network
+	// cannot reach: its turns then run with a memory that does not answer.
+	MemorySandboxURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
 	// turn: there is no per-user or per-playbook scoping in this track.
 	MemoryBank string
@@ -360,6 +364,7 @@ func FromEnv() Config {
 		GoogleBaseURL:       envOr("PODIUM_AGENT_GOOGLE_BASE_URL", DefaultGoogleBaseURL),
 		MemoryURL:           os.Getenv("PODIUM_AGENT_MEMORY_URL"),
 		MemoryTaskURL:       envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
+		MemorySandboxURL:    strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_SANDBOX_URL")),
 		MemoryBank:          envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
 		MemoryAPIKey:        os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
 		LinearAPIKey:        os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
@@ -568,6 +573,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("slack", c.SlackEnabled()),
 		slog.String("memory_url", c.MemoryURL),
 		slog.String("memory_task_url", c.MemoryTaskURL),
+		slog.String("memory_sandbox_url", c.MemorySandboxURL),
 		slog.String("memory_bank", c.MemoryBank),
 		slog.Bool("memory_api_key_set", c.MemoryAPIKey != ""),
 		slog.Bool("linear", c.LinearEnabled()),
@@ -746,6 +752,11 @@ func (c Config) validateMemory() error {
 	}
 	if err := absoluteURL("PODIUM_AGENT_MEMORY_TASK_URL", c.MemoryTaskURL); err != nil {
 		return err
+	}
+	if c.MemorySandboxURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_MEMORY_SANDBOX_URL", c.MemorySandboxURL); err != nil {
+			return err
+		}
 	}
 	if c.MemoryAPIKey == "" {
 		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +

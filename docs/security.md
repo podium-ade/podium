@@ -121,6 +121,12 @@ the task at provisioning, with an error that names the sidecar and the flag and 
 not retryable. That is the whole boundary: whoever configures the machine decides, and a task
 author cannot opt in from a YAML file.
 
+In a cloud sandbox the gate is the provider's: Modal's **Privileged sidecars** setting, under the
+vm runtime only, and off by default. There the privileged sidecar is root on a VM that belongs to
+that one task and holds no Modal credential, so what it can reach is what the task was already
+given: its secrets, its workspace and the agent's token for that run. boat has no such setting,
+because a boat VM keeps the account's own token where root can read it.
+
 Two things this does not do, and one to keep in mind:
 
 - **It does not harden the task container.** The task stays under `CapDrop: ALL`. It reaches the

@@ -20,7 +20,7 @@ Supported providers:
 | `image` tasks run | under Docker inside the VM | as the sandbox itself |
 | `sandbox.snapshot` | a boat named snapshot | a Modal filesystem-snapshot image (`im-…`) |
 | An image Modal holds | — | `image: modal:<name>`, published with Modal's SDK |
-| Sidecars | yes | only with `runtime: vm` |
+| Sidecars | yes; never privileged | with `runtime: vm` and an image carrying `dockerd`; privileged with **Privileged sidecars** on |
 | Secret files on tmpfs | yes | only with `runtime: vm`; otherwise a 0700 directory removed at the end |
 | Resource limits | `resources` picks the machine size; limits apply with systemd | `resources` is the sandbox's CPU and memory |
 | Longest task | no limit | 24 h |
@@ -131,6 +131,39 @@ SDK, publish it by name, and name it `modal:<name>` (or `modal:im-…` by ID) as
 `image`. Nothing is pulled from a registry when the sandbox starts, which is also how a task uses
 an image from a registry Modal cannot reach, such as one on your own network. A task with a
 `modal:` image runs only on Modal. See [agent.md](agent.md#on-modal-an-image-modal-holds).
+
+### Sidecars on Modal
+
+A task that runs in its own image on Modal can have sidecars, a `docker: true` playbook's Docker
+daemon and a `browser: true` playbook's Chrome among them: they run beside it on an engine the
+sandbox starts itself, as they would beside a container on a node. It needs three things, none
+of them on by default:
+
+1. **The vm runtime**, on the provider or as the playbook's `sandbox: {modal: {runtime: vm}}`.
+2. **Privileged sidecars** on the Modal provider, for the daemon: it is root on the sandbox. The
+   sandbox is a VM of the turn's own and holds no Modal credential, so root there reaches only
+   what the turn was already given; it is still an operator's decision, and it stays off unless
+   one turns it on.
+3. **An image with a Docker engine in it.** The agent runtime image carries only the client.
+   [`examples/modal/docker-engine.Dockerfile`](../examples/modal/docker-engine.Dockerfile) adds
+   Docker's static engine to any Debian or Ubuntu image, and `examples/modal/publish_image.py`
+   publishes the result to Modal, taking a private base with a login it hands Modal for that build
+   only:
+
+   ```sh
+   REGISTRY_PASSWORD=$(gcloud auth print-access-token) python examples/modal/publish_image.py \
+       examples/modal/docker-engine.Dockerfile --context examples/modal \
+       --build-arg BASE=us-docker.pkg.dev/<project>/<repo>/<agent-image>:<tag> \
+       --registry-username oauth2accesstoken --name <agent-image>-docker:<tag>
+   ```
+
+   and name it `image: modal:<agent-image>-docker:<tag>`.
+
+Everything else is as on a node: the daemon shares `/workspace` (a bind mount of the sandbox's),
+the turn reaches its sidecars as `dind` and `chrome`, and they reach the turn as `task`, so
+`http://task:3000` is the turn's own server. When the turn's command exits, what it left running
+ends with it. A sandbox is sized by the playbook's `resources` alone, and the sidecars share it,
+so give it room for them.
 
 ### A pool of ready sandboxes
 

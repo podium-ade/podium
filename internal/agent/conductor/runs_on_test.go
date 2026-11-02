@@ -89,3 +89,46 @@ func TestAModalImageIsPlacedOnModal(t *testing.T) {
 	assert.Equal(t, profiles.RunsOnNodes, c.placed(context.Background(), playbook).RunsOn,
 		"a playbook that names where it runs is taken at its word")
 }
+
+// A turn on a provider reaches memory at the sandbox address when one is set; every other
+// turn, and every turn when none is, keeps the address the fleet's nodes use.
+func TestASandboxTurnIsBriefedWithMemoryItCanReach(t *testing.T) {
+	nodes := &BriefMemory{MCPURL: "http://host.docker.internal:8888/mcp/podium", APIKeyEnv: "K"}
+	c := &Conductor{memory: nodes}
+	assert.Same(t, nodes, c.memoryFor("modal"), "no sandbox address: unchanged")
+
+	c.memorySandboxMCPURL = "https://memory.example.com/mcp/podium"
+	got := c.memoryFor("modal")
+	assert.Equal(t, &BriefMemory{MCPURL: "https://memory.example.com/mcp/podium", APIKeyEnv: "K"}, got)
+	assert.Equal(t, "http://host.docker.internal:8888/mcp/podium", nodes.MCPURL, "the shared block is not changed")
+	for _, runsOn := range []string{"", profiles.RunsOnNodes, profiles.RunsOnHost} {
+		assert.Same(t, nodes, c.memoryFor(runsOn), runsOn)
+	}
+	assert.Nil(t, (&Conductor{memorySandboxMCPURL: "https://x"}).memoryFor("modal"), "no memory stays no memory")
+}
+
+// A docker and browser playbook on Modal asks for what a node would give it, beside a turn
+// that runs in its Modal image: a privileged daemon sharing the workspace, a browser, and the
+// vm runtime that can run them.
+func TestADockerAndBrowserPlaybookOnModalKeepsItsSidecars(t *testing.T) {
+	c := skillsConductor(t, "", profiles.Playbook{
+		Image:     "modal:agent-docker:1",
+		Docker:    true,
+		Browser:   true,
+		Resources: spec.Resources{CPU: 8, MemoryMB: 16384},
+		Sandbox:   &profiles.PlaybookSandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}},
+	})
+	playbook := c.placed(context.Background(), c.profiles.Current().Playbooks["coder"])
+	require.Equal(t, "modal", playbook.RunsOn, "a modal: image places itself")
+	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "", "")
+	require.NoError(t, sp.Validate())
+
+	assert.Equal(t, &spec.Sandbox{Provider: "modal", Modal: &spec.ModalSandbox{Runtime: "vm"}}, sp.Sandbox)
+	assert.Equal(t, runtimeCommand, sp.Command)
+	assert.Equal(t, dockerSidecarHost, sp.Env[profiles.DockerHostEnv])
+	dind := sp.Sidecars[dockerSidecarName]
+	assert.True(t, dind.Privileged && dind.ShareWorkspace, "the daemon is privileged and shares /workspace")
+	assert.Contains(t, sp.Sidecars, browserSidecarName)
+	assert.Subset(t, sp.Labels, []string{spec.LabelSandbox, spec.LabelSandboxProvider + "modal"})
+}

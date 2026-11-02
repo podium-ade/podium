@@ -90,7 +90,8 @@ func TestAccountLimitIsReadInTheBackground(t *testing.T) {
 // runtime vm adds it.
 type overrider struct {
 	stubProvider
-	name string
+	name       string
+	privileged bool
 }
 
 func (p *overrider) Name() string                       { return p.name }
@@ -100,7 +101,7 @@ func (p *overrider) Override(s map[string]string) (sandbox.Capabilities, error) 
 		return sandbox.Capabilities{}, errors.New("no machine type huge")
 	}
 	vm := s["runtime"] == "vm"
-	return sandbox.Capabilities{NativeImage: p.name == "modal", Docker: p.name == "boat" || vm, Tmpfs: vm}, nil
+	return sandbox.Capabilities{NativeImage: p.name == "modal", Docker: p.name == "boat" || vm, Tmpfs: vm, PrivilegedSidecars: vm && p.privileged}, nil
 }
 
 // A task's overrides of its provider's settings reach Create, and a template override
@@ -174,4 +175,22 @@ func TestTheAgentStartsWithTheOverriddenCapabilities(t *testing.T) {
 		require.NotEmpty(t, p.cmds)
 		require.Equal(t, tc.tmpfs, strings.Contains(p.cmds[len(p.cmds)-1], " -tmpfs"), "runtime %q", tc.runtime)
 	}
+}
+
+// A privileged sidecar runs only where the provider allows one, and the agent is told so.
+func TestAPrivilegedSidecarNeedsTheProvidersAllowance(t *testing.T) {
+	dind := spec.TaskSpec{Image: "alpine:3", Command: []string{"true"},
+		Sidecars: map[string]spec.Sidecar{"dind": {Image: "docker:dind", Privileged: true}},
+		Sandbox:  &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}}}
+	_, _, _, err := (&Executor{p: &overrider{name: "modal"}}).plan(dind)
+	require.ErrorIs(t, err, errSpec)
+	require.ErrorContains(t, err, "sidecar dind is privileged")
+
+	p := &agentStarter{overrider: overrider{name: "modal", privileged: true}}
+	e, err := New(Options{Provider: p, DataDir: t.TempDir(), Agent: func() ([]byte, error) { return []byte("agent"), nil }})
+	require.NoError(t, err)
+	dind.ApplyDefaults()
+	_, err = e.Run(context.Background(), docker.Request{TaskID: "t", LeaseID: "l", Spec: dind}, make(chan docker.Event, 16))
+	require.ErrorContains(t, err, "stop here")
+	require.Contains(t, p.cmds[len(p.cmds)-1], " -allow-privileged-sidecars")
 }

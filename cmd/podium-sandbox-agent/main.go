@@ -28,6 +28,7 @@ func main() {
 	dir := flag.String("dir", "/tmp/podium-agent", "where the journal and staged transfers live")
 	secretDir := flag.String("secret-dir", "/run/podium-agent", "the executor's state, secrets included")
 	tmpfs := flag.Bool("tmpfs", false, "mount a tmpfs on -secret-dir with sudo so secrets never reach the disk")
+	privileged := flag.Bool("allow-privileged-sidecars", false, "honour a spec's privileged sidecar; the node passes it when the provider allows one")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -35,13 +36,13 @@ func main() {
 		return
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	if err := run(*listen, *tokenFile, *dir, *secretDir, *tmpfs, logger); err != nil {
+	if err := run(*listen, *tokenFile, *dir, *secretDir, *tmpfs, *privileged, logger); err != nil {
 		logger.Error("podium-sandbox-agent", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, tokenFile, dir, secretDir string, tmpfs bool, logger *slog.Logger) error {
+func run(listen, tokenFile, dir, secretDir string, tmpfs, privileged bool, logger *slog.Logger) error {
 	raw, err := os.ReadFile(tokenFile) //nolint:gosec // the node names the file it wrote
 	if err != nil {
 		return fmt.Errorf("read token: %w", err)
@@ -60,9 +61,11 @@ func run(listen, tokenFile, dir, secretDir string, tmpfs bool, logger *slog.Logg
 	factory := func(ctx context.Context, name string) (sandboxagent.Strategy, error) {
 		switch name {
 		case wire.StrategyDocker:
-			return docker.New(ctx, docker.Options{DataDir: filepath.Join(secretDir, "docker"), Logger: logger})
+			return docker.New(ctx, docker.Options{
+				DataDir: filepath.Join(secretDir, "docker"), AllowPrivilegedSidecars: privileged, Logger: logger,
+			})
 		case wire.StrategyProcess:
-			return newProcess(ctx, filepath.Join(secretDir, "process"), logger)
+			return newProcess(ctx, filepath.Join(secretDir, "process"), privileged, logger)
 		default:
 			return nil, fmt.Errorf("unknown strategy %q", name)
 		}
@@ -118,7 +121,7 @@ func addUserArgs() []string {
 // newProcess builds the process strategy. With root, or sudo, the task gets an account of
 // its own with no sudo, no docker group and no way to read the provider's credentials;
 // without either it runs as the agent's own user, which is all such a sandbox offers.
-func newProcess(ctx context.Context, dir string, logger *slog.Logger) (sandboxagent.Strategy, error) {
+func newProcess(ctx context.Context, dir string, privileged bool, logger *slog.Logger) (sandboxagent.Strategy, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -138,7 +141,9 @@ func newProcess(ctx context.Context, dir string, logger *slog.Logger) (sandboxag
 		o.User = taskUser
 	}
 	if exec.Command("docker", "info").Run() == nil {
-		d, err := docker.New(ctx, docker.Options{DataDir: filepath.Join(dir, "docker"), Logger: logger})
+		d, err := docker.New(ctx, docker.Options{
+			DataDir: filepath.Join(dir, "docker"), AllowPrivilegedSidecars: privileged, HostWorkspace: "/workspace", Logger: logger,
+		})
 		if err != nil {
 			return nil, err
 		}
