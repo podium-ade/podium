@@ -21,6 +21,22 @@ import { join } from "node:path";
  * capability as `Authorization: Bearer` and a token comes back (internal/agent/api.NewTurnREST). */
 export const Resource = "/v1/git-tokens";
 
+/**
+ * blockedInFront names a refusal that came from a proxy in front of the conductor rather than
+ * the conductor: Cloudflare marks a bot challenge with `cf-mitigated`, and a sandbox can never
+ * pass one. Undefined for anything else.
+ */
+export function blockedInFront(res: Response): string | undefined {
+  const mitigated = res.headers.get("cf-mitigated");
+  if (mitigated === null) {
+    return undefined;
+  }
+  return (
+    `Cloudflare stopped the request before it reached the conductor (cf-mitigated: ${mitigated}). ` +
+    "Exempt the turn surface's path from bot protection for this hostname"
+  );
+}
+
 /** HelperName is the script git runs. The extension matters: node needs it to load as ESM. */
 export const HelperName = "podium-git-credential.mjs";
 
@@ -83,7 +99,7 @@ export async function mint(
   const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = body as { code?: string; message?: string };
-    throw new MintError(err.code ?? String(res.status), err.message ?? res.statusText);
+    throw new MintError(err.code ?? String(res.status), err.message ?? blockedInFront(res) ?? res.statusText);
   }
   const out = body as Partial<Minted>;
   if (out.token === undefined || out.token === "") {
@@ -140,6 +156,10 @@ async function main() {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const mitigated = res.headers.get("cf-mitigated");
+    if (mitigated !== null) {
+      throw new Error("Cloudflare stopped the request before it reached the conductor (cf-mitigated: " + mitigated + ")");
+    }
     throw new Error("the conductor refused to mint a token: " + (body.message ?? res.statusText));
   }
   if (!body.token) {
