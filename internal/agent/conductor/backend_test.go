@@ -1,6 +1,8 @@
 package conductor
 
 import (
+	"context"
+
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +29,7 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.agent, func(t *testing.T) {
 			c := &Conductor{}
-			refs := c.reservedSecrets(tc.agent, nil, "")
+			refs := c.reservedSecrets(profiles.Choice{Agent: tc.agent}, nil, "")
 			require.Len(t, refs, 1, "no memory on this host, so the model credential is the only one")
 			assert.Equal(t, tc.wantSecret, refs[0].Name)
 			assert.Equal(t, tc.wantEnv, refs[0].Key)
@@ -44,16 +46,39 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 func TestNoTurnIsEverHandedARefreshToken(t *testing.T) {
 	c := &Conductor{memory: &BriefMemory{MCPURL: "http://x/mcp", APIKeyEnv: profiles.MemoryKeyEnv}}
 	for _, agent := range []string{profiles.AgentClaude, profiles.AgentGrok, profiles.AgentOpenAI} {
-		for _, ref := range c.reservedSecrets(agent, nil, "") {
+		for _, ref := range c.reservedSecrets(profiles.Choice{Agent: agent}, nil, "") {
 			assert.NotEqual(t, profiles.XAIRefreshSecret, ref.Name)
 			assert.NotEqual(t, profiles.OpenAIRefreshSecret, ref.Name)
 		}
 	}
 }
 
+// A turn decided to spend its person's own credential is handed that person's secret, from
+// their list, in the same variable the global one would land in. Nothing else changes.
+func TestATurnSpendsItsPersonsOwnCredential(t *testing.T) {
+	c := &Conductor{}
+	refs := c.reservedSecrets(profiles.Choice{Agent: profiles.AgentClaude, CredentialOwner: "ada@acme.com"}, nil, "")
+	require.Len(t, refs, 1)
+	assert.Equal(t, profiles.PersonalSecretFor(profiles.ProviderAnthropic), refs[0].Name)
+	assert.Equal(t, "ada@acme.com", refs[0].Owner)
+	assert.Equal(t, profiles.AnthropicKeyEnv, refs[0].Key)
+
+	global := c.reservedSecrets(profiles.Choice{Agent: profiles.AgentClaude}, nil, "")
+	assert.Equal(t, profiles.AnthropicKeySecret, global[0].Name)
+	assert.Empty(t, global[0].Owner, "the global credential has no owner")
+}
+
+// A turn with no person spends the global credential without asking anybody.
+func TestATurnWithNoPersonSpendsTheGlobalCredential(t *testing.T) {
+	c := &Conductor{}
+	for _, login := range []string{"", "unknown", "local", "agent"} {
+		assert.Empty(t, c.credentialOwner(context.Background(), login, profiles.AgentClaude), login)
+	}
+}
+
 func TestMemoryIsAttachedOnTopOfWhicheverCredential(t *testing.T) {
 	c := &Conductor{memory: &BriefMemory{MCPURL: "http://x/mcp", APIKeyEnv: profiles.MemoryKeyEnv}}
-	refs := c.reservedSecrets(profiles.AgentGrok, nil, "")
+	refs := c.reservedSecrets(profiles.Choice{Agent: profiles.AgentGrok}, nil, "")
 	require.Len(t, refs, 2)
 	assert.Equal(t, profiles.XAIKeySecret, refs[0].Name)
 	assert.Equal(t, profiles.MemoryKeySecret, refs[1].Name)
@@ -67,13 +92,13 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 		googleBaseURL: "https://generativelanguage.googleapis.com",
 	}
 
-	claude := c.providerFor(profiles.AgentClaude)
+	claude := c.providerFor(profiles.AgentClaude, "")
 	require.NotNil(t, claude)
 	assert.Equal(t, profiles.ProviderAnthropic, claude.ID)
 	assert.Equal(t, "ANTHROPIC_API_KEY", claude.APIKeyEnv)
 	assert.Empty(t, claude.BaseURL, "no endpoint opinion means the harness's own default")
 
-	grok := c.providerFor(profiles.AgentGrok)
+	grok := c.providerFor(profiles.AgentGrok, "")
 	require.NotNil(t, grok)
 	assert.Equal(t, profiles.ProviderXAI, grok.ID)
 	// The NAME of a secret, never a value: a brief is an environment variable on a task
@@ -83,13 +108,13 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 	// else: a bare host sends the turn to https://api.x.ai/responses, which is a 404.
 	assert.Equal(t, "https://api.x.ai/v1", grok.BaseURL)
 
-	openai := c.providerFor(profiles.AgentOpenAI)
+	openai := c.providerFor(profiles.AgentOpenAI, "")
 	require.NotNil(t, openai)
 	assert.Equal(t, profiles.ProviderOpenAI, openai.ID)
 	assert.Equal(t, "OPENAI_API_KEY", openai.APIKeyEnv)
 	assert.Equal(t, "https://api.openai.com/v1", openai.BaseURL)
 
-	gemini := c.providerFor(profiles.AgentGemini)
+	gemini := c.providerFor(profiles.AgentGemini, "")
 	require.NotNil(t, gemini)
 	assert.Equal(t, profiles.ProviderGoogle, gemini.ID)
 	assert.Equal(t, "GOOGLE_API_KEY", gemini.APIKeyEnv)
@@ -99,7 +124,7 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 // An agent id nobody configured still produces a runnable turn rather than a brief the
 // runtime will refuse: it falls back to the default backend.
 func TestAnUnknownBackendFallsBackRatherThanEmittingNothing(t *testing.T) {
-	got := (&Conductor{}).providerFor("mistral")
+	got := (&Conductor{}).providerFor("mistral", "")
 	require.NotNil(t, got)
 	assert.Equal(t, profiles.ProviderAnthropic, got.ID)
 }
@@ -109,10 +134,10 @@ func TestAnOverrideChangesTheProviderBlock(t *testing.T) {
 	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
 	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
 
-	base := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{}).Agent)
+	base := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{}).Agent, "")
 	assert.Equal(t, profiles.ProviderAnthropic, base.ID)
 
-	moved := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{Model: "grok-4.6"}).Agent)
+	moved := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{Model: "grok-4.6"}).Agent, "")
 	assert.Equal(t, profiles.ProviderXAI, moved.ID)
 	assert.Equal(t, "XAI_API_KEY", moved.APIKeyEnv)
 }

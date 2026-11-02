@@ -964,7 +964,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		Agent:    choice.Agent,
 		Model:    choice.Model,
 		Effort:   choice.Effort,
-		Provider: c.providerFor(choice.Agent).ID,
+		Provider: c.providerFor(choice.Agent, "").ID,
 	}
 
 	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, backend)
@@ -1022,6 +1022,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
+	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent)
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
@@ -1075,7 +1076,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if j.onHost {
 		host := &hostRun{
 			r: run, encoded: encoded, bundles: bundles, servers: servers,
-			provider: brief.Provider, menu: menu,
+			provider: brief.Provider, menu: menu, credOwner: choice.CredentialOwner,
 		}
 		if brief.Memory != nil {
 			host.memoryKeyEnv = brief.Memory.APIKeyEnv
@@ -1277,7 +1278,7 @@ func (c *Conductor) brief(
 		Instruction: ev.Text,
 		Memory:      c.memory,
 	}
-	b.Provider = c.providerFor(choice.Agent)
+	b.Provider = c.providerFor(choice.Agent, choice.CredentialOwner)
 	// Where this turn redeems its capability. The capability itself is a secret and is
 	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
 	// carry that either. Set only when there is something to mint for, which
@@ -1332,7 +1333,10 @@ func (c *Conductor) brief(
 // The base URL is only set where an install can point it somewhere else; leaving it empty
 // means the harness's own default for that provider, which is the right answer for a
 // provider Podium has no endpoint opinion about.
-func (c *Conductor) providerFor(agent string) *BriefProvider {
+//
+// owner is whose credential the turn spends (profiles.Choice.CredentialOwner). It matters
+// only where the kind of credential changes the endpoint: an OpenAI subscription token.
+func (c *Conductor) providerFor(agent, owner string) *BriefProvider {
 	b, ok := profiles.FindBackend(agent)
 	if !ok {
 		b, _ = profiles.FindBackend(profiles.DefaultAgent)
@@ -1347,7 +1351,7 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 		// https://api.x.ai/responses.
 		out.BaseURL = strings.TrimSuffix(c.xaiBaseURL, "/") + "/v1"
 	case profiles.ProviderOpenAI:
-		out.BaseURL = c.openaiEndpoint()
+		out.BaseURL = c.openaiEndpoint(owner)
 	case profiles.ProviderGoogle:
 		// Same rule as xAI: PODIUM_AGENT_GOOGLE_BASE_URL names the host, which is what
 		// validateGoogleKey builds from, and the harness wants the API root with its version.
@@ -1360,22 +1364,23 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 // api.openai.com; a ChatGPT subscription token talks to Codex. The stored auth kind is
 // what picks, and a missing row is the key path — that is also what a hand-built
 // Conductor with no store produces.
-func (c *Conductor) openaiEndpoint() string {
+func (c *Conductor) openaiEndpoint(owner string) string {
 	api := strings.TrimSuffix(c.openaiBaseURL, "/") + "/v1"
-	if c.openaiAuthKind() == "oauth" {
+	if c.openaiAuthKind(owner) == "oauth" {
 		return strings.TrimSuffix(c.openaiCodexBaseURL, "/")
 	}
 	return api
 }
 
-func (c *Conductor) openaiAuthKind() string {
+func (c *Conductor) openaiAuthKind(owner string) string {
 	if c.store == nil {
 		return ""
 	}
 	var row struct {
 		AuthKind string `json:"auth_kind"`
 	}
-	if err := c.store.GetSetting(context.Background(), "provider.openai", &row); err != nil {
+	if err := c.store.GetSetting(context.Background(),
+		profiles.ProviderSettingKey(profiles.ProviderOpenAI, owner), &row); err != nil {
 		return ""
 	}
 	return row.AuthKind
@@ -1455,7 +1460,7 @@ func (c *Conductor) taskSpec(
 		Timeout:   playbook.Timeout,
 		Secrets: append(append(append([]spec.SecretRef(nil), globalSecretRefs(playbook.Secrets)...),
 			userSecretRefsOrEmpty(login, playbook.UserSecrets)...),
-			c.reservedSecrets(choice.Agent, servers, capabilitySecret)...),
+			c.reservedSecrets(choice, servers, capabilitySecret)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
@@ -1520,6 +1525,34 @@ func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.
 	return resolveMCPServers(turnOwner(login), j.mcpServers, rows)
 }
 
+// credentialOwner is whose model credential a turn spends: the person who asked, when they
+// saved their own for the provider this backend spends, and the global one otherwise. A turn
+// with no person — Slack, Linear, GitHub, the dev token — always spends the global one.
+//
+// A control plane that cannot be asked falls back to the global credential and says so: a
+// turn that runs on the company key beats a turn that does not run, and the log is where an
+// operator finds out it happened.
+func (c *Conductor) credentialOwner(ctx context.Context, login, agent string) string {
+	owner := turnOwner(login)
+	if owner == "" || c.podium == nil {
+		return ""
+	}
+	b, ok := profiles.FindBackend(agent)
+	if !ok {
+		b, _ = profiles.FindBackend(profiles.DefaultAgent)
+	}
+	v, err := c.podium.PersonalSecretVersion(ctx, owner, profiles.PersonalSecretFor(b.Provider))
+	if err != nil {
+		c.logger.WarnContext(ctx, "could not check for a personal model credential; the turn "+
+			"spends the global one", "login", owner, "provider", b.Provider, "error", err)
+		return ""
+	}
+	if v > 0 {
+		return owner
+	}
+	return ""
+}
+
 // turnOwner is the MCP registry a turn reads. A Slack turn, the dev token, and the
 // conductor itself have no person, so they keep the unowned bot rows.
 func turnOwner(login string) string {
@@ -1581,7 +1614,8 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	out := make([]spec.SecretRef, len(refs))
 	for i, ref := range refs {
 		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" ||
-			spec.IsPersonalMCPSecret(ref.Name) || spec.IsPersonalMCPOAuthSecret(ref.Name) {
+			spec.IsPersonalMCPSecret(ref.Name) || spec.IsPersonalMCPOAuthSecret(ref.Name) ||
+			spec.IsPersonalModelKeySecret(ref.Name) {
 			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
 		}
 		out[i] = ref
@@ -1786,14 +1820,17 @@ func dockerSidecar() spec.Sidecar {
 // block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
 // optional.
 func (c *Conductor) reservedSecrets(
-	agent string, servers []mcp.Server, capabilitySecret string,
+	choice profiles.Choice, servers []mcp.Server, capabilitySecret string,
 ) []spec.SecretRef {
-	b, ok := profiles.FindBackend(agent)
+	b, ok := profiles.FindBackend(choice.Agent)
 	if !ok {
 		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
+	// The person's own credential when the turn was decided to spend it, from their list;
+	// the global one otherwise. Either way it lands in the same variable.
 	model := spec.SecretRef{
-		Name:   profiles.SecretFor(b.Provider),
+		Name:   profiles.CredentialSecretFor(b.Provider, choice.CredentialOwner),
+		Owner:  choice.CredentialOwner,
 		Target: spec.SecretTargetEnv,
 		Key:    profiles.KeyEnvFor(b.Provider),
 	}

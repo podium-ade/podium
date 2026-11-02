@@ -688,7 +688,8 @@ const ConductorReservedPrefix = "podium.agent."
 
 // ConductorMayRead reports whether the conductor may read a value back: a global in its own
 // namespace, or a credential it keeps on a person's list — their connected GitHub account,
-// and their MCP servers' tokens and sign-ins. No person may read any value.
+// their MCP servers' tokens and sign-ins, and their own model provider credential. No person
+// may read any value.
 func ConductorMayRead(name, owner string) bool {
 	if owner != "" {
 		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name) ||
@@ -699,15 +700,23 @@ func ConductorMayRead(name, owner string) bool {
 
 var personalMCPOAuthSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}\.oauth$`)
 
-var personalModelKeySecretRE = regexp.MustCompile(`^model\.[a-z][a-z0-9-]{0,31}\.api_key$`)
+var personalModelKeySecretRE = regexp.MustCompile(`^model\.[a-z][a-z0-9-]{0,31}\.(api_key|refresh_token)$`)
 
-// PersonalModelKeySecretName is where one person keeps their own key for a model provider —
-// anthropic, openai, xai, google. A person sets it on the Secrets page as a personal secret;
-// the conductor reads it to spend that person's credential rather than the company's on their
-// conversations. A playbook may not name it.
+// PersonalModelKeySecretName is where one person keeps their own credential for a model
+// provider — anthropic, openai, xai, google: an API key, or the access token of their own
+// subscription sign-in. A person sets it under Settings → Models (Yours), or by hand on the
+// Secrets page as a personal secret; the conductor writes it for them from Models, and spends
+// it rather than the company's key on the turns that person asks for. A playbook may not name it.
 func PersonalModelKeySecretName(provider string) string { return "model." + provider + ".api_key" }
 
-// IsPersonalModelKeySecret reports whether name is a person's model provider key.
+// PersonalModelRefreshSecretName is where one person's subscription sign-in keeps its refresh
+// token. The conductor writes and reads it; it never reaches a turn.
+func PersonalModelRefreshSecretName(provider string) string {
+	return "model." + provider + ".refresh_token"
+}
+
+// IsPersonalModelKeySecret reports whether name is a person's model provider credential or
+// its refresh token. The conductor may write one of these for a person.
 func IsPersonalModelKeySecret(name string) bool { return personalModelKeySecretRE.MatchString(name) }
 
 // PersonalMCPOAuthSecretName is where one person's MCP sign-in keeps its client secret and

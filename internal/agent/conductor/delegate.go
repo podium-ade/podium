@@ -324,7 +324,7 @@ func (c *Conductor) delegate(
 			Agent:    choice.Agent,
 			Model:    choice.Model,
 			Effort:   choice.Effort,
-			Provider: c.providerFor(choice.Agent).ID,
+			Provider: c.providerFor(choice.Agent, "").ID,
 		},
 		ReadOnly: opts.ReadOnly,
 	})
@@ -717,6 +717,7 @@ func (c *Conductor) startDelegatedTask(
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
+	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent)
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login

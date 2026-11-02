@@ -109,11 +109,13 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
 
-	agentv1connect.AgentServiceSetRunsOnProcedure:                  store.RoleAdmin,
-	agentv1connect.AgentServiceSetProviderKeyProcedure:             store.RoleAdmin,
-	agentv1connect.AgentServiceClearProviderKeyProcedure:           store.RoleAdmin,
-	agentv1connect.AgentServiceStartProviderOAuthProcedure:         store.RoleAdmin,
-	agentv1connect.AgentServicePollProviderOAuthProcedure:          store.RoleAdmin,
+	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
+	// A member saves their own model credential; the handler refuses a global write from
+	// anyone the proxy did not mark as infra, the same split as the MCP registry.
+	agentv1connect.AgentServiceSetProviderKeyProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceClearProviderKeyProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceStartProviderOAuthProcedure:         store.RoleMember,
+	agentv1connect.AgentServicePollProviderOAuthProcedure:          store.RoleMember,
 	agentv1connect.AgentServiceDeleteMemoryProcedure:               store.RoleAdmin,
 	agentv1connect.AgentServiceUpdateProfileProcedure:              store.RoleAdmin,
 	agentv1connect.AgentServiceUpdateProfileFileProcedure:          store.RoleAdmin,

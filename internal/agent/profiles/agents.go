@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // An agent backend is the harness a turn runs on, together with the credential it spends.
@@ -250,6 +252,29 @@ func validTool(name string) bool { return slices.Contains(Tools, name) }
 // constants below, which is what stops the derivation drifting from them.
 func SecretFor(provider string) string { return "podium.agent." + provider + "_api_key" }
 
+// PersonalSecretFor is the personal secret one person's own credential for a provider is
+// stored as, on that person's list. A turn that person asks for spends it before SecretFor.
+func PersonalSecretFor(provider string) string { return spec.PersonalModelKeySecretName(provider) }
+
+// CredentialSecretFor is the secret a credential lives in: the global one when owner is
+// empty, the person's own otherwise.
+func CredentialSecretFor(provider, owner string) string {
+	if owner == "" {
+		return SecretFor(provider)
+	}
+	return PersonalSecretFor(provider)
+}
+
+// ProviderSettingKey is the conductor settings row that describes a stored credential: how
+// it was obtained, by whom, and when it expires. The global credential's is
+// "provider.<id>"; one person's is "provider.<id>@<login>".
+func ProviderSettingKey(provider, owner string) string {
+	if owner == "" {
+		return "provider." + provider
+	}
+	return "provider." + provider + "@" + owner
+}
+
 // KeyEnvFor is the environment variable name for a provider's credential.
 func KeyEnvFor(provider string) string { return strings.ToUpper(provider) + "_API_KEY" }
 
@@ -307,6 +332,11 @@ type Choice struct {
 	Agent  string
 	Model  string
 	Effort string
+	// CredentialOwner is whose credential the turn spends: the login of the person who
+	// asked, when they saved their own for this backend's provider, or empty for the global
+	// one an admin set. The conductor decides it once per turn, after the person is known,
+	// so the secret a turn is handed and the endpoint its brief names agree.
+	CredentialOwner string
 }
 
 // Override is a per-turn choice of backend, model and effort. Every field is optional and

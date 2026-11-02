@@ -66,7 +66,8 @@ func (s *SecretService) SetSecret(
 
 // ListSecrets returns metadata only: every global name plus the caller's own personal
 // names. A dev token and a node have no personal secrets, so they see globals. The
-// conductor sees globals, and, when it names a login, that login's MCP credentials.
+// conductor sees globals, and, when it names a login, that login's MCP and model provider
+// credentials.
 func (s *SecretService) ListSecrets(
 	ctx context.Context,
 	req *connect.Request[podiumv1.ListSecretsRequest],
@@ -81,7 +82,8 @@ func (s *SecretService) ListSecrets(
 	}
 	out := make([]*podiumv1.Secret, 0, len(rows))
 	for _, row := range rows {
-		if agentMCPOnly && row.Scope == store.SecretScopePersonal && !spec.IsPersonalMCPSecret(row.Name) {
+		if agentMCPOnly && row.Scope == store.SecretScopePersonal && !spec.IsPersonalMCPSecret(row.Name) &&
+			!spec.IsPersonalModelKeySecret(row.Name) {
 			continue
 		}
 		out = append(out, secretToProto(row))
@@ -108,7 +110,8 @@ func (s *SecretService) DeleteSecret(
 // authorizeWrite decides the scope and owner a caller may write. A person's own personal
 // secret is always theirs: the request cannot name somebody else. The conductor may write
 // one personal name for somebody else: an MCP credential, which is the token a person saved
-// on their own MCP server, or github.token, which is the account a person connected.
+// on their own MCP server, a model provider credential a person saved for their own turns,
+// or github.token, which is the account a person connected.
 func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.SecretScope, name, requestedOwner string) (scope, owner string, err error) {
 	id, ok := transport.From(ctx)
 	if !ok {
@@ -147,7 +150,7 @@ func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.S
 			return store.SecretScopePersonal, id.Login, nil
 		case transport.KindAgent:
 			if requestedOwner == "" || (!spec.IsPersonalMCPSecret(name) && !spec.IsPersonalMCPOAuthSecret(name) &&
-				name != spec.GitHubAccountSecret) {
+				!spec.IsPersonalModelKeySecret(name) && name != spec.GitHubAccountSecret) {
 				return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
 			}
 			return store.SecretScopePersonal, requestedOwner, nil

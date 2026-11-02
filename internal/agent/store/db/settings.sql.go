@@ -30,6 +30,35 @@ func (q *Queries) GetSetting(ctx context.Context, key string) ([]byte, error) {
 	return value, err
 }
 
+const listSettingsByPrefix = `-- name: ListSettingsByPrefix :many
+select key, value from settings where starts_with(key, $1::text) order by key
+`
+
+type ListSettingsByPrefixRow struct {
+	Key   string
+	Value []byte
+}
+
+func (q *Queries) ListSettingsByPrefix(ctx context.Context, prefix string) ([]ListSettingsByPrefixRow, error) {
+	rows, err := q.db.Query(ctx, listSettingsByPrefix, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSettingsByPrefixRow{}
+	for rows.Next() {
+		var i ListSettingsByPrefixRow
+		if err := rows.Scan(&i.Key, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const putSetting = `-- name: PutSetting :exec
 insert into settings (key, value, updated_at) values ($1, $2, $3)
 on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at
