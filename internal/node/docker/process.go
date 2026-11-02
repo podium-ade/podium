@@ -305,7 +305,10 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	if p.o.User == "" {
 		home = os.Getenv("HOME")
 	}
-	env = append(env, "HOME="+home, "USER="+p.owner(), "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	env = append(env, "HOME="+home, "USER="+p.owner())
+	if !hasEnv(env, "PATH") {
+		env = append(env, "PATH="+taskPath(os.Getenv("PATH")))
+	}
 
 	argv := append(p.launch(sp.Resources, workdir, env), p.runner, "--")
 	argv = append(argv, sp.Command...)
@@ -617,4 +620,28 @@ func (p *ProcessExecutor) startSidecars(ctx context.Context, req Request, em *em
 		return set, err
 	}
 	return set, nil
+}
+
+// defaultTaskPath is a task's PATH when this process has none to hand on.
+const defaultTaskPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// taskPath is the PATH a task's command runs with: this process's own, which in a sandbox is
+// the IMAGE's — podium-sandbox-agent is started inside it with the image's environment — so a
+// toolchain the image puts on PATH (Go in /usr/local/go/bin, say) is found as it would be in a
+// container. A fixed PATH here hid it, and an agent prefixed every command with an export.
+func taskPath(own string) string {
+	if own == "" {
+		return defaultTaskPath
+	}
+	return own
+}
+
+// hasEnv says whether env sets key: a playbook that names its own PATH keeps it.
+func hasEnv(env []string, key string) bool {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, key+"=") {
+			return true
+		}
+	}
+	return false
 }
