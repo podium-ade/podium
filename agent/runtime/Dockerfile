@@ -78,12 +78,13 @@ COPY package.json /opt/podium-agent/package.json
 # it is installed globally rather than as a dependency of the runtime because it is a
 # program this code spawns, not a library it imports.
 #
-# It refuses a model its own catalog does not list, before any request: 1.18.29 did not know
-# claude-opus-5-5 or claude-sonnet-5-5, so every turn on the default model failed with
-# "Unexpected server error", and 1.18.35 did not know claude-haiku-5-5, gemini-4-argon or
-# gpt-6.1-terra. Move this pin with internal/agent/profiles/agents.go.
+# opencode 2 (`@opencode/cli`), the same release the chat host is tested against
+# (internal/agent/chathost). It refuses a model its own catalog does not list, before any
+# request: 1.18.29 did not know claude-opus-5-5, so every turn on the default model failed
+# with "Unexpected server error". 2.2.5 knows every model in internal/agent/profiles/agents.go;
+# move this pin with that file.
 RUN set -eux; \
-    npm install --global opencode-ai@1.19.5; \
+    npm install --global @opencode/cli@2.2.5; \
     opencode --version
 
 # Build-time assertion: if optional dependencies were skipped, or the wrong platform's

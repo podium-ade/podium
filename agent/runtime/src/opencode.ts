@@ -12,12 +12,14 @@
 // bearer token.
 
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { lookup as dnsLookupCb } from "node:dns";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { isIP } from "node:net";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, isIP } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 
 import type { McpServerRef } from "./brief.js";
@@ -139,8 +141,11 @@ const PromptName = "system.md";
 export interface Event {
   type: string;
   sessionID?: string;
-  /** error is set on an error event: the harness's own reason for failing. */
-  error?: { name?: string; data?: { message?: string } };
+  /**
+   * error is set on an error event: the harness's own reason for failing. opencode 2 says
+   * `{type, message}`; opencode 1 said `{name, data: {message}}`.
+   */
+  error?: { name?: string; type?: string; message?: string; data?: { message?: string } };
   part?: {
     id?: string;
     type?: string;
@@ -202,24 +207,30 @@ export interface Config {
 }
 
 /**
- * skillPermission is the harness's `permission.skill` map: a wildcard deny, then one allow
- * per skill the playbook named.
+ * skillRules is the agent's skill permissions: a wildcard deny, then one allow per skill the
+ * playbook named.
  *
  * The order is load-bearing. The harness evaluates the LAST matching rule, so the broad
- * rule has to come first — `{"pr-review": "allow", "*": "deny"}` denies pr-review. It is
- * written even when the playbook named nothing, and that is the point: with everything
- * denied the harness drops the `skill` tool from the agent altogether, so a turn with no
+ * rule has to come first — an allow followed by `*` deny denies it. It is written even when
+ * the playbook named nothing, and that is the point: with every skill denied, a turn with no
  * skills cannot load one by any route, including the skills the harness ships with itself.
+ * (opencode 2 still lists the `skill` tool; every load through it is refused.)
  *
  * `--auto` does not undo it: it auto-approves what is not *explicitly* denied, and `*`
  * denies explicitly.
  */
-export function skillPermission(names: string[]): Record<string, "allow" | "deny"> {
-  const out: Record<string, "allow" | "deny"> = { "*": "deny" };
-  for (const name of names) {
-    out[name] = "allow";
-  }
-  return out;
+export function skillRules(names: string[]): Rule[] {
+  return [
+    { action: "skill", resource: "*", effect: "deny" },
+    ...names.map((name): Rule => ({ action: "skill", resource: name, effect: "allow" })),
+  ];
+}
+
+/** Rule is one of the harness's permission rules. */
+export interface Rule {
+  action: string;
+  resource: string;
+  effect: "allow" | "deny" | "ask";
 }
 
 /**
@@ -243,17 +254,6 @@ export function chatgptAccountId(token: string): string | undefined {
   }
 }
 
-/**
- * NamedKeyProviders are the providers whose credential has to be named in the config.
- *
- * The harness hands a provider the key it found in the environment only when that provider
- * lists exactly one variable. Google lists three, so with GOOGLE_API_KEY set the provider is
- * enabled and then its SDK looks for GOOGLE_GENERATIVE_AI_API_KEY instead. The turn does not
- * fail cleanly: traced against opencode 1.19.5, it never sends a request and hangs until it
- * is killed. Naming the variable is what makes it the one spent.
- */
-export const NamedKeyProviders = new Set(["google"]);
-
 function chatgptHeaders(cfg: Config): Record<string, string> | undefined {
   if (cfg.providerID !== "openai" || !cfg.apiKeyEnv) {
     return undefined;
@@ -266,134 +266,147 @@ function chatgptHeaders(cfg: Config): Record<string, string> | undefined {
 }
 
 /**
+ * mcpServer is one MCP server as opencode 2 reads it.
+ *
+ * `codemode: false` on every one. opencode 2 otherwise reaches an MCP server's tools only
+ * through Code Mode — JavaScript inside its `execute` tool — and the prompts, the playbooks'
+ * allow-lists and the conductor's fence all name them as plain tools, `<server>_<tool>`.
+ * With Code Mode off they are exactly that.
+ */
+function mcpServer(entry: Record<string, unknown>): Record<string, unknown> {
+  return { ...entry, codemode: false };
+}
+
+/**
+ * playbookMcpExtras is what a playbook's own server config may add to the entry this runtime
+ * writes, translated to opencode 2. A v1 `timeout` was one number of milliseconds; v2 has one
+ * per phase. Every other key opencode 1 took is dropped: v2 rejects a config it cannot read.
+ */
+function playbookMcpExtras(config: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (typeof config.timeout === "number" && config.timeout > 0) {
+    const ms = Math.round(config.timeout);
+    out.timeout = { startup: ms, catalog: ms, execution: ms };
+  } else if (config.timeout && typeof config.timeout === "object") {
+    out.timeout = config.timeout;
+  }
+  if (config.oauth !== undefined) {
+    out.oauth = config.oauth;
+  }
+  if (typeof config.protocol === "string") {
+    out.protocol = config.protocol;
+  }
+  return out;
+}
+
+/**
  * writeConfig writes the opencode config for one turn and returns its directory.
  *
  * The system prompt goes in its own file and is referenced, rather than inlined into the
  * JSON: it is the whole operating contract, several kilobytes of it, and a prompt that has
  * to survive JSON escaping is a prompt somebody will eventually break.
  *
- * The tool allow-list is expressed as explicit false for everything not named. An allow-list
- * that only says what is permitted would leave the harness's defaults in place for the rest,
- * which is the opposite of what a playbook's `allowed_tools` means.
+ * The tool allow-list is expressed as an explicit deny for every built-in tool not named. An
+ * allow-list that only says what is permitted would leave the harness's defaults in place for
+ * the rest, which is the opposite of what a playbook's `allowed_tools` means. A denied tool is
+ * not offered to the model at all.
  */
 export function writeConfig(cfg: Config): string {
   mkdirSync(cfg.dir, { recursive: true });
   writeFileSync(join(cfg.dir, PromptName), cfg.systemPrompt, "utf8");
 
-  const tools: Record<string, boolean> = {};
-  for (const t of KnownTools) {
-    tools[t] = cfg.tools.includes(t);
+  const allowed = new Set(cfg.tools.flatMap((t) => harnessTools(t)));
+  const permissions: Rule[] = [];
+  for (const t of DeniableTools) {
+    if (!allowed.has(t)) {
+      permissions.push({ action: t, resource: "*", effect: "deny" });
+    }
   }
-  // A memory tool is named by its server prefix and cannot be listed in KnownTools, which is
-  // a fixed set. It is enabled wholesale when this host has memory: the conductor decides
-  // whether a turn gets memory at all, and no playbook may opt out of it.
-  if (cfg.memory) {
-    tools[`${MemoryServer}*`] = true;
-  }
-  // Same rule for the browser: the conductor decided this turn has one, so the tools that
-  // drive it are on. A playbook that did not ask for a browser has neither the sidecar nor
-  // these tools, so there is nothing to opt out of. This is a `browser*` tool entry and not
-  // a `permission.skill` line: the two grant different things — the browser is a sidecar
-  // the playbook asked for, a skill is content it is allowed to load — and neither map may
-  // be written over the other.
-  if (cfg.browser) {
-    tools[`${BrowserServer}*`] = true;
-  }
-  // And the same rule for delegation: the conductor decided this turn may delegate, and a
-  // host turn's short tool list is only defensible because these are on. A playbook cannot
-  // opt out of them any more than it can opt out of memory.
-  if (cfg.delegation) {
-    tools[`${DelegateServer}*`] = true;
-  }
-  if (cfg.interactive) {
-    tools[`${HumanServer}*`] = true;
-  }
-  if (cfg.title) {
-    tools[`${TitleServer}*`] = true;
-  }
-  // And the playbook's own servers. Each one's tools are enabled wholesale, because naming
-  // the server in `mcp_servers` is what granting it means — the conductor already decided
-  // which turns get which, and a playbook cannot describe individual tools of a server
-  // whose tool list only exists once the server has been connected to.
-  for (const server of cfg.mcpServers ?? []) {
-    tools[`${server.name}*`] = true;
-  }
+  // opencode's own tools: moving the session to another directory, making worktrees, listing
+  // models and MCP resources. With Code Mode denied they are offered as plain tools, and none
+  // of them is a playbook's to grant.
+  permissions.push({ action: `${HarnessToolPrefix}*`, resource: "*", effect: "deny" });
+  // MCP tools are not in that list, and need no allow: `--auto` approves anything not
+  // explicitly denied. The conductor decides which servers a turn gets — memory, the
+  // browser, delegation, the ask and title tools, the playbook's own — and naming a server
+  // is what granting its tools means, since its tool list only exists once it is connected.
+  permissions.push(...skillRules(cfg.skills ?? []));
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
-    permission: { skill: skillPermission(cfg.skills ?? []) },
+    share: "disabled",
     // Read where the node mounted them, read-only, rather than copied anywhere first.
-    ...(cfg.skillsDir ? { skills: { paths: [cfg.skillsDir] } } : {}),
-    agent: {
+    ...(cfg.skillsDir ? { skills: [cfg.skillsDir] } : {}),
+    // The todo tool is experimental in opencode 2, and off unless asked for.
+    ...(allowed.has("todowrite") ? { experimental: { todo: true } } : {}),
+    agents: {
+      // opencode names a session with a model call of its own. Nobody reads that name: the
+      // conductor names the chat, through title_set or its own call.
+      title: { disabled: true },
       [AgentName]: {
         description: "One Podium turn.",
         mode: "primary",
-        prompt: `{file:./${PromptName}}`,
-        tools,
+        system: `{file:./${PromptName}}`,
+        permissions,
       },
     },
   };
-  const options: Record<string, unknown> = {};
+  const settings: Record<string, unknown> = {};
   if (cfg.baseURL) {
-    options.baseURL = cfg.baseURL;
+    settings.baseURL = cfg.baseURL;
+  }
+  if (cfg.apiKeyEnv) {
+    // {env:...} is resolved by the harness, so the key is never written to this file. It is
+    // named for every provider rather than left to the harness to find: a provider that
+    // lists several variables would otherwise pick one this turn did not set.
+    settings.apiKey = `{env:${cfg.apiKeyEnv}}`;
+  }
+  const provider: Record<string, unknown> = {};
+  if (Object.keys(settings).length > 0) {
+    provider.settings = settings;
   }
   const headers = chatgptHeaders(cfg);
   if (headers) {
-    options.headers = headers;
+    provider.headers = headers;
   }
-  if (cfg.apiKeyEnv && NamedKeyProviders.has(cfg.providerID)) {
-    // {env:...} is resolved by the harness, so the key is never written to this file.
-    options.apiKey = `{env:${cfg.apiKeyEnv}}`;
-  }
-  if (Object.keys(options).length > 0) {
-    doc.provider = { [cfg.providerID]: { options } };
+  if (Object.keys(provider).length > 0) {
+    doc.providers = { [cfg.providerID]: provider };
   }
   const mcp: Record<string, unknown> = {};
   if (cfg.memory) {
-    mcp[MemoryServer] = {
+    mcp[MemoryServer] = mcpServer({
       type: "remote",
       url: cfg.memory.url,
-      enabled: true,
       // {env:...} is resolved by the harness, so the token is never written to disk and
       // never appears in this config file.
       headers: { Authorization: `Bearer {env:${cfg.memory.apiKeyEnv}}` },
-    };
+    });
   }
   if (cfg.browser) {
     // A local server, unlike memory: the thing speaking MCP runs in this container and the
     // thing it drives is the sidecar. `--browserUrl` is what makes that split work — the
     // server attaches to a browser it did not launch, so no Chrome is installed here and
     // the one being driven is isolated in its own container with its own profile.
-    mcp[BrowserServer] = {
+    mcp[BrowserServer] = mcpServer({
       type: "local",
       command: [BrowserBinary, "--browserUrl", cfg.browser.cdpURL],
-      enabled: true,
-    };
+    });
   }
   if (cfg.delegation) {
     // A local server, like the browser's: this runtime's own second entrypoint, run by the
     // same node that is running the turn. The ADDRESS is an argument and the TOKEN is not —
     // it is read from the environment by the child, because an argument is visible in a
     // process list.
-    mcp[DelegateServer] = {
+    mcp[DelegateServer] = mcpServer({
       type: "local",
       command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
-      enabled: true,
-    };
+    });
   }
   if (cfg.interactive) {
-    mcp[HumanServer] = {
-      type: "local",
-      command: [process.execPath, cfg.interactive.entry],
-      enabled: true,
-    };
+    mcp[HumanServer] = mcpServer({ type: "local", command: [process.execPath, cfg.interactive.entry] });
   }
   if (cfg.title) {
-    mcp[TitleServer] = {
-      type: "local",
-      command: [process.execPath, cfg.title.entry],
-      enabled: true,
-    };
+    mcp[TitleServer] = mcpServer({ type: "local", command: [process.execPath, cfg.title.entry] });
   }
   for (const server of cfg.mcpServers ?? []) {
     if (ReservedServers.has(server.name)) {
@@ -423,45 +436,225 @@ export function writeConfig(cfg: Config): string {
     if (server.token_env) {
       headers.Authorization = `Bearer {env:${server.token_env}}`;
     }
-    // The config first, so the fields the form owns win over a key of the same name.
-    const { headers: _, ...rest } = config;
-    mcp[server.name] = {
-      ...rest,
+    mcp[server.name] = mcpServer({
+      ...playbookMcpExtras(config),
       type: "remote",
       url: server.url,
-      enabled: true,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    };
+    });
   }
   if (Object.keys(mcp).length > 0) {
-    doc.mcp = mcp;
+    doc.mcp = { servers: mcp };
   }
   writeFileSync(join(cfg.dir, ConfigName), JSON.stringify(doc, null, 2), "utf8");
   return cfg.dir;
 }
 
+/** mcpCount is how many MCP servers the config in dir names: what serve waits to connect. */
+export function mcpCount(dir: string): number {
+  try {
+    const doc = JSON.parse(readFileSync(join(dir, ConfigName), "utf8")) as {
+      mcp?: { servers?: Record<string, unknown> };
+    };
+    return Object.keys(doc.mcp?.servers ?? {}).length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * KnownTools is the harness's own tool vocabulary, and the set a playbook's `allowed_tools` is
- * held to.
+ * held to. It mirrors Tools in internal/agent/profiles/agents.go.
  *
  * It is spelled out rather than discovered because it is also the validator: a playbook naming
  * a tool that is not here is a playbook that would silently run without it, and finding that
  * out from a turn's behaviour is worse than finding it out when the playbook is saved.
  */
 export const KnownTools = [
-  "bash",
+  "shell",
   "edit",
+  "write",
+  "read",
   "glob",
   "grep",
-  "list",
-  "patch",
-  "read",
-  "task",
-  "todoread",
-  "todowrite",
   "webfetch",
-  "write",
+  "websearch",
+  "subagent",
+  "todowrite",
 ] as const;
+
+/**
+ * LegacyTools are opencode 1's names, which saved playbooks still use, and the opencode 2
+ * tools each one means. The map is explicit so that no name is guessed at: `list` was a
+ * directory listing, which `glob` does; `patch` applied a diff, which `edit` does; and the
+ * todo list is one tool now.
+ */
+export const LegacyTools: Readonly<Record<string, readonly string[]>> = {
+  bash: ["shell"],
+  task: ["subagent"],
+  list: ["glob"],
+  patch: ["edit"],
+  todoread: ["todowrite"],
+};
+
+/** harnessTools is what a name in a playbook's allowed_tools turns on. */
+export function harnessTools(name: string): readonly string[] {
+  return LegacyTools[name] ?? [name];
+}
+
+/**
+ * DeniableTools are the built-in tools a turn is denied unless its playbook names them. Two
+ * are denied always: `question`, because nobody is at a headless turn to answer it (an
+ * interactive playbook asks through human_ask), and `execute`, Code Mode, which no server
+ * here uses and which is the only way to the harness's own session and worktree tools.
+ */
+const DeniableTools = [...KnownTools, "question", "execute"];
+
+/** HarnessToolPrefix names opencode's own tools, `opencode_session_move` and the rest. */
+const HarnessToolPrefix = "opencode_";
+
+/**
+ * Server is the harness's API server for one turn: started once, before the first run, and
+ * stopped when the turn ends.
+ *
+ * Why not `opencode run --standalone`, which starts one of its own: opencode 2 sends a
+ * session's first request before its MCP servers have connected, and that request offers the
+ * model no MCP tools at all. A turn whose first move is to recall from memory, or to look at
+ * the browser, would not find the tool. So the server is started first, the runtime waits
+ * until every server it was given has connected, and each run attaches to it with `--server`.
+ * The same server carries the resumes and the follow-ups of a warm turn.
+ */
+export interface Server {
+  url: string;
+  password: string;
+  child: ChildProcessByStdio<null, Readable, Readable>;
+  stop: () => void;
+}
+
+/** ServeTimeoutMs bounds the server's start, and MCPTimeoutMs the wait for its MCP servers. */
+export const ServeTimeoutMs = 60_000;
+export const MCPTimeoutMs = 30_000;
+
+/**
+ * MCPSettleMs is how long after its servers connect a session may start. opencode publishes a
+ * location's tools a little after it reports the servers connected; measured against 2.2.5 by
+ * the chat host (internal/agent/chathost, DefaultSettle).
+ */
+export const MCPSettleMs = 1_500;
+
+/**
+ * serve starts the server for a turn whose config is in configDir and whose workspace is
+ * workdir, and resolves once it answers and its MCP servers are connected.
+ *
+ * A server that fails to connect does not fail the turn: the turn runs without it, as it did
+ * on opencode 1, and the reason is in the task log. The password is the server's own, made
+ * here; it binds to loopback only.
+ */
+export async function serve(opts: {
+  configDir: string;
+  workdir: string;
+  env: NodeJS.ProcessEnv;
+  warn: (line: string) => void;
+}): Promise<Server> {
+  const port = await freePort();
+  const password = randomBytes(24).toString("base64url");
+  const child = spawn(Binary, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+    cwd: opts.workdir,
+    env: serverEnv(opts.env, opts.configDir, password),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.on("error", (err) => opts.warn(spawnError(err)));
+  child.stdout.on("data", () => {});
+  child.stderr.on("data", (chunk: Buffer) => {
+    const line = chunk.toString().trimEnd();
+    if (line !== "") opts.warn(line);
+  });
+  const url = `http://127.0.0.1:${port}`;
+  const server: Server = { url, password, child, stop: () => child.kill("SIGTERM") };
+  const exited = new Promise<never>((_, reject) => {
+    child.once("exit", (code) => reject(new Error(`${Binary} serve exited ${code} before it was ready`)));
+    child.once("error", (err) => reject(err));
+  });
+  exited.catch(() => {});
+  try {
+    await Promise.race([awaitReady(server, opts.workdir, mcpCount(opts.configDir), opts.warn), exited]);
+  } catch (err) {
+    server.stop();
+    throw err;
+  }
+  return server;
+}
+
+/** serverEnv is the environment the server runs with: the turn's, plus where its config is. */
+export function serverEnv(env: NodeJS.ProcessEnv, configDir: string, password: string): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    OPENCODE_CONFIG: join(configDir, ConfigName),
+    OPENCODE_SERVER_PASSWORD: password,
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
+  };
+}
+
+async function awaitReady(server: Server, workdir: string, servers: number, warn: (l: string) => void) {
+  const auth = `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`;
+  const get = async (path: string): Promise<Response | undefined> => {
+    try {
+      return await fetch(server.url + path, { headers: { Authorization: auth }, signal: AbortSignal.timeout(5_000) });
+    } catch {
+      return undefined;
+    }
+  };
+  const until = Date.now() + ServeTimeoutMs;
+  for (;;) {
+    const res = await get("/global/health");
+    if (res?.ok) break;
+    if (Date.now() > until) throw new Error(`${Binary} serve did not answer within ${ServeTimeoutMs / 1000}s`);
+    await sleep(200);
+  }
+  if (servers === 0) return;
+  const mcpUntil = Date.now() + MCPTimeoutMs;
+  const query = `/api/mcp?location%5Bdirectory%5D=${encodeURIComponent(workdir)}`;
+  for (;;) {
+    const res = await get(query);
+    const body = (res?.ok ? await res.json().catch(() => undefined) : undefined) as
+      | { data?: { name: string; status?: { status?: string; error?: string } }[] }
+      | undefined;
+    const list = body?.data ?? [];
+    const settled = list.filter((s) => s.status?.status !== "pending");
+    if (list.length >= servers && settled.length === list.length) {
+      for (const s of list) {
+        if (s.status?.status !== "connected") {
+          warn(`mcp server ${s.name} is ${s.status?.status ?? "unknown"}: ${s.status?.error ?? ""}`.trimEnd());
+        }
+      }
+      break;
+    }
+    if (Date.now() > mcpUntil) {
+      const waiting = list.filter((s) => s.status?.status === "pending").map((s) => s.name);
+      warn(`mcp servers still connecting after ${MCPTimeoutMs / 1000}s; starting without waiting: ${waiting.join(", ")}`);
+      break;
+    }
+    await sleep(100);
+  }
+  await sleep(MCPSettleMs);
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const addr = s.address();
+      s.close(() => (addr && typeof addr === "object" ? resolve(addr.port) : reject(new Error("no port"))));
+    });
+  });
+}
+
+function spawnError(err: Error): string {
+  return (err as NodeJS.ErrnoException).code === "ENOENT"
+    ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs (@opencode/cli).`
+    : err.message;
+}
 
 /**
  * Child is the harness process. stdin is closed — the run is headless and nothing types at
@@ -476,16 +669,16 @@ export interface Run {
 }
 
 /**
- * start spawns one turn. It does not wait: the caller reads events off `child.stdout` and
- * decides when the turn is over.
+ * start spawns one run against the turn's server. It does not wait: the caller reads events
+ * off `child.stdout` and decides when the turn is over.
  *
  * `--auto` is the same decision the previous harness's `bypassPermissions` was, for the same
  * reason: the run is headless, nobody is there to answer a prompt, and the sandbox is the
  * task container — every capability dropped, no-new-privileges, a private network, a fresh
- * workspace. The policy knob is the tool allow-list in the config, not a prompt.
+ * workspace. The policy knob is the agent's permissions in the config, not a prompt.
  */
 export function start(opts: {
-  configDir: string;
+  server: Server;
   workdir: string;
   providerID: string;
   model: string;
@@ -500,11 +693,7 @@ export function start(opts: {
   // unhandled and kills THIS process with status 1 — before main can emit a final — which
   // is how a host turn ends as "said nothing at all".
   child.on("error", (err) => {
-    const why =
-      (err as NodeJS.ErrnoException).code === "ENOENT"
-        ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs (opencode-ai).`
-        : err.message;
-    process.stderr.write(`podium-agent: ${why}\n`);
+    process.stderr.write(`podium-agent: ${spawnError(err)}\n`);
   });
   return { child, argv };
 }
@@ -515,9 +704,9 @@ let thinks: boolean | undefined;
  * takesThinking reports whether the harness on PATH accepts `--thinking`, asking it once.
  *
  * The image pins a harness that does. A HOST turn runs whatever npm installed on that host,
- * and the harness's argument parser is strict: an older one given a flag it does not know
- * prints its usage and exits 1 before the turn has begun, with nothing on stdout to say why.
- * Without the flag a turn still runs; the chat only misses the reasoning.
+ * and the harness's argument parser is strict: one given a flag it does not know prints its
+ * usage and exits 1 before the turn has begun, with nothing on stdout to say why. Without the
+ * flag a turn still runs; the chat only misses the reasoning.
  */
 export function takesThinking(
   env: NodeJS.ProcessEnv,
@@ -536,22 +725,15 @@ export function resetTakesThinking(): void {
 }
 
 /**
- * invocation is how the harness is called: the arguments, the directory it runs in, and the
+ * invocation is how a run is called: the arguments, the directory it runs in, and the
  * environment it runs with. Separated from the spawn so it can be asserted without one.
  *
- * OPENCODE_CONFIG is what makes the config above reach the harness at all. `--dir` names the
- * workspace as the project, and the project — not this process's working directory — is
- * where the harness looks for an opencode.json. Without the variable it finds no config, and
- * `--agent podium` resolves to nothing:
- *
- *     ! agent "podium" not found. Falling back to default agent
- *
- * which is a warning on stderr and a turn that runs anyway, on the harness's own default
- * agent: no system prompt of ours, and no tool allow-list — the playbook's `allowed_tools`
- * silently stops being a restriction.
+ * The directory is the workspace: opencode 2 has no `--dir`, and the run's working directory
+ * is the location — the project — its session works in. The server already holds the config;
+ * the run needs only the server's address and password.
  */
 export function invocation(opts: {
-  configDir: string;
+  server: Pick<Server, "url" | "password">;
   workdir: string;
   providerID: string;
   model: string;
@@ -562,24 +744,12 @@ export function invocation(opts: {
   /** thinking asks for reasoning blocks, which the chat draws. See takesThinking. */
   thinking?: boolean;
 }): { argv: string[]; cwd: string; env: NodeJS.ProcessEnv } {
-  const argv = [
-    "run",
-    "--format",
-    "json",
-    "--agent",
-    AgentName,
-    "--auto",
-    "--model",
-    `${opts.providerID}/${opts.model}`,
-    "--dir",
-    opts.workdir,
-  ];
+  // A reasoning effort is the model's variant, named after a `#`.
+  const model = `${opts.providerID}/${opts.model}${opts.effort ? `#${opts.effort}` : ""}`;
+  const argv = ["run", "--server", opts.server.url, "--format", "json", "--agent", AgentName, "--auto", "--model", model];
   if (opts.thinking) {
     // Reasoning blocks are off by default outside interactive mode. The chat shows them.
     argv.push("--thinking");
-  }
-  if (opts.effort) {
-    argv.push("--variant", opts.effort);
   }
   if (opts.sessionID) {
     argv.push("--session", opts.sessionID);
@@ -588,8 +758,8 @@ export function invocation(opts: {
 
   return {
     argv,
-    cwd: opts.configDir,
-    env: { ...opts.env, OPENCODE_CONFIG: join(opts.configDir, ConfigName) },
+    cwd: opts.workdir,
+    env: { ...opts.env, OPENCODE_SERVER_PASSWORD: opts.server.password },
   };
 }
 
@@ -622,8 +792,9 @@ export async function* events(child: Child): AsyncGenerator<{ event: Event; raw:
  * ModelTurnResume is the user turn that resumes a session Gemini refused. Gemini rejects a
  * request whose last turn is the model's ("Requests ending with a model turn are not
  * supported"), and opencode 1.x sends one after a step that ended with only reasoning, or
- * when it retries an empty step (anomalyco/opencode#47034; the fix is in v2 only). The
- * session is intact, so resuming it with a turn of the user's own is enough.
+ * when it retries an empty step (anomalyco/opencode#47034, fixed in opencode 2, kept here in
+ * case it comes back). The session is intact, so resuming it with a turn of the user's own
+ * is enough.
  */
 export const ModelTurnResume = "Continue.";
 
@@ -665,6 +836,7 @@ export function errorOf(event: Event): string | undefined {
   if (event.type !== "error") {
     return undefined;
   }
-  const why = (event.error?.data?.message ?? event.error?.name ?? "").trim();
+  const e = event.error;
+  const why = (e?.message ?? e?.data?.message ?? e?.name ?? e?.type ?? "").trim();
   return why === "" ? "an unnamed error" : why;
 }
