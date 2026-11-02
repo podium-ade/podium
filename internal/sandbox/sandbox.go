@@ -57,6 +57,10 @@ type Capabilities struct {
 	// ExposeLoopback: Expose reaches a service bound to 127.0.0.1. Without it the service
 	// has to listen on every interface.
 	ExposeLoopback bool
+	// PrivilegedSidecars: a sidecar may be privileged, which makes it root on the sandbox.
+	// Only an operator turns it on, for a provider whose sandbox is a machine of the task's
+	// own that holds nothing of the operator's that root could read.
+	PrivilegedSidecars bool
 	// MaxTTL is the longest a sandbox may live. Zero is no limit.
 	MaxTTL time.Duration
 }

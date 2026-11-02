@@ -82,6 +82,21 @@ const DefaultOpenAIOAuthIssuer = "https://auth.openai.com"
 // not Podium, because that is whose client this is.
 const DefaultOpenAIOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
+// The Claude subscription sign-in: OAuth 2 authorisation code with PKCE, where the human
+// copies the code Anthropic's page shows back into Podium. Anthropic offers no device grant
+// and no self-service client registration, so these are Claude Code's own public client and
+// endpoints, read out of Claude Code 2.1.316. The consent screen names Claude Code, not
+// Podium, because that is whose client this is.
+const (
+	DefaultAnthropicOAuthClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	DefaultAnthropicOAuthAuthorizeURL = "https://claude.com/cai/oauth/authorize"
+	DefaultAnthropicOAuthTokenURL     = "https://platform.claude.com/v1/oauth/token"
+	DefaultAnthropicOAuthRedirectURI  = "https://platform.claude.com/oauth/code/callback"
+	// DefaultAnthropicOAuthScopes is inference and the profile, which names the account on
+	// the settings row. It is the scope set `claude setup-token` asks for, plus the profile.
+	DefaultAnthropicOAuthScopes = "user:profile user:inference"
+)
+
 // DefaultGoogleBaseURL is where a Gemini API key is validated, and where a Gemini turn sends
 // the harness. It is the host only: the API version is a path the callers append.
 const DefaultGoogleBaseURL = "https://generativelanguage.googleapis.com"
@@ -208,6 +223,18 @@ type Config struct {
 	// Codex CLI). Set to "off" to turn the subscription sign-in off and leave the API key
 	// path. Public OAuth client metadata, not a secret.
 	OpenAIOAuthClientID string
+	// AnthropicOAuthClientID is PODIUM_AGENT_ANTHROPIC_OAUTH_CLIENT_ID: the OAuth client a
+	// Claude subscription sign-in uses. Default DefaultAnthropicOAuthClientID (Claude Code).
+	// "off" turns the sign-in off. It is only offered when the chat host can run Claude Code
+	// (ChatHostClaude): that is the one place a Claude subscription is spent.
+	AnthropicOAuthClientID string
+	// AnthropicOAuthAuthorizeURL, AnthropicOAuthTokenURL and AnthropicOAuthRedirectURI are
+	// PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL, _TOKEN_URL and _REDIRECT_URI.
+	AnthropicOAuthAuthorizeURL string
+	AnthropicOAuthTokenURL     string
+	AnthropicOAuthRedirectURI  string
+	// AnthropicOAuthScopes is PODIUM_AGENT_ANTHROPIC_OAUTH_SCOPES.
+	AnthropicOAuthScopes string
 	// GoogleBaseURL is PODIUM_AGENT_GOOGLE_BASE_URL, default
 	// https://generativelanguage.googleapis.com. SetProviderKey validates a Gemini API key
 	// against it, and a Gemini turn carries it in its brief.
@@ -219,6 +246,10 @@ type Config struct {
 	// MemoryTaskURL is PODIUM_AGENT_MEMORY_TASK_URL: Hindsight's base URL as seen from a
 	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
 	MemoryTaskURL string
+	// MemorySandboxURL is PODIUM_AGENT_MEMORY_SANDBOX_URL: Hindsight's base URL as a cloud
+	// sandbox reaches it. Empty means MemoryTaskURL, which a sandbox outside this network
+	// cannot reach: its turns then run with a memory that does not answer.
+	MemorySandboxURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
 	// turn: there is no per-user or per-playbook scoping in this track.
 	MemoryBank string
@@ -293,6 +324,10 @@ type Config struct {
 	// each turn. It needs PODIUM_AGENT_HOST_RUNTIME, whose prompt and credentials it uses.
 	// See internal/agent/chathost.
 	ChatHost string
+	// ChatHostClaude is PODIUM_AGENT_CHAT_HOST_CLAUDE: a Claude Code binary (2.1.248 or
+	// later) the chat host runs for a person who signed in with their Claude subscription.
+	// opencode 2's claude-agent provider drives it. Empty turns Claude subscriptions off.
+	ChatHostClaude string
 	// ChatHostMaxTurns is PODIUM_AGENT_CHAT_HOST_MAX_TURNS: the chat-host turns running at
 	// once. Zero is the conductor's default.
 	ChatHostMaxTurns int
@@ -358,12 +393,22 @@ func FromEnv() Config {
 		OpenAIOAuthIssuer:   envOr("PODIUM_AGENT_OPENAI_OAUTH_ISSUER", DefaultOpenAIOAuthIssuer),
 		OpenAIOAuthClientID: oauthClientID("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", DefaultOpenAIOAuthClientID),
 		GoogleBaseURL:       envOr("PODIUM_AGENT_GOOGLE_BASE_URL", DefaultGoogleBaseURL),
-		MemoryURL:           os.Getenv("PODIUM_AGENT_MEMORY_URL"),
-		MemoryTaskURL:       envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
-		MemoryBank:          envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
-		MemoryAPIKey:        os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
-		LinearAPIKey:        os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
-		LinearURL:           envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		AnthropicOAuthClientID: oauthClientID("PODIUM_AGENT_ANTHROPIC_OAUTH_CLIENT_ID",
+			DefaultAnthropicOAuthClientID),
+		AnthropicOAuthAuthorizeURL: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL",
+			DefaultAnthropicOAuthAuthorizeURL),
+		AnthropicOAuthTokenURL: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_TOKEN_URL",
+			DefaultAnthropicOAuthTokenURL),
+		AnthropicOAuthRedirectURI: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_REDIRECT_URI",
+			DefaultAnthropicOAuthRedirectURI),
+		AnthropicOAuthScopes: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_SCOPES", DefaultAnthropicOAuthScopes),
+		MemoryURL:            os.Getenv("PODIUM_AGENT_MEMORY_URL"),
+		MemoryTaskURL:        envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
+		MemorySandboxURL:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_SANDBOX_URL")),
+		MemoryBank:           envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
+		MemoryAPIKey:         os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
+		LinearAPIKey:         os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
+		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
 		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
@@ -374,6 +419,7 @@ func FromEnv() Config {
 		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
 		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
 		ChatHost:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
+		ChatHostClaude:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
 		ChatHostMaxTurns:   envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
 		ChatHostMaxPerUser: envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
 		PublicURL:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
@@ -475,6 +521,18 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
+	for _, u := range []struct{ name, value string }{
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL", c.AnthropicOAuthAuthorizeURL},
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_TOKEN_URL", c.AnthropicOAuthTokenURL},
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_REDIRECT_URI", c.AnthropicOAuthRedirectURI},
+	} {
+		if u.value == "" {
+			continue
+		}
+		if err := absoluteURLAllowPath(u.name, u.value); err != nil {
+			return err
+		}
+	}
 	if c.OpenAICodexBaseURL != "" {
 		if err := absoluteURLAllowPath("PODIUM_AGENT_OPENAI_CODEX_BASE_URL", c.OpenAICodexBaseURL); err != nil {
 			return err
@@ -562,12 +620,14 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openai_codex_base_url", c.OpenAICodexBaseURL),
 		slog.String("openai_oauth_issuer", c.OpenAIOAuthIssuer),
 		slog.String("openai_oauth_client_id", c.OpenAIOAuthClientID),
+		slog.String("anthropic_oauth_client_id", c.AnthropicOAuthClientID),
 		slog.String("google_base_url", c.GoogleBaseURL),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),
 		slog.String("memory_url", c.MemoryURL),
 		slog.String("memory_task_url", c.MemoryTaskURL),
+		slog.String("memory_sandbox_url", c.MemorySandboxURL),
 		slog.String("memory_bank", c.MemoryBank),
 		slog.Bool("memory_api_key_set", c.MemoryAPIKey != ""),
 		slog.Bool("linear", c.LinearEnabled()),
@@ -585,6 +645,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("host_memory_max", c.HostMemoryMax),
 		slog.Duration("host_warm", c.HostWarm),
 		slog.String("chat_host", c.ChatHost),
+		slog.String("chat_host_claude", c.ChatHostClaude),
 		slog.String("public_url", c.PublicURL),
 		slog.Bool("smtp", c.SMTPURL != ""),
 		slog.String("replica_id", c.Replica()),
@@ -747,6 +808,11 @@ func (c Config) validateMemory() error {
 	if err := absoluteURL("PODIUM_AGENT_MEMORY_TASK_URL", c.MemoryTaskURL); err != nil {
 		return err
 	}
+	if c.MemorySandboxURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_MEMORY_SANDBOX_URL", c.MemorySandboxURL); err != nil {
+			return err
+		}
+	}
 	if c.MemoryAPIKey == "" {
 		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +
 			"is set: Hindsight has no authentication until it is given a key, so an install " +
@@ -881,6 +947,16 @@ func (c Config) validateHostAndSurface() error {
 		}
 		if _, err := exec.LookPath(c.ChatHost); err != nil {
 			return fmt.Errorf("PODIUM_AGENT_CHAT_HOST=%q is not a binary this host can run: %w", c.ChatHost, err)
+		}
+	}
+	if c.ChatHostClaude != "" {
+		if c.ChatHost == "" {
+			return errors.New("PODIUM_AGENT_CHAT_HOST_CLAUDE needs PODIUM_AGENT_CHAT_HOST: Claude Code " +
+				"is run by the chat host's claude-agent provider")
+		}
+		if _, err := exec.LookPath(c.ChatHostClaude); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_CHAT_HOST_CLAUDE=%q is not a binary this host can run: %w",
+				c.ChatHostClaude, err)
 		}
 	}
 	if c.HostMemoryMax != "" && !memoryMaxRE.MatchString(c.HostMemoryMax) {

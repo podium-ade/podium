@@ -147,6 +147,15 @@ type AgentServiceOptions struct {
 	// sign-in. An empty client id means API keys only.
 	OpenAIOAuthIssuer   string
 	OpenAIOAuthClientID string
+	// AnthropicOAuth* configure the Claude subscription sign-in. An empty client id is API
+	// keys only, and so is ClaudeAgent false: a Claude sign-in is only offered where the
+	// chat host can run Claude Code, the one place it is spent.
+	AnthropicOAuthClientID     string
+	AnthropicOAuthAuthorizeURL string
+	AnthropicOAuthTokenURL     string
+	AnthropicOAuthRedirectURI  string
+	AnthropicOAuthScopes       string
+	ClaudeAgent                bool
 	// GoogleBaseURL is where SetProviderKey validates a Gemini API key.
 	GoogleBaseURL string
 	// GitHubURL and GitHubAPIURL are where a person's GitHub account is connected. Empty
@@ -311,6 +320,13 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	}
 	if c := newCodexClient(opts.OpenAIOAuthIssuer, opts.OpenAIOAuthClientID, opts.HTTPClient); c != nil {
 		oauth[ProviderOpenAI] = c
+	}
+	if opts.ClaudeAgent {
+		if c := newClaudeClient(opts.AnthropicOAuthClientID, opts.AnthropicOAuthAuthorizeURL,
+			opts.AnthropicOAuthTokenURL, opts.AnthropicOAuthRedirectURI, opts.AnthropicOAuthScopes,
+			opts.HTTPClient); c != nil {
+			oauth[ProviderAnthropic] = c
+		}
 	}
 	return &AgentService{
 		store:              opts.Store,

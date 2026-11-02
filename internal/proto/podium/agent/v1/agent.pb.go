@@ -3383,8 +3383,8 @@ func (*ClearProviderKeyResponse) Descriptor() ([]byte, []int) {
 
 type StartProviderOAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// provider is "xai" or "openai". Anthropic and Google take an API key on this control plane and answer
-	// invalid_argument here. A sign-in is always the caller's own: a subscription is one
+	// provider is "xai", "openai" or "anthropic". Google takes an API key on this control plane and
+	// answers invalid_argument here. A sign-in is always the caller's own: a subscription is one
 	// person's, so there is no global one.
 	Provider      string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3447,7 +3447,12 @@ type StartProviderOAuthResponse struct {
 	// answers slow_down.
 	Interval int32 `protobuf:"varint,5,opt,name=interval,proto3" json:"interval,omitempty"`
 	// expires_at is when the code stops being accepted and the flow has to be restarted.
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// code_paste is true for a provider with no device grant (Anthropic). The human opens
+	// verification_uri, approves, and is shown a code on the provider's page; that code is
+	// pasted back as PollProviderOAuthRequest.code. user_code is empty, and polling without a
+	// code answers pending without asking the provider.
+	CodePaste     bool `protobuf:"varint,7,opt,name=code_paste,json=codePaste,proto3" json:"code_paste,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3524,10 +3529,20 @@ func (x *StartProviderOAuthResponse) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *StartProviderOAuthResponse) GetCodePaste() bool {
+	if x != nil {
+		return x.CodePaste
+	}
+	return false
+}
+
 type PollProviderOAuthRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
-	FlowId        string                 `protobuf:"bytes,2,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	FlowId   string                 `protobuf:"bytes,2,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	// code is what the provider's page showed, for a flow started with code_paste. It is
+	// single-use and worthless without the verifier the conductor kept for this flow.
+	Code          string `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3572,6 +3587,13 @@ func (x *PollProviderOAuthRequest) GetProvider() string {
 func (x *PollProviderOAuthRequest) GetFlowId() string {
 	if x != nil {
 		return x.FlowId
+	}
+	return ""
+}
+
+func (x *PollProviderOAuthRequest) GetCode() string {
+	if x != nil {
+		return x.Code
 	}
 	return ""
 }
@@ -10865,7 +10887,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06global\x18\x02 \x01(\bR\x06global\"\x1a\n" +
 	"\x18ClearProviderKeyResponse\"7\n" +
 	"\x19StartProviderOAuthRequest\x12\x1a\n" +
-	"\bprovider\x18\x01 \x01(\tR\bprovider\"\x90\x02\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\"\xaf\x02\n" +
 	"\x1aStartProviderOAuthResponse\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
 	"\tuser_code\x18\x02 \x01(\tR\buserCode\x12)\n" +
@@ -10873,10 +10895,13 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x19verification_uri_complete\x18\x04 \x01(\tR\x17verificationUriComplete\x12\x1a\n" +
 	"\binterval\x18\x05 \x01(\x05R\binterval\x129\n" +
 	"\n" +
-	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"O\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x1d\n" +
+	"\n" +
+	"code_paste\x18\a \x01(\bR\tcodePaste\"c\n" +
 	"\x18PollProviderOAuthRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x17\n" +
-	"\aflow_id\x18\x02 \x01(\tR\x06flowId\"\xa4\x01\n" +
+	"\aflow_id\x18\x02 \x01(\tR\x06flowId\x12\x12\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"\xa4\x01\n" +
 	"\x19PollProviderOAuthResponse\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x1a\n" +
 	"\binterval\x18\x02 \x01(\x05R\binterval\x12=\n" +

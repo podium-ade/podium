@@ -172,8 +172,9 @@ func ValidateIsolation(isolation, bwrap string) error {
 // FenceService is the fence for a long-lived service this conductor runs on its machine — the
 // chat host — or nil when host turns are not isolated. It is a host turn's fence with a
 // different inside: the service's own install read-only, and only the directories it names
-// writable.
-func (h *HostRuntime) FenceService() func(argv []string, writable []string) []string {
+// writable. extra are other binaries the service runs — Claude Code, for the chat host's
+// claude-agent provider — whose installs are bound read-only the same way.
+func (h *HostRuntime) FenceService(extra ...string) func(argv []string, writable []string) []string {
 	if !h.isolated() {
 		return nil
 	}
@@ -187,8 +188,12 @@ func (h *HostRuntime) FenceService() func(argv []string, writable []string) []st
 		for _, p := range bwrapSystemPaths {
 			args = append(args, "--ro-bind-try", p, p)
 		}
+		bins := extra
 		if len(argv) > 0 {
-			if install := installRoot(argv[0]); install != "" {
+			bins = append([]string{argv[0]}, extra...)
+		}
+		for _, b := range bins {
+			if install := installRoot(b); install != "" {
 				args = append(args, "--ro-bind-try", install, install)
 			}
 		}

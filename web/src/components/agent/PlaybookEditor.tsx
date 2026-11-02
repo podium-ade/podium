@@ -14,7 +14,13 @@ import {
   type PlaybookDraft,
   type SandboxOverrides,
 } from "../../lib/playbook";
-import { BOAT_TYPES, MODAL_RUNTIMES, RUNS_ON_NODES, SANDBOX_PROVIDERS } from "../../lib/sandboxProviders";
+import {
+  BOAT_TYPES,
+  MODAL_RUNTIMES,
+  RUNS_ON_NODES,
+  SANDBOX_PROVIDERS,
+  sidecarProblem,
+} from "../../lib/sandboxProviders";
 import { problemText } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -1373,8 +1379,12 @@ function RunsOnFields({
   if (runsOn !== "" && runsOn !== RUNS_ON_NODES && !names.includes(runsOn)) names.push(runsOn);
   const set = [...Object.values(overrides.boat), ...Object.values(overrides.modal)].filter((v) => v !== "").length;
   const effective = runsOn || defaultRunsOn || RUNS_ON_NODES;
-  const modalRuntime =
-    overrides.modal.runtime || providers?.find((p) => p.name === "modal")?.settings.runtime || "gvisor";
+  const problem = sidecarProblem(
+    effective,
+    providers?.find((p) => p.name === effective)?.settings,
+    overrides.modal.runtime,
+    { docker, browser },
+  );
   const boat = (patch: Partial<SandboxOverrides["boat"]>) =>
     onOverrides({ ...overrides, boat: { ...overrides.boat, ...patch } });
   const modal = (patch: Partial<SandboxOverrides["modal"]>) =>
@@ -1412,14 +1422,9 @@ function RunsOnFields({
           ))}
         </select>
       </Field>
-      {effective !== RUNS_ON_NODES && docker ? (
-        <Alert variant="warn" title="A Docker daemon does not run in a sandbox">
-          It is a privileged sidecar, which a cloud sandbox does not run. Run this playbook on your nodes.
-        </Alert>
-      ) : effective === "modal" && browser && modalRuntime !== "vm" ? (
-        <Alert variant="warn" title="Modal's gvisor runtime has no Docker">
-          The browser is a sidecar, which Modal runs only under the vm runtime. Set the runtime to
-          vm below, or on the Modal provider.
+      {problem ? (
+        <Alert variant="warn" title={`Its sidecars cannot run on ${providerName(effective)}`}>
+          {problem}
         </Alert>
       ) : null}
 

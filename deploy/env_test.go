@@ -47,6 +47,7 @@ var notConfiguration = map[string]string{
 	"PODIUM_TEST_CHATHOST_LOAD":     "test-only, runs the chat host's 300-turn load test",
 	"PODIUM_TEST_CHATHOST_LOAD_LOG": "test-only, where that load test writes the conductor's log",
 	"PODIUM_TEST_OPENCODE2":         "test-only, the opencode 2 binary the chat-host tests run",
+	"PODIUM_TEST_CLAUDE":            "test-only, the Claude Code binary the claude-agent chat-host test runs",
 	"PODIUM_TEST_BWRAP":             "test-only, read by the isolation and sandbox tests",
 	"PODIUM_TEST_SANDBOX_AGENT":     "test-only, read by the sandbox end-to-end tests",
 	"PODIUM_TEST_RUNTIME":           "test-only, read by the sandbox end-to-end tests",

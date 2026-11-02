@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import type { SandboxProvider } from "../../gen/podium/v1/sandbox_pb";
 import { agent, errorMessage, sandboxProviders } from "../../lib/client";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
-import { RUNS_ON_NODES, SANDBOX_PROVIDERS, capacityText } from "../../lib/sandboxProviders";
+import { RUNS_ON_NODES, SANDBOX_PROVIDERS, capacityText, sidecarProblem } from "../../lib/sandboxProviders";
 import { cn } from "../../lib/utils";
 import { Badge } from "../Badge";
 import { useToast } from "../Toast";
@@ -68,7 +67,10 @@ export function RunsOnSettings() {
     });
   }
 
-  const { dind, browser } = stranded(profile.data?.playbooks ?? [], choice, configured);
+  const settings = configured.find((p) => p.name === choice)?.settings;
+  const stranded = (profile.data?.playbooks ?? [])
+    .filter((p) => !p.shadowed && !p.runsOn)
+    .filter((p) => sidecarProblem(choice, settings, p.sandbox?.modal?.runtime ?? "", p) !== "");
 
   return (
     <div className="grid gap-4">
@@ -117,16 +119,14 @@ export function RunsOnSettings() {
         })}
       </div>
 
-      {dind.length > 0 ? (
-        <Alert variant="warn" title="These playbooks cannot run in a sandbox">
-          {dind.join(", ")} attach a Docker daemon, a privileged sidecar a sandbox does not run.
-          Pin them to your nodes with Runs on.
-        </Alert>
-      ) : null}
-      {browser.length > 0 ? (
-        <Alert variant="warn" title="These playbooks need Docker, which Modal's gvisor runtime does not have">
-          {browser.join(", ")} attach a browser sidecar. Set the Modal provider's runtime to vm on
-          Sandboxes, set it on each playbook, or pin them to your nodes.
+      {stranded.length > 0 ? (
+        <Alert variant="warn" title="These playbooks' sidecars cannot run there">
+          {stranded.map((p) => (
+            <p key={p.name}>
+              <strong>{p.name}</strong>: {sidecarProblem(choice, settings, p.sandbox?.modal?.runtime ?? "", p)}
+            </p>
+          ))}
+          <p>Change the provider on Sandboxes, set the runtime on each playbook, or pin them to your nodes.</p>
         </Alert>
       ) : null}
 
@@ -161,26 +161,3 @@ function providerChoice(p: SandboxProvider): Choice {
   };
 }
 
-/**
- * stranded is the playbooks that would follow this choice into a sandbox that cannot run
- * their sidecars: a Docker daemon in any sandbox, since it is privileged, and a browser on
- * Modal without the vm runtime.
- */
-function stranded(
-  playbooks: PlaybookDefinition[],
-  choice: string,
-  providers: SandboxProvider[],
-): { dind: string[]; browser: string[] } {
-  if (choice === RUNS_ON_NODES) return { dind: [], browser: [] };
-  const following = playbooks.filter((p) => !p.shadowed && !p.runsOn);
-  const runtime = providers.find((p) => p.name === "modal")?.settings.runtime || "gvisor";
-  return {
-    dind: following.filter((p) => p.docker).map((p) => p.name),
-    browser:
-      choice === "modal"
-        ? following
-            .filter((p) => !p.docker && p.browser && (p.sandbox?.modal?.runtime || runtime) !== "vm")
-            .map((p) => p.name)
-        : [],
-  };
-}
