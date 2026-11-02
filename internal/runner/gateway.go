@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // gatewayDialTimeout bounds one connection attempt to a service inside the task. A
@@ -73,7 +75,7 @@ func ServeGateway(ctx context.Context, host string, routes []Route) error {
 		}
 	}()
 	for _, r := range routes {
-		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(r.Port)))
+		ln, err := netlisten.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(r.Port)))
 		if err != nil {
 			return err
 		}

@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/node/docker"
 	"github.com/podium-ade/podium/internal/sandboxagent"
 	"github.com/podium-ade/podium/internal/sandboxagent/wire"
@@ -71,7 +71,7 @@ func run(listen, tokenFile, dir, secretDir string, tmpfs bool, logger *slog.Logg
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", listen)
+	ln, err := netlisten.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}

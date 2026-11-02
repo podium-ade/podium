@@ -30,6 +30,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
 
@@ -561,7 +562,7 @@ func (a *Agent) Addr() string {
 // Run binds the listener, starts the sources and the turn loop, and blocks until ctx is
 // cancelled.
 func (a *Agent) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", a.cfg.Listen)
+	ln, err := netlisten.Listen("tcp", a.cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", a.cfg.Listen, err)
 	}
