@@ -21,7 +21,7 @@ import { Code, connectCode, errorMessage, sandboxProviders } from "../lib/client
 import { absolute, relative } from "../lib/format";
 import { useViewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
-import { SANDBOX_PROVIDERS, capacityText, type ProviderSpec } from "../lib/sandboxProviders";
+import { SANDBOX_PROVIDERS, capacityText, withUnit, type ProviderSpec } from "../lib/sandboxProviders";
 
 /**
  * The Sandboxes screen: the cloud providers Podium runs tasks on. Setting one up here is the whole
@@ -133,7 +133,7 @@ function ProviderRow({
               {capacityText(current)}
             </dd>
             {set.map((f) => (
-              <SettingRow key={f.key} label={f.label} value={current.settings[f.key]} />
+              <SettingRow key={f.key} label={f.label} value={withUnit(f, current.settings[f.key])} />
             ))}
             <dt className="text-muted">Last set</dt>
             <dd className="m-0 text-fg" title={absolute(current.updatedAt)}>
