@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { Settings2 } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,7 +22,6 @@ import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
 import { PageFrame } from "../components/PageHeader";
 import { UsersPage } from "./UsersPage";
-import { Alert } from "../components/ui/alert";
 import {
   Table,
   TableBody,
@@ -30,6 +29,9 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import type { ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
+import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer, type Viewer } from "../lib/identity";
@@ -246,9 +248,16 @@ function SettingsTab() {
 }
 
 /**
- * ModelsPanel is one row per provider the conductor can spend. Every provider gets a row
- * whether or not it is configured: a Grok playbook that cannot run is easier to understand
- * next to a row that says "Not set" than as a failure on the next turn.
+ * ModelsPanel is one row per provider the conductor can spend, on two lists: Yours, the
+ * credentials a person saved for their own chats, and Global, the API keys an admin or owner
+ * set for everyone. A chat spends its person's own credential when there is one and the
+ * global key when there is not. Every provider gets a row on each list whether or not it is
+ * configured: a Grok playbook that cannot run is easier to understand next to a row that says
+ * "Not set" than as a failure on the next turn.
+ *
+ * The layout is the Secrets and MCP screens' own: Yours and Global tabs with a count, and a
+ * scope bar that says what the list is for. A caller that is not a signed-in person — the
+ * local token — has no list of its own and sees Global alone.
  *
  * The picker in Chat is which model a turn uses. This panel is how those models get a
  * credential.
@@ -256,20 +265,25 @@ function SettingsTab() {
 function ModelsPanel() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
+  const personal = viewer?.kind === IdentityKind.USER;
+  const [tab, setTab] = useState<"yours" | "global">(personal ? "yours" : "global");
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
     queryFn: () => agent.getSettings({}),
     enabled: viewer?.agentEnabled === true,
   });
-  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "settings"] });
+  const reload = () => {
+    void qc.invalidateQueries({ queryKey: ["agent", "settings"] });
+    void qc.invalidateQueries({ queryKey: ["agent", "agents"] });
+  };
 
   const save = useMutation({
-    mutationFn: (v: { provider: string; key: string }) => agent.setProviderKey(v),
+    mutationFn: (v: { provider: string; key: string; global: boolean }) => agent.setProviderKey(v),
     onSuccess: reload,
   });
   const clear = useMutation({
-    mutationFn: (provider: string) => agent.clearProviderKey({ provider }),
+    mutationFn: (v: { provider: string; global: boolean }) => agent.clearProviderKey(v),
     onSuccess: reload,
   });
 
@@ -277,7 +291,62 @@ function ModelsPanel() {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
-  const stored = settings.data?.providers ?? [];
+  const globalRows = settings.data?.providers ?? [];
+  const yourRows = settings.data?.personal ?? [];
+  const connected = (rows: ProviderSettings[]) => rows.filter((r) => r.keySet).length;
+
+  const renderTable = (scope: "yours" | "global") => {
+    const mine = scope === "yours";
+    const readOnly = mine ? !personal : !manage;
+    return (
+      <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+        <caption className="sr-only">{mine ? "Your model credentials" : "Global model keys"}</caption>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={cn(settingsHead, "w-[40%]")}>Model</TableHead>
+            <TableHead className={cn(settingsHead, "w-[20%]")}>Status</TableHead>
+            <TableHead className={settingsHead}>Credential</TableHead>
+            <TableHead className={settingsHead}>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {PROVIDERS.map((p) => {
+            const globalRow = globalRows.find((s) => s.provider === p.id);
+            // A subscription belongs to the person who signed in, so it is offered on Yours.
+            // Global takes an API key — except for a caller with no list of its own, which
+            // keeps the sign-in it always had.
+            const subscription = p.subscription !== undefined && !readOnly && (mine || !personal);
+            return (
+              <ProviderCard
+                key={`${scope}-${p.id}`}
+                provider={p}
+                scope={mine ? "personal" : "global"}
+                settings={(mine ? yourRows : globalRows).find((s) => s.provider === p.id)}
+                fallbackSet={mine && Boolean(globalRow?.keySet)}
+                loading={settings.isPending}
+                readOnly={readOnly}
+                onSave={(key) => save.mutateAsync({ provider: p.id, key, global: !mine })}
+                onClear={async () => {
+                  await clear.mutateAsync({ provider: p.id, global: !mine });
+                }}
+                onStartOAuth={
+                  subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+                }
+                onPollOAuth={
+                  subscription
+                    ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                    : undefined
+                }
+                onSignedIn={reload}
+              />
+            );
+          })}
+        </TableBody>
+      </Table>
+    );
+  };
 
   return (
     <>
@@ -291,53 +360,66 @@ function ModelsPanel() {
         </div>
       ) : null}
 
-      {!manage ? (
-        <div className="border-b border-border p-4">
-          <Alert variant="info" title="Credentials are read-only for members">
-            An admin or owner can set and rotate provider keys. You can see which ones are
-            connected.
-          </Alert>
-        </div>
-      ) : null}
-
-      <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
-        <caption className="sr-only">Model providers</caption>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className={cn(settingsHead, "w-[40%]")}>Model</TableHead>
-            <TableHead className={cn(settingsHead, "w-[20%]")}>Status</TableHead>
-            <TableHead className={settingsHead}>Credential</TableHead>
-            <TableHead className={settingsHead}>
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {PROVIDERS.map((p) => (
-            <ProviderCard
-              key={p.id}
-              provider={p}
-              settings={stored.find((s) => s.provider === p.id)}
-              loading={settings.isPending}
-              readOnly={!manage}
-              onSave={(key) => save.mutateAsync({ provider: p.id, key })}
-              onClear={async () => {
-                await clear.mutateAsync(p.id);
-              }}
-              onStartOAuth={
-                manage && p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
-              }
-              onPollOAuth={
-                manage && p.subscription
-                  ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
-                  : undefined
-              }
-              onSignedIn={() => void reload()}
-            />
-          ))}
-        </TableBody>
-      </Table>
+      {personal ? (
+        <Tabs value={tab} onValueChange={(value) => setTab(value as "yours" | "global")}>
+          <TabsList className="px-4" aria-label="Model credential scope">
+            <TabsTrigger
+              value="yours"
+              className="gap-2 py-2.5 text-base leading-[1.55]"
+              aria-label={`Yours, ${connected(yourRows)} connected`}
+            >
+              Yours
+              <TabCount count={connected(yourRows)} />
+            </TabsTrigger>
+            <TabsTrigger
+              value="global"
+              className="gap-2 py-2.5 text-base leading-[1.55]"
+              aria-label={`Global, ${connected(globalRows)} connected`}
+            >
+              Global
+              <TabCount count={connected(globalRows)} />
+            </TabsTrigger>
+          </TabsList>
+          <ModelsScopeBar personal={tab === "yours"} manage={manage} />
+          <TabsContent value="yours" data-testid="models-yours" className="pt-0">
+            {renderTable("yours")}
+          </TabsContent>
+          <TabsContent value="global" data-testid="models-global" className="pt-0">
+            {renderTable("global")}
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <>
+          <ModelsScopeBar personal={false} manage={manage} />
+          {renderTable("global")}
+        </>
+      )}
     </>
+  );
+}
+
+function ModelsScopeBar({ personal, manage }: { personal: boolean; manage: boolean }) {
+  return (
+    <div className="border-b border-border bg-raised px-6 py-4">
+      <p className="m-0 text-soft">
+        {personal
+          ? "Your own keys and subscriptions. Chats you start use them before the global key."
+          : manage
+            ? "API keys for the workspace. Any chat without a credential of its own uses these."
+            : "API keys for the workspace, used by any chat without a credential of its own. Only an admin or owner can change them."}
+      </p>
+    </div>
+  );
+}
+
+function TabCount({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-grid h-5 min-w-[22px] place-items-center rounded-sm border border-line-strong bg-panel px-1.5 text-xs font-bold text-fg tabular-nums"
+    >
+      {count}
+    </span>
   );
 }
 

@@ -43,6 +43,8 @@ const (
 	ActionReact  = "react"
 	// ActionLinkPullRequest is a pull request the turn's answer named. Text is its URL.
 	ActionLinkPullRequest = "link_pull_request"
+	// ActionAutoTitle is the name a turn gave the conversation. Text is the title.
+	ActionAutoTitle = "auto_title"
 )
 
 // Source is the in-memory source.
@@ -113,6 +115,14 @@ func (s *Source) Send(ctx context.Context, ev conductor.InboundEvent) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Heard adds an entry to ref's transcript without it being an event: something said in the
+// conversation that starts no turn.
+func (s *Source) Heard(ref string, entry conductor.BriefEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transcript[ref] = append(s.transcript[ref], entry)
 }
 
 // FetchTranscript implements conductor.Source.
@@ -186,6 +196,14 @@ func (s *Source) PullRequests(ref string) []conductor.PullRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]conductor.PullRequest(nil), s.pulls[ref]...)
+}
+
+// SetAutoTitle records the name a turn gave the conversation, as the web chat would apply it.
+func (s *Source) SetAutoTitle(_ context.Context, ref, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.record(Record{Action: ActionAutoTitle, Ref: ref, Text: title})
+	return nil
 }
 
 // React implements conductor.Source.

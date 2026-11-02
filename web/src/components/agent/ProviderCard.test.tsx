@@ -353,13 +353,36 @@ describe("ProviderCard", () => {
     mount(connected);
     await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
     expect(onClear).not.toHaveBeenCalled();
-    expect(screen.getByText(/Claude turns will fail until a credential is set again/)).toBeInTheDocument();
+    expect(screen.getByText(/Claude turns without a credential of their own will fail until a key is set again/)).toBeInTheDocument();
     // The safe option has the keyboard.
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClear).not.toHaveBeenCalled();
     expect(screen.getByTestId("provider-key-remove-anthropic")).toBeInTheDocument();
+  });
+
+  it("says a personal key falls back to the global one, and hides who set it", async () => {
+    render(
+      <ToastHost>
+        <table>
+          <tbody>
+            <ProviderCard
+              provider={ANTHROPIC}
+              settings={connected}
+              scope="personal"
+              fallbackSet
+              onSave={onSave}
+              onClear={onClear}
+            />
+          </tbody>
+        </table>
+      </ToastHost>,
+    );
+    // It is the viewer's own key: "set by" would only ever name them.
+    expect(screen.getByTestId("provider-key-meta-anthropic")).not.toHaveTextContent("set by");
+    await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
+    expect(screen.getByText(/Your Claude chats go back to the global key/)).toBeInTheDocument();
   });
 
   it("removes the key exactly once on Confirm", async () => {

@@ -3,12 +3,13 @@ select * from workspace_snapshots where session_id = @session_id;
 
 -- name: UpsertWorkspaceSnapshot :one
 insert into workspace_snapshots (
-  session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at
+  session_id, object_key, size_bytes, sha256, node_id, task_id, base_key, updated_at
 ) values (
-  @session_id, @object_key, @size_bytes, @sha256, @node_id, @task_id, now()
+  @session_id, @object_key, @size_bytes, @sha256, @node_id, @task_id, @base_key, now()
 )
 on conflict (session_id) do update set
   object_key = excluded.object_key,
+  base_key   = excluded.base_key,
   size_bytes = excluded.size_bytes,
   sha256     = excluded.sha256,
   node_id    = excluded.node_id,
@@ -57,3 +58,27 @@ on conflict (id) do update set
   updated_by      = excluded.updated_by,
   updated_at      = now()
 returning *;
+
+-- name: SetSessionOrigin :exec
+insert into workspace_session_origins (session_id, base_key, recorded_at)
+values (@session_id, @base_key, now())
+on conflict (session_id) do update set base_key = excluded.base_key, recorded_at = now();
+
+-- name: GetSessionOrigin :one
+select base_key from workspace_session_origins where session_id = @session_id;
+
+-- name: DeleteSessionOrigin :exec
+delete from workspace_session_origins where session_id = @session_id;
+
+-- name: RetireWorkspaceBase :exec
+insert into workspace_bases_retired (object_key) values (@object_key) on conflict do nothing;
+
+-- name: ListUnreferencedRetiredBases :many
+-- A retired base nothing restores from any more: no snapshot is a difference from it, and no
+-- session that started from it has uploaded yet.
+select r.object_key from workspace_bases_retired r
+where not exists (select 1 from workspace_snapshots s where s.base_key = r.object_key)
+  and not exists (select 1 from workspace_session_origins o where o.base_key = r.object_key);
+
+-- name: DeleteRetiredBase :exec
+delete from workspace_bases_retired where object_key = @object_key;

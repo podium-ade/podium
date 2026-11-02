@@ -244,6 +244,10 @@ type Node struct {
 	// they have set none. It is separate from Capacity.MaxTasks because that field is
 	// whatever the node last advertised, and every Hello overwrites it.
 	MaxTasksOverride *int32
+	// SessionServer is the podium-server holding this node's stream, empty when none is.
+	// With one server it is that server or nothing; with several it is what lets the others
+	// tell a node connected elsewhere from one that is gone.
+	SessionServer string
 }
 
 // Roles stored on users.roles. The first person to claim the instance is RoleOwner;
@@ -283,6 +287,21 @@ type Session struct {
 	Login     string
 	ExpiresAt time.Time
 	CreatedAt time.Time
+}
+
+// ManagedNodeLabel marks a node row that is the server's runner for a cloud sandbox provider
+// rather than a machine. The node lists leave such rows out: a provider is shown on the
+// Sandboxes screen, not among nodes. See internal/server/sandboxes.
+const ManagedNodeLabel = "podium.managed=sandbox"
+
+// Managed reports whether the node is the server's runner for a sandbox provider.
+func (n Node) Managed() bool {
+	for _, l := range n.Labels {
+		if l == ManagedNodeLabel {
+			return true
+		}
+	}
+	return false
 }
 
 // NewNode is the input to CreateNode. An empty ID is minted.

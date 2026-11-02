@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  endedOnModelTurn,
   errorOf,
+  lostToNetwork,
   resetTakesThinking,
   takesThinking,
   AgentName,
@@ -488,6 +490,19 @@ describe("errorOf", () => {
   });
 });
 
+describe("lostToNetwork", () => {
+  it("knows a connection that dropped from an error the provider gave", () => {
+    // What a review on popos died of after eleven good steps.
+    expect(lostToNetwork("EPROTO: The TLS handshake failed. Does the server speak TLS on this port?")).toBe(true);
+    expect(lostToNetwork("read ECONNRESET")).toBe(true);
+    expect(lostToNetwork("getaddrinfo EAI_AGAIN api.anthropic.com")).toBe(true);
+    expect(lostToNetwork("The socket connection was closed unexpectedly.")).toBe(true);
+    expect(lostToNetwork("credit balance is too low")).toBe(false);
+    expect(lostToNetwork("Requests ending with a model turn are not supported")).toBe(false);
+    expect(lostToNetwork(undefined)).toBe(false);
+  });
+});
+
 describe("takesThinking", () => {
   it("asks for reasoning only from a harness that says it takes the flag, and asks once", () => {
     resetTakesThinking();
@@ -505,4 +520,12 @@ describe("takesThinking", () => {
     resetTakesThinking();
   });
 
+});
+
+describe("endedOnModelTurn", () => {
+  it("is Gemini refusing a request that ends on the model's turn", () => {
+    expect(endedOnModelTurn("Requests ending with a model turn are not supported.")).toBe(true);
+    expect(endedOnModelTurn("credit balance is too low")).toBe(false);
+    expect(endedOnModelTurn(undefined)).toBe(false);
+  });
 });

@@ -61,6 +61,14 @@ type Node struct {
 	TsStableID       *string
 	Draining         bool
 	MaxTasksOverride *int32
+	SessionServer    string
+}
+
+type NodeCommand struct {
+	ID        int64
+	NodeID    string
+	Payload   []byte
+	CreatedAt time.Time
 }
 
 type Preview struct {
@@ -198,12 +206,23 @@ type User struct {
 	LastSeenAt   time.Time
 }
 
+type WorkspaceBasesRetired struct {
+	ObjectKey string
+	RetiredAt time.Time
+}
+
 type WorkspaceBasis struct {
 	Repo      string
 	ObjectKey string
 	SizeBytes int64
 	Sha256    string
 	UpdatedAt time.Time
+}
+
+type WorkspaceSessionOrigin struct {
+	SessionID  string
+	BaseKey    string
+	RecordedAt time.Time
 }
 
 type WorkspaceSnapshot struct {
@@ -214,4 +233,5 @@ type WorkspaceSnapshot struct {
 	NodeID    string
 	TaskID    string
 	UpdatedAt time.Time
+	BaseKey   string
 }

@@ -63,18 +63,27 @@ describe("SandboxesPage", () => {
     });
   });
 
-  it("shows each provider's settings and nodes, never its key", async () => {
+  it("shows each provider's settings, never its key, and no node to run", async () => {
     mount();
     const row = await screen.findByTestId("provider-boat");
     expect(await within(row).findByText("configured")).toBeInTheDocument();
     expect(within(row).getByText("ci-base")).toBeInTheDocument();
     expect(within(row).getByText("stored, hidden")).toBeInTheDocument();
-    expect(await within(row).findByText("1 node")).toBeInTheDocument();
     expect(within(row).getByTestId("capacity-boat")).toHaveTextContent("1 of account limit 2");
+    expect(within(row).getByText(/Podium runs boat.dev sandboxes itself/)).toBeInTheDocument();
+    expect(within(row).queryByText(/node/)).toBeNull();
 
     const modal = screen.getByTestId("provider-modal");
     expect(within(modal).getByText("not set up")).toBeInTheDocument();
-    expect(await within(modal).findByText(/They take no work until it is set up/)).toBeInTheDocument();
+    expect(within(modal).getByText(/There is nothing to install/)).toBeInTheDocument();
+  });
+
+  it("offers a pool of ready sandboxes on every provider", async () => {
+    mount();
+    await screen.findByTestId("provider-modal");
+    await userEvent.click(screen.getByRole("button", { name: "Set up Modal" }));
+    expect(screen.getByLabelText("Ready sandboxes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ready sandbox images")).toBeInTheDocument();
   });
 
   it("needs a key to set a provider up", async () => {
@@ -84,12 +93,15 @@ describe("SandboxesPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set up Modal" }));
     const save = screen.getByRole("button", { name: "Save Modal" });
     expect(save).toBeDisabled();
+    expect(screen.getByTestId("provider-save-blocker")).toHaveTextContent("Add the token secret to save.");
 
     await userEvent.type(screen.getByLabelText("Token secret"), "as-secret");
     await userEvent.type(screen.getByLabelText("Token ID"), "ak-123");
     await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
     expect(save).toBeDisabled();
+    expect(screen.getByTestId("provider-save-blocker")).toHaveTextContent("Set Max concurrent sandboxes to save.");
     await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
+    expect(screen.queryByTestId("provider-save-blocker")).toBeNull();
     await userEvent.click(save);
 
     await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
@@ -103,6 +115,67 @@ describe("SandboxesPage", () => {
     expect(sent.settings).toEqual({ token_id: "ak-123", runtime: "vm" });
     expect(sent.maxConcurrent).toBe(3);
     expect(new TextDecoder().decode(sent.secret)).toBe("as-secret");
+  });
+
+  it("sets Modal's base image and resource limits, and holds a limit to its default", async () => {
+    setSandboxProvider.mockResolvedValue({ provider: { name: "modal" } });
+    mount();
+    await screen.findByTestId("provider-modal");
+    await userEvent.click(screen.getByRole("button", { name: "Set up Modal" }));
+    await userEvent.type(screen.getByLabelText("Token secret"), "as-secret");
+    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
+    const save = screen.getByRole("button", { name: "Save Modal" });
+
+    // The base image's placeholder is what an empty one means, under the runtime chosen.
+    const image = screen.getByLabelText("Base image");
+    expect(image).toHaveAttribute("placeholder", "ubuntu:24.04");
+    await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
+    expect(image).toHaveAttribute("placeholder", "docker:29-dind");
+    await userEvent.type(image, "ghcr.io/acme/base:1");
+
+    // Modal takes no limit without a default beside it.
+    const cpu = screen.getByLabelText(/Default CPU/);
+    const cpuLimit = screen.getByLabelText(/CPU limit/);
+    await userEvent.type(cpuLimit, "2");
+    expect(screen.getByText(/Set a default too/)).toBeInTheDocument();
+    expect(cpu).toHaveAttribute("aria-invalid", "true");
+    expect(save).toBeDisabled();
+    await userEvent.type(cpu, "4");
+    expect(screen.getByText("Above its limit of 2 cores.")).toBeInTheDocument();
+    await userEvent.clear(cpu);
+    await userEvent.type(cpu, "0.5");
+
+    // Memory is whole megabytes.
+    await userEvent.type(screen.getByLabelText(/Default memory/), "1024");
+    const memLimit = screen.getByLabelText(/Memory limit/);
+    await userEvent.type(memLimit, "4096.5");
+    expect(screen.getByText("A whole number.")).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    await userEvent.clear(memLimit);
+    await userEvent.type(memLimit, "4096");
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+
+    await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
+    expect((setSandboxProvider.mock.calls[0][0] as { settings: Record<string, string> }).settings).toEqual({
+      runtime: "vm",
+      image: "ghcr.io/acme/base:1",
+      cpu: "0.5",
+      cpu_limit: "2",
+      memory_mb: "1024",
+      memory_limit_mb: "4096",
+    });
+  });
+
+  it("shows a configured provider's resources with their units", async () => {
+    listSandboxProviders.mockResolvedValue({
+      providers: [{ ...boat, name: "modal", settings: { cpu: "1", cpu_limit: "2", memory_limit_mb: "4096" } }],
+    });
+    mount();
+    const row = await screen.findByTestId("provider-modal");
+    expect(await within(row).findByText("2 cores")).toBeInTheDocument();
+    expect(within(row).getByText("1 core")).toBeInTheDocument();
+    expect(within(row).getByText("4096 MB")).toBeInTheDocument();
   });
 
   it("edits settings and keeps the stored key when none is typed", async () => {

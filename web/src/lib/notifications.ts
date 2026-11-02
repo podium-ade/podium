@@ -1,4 +1,5 @@
-import type { ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
+import type { ChatSeen } from "./chatSeen";
 import { PROVIDERS } from "./agents";
 import { oauthExpired } from "./providerCredential";
 
@@ -30,23 +31,66 @@ export type AppNotification = {
 
 export type AlertDraft = Omit<AppNotification, "id" | "createdAt" | "readAt" | "resolvedAt">;
 
-/** alertsFromProviders is the live set. History is everything this browser has already recorded. */
+/**
+ * alertsFromProviders is the live set. History is everything this browser has already recorded.
+ * scope says whose credentials these are: the global ones keep the key they always had, and the
+ * viewer's own get a key of their own so the two never resolve each other.
+ */
 export function alertsFromProviders(
   providers: readonly ProviderSettings[] | undefined,
   now = Date.now(),
+  scope: "global" | "personal" = "global",
 ): AlertDraft[] {
   const drafts: AlertDraft[] = [];
   for (const provider of PROVIDERS) {
     const row = providers?.find((p) => p.provider === provider.id);
     if (!oauthExpired(row, now)) continue;
     drafts.push({
-      key: `provider-oauth-expired:${provider.id}`,
+      key:
+        scope === "personal"
+          ? `provider-oauth-expired:personal:${provider.id}`
+          : `provider-oauth-expired:${provider.id}`,
       level: "alert",
       title: `Sign in to ${provider.models} again`,
       body:
         "The subscription token expired and could not be renewed. Chats that use this model fail until you sign in again.",
       href: "/agent/settings/models",
       action: "Sign in again",
+    });
+  }
+  return drafts;
+}
+
+/** ChatSeenBaseline is what a chat this browser has never seen counts as: already seen. */
+export function chatSeenBaseline(chats: readonly Chat[], seen: ChatSeen): ChatSeen {
+  const next = { ...seen };
+  for (const chat of chats) {
+    const at = chat.lastMessageAt ? Number(chat.lastMessageAt.seconds) * 1000 + Math.floor(chat.lastMessageAt.nanos / 1e6) : 0;
+    if (next[chat.id] === undefined) next[chat.id] = at;
+  }
+  return next;
+}
+
+/**
+ * alertsFromChats is a notice per chat with a message newer than this browser has seen — an
+ * answer, or a delegated task's report, that arrived while the person was elsewhere. The chat
+ * open on screen and one still answering are left out: the first is being read, the second is
+ * not finished.
+ */
+export function alertsFromChats(chats: readonly Chat[], seen: ChatSeen, openChatId: string): AlertDraft[] {
+  const drafts: AlertDraft[] = [];
+  for (const chat of chats) {
+    if (!chat.lastMessageAt || chat.turnRunning || chat.id === openChatId) continue;
+    const at = Number(chat.lastMessageAt.seconds) * 1000 + Math.floor(chat.lastMessageAt.nanos / 1e6);
+    const was = seen[chat.id];
+    if (was === undefined || at <= was) continue;
+    drafts.push({
+      key: `chat-reply:${chat.id}:${at}`,
+      level: "standard",
+      title: `New in “${chat.title || "a chat"}”`,
+      body: chat.preview,
+      href: `/agent/chat/${chat.id}`,
+      action: "Open",
     });
   }
   return drafts;

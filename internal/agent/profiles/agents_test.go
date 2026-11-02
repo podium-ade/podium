@@ -149,7 +149,7 @@ func TestResolveAppliesTheOverrideOverThePlaybookOverTheProfile(t *testing.T) {
 
 	t.Run("no override is the playbook then the profile", func(t *testing.T) {
 		got := p.Resolve(playbook, Override{})
-		assert.Equal(t, Choice{AgentClaude, "claude-sonnet-5", EffortHigh}, got)
+		assert.Equal(t, Choice{Agent: AgentClaude, Model: "claude-sonnet-5", Effort: EffortHigh}, got)
 	})
 
 	t.Run("a model alone brings its own backend", func(t *testing.T) {
@@ -169,12 +169,12 @@ func TestResolveAppliesTheOverrideOverThePlaybookOverTheProfile(t *testing.T) {
 
 	t.Run("an effort alone leaves the model alone", func(t *testing.T) {
 		got := p.Resolve(playbook, Override{Effort: EffortLow})
-		assert.Equal(t, Choice{AgentClaude, "claude-sonnet-5", EffortLow}, got)
+		assert.Equal(t, Choice{Agent: AgentClaude, Model: "claude-sonnet-5", Effort: EffortLow}, got)
 	})
 
 	t.Run("all three", func(t *testing.T) {
 		got := p.Resolve(playbook, Override{Agent: AgentGrok, Model: "grok-4.5", Effort: EffortMedium})
-		assert.Equal(t, Choice{AgentGrok, "grok-4.5", EffortMedium}, got)
+		assert.Equal(t, Choice{Agent: AgentGrok, Model: "grok-4.5", Effort: EffortMedium}, got)
 	})
 }
 

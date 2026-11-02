@@ -389,6 +389,20 @@ func (s *Store) GetSetting(ctx context.Context, key string, out any) error {
 	return nil
 }
 
+// SettingsWithPrefix is every stored value whose key starts with prefix, raw, keyed by the
+// full key. It is how the people who each saved their own provider credential are found.
+func (s *Store) SettingsWithPrefix(ctx context.Context, prefix string) (map[string][]byte, error) {
+	rows, err := s.q.ListSettingsByPrefix(ctx, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("list settings %s*: %w", prefix, err)
+	}
+	out := make(map[string][]byte, len(rows))
+	for _, r := range rows {
+		out[r.Key] = r.Value
+	}
+	return out, nil
+}
+
 // DeleteSetting removes one stored value. A key that was never set is not an error: the
 // caller wants it gone, and it is.
 func (s *Store) DeleteSetting(ctx context.Context, key string) error {
@@ -438,8 +452,8 @@ func sessionFromRow(r db.Session) Session {
 	}
 }
 
-// SetGitHubReviewID records the pull-request review a session submitted. The next final
-// for that session updates the review instead of opening another.
+// SetGitHubReviewID records the latest pull-request review a session submitted. The next
+// round of review starts from its commit.
 func (s *Store) SetGitHubReviewID(ctx context.Context, sourceKey string, reviewID int64) error {
 	if reviewID <= 0 {
 		return fmt.Errorf("set github review %s: id must be positive", sourceKey)

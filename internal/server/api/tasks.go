@@ -24,9 +24,11 @@ type Canceller interface {
 	Cancel(ctx context.Context, nodeID, taskID, reason string) error
 }
 
-// Injector is the node registry's path for a human message into a running task.
+// Injector is the node registry's path for a human message into a running task, and for
+// ending a finished task's wait for one.
 type Injector interface {
 	Inject(ctx context.Context, nodeID, taskID, text string) error
+	EndWait(ctx context.Context, nodeID, taskID string) error
 }
 
 // PreviewReleaser is the node registry's path for ending a finished task's preview.
@@ -273,9 +275,26 @@ func (s *TaskService) ListTasks(
 	}
 	out := make([]*podiumv1.Task, 0, len(tasks))
 	for _, t := range tasks {
-		out = append(out, taskToProto(t))
+		out = append(out, listedTask(t))
 	}
 	return connect.NewResponse(&podiumv1.ListTasksResponse{Tasks: s.withPreviews(ctx, out...), NextCursor: next}), nil
+}
+
+// listedTask is a task as ListTasks shows it: the spec without its environment and without
+// the contents of its file mounts. An agent task carries its turn and its Agent Skills
+// there, hundreds of KB each, and the web UI polls the list every few seconds. GetTask
+// still answers with the whole spec.
+func listedTask(t store.Task) *podiumv1.Task {
+	out := taskToProto(t)
+	spec := out.GetSpec()
+	if spec == nil {
+		return out
+	}
+	spec.Env = nil
+	for _, m := range spec.GetMounts() {
+		m.Files = nil
+	}
+	return out
 }
 
 // CancelTask cancels a queued task outright and asks the node to stop anything further along.
@@ -332,16 +351,21 @@ func (s *TaskService) CancelTask(
 }
 
 // InjectTask delivers one human message into a running task. The container stays up.
+// With end_wait it instead tells a task that has answered to stop waiting for a follow-up.
 func (s *TaskService) InjectTask(
 	ctx context.Context,
 	req *connect.Request[podiumv1.InjectTaskRequest],
 ) (*connect.Response[podiumv1.InjectTaskResponse], error) {
 	taskID := req.Msg.GetTaskId()
 	text := strings.TrimSpace(req.Msg.GetText())
+	endWait := req.Msg.GetEndWait()
 	if taskID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: task_id is required"))
 	}
-	if text == "" {
+	if endWait && text != "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: end_wait carries no text"))
+	}
+	if text == "" && !endWait {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: text is required"))
 	}
 	if s.inject == nil {
@@ -362,6 +386,13 @@ func (s *TaskService) InjectTask(
 	if task.NodeID == "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("inject task %s: it has no node", taskID))
+	}
+	if endWait {
+		if err := s.inject.EndWait(ctx, task.NodeID, taskID); err != nil {
+			return nil, connect.NewError(connect.CodeUnavailable, err)
+		}
+		s.logger.InfoContext(ctx, "task end of wait requested", "task_id", taskID, "node_id", task.NodeID)
+		return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
 	}
 	if err := s.inject.Inject(ctx, task.NodeID, taskID, text); err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, err)

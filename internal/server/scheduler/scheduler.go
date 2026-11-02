@@ -35,7 +35,8 @@ const (
 	ReasonFull           = "every node that could run this task is full"
 	ReasonNoPreview      = "no online node has a free preview address for this task"
 	ReasonSandboxFull    = "sandbox provider %s is running as many sandboxes as it may (%d)"
-	ReasonOnlySandboxes  = "only sandbox nodes could run this task, and it does not ask for a sandbox"
+	ReasonOnlySandboxes  = "no node is online for this task: only cloud sandboxes are, and it does not ask for one"
+	ReasonNoProvider     = "sandbox provider %s is not set up: add it on the Sandboxes screen"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
 	ReasonNoLease        = "the task is on no node and holds no lease"
@@ -57,6 +58,13 @@ type Dispatcher interface {
 	Release(taskID string)
 	// ReleasePreview tells a node to tear down a finished task it is keeping up.
 	ReleasePreview(ctx context.Context, nodeID, taskID, reason string) error
+	// ServerID is this server's name among the servers sharing the database, empty when it
+	// is the only one.
+	ServerID() string
+	// HeldElsewhere reports whether another server holds node's stream and hears from it.
+	HeldElsewhere(node store.Node) bool
+	// OthersHoldNodes reports whether another server holds any live node.
+	OthersHoldNodes(ctx context.Context) bool
 }
 
 // Resolver turns a task's secret references into the plaintext an Assign carries. It is
@@ -150,6 +158,9 @@ func (s *Service) dispatch(ctx context.Context) {
 	candidates := s.nodes.Candidates()
 	caps, kept := s.sandboxCaps(ctx, candidates)
 	room := sandboxRoom(candidates, caps, kept)
+	// With other servers holding nodes, a task this one cannot place may be theirs to place,
+	// and this server's reason would only be a view of half the fleet. Asked once per batch.
+	othersChecked, others := false, false
 	for _, task := range tasks {
 		if task.CancelRequestedAt != nil {
 			// A task can be requeued after somebody asked for it to stop — a revoked
@@ -160,6 +171,13 @@ func (s *Service) dispatch(ctx context.Context) {
 		}
 		i := pick(candidates, task.Spec, nodes.CostOf(task.Spec))
 		if i < 0 {
+			if !othersChecked {
+				othersChecked, others = true, s.nodes.OthersHoldNodes(ctx)
+			}
+			if others && len(candidates) == 0 {
+				// Nothing to say from here: every node this server could speak for is elsewhere.
+				continue
+			}
 			s.leaveQueued(ctx, task, room.reason(candidates, task.Spec,
 				placementReason(candidates, task.Spec, nodes.CostOf(task.Spec))))
 			continue
@@ -462,6 +480,12 @@ func charge(c *nodes.Snapshot, cost nodes.TaskCost) {
 // It narrows the candidate set one constraint at a time and reports the constraint that
 // emptied it, because "unschedulable" on its own is unactionable.
 func placementReason(candidates []nodes.Snapshot, ts spec.TaskSpec, cost nodes.TaskCost) string {
+	// A task that asks for a cloud provider waits on that provider being configured, which is
+	// the operator's step to take; no node of theirs could ever run it.
+	if p := ts.Sandbox.ProviderName(); p != "" &&
+		!slices.ContainsFunc(candidates, func(c nodes.Snapshot) bool { return c.SandboxProvider == p }) {
+		return fmt.Sprintf(ReasonNoProvider, p)
+	}
 	if len(candidates) == 0 {
 		return ReasonNoNodes
 	}
@@ -532,7 +556,37 @@ func (s *Service) sandboxCaps(ctx context.Context, candidates []nodes.Snapshot) 
 	if kept, err = s.store.SandboxesKept(ctx); err != nil {
 		s.logger.WarnContext(ctx, "counting kept sandboxes failed", "error", err)
 	}
+	if s.nodes.ServerID() != "" {
+		kept = s.withOtherServers(ctx, candidates, kept)
+	}
 	return caps, kept
+}
+
+// withOtherServers adds to kept what each provider's nodes on OTHER servers are running. A
+// provider's cap is the provider's, and its nodes may stream to any server: counting only the
+// ones held here would let every server fill the cap on its own.
+func (s *Service) withOtherServers(ctx context.Context, candidates []nodes.Snapshot, kept map[string]int32) map[string]int32 {
+	active, err := s.store.ActiveSandboxTasks(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "counting sandbox tasks across servers failed", "error", err)
+		return kept
+	}
+	local := map[string]int32{}
+	for _, c := range candidates {
+		if c.SandboxProvider != "" {
+			local[c.SandboxProvider] += c.RunningTasks
+		}
+	}
+	out := make(map[string]int32, len(kept)+len(active))
+	for name, n := range kept {
+		out[name] = n
+	}
+	for name, n := range active {
+		if extra := n - local[name]; extra > 0 {
+			out[name] += extra
+		}
+	}
+	return out
 }
 
 // sandboxRoom holds every sandbox provider to the smaller of its cap and the account limit

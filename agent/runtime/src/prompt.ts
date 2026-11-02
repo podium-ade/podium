@@ -347,13 +347,23 @@ You have a memory that outlives this container, through the tools ${MemoryTools.
   agent will read.`;
 }
 
+// reposBlock says where each repository is, and where a relative path starts. The harness's
+// project is the workspace and not a repository — on purpose: a repository's own AGENTS.md or
+// CLAUDE.md is content a pull request can write, and the project is where the harness reads
+// those as instructions. So a tool path like `internal/server` resolves under the workspace,
+// finds nothing, and grep and glob fail with "ripgrep execution failed". Saying it here is
+// what keeps a turn from spending its first few tool calls finding that out.
 function reposBlock(brief: TurnBrief): string {
-  const lines = (brief.repos ?? []).map(
+  const repos = brief.repos ?? [];
+  const lines = repos.map(
     (r) => `- ${r.name} is checked out at ${WorkspaceDir}/${r.name} on branch ${r.default_branch} (${r.url})`,
   );
+  const example = repos[0] ? `${WorkspaceDir}/${repos[0].name}/src` : `${WorkspaceDir}/<repo>/src`;
   return `# Repositories
 
-${lines.join("\n")}`;
+${lines.join("\n")}
+
+Your working directory is ${WorkspaceDir}, not a repository. A path that is not absolute is resolved from ${WorkspaceDir}, so give grep, glob, list, read and edit absolute paths (\`${example}\`, not \`src\`), and run bash with its workdir set to the repository.`;
 }
 
 function channelBlock(brief: TurnBrief): string {

@@ -17,7 +17,16 @@ import { fileURLToPath } from "node:url";
 import { activityOf } from "./activity.js";
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
-import { AskHub, AskWaitEnv, InboxSockEnv, askEntrypoint, inboxSock, readInbox } from "./ask.js";
+import {
+  AskHub,
+  AskWaitEnv,
+  EndWait,
+  InboxSockEnv,
+  type InboxItem,
+  askEntrypoint,
+  inboxSock,
+  readInbox,
+} from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
@@ -329,12 +338,17 @@ async function main(): Promise<number> {
   const stopHub = hub.listen(askPath);
   env[AskWaitEnv] = askPath;
 
-  const inboxIter = onHost(brief)
-    ? undefined
-    : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
-  let pendingInject: Promise<IteratorResult<string>> | undefined;
+  // A task always has an inbox. A host turn has one only when the conductor kept it warm and
+  // put the socket in its jail; without one there is nothing to read and nothing to wait for.
+  const inboxIter =
+    onHost(brief) && !process.env[InboxSockEnv]
+      ? undefined
+      : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
+  let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
 
   let steps = 0;
+  let resumes = 0;
+  let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
   try {
@@ -365,7 +379,7 @@ async function main(): Promise<number> {
       for (;;) {
         pendingEvent ??= eventIter.next();
         const waiters: Promise<
-          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<string> }
+          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<InboxItem> }
         >[] = [pendingEvent.then((r) => ({ kind: "event" as const, r }))];
         if (inboxIter) {
           pendingInject ??= inboxIter.next();
@@ -378,7 +392,8 @@ async function main(): Promise<number> {
             continue;
           }
           const text = winner.r.value;
-          if (hub.tryDeliver(text)) {
+          // A turn still working has not answered, so there is no wait to end.
+          if (text === EndWait || hub.tryDeliver(text)) {
             continue;
           }
           steered = text;
@@ -459,6 +474,51 @@ async function main(): Promise<number> {
         instruction = steered;
         continue;
       }
+      // Gemini refused a request that ended on the model's turn. The work so far is in the
+      // session, so it goes on from there with a user turn rather than failing the turn.
+      if (
+        code !== 0 &&
+        !cancelled &&
+        summary.code === ExitOK &&
+        sessionID &&
+        oc.endedOnModelTurn(harnessError) &&
+        resumes < oc.MaxModelTurnResumes
+      ) {
+        resumes += 1;
+        warn(
+          `the provider refused a request ending on the model's turn; ` +
+            `resuming session ${sessionID} (${resumes}/${oc.MaxModelTurnResumes})`,
+        );
+        instruction = oc.ModelTurnResume;
+        harnessError = undefined;
+        continue;
+      }
+      // The connection to the model dropped mid-turn. The work so far is in the session, so
+      // it goes on from there; with no session yet there is nothing to keep, and the same
+      // instruction is simply sent again.
+      if (
+        code !== 0 &&
+        !cancelled &&
+        summary.code === ExitOK &&
+        oc.lostToNetwork(harnessError) &&
+        networkResumes < oc.MaxNetworkResumes
+      ) {
+        const delay = oc.NetworkResumeDelayMs[networkResumes] ?? 0;
+        networkResumes += 1;
+        warn(
+          `the request to the model was lost to the network (${harnessError}); ` +
+            (sessionID ? `resuming session ${sessionID}` : `starting again`) +
+            ` in ${delay / 1000}s (${networkResumes}/${oc.MaxNetworkResumes})`,
+        );
+        await sleep(delay, undefined, { signal: controller.signal }).catch(() => undefined);
+        if (!controller.signal.aborted) {
+          if (sessionID) {
+            instruction = oc.NetworkResume;
+          }
+          harnessError = undefined;
+          continue;
+        }
+      }
       // A non-zero exit with an answer already in hand is a harness that failed after saying
       // something useful; the answer is still the thing to relay, and the code says it ended
       // badly. With no answer at all there is nothing to relay but the failure.
@@ -479,7 +539,9 @@ async function main(): Promise<number> {
         await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
         const waited = await nextInboxLine(() => inboxIter.next(), pendingInject, warmMs, controller.signal);
         pendingInject = waited.pending;
-        if (waited.text !== undefined && !controller.signal.aborted) {
+        // EndWait falls through to the idle exit: the answer is already reported, and
+        // exiting 0 lets the node store the workspace for the task that asked for it.
+        if (waited.text !== undefined && waited.text !== EndWait && !controller.signal.aborted) {
           await say(invoke, "progress", `continuing with: ${waited.text}`);
           instruction = waited.text;
           finalText = "";

@@ -1,19 +1,17 @@
-// The delegation tools, as the conductor's TurnService sees them.
+// The delegation tools, as the conductor's turn surface sees them.
 //
-// This is the client half: a handful of calls over Connect's JSON protocol, made with plain fetch.
-// Connect's unary JSON mapping is deliberately boring — POST to
-// `/<fully.qualified.Service>/<Method>`, a JSON body, a JSON body back, and a JSON error
-// document with a `code` on failure — so a generated client would buy nothing here and cost
-// a build step inside the runtime image.
+// This is the client half: plain HTTP resources under /v1/delegations, made with fetch — a JSON
+// body, a JSON body back, and {code, message} on a refusal (internal/agent/api.NewTurnREST).
 //
 // The token is a bearer for ONE turn: the conductor minted it for the turn this process is
 // running, scoped to that turn's conversation and to the playbooks its brief listed, and it
-// is revoked the moment the turn ends. It never appears in an argument or an error message.
+// is revoked the moment the turn ends. It travels as `Authorization: Bearer` and never
+// appears in an argument or an error message.
 
-const Service = "podium.agent.v1.TurnService";
+import { blockedInFront } from "./gitcred.js";
 
-/** TurnTokenHeader must match internal/agent/api.TurnTokenHeader. */
-export const TurnTokenHeader = "X-Podium-Turn";
+/** Resources is where delegations live, under the turn surface's URL. */
+const Resources = "/v1/delegations";
 
 /** callTimeoutMs bounds one call. Delegate creates a task and returns; nothing here waits
  * for a task to finish, so a call that takes this long is a conductor in trouble. */
@@ -63,41 +61,46 @@ export class Client {
   }
 
   delegate(playbook: string, instruction: string, readOnly = false): Promise<{ delegation: Delegation }> {
-    return this.call("Delegate", readOnly ? { playbook, instruction, read_only: true } : { playbook, instruction });
+    return this.call("POST", Resources, readOnly ? { playbook, instruction, read_only: true } : { playbook, instruction });
   }
 
   get(id: string): Promise<DelegationState> {
-    return this.call("GetDelegation", { id });
+    return this.call("GET", `${Resources}/${encodeURIComponent(id)}`);
   }
 
   list(): Promise<{ delegations?: Delegation[] }> {
-    return this.call("ListDelegations", {});
+    return this.call("GET", Resources);
   }
 
   cancel(id: string, reason: string): Promise<{ delegation: Delegation }> {
-    return this.call("CancelDelegation", { id, reason });
+    return this.call("POST", `${Resources}/${encodeURIComponent(id)}/cancel`, { reason });
   }
 
   inject(id: string, text: string): Promise<{ delegation: Delegation }> {
-    return this.call("InjectDelegation", { id, text });
+    return this.call("POST", `${Resources}/${encodeURIComponent(id)}/messages`, { text });
   }
 
   releasePreview(id: string): Promise<{ delegation: Delegation }> {
-    return this.call("ReleasePreview", { id });
+    return this.call("DELETE", `${Resources}/${encodeURIComponent(id)}/preview`);
   }
 
-  private async call<T>(method: string, body: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${this.url}/${Service}/${method}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [TurnTokenHeader]: this.token,
-      },
-      body: JSON.stringify(body),
+  private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.token}` };
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+    const res = await this.fetchImpl(`${this.url}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(callTimeoutMs),
     });
     const text = await res.text();
     if (!res.ok) {
+      const blocked = blockedInFront(res);
+      if (blocked !== undefined) {
+        throw new DelegateError(String(res.status), blocked);
+      }
       throw new DelegateError(...connectError(res.status, text));
     }
     if (text.trim() === "") {
@@ -106,12 +109,12 @@ export class Client {
     try {
       return JSON.parse(text) as T;
     } catch (err) {
-      throw new DelegateError("internal", `${method} answered with something that is not JSON: ${err}`);
+      throw new DelegateError("internal", `${method} ${path} answered with something that is not JSON: ${err}`);
     }
   }
 }
 
-/** connectError reads Connect's JSON error document, falling back to the status line for a
+/** connectError reads the conductor's {code, message} error document, falling back to the status line for a
  * body that is not one — which is what a proxy in front of the conductor would return. */
 function connectError(status: number, body: string): [string, string] {
   try {
@@ -120,7 +123,7 @@ function connectError(status: number, body: string): [string, string] {
       return [parsed.code ?? String(status), parsed.message ?? `HTTP ${status}`];
     }
   } catch {
-    // Not a Connect error document.
+    // Not the conductor's error document.
   }
   const trimmed = body.trim();
   return [String(status), trimmed === "" ? `HTTP ${status}` : `HTTP ${status}: ${trimmed}`];

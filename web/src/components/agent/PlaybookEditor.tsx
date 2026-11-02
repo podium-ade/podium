@@ -1414,7 +1414,7 @@ function RunsOnFields({
       </Field>
       {effective !== RUNS_ON_NODES && docker ? (
         <Alert variant="warn" title="A Docker daemon does not run in a sandbox">
-          It is a privileged sidecar, which sandbox nodes refuse. Run this playbook on your nodes.
+          It is a privileged sidecar, which a cloud sandbox does not run. Run this playbook on your nodes.
         </Alert>
       ) : effective === "modal" && browser && modalRuntime !== "vm" ? (
         <Alert variant="warn" title="Modal's gvisor runtime has no Docker">

@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+const deleteRetiredBase = `-- name: DeleteRetiredBase :exec
+delete from workspace_bases_retired where object_key = $1
+`
+
+func (q *Queries) DeleteRetiredBase(ctx context.Context, objectKey string) error {
+	_, err := q.db.Exec(ctx, deleteRetiredBase, objectKey)
+	return err
+}
+
+const deleteSessionOrigin = `-- name: DeleteSessionOrigin :exec
+delete from workspace_session_origins where session_id = $1
+`
+
+func (q *Queries) DeleteSessionOrigin(ctx context.Context, sessionID string) error {
+	_, err := q.db.Exec(ctx, deleteSessionOrigin, sessionID)
+	return err
+}
+
 const deleteWorkspaceSnapshot = `-- name: DeleteWorkspaceSnapshot :execrows
 delete from workspace_snapshots where session_id = $1 and object_key = $2
 `
@@ -27,6 +45,17 @@ func (q *Queries) DeleteWorkspaceSnapshot(ctx context.Context, arg DeleteWorkspa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getSessionOrigin = `-- name: GetSessionOrigin :one
+select base_key from workspace_session_origins where session_id = $1
+`
+
+func (q *Queries) GetSessionOrigin(ctx context.Context, sessionID string) (string, error) {
+	row := q.db.QueryRow(ctx, getSessionOrigin, sessionID)
+	var base_key string
+	err := row.Scan(&base_key)
+	return base_key, err
 }
 
 const getSnapshotRetention = `-- name: GetSnapshotRetention :one
@@ -64,7 +93,7 @@ func (q *Queries) GetWorkspaceBase(ctx context.Context, repo string) (WorkspaceB
 }
 
 const getWorkspaceSnapshot = `-- name: GetWorkspaceSnapshot :one
-select session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at from workspace_snapshots where session_id = $1
+select session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at, base_key from workspace_snapshots where session_id = $1
 `
 
 func (q *Queries) GetWorkspaceSnapshot(ctx context.Context, sessionID string) (WorkspaceSnapshot, error) {
@@ -78,12 +107,41 @@ func (q *Queries) GetWorkspaceSnapshot(ctx context.Context, sessionID string) (W
 		&i.NodeID,
 		&i.TaskID,
 		&i.UpdatedAt,
+		&i.BaseKey,
 	)
 	return i, err
 }
 
+const listUnreferencedRetiredBases = `-- name: ListUnreferencedRetiredBases :many
+select r.object_key from workspace_bases_retired r
+where not exists (select 1 from workspace_snapshots s where s.base_key = r.object_key)
+  and not exists (select 1 from workspace_session_origins o where o.base_key = r.object_key)
+`
+
+// A retired base nothing restores from any more: no snapshot is a difference from it, and no
+// session that started from it has uploaded yet.
+func (q *Queries) ListUnreferencedRetiredBases(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUnreferencedRetiredBases)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var object_key string
+		if err := rows.Scan(&object_key); err != nil {
+			return nil, err
+		}
+		items = append(items, object_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspaceSnapshots = `-- name: ListWorkspaceSnapshots :many
-select s.session_id, s.object_key, s.size_bytes, s.sha256, s.node_id, s.task_id, s.updated_at, exists (
+select s.session_id, s.object_key, s.size_bytes, s.sha256, s.node_id, s.task_id, s.updated_at, s.base_key, exists (
   select 1 from tasks t
   where t.status in ('queued', 'scheduled', 'provisioning', 'running')
     and t.spec->>'workspace_session' = s.session_id
@@ -100,6 +158,7 @@ type ListWorkspaceSnapshotsRow struct {
 	NodeID    string
 	TaskID    string
 	UpdatedAt time.Time
+	BaseKey   string
 	InUse     bool
 }
 
@@ -122,6 +181,7 @@ func (q *Queries) ListWorkspaceSnapshots(ctx context.Context) ([]ListWorkspaceSn
 			&i.NodeID,
 			&i.TaskID,
 			&i.UpdatedAt,
+			&i.BaseKey,
 			&i.InUse,
 		); err != nil {
 			return nil, err
@@ -132,6 +192,31 @@ func (q *Queries) ListWorkspaceSnapshots(ctx context.Context) ([]ListWorkspaceSn
 		return nil, err
 	}
 	return items, nil
+}
+
+const retireWorkspaceBase = `-- name: RetireWorkspaceBase :exec
+insert into workspace_bases_retired (object_key) values ($1) on conflict do nothing
+`
+
+func (q *Queries) RetireWorkspaceBase(ctx context.Context, objectKey string) error {
+	_, err := q.db.Exec(ctx, retireWorkspaceBase, objectKey)
+	return err
+}
+
+const setSessionOrigin = `-- name: SetSessionOrigin :exec
+insert into workspace_session_origins (session_id, base_key, recorded_at)
+values ($1, $2, now())
+on conflict (session_id) do update set base_key = excluded.base_key, recorded_at = now()
+`
+
+type SetSessionOriginParams struct {
+	SessionID string
+	BaseKey   string
+}
+
+func (q *Queries) SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error {
+	_, err := q.db.Exec(ctx, setSessionOrigin, arg.SessionID, arg.BaseKey)
+	return err
 }
 
 const setSnapshotRetention = `-- name: SetSnapshotRetention :one
@@ -202,18 +287,19 @@ func (q *Queries) UpsertWorkspaceBase(ctx context.Context, arg UpsertWorkspaceBa
 
 const upsertWorkspaceSnapshot = `-- name: UpsertWorkspaceSnapshot :one
 insert into workspace_snapshots (
-  session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at
+  session_id, object_key, size_bytes, sha256, node_id, task_id, base_key, updated_at
 ) values (
-  $1, $2, $3, $4, $5, $6, now()
+  $1, $2, $3, $4, $5, $6, $7, now()
 )
 on conflict (session_id) do update set
   object_key = excluded.object_key,
+  base_key   = excluded.base_key,
   size_bytes = excluded.size_bytes,
   sha256     = excluded.sha256,
   node_id    = excluded.node_id,
   task_id    = excluded.task_id,
   updated_at = now()
-returning session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at
+returning session_id, object_key, size_bytes, sha256, node_id, task_id, updated_at, base_key
 `
 
 type UpsertWorkspaceSnapshotParams struct {
@@ -223,6 +309,7 @@ type UpsertWorkspaceSnapshotParams struct {
 	Sha256    string
 	NodeID    string
 	TaskID    string
+	BaseKey   string
 }
 
 func (q *Queries) UpsertWorkspaceSnapshot(ctx context.Context, arg UpsertWorkspaceSnapshotParams) (WorkspaceSnapshot, error) {
@@ -233,6 +320,7 @@ func (q *Queries) UpsertWorkspaceSnapshot(ctx context.Context, arg UpsertWorkspa
 		arg.Sha256,
 		arg.NodeID,
 		arg.TaskID,
+		arg.BaseKey,
 	)
 	var i WorkspaceSnapshot
 	err := row.Scan(
@@ -243,6 +331,7 @@ func (q *Queries) UpsertWorkspaceSnapshot(ctx context.Context, arg UpsertWorkspa
 		&i.NodeID,
 		&i.TaskID,
 		&i.UpdatedAt,
+		&i.BaseKey,
 	)
 	return i, err
 }

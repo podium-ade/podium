@@ -199,9 +199,14 @@ body {
   isolation: isolate;
 }
 
-:focus-visible {
-  outline: 3px solid var(--color-ring);
-  outline-offset: 3px;
+/* In the base layer so a utility wins: a menu or select item says outline-none and draws its
+   own highlight. Unlayered, this outline beat every utility and spilled onto the item's
+   neighbours. */
+@layer base {
+  :focus-visible {
+    outline: 3px solid var(--color-ring);
+    outline-offset: 3px;
+  }
 }
 
 /* The caret sits in the textarea. The visible chat box is the rounded shell around it,

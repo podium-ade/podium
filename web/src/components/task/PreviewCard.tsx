@@ -30,7 +30,7 @@ export function PreviewCard({ task }: { task: Task }) {
   const released = p.releasedAt !== undefined;
   const expires = toDate(p.expiresAt);
   const names = Object.keys(p.urls).sort();
-  // A sandbox node gives every port a URL of its own instead of one address.
+  // A cloud sandbox gives every port a URL of its own instead of one address.
   const where = p.address || (names.length > 0 ? "its own URLs" : "");
 
   return (

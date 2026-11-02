@@ -69,3 +69,30 @@ func TestInboxWritesToAConnectedRuntime(t *testing.T) {
 	require.NoError(t, json.Unmarshal(line, &got))
 	require.Equal(t, "yes, ship it", got.Text)
 }
+
+// The end of a wait is a line of its own with no text, so a runtime that does not know it
+// skips it rather than reading it as a person's message.
+func TestInboxEndsAWaitWithALineThatHasNoText(t *testing.T) {
+	inbox := testInbox(t)
+
+	require.NoError(t, inbox.write("one more thing"))
+	require.NoError(t, inbox.endWait())
+
+	conn, err := net.Dial("unix", inbox.path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	r := bufio.NewReader(conn)
+
+	line, err := r.ReadBytes('\n')
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(line, &got))
+	require.Equal(t, map[string]any{"v": float64(1), "text": "one more thing"}, got)
+
+	line, err = r.ReadBytes('\n')
+	require.NoError(t, err)
+	got = nil
+	require.NoError(t, json.Unmarshal(line, &got))
+	require.Equal(t, map[string]any{"v": float64(1), "end_wait": true}, got)
+}

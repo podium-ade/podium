@@ -24,8 +24,9 @@ export { parseActivity, type Activity } from "./activity";
  * - answers, the assistant's and a task's alike, are text parts, where they are read.
  *
  * A task outlives the turn that started it, so its rows can land after the next question.
- * They then open a second block for the same task in that turn, rather than reaching back
- * into an earlier message.
+ * Until it answers they stay in the block it started in, however many questions later: it
+ * is one piece of work. Its answer is read where the conversation is, and only a task that
+ * speaks again after answering — a follow-up — opens a new block where that happens.
  */
 
 /** TASK_TOOL is the tool name a delegated task is drawn under. It is Podium's, not the model's. */
@@ -54,42 +55,43 @@ export interface ThreadInput {
 
 type Part = Exclude<ThreadMessageLike["content"], string>[number];
 
+/** TaskBlock is one block of a task: the index of its part in its message, and its trail. */
+interface TaskBlock {
+  index: number;
+  parts: Part[];
+  answered: boolean;
+  /** continued is set when the task opened a later block after this one answered. */
+  continued: boolean;
+}
+
 interface Assistant {
   id: string;
   createdAt?: Date;
   parts: Part[];
-  /** tasks maps a task id to its block's index in parts and the nested parts it holds. */
-  tasks: Map<string, { index: number; parts: Part[]; answered: boolean }>;
+  /** tasks maps a task id to its block in this message. */
+  tasks: Map<string, TaskBlock>;
   attachments: ChatAttachment[];
 }
 
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
-  const out: ThreadMessageLike[] = [];
-  // The last segment each task spoke in: a block with more of its task below is finished
-  // as far as that block goes.
-  const lastSegmentOf = new Map<string, number>();
-  const answered = new Set<string>();
-  let segment = 0;
-  for (const m of messages) {
-    if (m.role === "user") segment++;
-    else if (m.taskId !== "") {
-      lastSegmentOf.set(m.taskId, segment);
-      if (m.role === "assistant") answered.add(m.taskId);
-    }
-  }
+  // Messages are finished at the end, not as they close: a task's later rows can still
+  // land in a block an earlier message holds.
+  const out: Array<ThreadMessageLike | Assistant> = [];
+  // open is each task's block that has not answered yet, wherever it is.
+  const open = new Map<string, TaskBlock>();
+  // last is each task's latest block, so a follow-up after an answer can mark it continued.
+  const last = new Map<string, TaskBlock>();
 
   let current: Assistant | undefined;
-  segment = 0;
   const close = () => {
     if (!current) return;
-    out.push(finish(current, segment, lastSegmentOf, answered, busy || taskRunning));
+    out.push(current);
     current = undefined;
   };
 
   for (const m of messages) {
     if (m.role === "user") {
       close();
-      segment++;
       out.push({
         id: `u${m.seq}`,
         role: "user",
@@ -108,35 +110,44 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
       continue;
     }
 
-    let task = current.tasks.get(m.taskId);
+    let task = open.get(m.taskId) ?? current.tasks.get(m.taskId);
     if (!task) {
-      task = { index: current.parts.length, parts: [], answered: false };
+      const before = last.get(m.taskId);
+      if (before) before.continued = true;
+      task = { index: current.parts.length, parts: [], answered: false, continued: false };
       current.tasks.set(m.taskId, task);
       current.parts.push({ type: "tool-call", toolName: TASK_TOOL, toolCallId: `task:${m.taskId}:${m.seq}` });
+      last.set(m.taskId, task);
     }
     if (m.role === "assistant") {
-      // The task's answer is read where the assistant's would be: after its block, in the turn.
+      // The task's answer is read where the assistant's would be: in the turn it lands in,
+      // after its block when the block is there too.
       task.answered = true;
+      open.delete(m.taskId);
       current.parts.push({ type: "text", text: m.text });
       continue;
     }
+    open.set(m.taskId, task);
     const part = rowPart(m);
     if (part) task.parts.push(part);
   }
   close();
 
+  const live = busy || taskRunning;
+  const thread = out.map((m) => ("role" in m ? m : finish(m, live)));
+
   if (pendingUser !== undefined) {
-    out.push({ id: "pending-user", role: "user", content: pendingUser });
+    thread.push({ id: "pending-user", role: "user", content: pendingUser });
   }
-  const last = out[out.length - 1];
-  if (busy && last?.role !== "assistant") {
+  const tail = thread[thread.length - 1];
+  if (busy && tail?.role !== "assistant") {
     // The turn has started and said nothing yet: an empty running message is where the
     // answer will land, and what the view draws its waiting indicator in.
-    out.push({ id: "pending-assistant", role: "assistant", content: [], status: { type: "running" } });
-  } else if (busy && last?.role === "assistant" && last.status?.type !== "running") {
-    out[out.length - 1] = { ...last, status: { type: "running" } };
+    thread.push({ id: "pending-assistant", role: "assistant", content: [], status: { type: "running" } });
+  } else if (busy && tail?.role === "assistant" && tail.status?.type !== "running") {
+    thread[thread.length - 1] = { ...tail, status: { type: "running" } };
   }
-  return out;
+  return thread;
 }
 
 /** rowPart is one non-answer row, or an answer, as a part; undefined for what draws nothing. */
@@ -172,18 +183,11 @@ function argsOf(input?: string): ReadonlyJSONObject {
   }
 }
 
-function finish(
-  a: Assistant,
-  segment: number,
-  lastSegmentOf: Map<string, number>,
-  answered: Set<string>,
-  live: boolean,
-): ThreadMessageLike {
+function finish(a: Assistant, live: boolean): ThreadMessageLike {
   let running = false;
   const parts = a.parts.slice();
   for (const [taskId, t] of a.tasks) {
-    const continues = (lastSegmentOf.get(taskId) ?? segment) > segment;
-    const done = t.answered || continues || answered.has(taskId);
+    const done = t.answered || t.continued;
     const status = done
       ? ({ type: "complete", reason: "stop" } as const)
       : live

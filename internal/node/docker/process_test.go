@@ -45,3 +45,18 @@ func TestUnderSecrets(t *testing.T) {
 		}
 	}
 }
+
+// A task in a sandbox runs with the image's PATH — the one podium-sandbox-agent was started
+// with — so a toolchain the image puts on PATH is found; only a process with none falls back.
+func TestAProcessTaskKeepsTheImagesPath(t *testing.T) {
+	image := "/usr/local/go/bin:/home/agent/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	if got := taskPath(image); got != image {
+		t.Fatalf("taskPath = %q", got)
+	}
+	if got := taskPath(""); got != defaultTaskPath {
+		t.Fatalf("no PATH: %q", got)
+	}
+	if !hasEnv([]string{"FOO=1", "PATH=/opt/bin"}, "PATH") || hasEnv([]string{"PATHX=1"}, "PATH") {
+		t.Fatal("hasEnv")
+	}
+}

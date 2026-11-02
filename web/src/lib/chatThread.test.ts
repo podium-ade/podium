@@ -91,20 +91,60 @@ describe("toThread", () => {
     expect(partsOf(thread[1])[0]).toMatchObject({ result: "incomplete", isError: true });
   });
 
-  it("opens a second block when a task keeps talking after the next question", () => {
+  it("keeps a task in the block it started in until it answers, and reads the answer in the turn it lands in", () => {
     const thread = toThread({
       messages: [
         row("user", "a"),
-        row("activity", tool("bash"), "task_4"),
-        row("user", "b"),
+        row("activity", tool("bash", { title: "first" }), "task_4"),
+        row("user", "what's the result?"),
+        row("assistant", "Still working on it."),
+        row("activity", tool("bash", { title: "second" }), "task_4"),
         row("assistant", "done", "task_4"),
       ],
       busy: false,
       taskRunning: false,
     });
     expect(thread.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    const block = partsOf(thread[1])[0];
+    expect(block).toMatchObject({ toolName: TASK_TOOL, result: "complete" });
+    const nested = (block.messages as Array<{ content: Parts }>)[0];
+    expect(nested.content.map((p) => p.type)).toEqual(["tool-call", "tool-call"]);
+    expect(partsOf(thread[3]).map((p) => p.type)).toEqual(["text", "text"]);
+    expect(partsOf(thread[3])[1]).toMatchObject({ text: "done" });
+  });
+
+  it("does not mark a task done because a question came while it works", () => {
+    const thread = toThread({
+      messages: [
+        row("user", "a"),
+        row("activity", tool("bash"), "task_5"),
+        row("user", "what's the result?"),
+        row("assistant", "It hasn't finished yet."),
+        row("activity", tool("bash"), "task_5"),
+      ],
+      busy: false,
+      taskRunning: true,
+    });
+    expect(partsOf(thread[1])[0].result).toBeUndefined();
+    expect(partsOf(thread[3]).map((p) => p.type), "no second block for the same task").toEqual(["text"]);
+  });
+
+  it("opens a new block for a follow-up after the task answered, and the first stays done", () => {
+    const thread = toThread({
+      messages: [
+        row("user", "a"),
+        row("activity", tool("bash"), "task_6"),
+        row("assistant", "first answer", "task_6"),
+        row("user", "and the other rule?"),
+        row("activity", tool("bash"), "task_6"),
+      ],
+      busy: false,
+      taskRunning: true,
+    });
     expect(partsOf(thread[1])[0]).toMatchObject({ result: "complete" });
-    expect(partsOf(thread[3]).map((p) => p.type)).toEqual(["tool-call", "text"]);
+    const again = partsOf(thread[3]);
+    expect(again.map((p) => p.type)).toEqual(["tool-call"]);
+    expect(again[0].result).toBeUndefined();
   });
 
   it("adds a running placeholder while a turn has said nothing yet", () => {

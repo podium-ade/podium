@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/github"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // checkTimeout bounds the calls that try a pasted connection against Slack and GitHub.
@@ -162,7 +162,7 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) error {
 	// A new webhook address has to be one this host can listen on. The running one is
 	// already held by this process, which lets go of it when the source is swapped.
 	if next.GitHubSourceEnabled() && next.GitHubWebhookListen != running.GitHubWebhookListen {
-		ln, err := net.Listen("tcp", next.GitHubWebhookListen)
+		ln, err := netlisten.Listen("tcp", next.GitHubWebhookListen)
 		if err != nil {
 			return fmt.Errorf("the webhook address cannot be listened on: %w", err)
 		}
@@ -337,4 +337,11 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 			},
 		},
 	})
+}
+
+// slackSource is the Slack source now, or nil when Slack is not connected.
+func (l *liveConnections) slackSource() *agentslack.Source {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.slack
 }

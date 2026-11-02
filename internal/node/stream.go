@@ -295,7 +295,11 @@ func (n *Node) handle(
 		}
 	case msg.GetInject() != nil:
 		in := msg.GetInject()
-		if err := n.exec.Inject(in.GetTaskId(), in.GetText()); err != nil {
+		deliver := func() error { return n.exec.Inject(in.GetTaskId(), in.GetText()) }
+		if in.GetEndWait() {
+			deliver = func() error { return n.exec.EndWait(in.GetTaskId()) }
+		}
+		if err := deliver(); err != nil {
 			n.logger.WarnContext(ctx, "inject into task failed",
 				"task_id", in.GetTaskId(), "error", err)
 		}
