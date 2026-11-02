@@ -228,8 +228,33 @@ func TestAClaudeSignInIsSpentOnlyByClaudeCode(t *testing.T) {
 // claude-agent falls back to the company's API key like any provider, and sends it as one.
 func TestClaudeAgentSendsAnAPIKeyAsAnAPIKey(t *testing.T) {
 	h := http.Header{}
+	h.Set("Authorization", "Bearer podium")
 	setProviderAuth(h, claudeAgentProvider, "sk-ant-api03-company")
 	assert.Equal(t, "sk-ant-api03-company", h.Get("x-api-key"))
-	assert.Empty(t, h.Get("Authorization"))
+	assert.Empty(t, h.Get("Authorization"), "Claude Code's placeholder bearer does not go along")
 	assert.Empty(t, h.Get("anthropic-beta"))
+
+	// And through the gateway, for somebody with no sign-in of their own.
+	var got *http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+	c := chatConductor(t)
+	c.host.PersonalCredential = func(context.Context, string, string) (string, error) { return "", nil }
+	gw := httptest.NewServer(c.ChatHostGateway())
+	t.Cleanup(gw.Close)
+	cv, err := c.chatConvFor("sess_fallback")
+	require.NoError(t, err)
+	cv.provider, cv.upstream = claudeAgentProvider, upstream.URL
+	cv.turn = &chatTurn{id: "turn_1", login: "bob"}
+	req, _ := http.NewRequest(http.MethodPost, gw.URL+chatGatewayPath+cv.token+"/v1/messages", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer podium")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.NotNil(t, got)
+	assert.Equal(t, "real-key-for-anthropic", got.Header.Get("x-api-key"))
+	assert.Empty(t, got.Header.Get("Authorization"))
 }
