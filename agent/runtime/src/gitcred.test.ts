@@ -57,6 +57,19 @@ describe("mint", () => {
     await expect(mint("http://conductor:8090", "forged", fetchImpl)).rejects.toThrow("not valid");
   });
 
+  it("names a Cloudflare challenge rather than a bare Forbidden", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("<!DOCTYPE html><title>Just a moment...</title>", {
+          status: 403,
+          headers: { "cf-mitigated": "challenge", "Content-Type": "text/html" },
+        }),
+    );
+    await expect(mint("https://podium.example.com/turn-surface", "cap", fetchImpl)).rejects.toThrow(
+      "Cloudflare stopped the request",
+    );
+  });
+
   it("refuses a success that carries no token rather than returning an empty one", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
     await expect(mint("http://conductor:8090", "turn_01.scope.mac", fetchImpl)).rejects.toThrow(MintError);

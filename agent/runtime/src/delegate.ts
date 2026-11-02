@@ -8,6 +8,8 @@
 // is revoked the moment the turn ends. It travels as `Authorization: Bearer` and never
 // appears in an argument or an error message.
 
+import { blockedInFront } from "./gitcred.js";
+
 /** Resources is where delegations live, under the turn surface's URL. */
 const Resources = "/v1/delegations";
 
@@ -95,6 +97,10 @@ export class Client {
     });
     const text = await res.text();
     if (!res.ok) {
+      const blocked = blockedInFront(res);
+      if (blocked !== undefined) {
+        throw new DelegateError(String(res.status), blocked);
+      }
       throw new DelegateError(...connectError(res.status, text));
     }
     if (text.trim() === "") {
