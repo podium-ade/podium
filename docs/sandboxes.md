@@ -53,7 +53,7 @@ memory. That is why placement, capacity and leases work exactly as they do for n
 ## Setting up a provider
 
 On the **Sandboxes** screen, add the provider: its key, and settings such as boat's template and
-default size or Modal's app and runtime. The key is encrypted under the master key like a
+default size or Modal's app, runtime, base image and resources. The key is encrypted under the master key like a
 secret and never shown again. Only admins can set or remove a provider.
 
 That is the whole setup. Saving takes effect at once; a task that asks for a provider nobody has
@@ -111,6 +111,18 @@ stores none of its command output.
 Build a snapshot from a sandbox that was itself created with `noEnv` (`boat new --no-env`), so
 no account credential is baked into its disk, then `boat snapshot <id> <name>`. A task names it
 with `sandbox: {snapshot: <name>}`.
+
+### Modal resources and base image
+
+**Default CPU** and **Default memory** are what a task that asks for no `resources` gets.
+**CPU limit** and **Memory limit** are the most any Modal sandbox may use: past the CPU limit it is
+throttled, past the memory limit it is stopped. A limit needs its default beside it (Modal takes
+no limit without a request), and the default may not be above it. A task whose `resources` ask
+for more than a limit is refused, not given less than it asked for. Empty is no limit.
+
+**Base image** is what a task that names no image or snapshot runs in: `ubuntu:24.04` when empty,
+or `docker:29-dind` under the vm runtime. It needs `sh`, `date` and `sleep`; under the vm runtime,
+one with `dockerd` also gets Docker.
 
 ### Modal images
 

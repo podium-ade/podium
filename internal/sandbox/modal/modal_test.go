@@ -23,6 +23,11 @@ func TestNewRejectsBadConfig(t *testing.T) {
 	for _, c := range []Config{
 		{Runtime: "firecracker"},
 		{CPU: -1},
+		{CPULimit: -1},
+		{CPULimit: 2},
+		{CPU: 4, CPULimit: 2},
+		{MemoryLimitMB: 2048},
+		{MemoryMB: 4096, MemoryLimitMB: 2048},
 		{TokenID: "ak-x"},
 		{TokenSecretFile: "/nope"},
 		{TokenID: "ak-x", TokenSecretFile: filepath.Join(t.TempDir(), "missing")},
@@ -52,6 +57,20 @@ func TestCreateParams(t *testing.T) {
 	if got.CPU != 2 || got.MemoryMiB != 4096 || !strings.Contains(got.Command[2], "+ 300))") || strings.Contains(got.Command[2], "dockerd") {
 		t.Errorf("%+v", got)
 	}
+	// Limits reach Modal; a task that asks for more than one is refused, not shrunk.
+	p.cfg.CPULimit, p.cfg.MemoryLimitMB = 2, 4096
+	got, err = p.createParams(sandbox.CreateRequest{Key: "k"}, p.cfg)
+	if err != nil || got.CPU != 0.5 || got.CPULimit != 2 || got.MemoryMiB != 1024 || got.MemoryLimitMiB != 4096 {
+		t.Errorf("%+v %v", got, err)
+	}
+	for _, req := range []sandbox.CreateRequest{{Key: "k", CPU: 3}, {Key: "k", MemoryMB: 8192}} {
+		_, err := p.createParams(req, p.cfg)
+		var pe *sandbox.Error
+		if !errors.As(err, &pe) || pe.Code != "invalid" || pe.Retryable {
+			t.Errorf("%+v above the limit: %v", req, err)
+		}
+	}
+	p.cfg.CPULimit, p.cfg.MemoryLimitMB = 0, 0
 	for _, ttl := range []time.Duration{MaxTTL + time.Second, time.Millisecond} {
 		_, err := p.createParams(sandbox.CreateRequest{Key: "k", TTL: ttl}, p.cfg)
 		var pe *sandbox.Error

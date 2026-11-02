@@ -67,10 +67,18 @@ type Config struct {
 	// CPU and MemoryMB are the request when a task asks for no resources.
 	CPU      float64 `json:"cpu"`
 	MemoryMB int     `json:"memory_mb"`
+	// CPULimit and MemoryLimitMB are the most any sandbox may use: Modal throttles CPU past
+	// the limit and kills the sandbox past the memory limit. Zero is no limit. A limit needs a
+	// default request beside it, because Modal takes no limit without a request, and a task
+	// that asks for more than a limit is refused rather than given less than it asked for.
+	CPULimit      float64 `json:"cpu_limit"`
+	MemoryLimitMB int     `json:"memory_limit_mb"`
 	// Runtime is "gvisor" (the default) or "vm". Only vm sandboxes can mount a tmpfs or run
 	// Docker; when one's image has dockerd, the sandbox starts it.
 	Runtime string `json:"runtime"`
-	Image   string `json:"image"`
+	// Image is the base of a sandbox whose task names neither an image nor a snapshot.
+	// Empty is DefaultImage, or DefaultVMImage under the vm runtime.
+	Image string `json:"image"`
 }
 
 // Provider talks to Modal.
@@ -95,8 +103,14 @@ func New(c Config) (*Provider, error) {
 	default:
 		return nil, fmt.Errorf("modal: runtime %q is not gvisor or vm", c.Runtime)
 	}
-	if c.CPU < 0 || c.MemoryMB < 0 {
-		return nil, errors.New("modal: cpu and memory_mb must not be negative")
+	if c.CPU < 0 || c.MemoryMB < 0 || c.CPULimit < 0 || c.MemoryLimitMB < 0 {
+		return nil, errors.New("modal: cpu, memory_mb and their limits must not be negative")
+	}
+	if err := checkLimit("cpu", "cpu_limit", c.CPU, c.CPULimit); err != nil {
+		return nil, err
+	}
+	if err := checkLimit("memory_mb", "memory_limit_mb", float64(c.MemoryMB), float64(c.MemoryLimitMB)); err != nil {
+		return nil, err
 	}
 	if c.App == "" {
 		c.App = DefaultApp
@@ -129,6 +143,20 @@ func New(c Config) (*Provider, error) {
 		return nil, fmt.Errorf("modal: %w", err)
 	}
 	return &Provider{c: client, cfg: c, apps: map[string]*sdk.App{}, sbs: map[string]*sdk.Sandbox{}, vm: map[string]bool{}}, nil
+}
+
+// checkLimit is whether a default request and its limit go together: Modal takes no limit
+// without a request, and no request above its limit.
+func checkLimit(key, limitKey string, request, limit float64) error {
+	switch {
+	case limit == 0:
+		return nil
+	case request == 0:
+		return fmt.Errorf("modal: %s needs a default %s beside it", limitKey, key)
+	case request > limit:
+		return fmt.Errorf("modal: the default %s (%g) is above %s (%g)", key, request, limitKey, limit)
+	}
+	return nil
 }
 
 func (c Config) vm() bool { return c.Runtime == string(sdk.SandboxRuntimeVM) }
@@ -224,14 +252,24 @@ func (p *Provider) createParams(req sandbox.CreateRequest, cfg Config) (*sdk.San
 	if mem <= 0 {
 		mem = cfg.MemoryMB
 	}
+	if cfg.CPULimit > 0 && cpu > cfg.CPULimit {
+		return nil, &sandbox.Error{Op: "create", Code: "invalid",
+			Err: fmt.Errorf("the task asks for %g CPU, above this provider's limit of %g", cpu, cfg.CPULimit)}
+	}
+	if cfg.MemoryLimitMB > 0 && mem > cfg.MemoryLimitMB {
+		return nil, &sandbox.Error{Op: "create", Code: "invalid",
+			Err: fmt.Errorf("the task asks for %d MB of memory, above this provider's limit of %d MB", mem, cfg.MemoryLimitMB)}
+	}
 	return &sdk.SandboxCreateParams{
-		CPU:       cpu,
-		MemoryMiB: mem,
-		Runtime:   sdk.SandboxRuntime(cfg.Runtime),
-		Timeout:   MaxTTL,
-		Command:   entrypoint(ttlFile, ttl.Truncate(time.Second), cfg.vm()),
-		Name:      sandboxName(req.Key),
-		Tags:      map[string]string{"podium.key": req.Key},
+		CPU:            cpu,
+		CPULimit:       cfg.CPULimit,
+		MemoryMiB:      mem,
+		MemoryLimitMiB: cfg.MemoryLimitMB,
+		Runtime:        sdk.SandboxRuntime(cfg.Runtime),
+		Timeout:        MaxTTL,
+		Command:        entrypoint(ttlFile, ttl.Truncate(time.Second), cfg.vm()),
+		Name:           sandboxName(req.Key),
+		Tags:           map[string]string{"podium.key": req.Key},
 	}, nil
 }
 
