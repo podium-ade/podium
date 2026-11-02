@@ -353,10 +353,16 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 
 	var chatHostOpt conductor.ChatHost
 	if cfg.ChatHost != "" && host != nil {
+		claude := resolveBinary(cfg.ChatHostClaude)
+		var fenceExtra []string
+		if claude != "" {
+			fenceExtra = append(fenceExtra, claude)
+		}
 		a.chatHost, err = chathost.New(chathost.Options{
 			Binary: cfg.ChatHost,
+			Claude: claude,
 			Dir:    filepath.Join(cmp.Or(cfg.HostDir, os.TempDir()), "podium-chat-host"),
-			Wrap:   host.FenceService(),
+			Wrap:   host.FenceService(fenceExtra...),
 			Logger: logger,
 		})
 		if err != nil {
@@ -365,7 +371,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		chatHostOpt = a.chatHost
 		logger.Info("chat host: enabled — conversations are answered on one opencode service",
-			"binary", cfg.ChatHost, "isolation", cmp.Or(host.Isolation, "none"))
+			"binary", cfg.ChatHost, "isolation", cmp.Or(host.Isolation, "none"),
+			"claude", cmp.Or(claude, "off"))
 	}
 
 	if gh != nil {
@@ -405,6 +412,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		ChatHostURL:        turnURL(a.cfg.Listen),
 		ChatHostRender:     renderPrompt(a.cfg.HostNode, a.cfg.HostRuntime),
 		AnthropicBaseURL:   a.cfg.AnthropicBaseURL,
+		ChatHostClaude:     a.cfg.ChatHostClaude != "",
 		ChatHostMaxTurns:   a.cfg.ChatHostMaxTurns,
 		ChatHostMaxPerUser: a.cfg.ChatHostMaxPerUser,
 		Notifiers:          notifiers,
@@ -421,31 +429,37 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		slackDir = slackSrc
 	}
 	a.svc = api.NewAgentService(api.AgentServiceOptions{
-		Store:               a.store,
-		Env:                 envCfg,
-		Running:             a.cfg,
-		Secrets:             a.podium,
-		Model:               profile.Model,
-		AnthropicBaseURL:    a.cfg.AnthropicBaseURL,
-		XAIBaseURL:          a.cfg.XAIBaseURL,
-		XAIOAuthIssuer:      a.cfg.XAIOAuthIssuer,
-		XAIOAuthClientID:    a.cfg.XAIOAuthClientID,
-		XAIOAuthScopes:      a.cfg.XAIOAuthScopes,
-		OpenAIBaseURL:       a.cfg.OpenAIBaseURL,
-		OpenAICodexBaseURL:  a.cfg.OpenAICodexBaseURL,
-		OpenAIOAuthIssuer:   a.cfg.OpenAIOAuthIssuer,
-		OpenAIOAuthClientID: a.cfg.OpenAIOAuthClientID,
-		GoogleBaseURL:       a.cfg.GoogleBaseURL,
-		Memory:              a.memory,
-		SkillsDir:           a.cfg.SkillsDir,
-		Profiles:            live,
-		ProfileDir:          a.cfg.ProfileDir,
-		Chat:                a.chat,
-		Tasks:               a.podium,
-		Turns:               a.conductor,
-		Slack:               slackDir,
-		Connections:         a.live,
-		Logger:              a.logger,
+		Store:                      a.store,
+		Env:                        envCfg,
+		Running:                    a.cfg,
+		Secrets:                    a.podium,
+		Model:                      profile.Model,
+		AnthropicBaseURL:           a.cfg.AnthropicBaseURL,
+		XAIBaseURL:                 a.cfg.XAIBaseURL,
+		XAIOAuthIssuer:             a.cfg.XAIOAuthIssuer,
+		XAIOAuthClientID:           a.cfg.XAIOAuthClientID,
+		XAIOAuthScopes:             a.cfg.XAIOAuthScopes,
+		OpenAIBaseURL:              a.cfg.OpenAIBaseURL,
+		OpenAICodexBaseURL:         a.cfg.OpenAICodexBaseURL,
+		OpenAIOAuthIssuer:          a.cfg.OpenAIOAuthIssuer,
+		OpenAIOAuthClientID:        a.cfg.OpenAIOAuthClientID,
+		GoogleBaseURL:              a.cfg.GoogleBaseURL,
+		AnthropicOAuthClientID:     a.cfg.AnthropicOAuthClientID,
+		AnthropicOAuthAuthorizeURL: a.cfg.AnthropicOAuthAuthorizeURL,
+		AnthropicOAuthTokenURL:     a.cfg.AnthropicOAuthTokenURL,
+		AnthropicOAuthRedirectURI:  a.cfg.AnthropicOAuthRedirectURI,
+		AnthropicOAuthScopes:       a.cfg.AnthropicOAuthScopes,
+		ClaudeAgent:                a.chatHost != nil && a.cfg.ChatHostClaude != "",
+		Memory:                     a.memory,
+		SkillsDir:                  a.cfg.SkillsDir,
+		Profiles:                   live,
+		ProfileDir:                 a.cfg.ProfileDir,
+		Chat:                       a.chat,
+		Tasks:                      a.podium,
+		Turns:                      a.conductor,
+		Slack:                      slackDir,
+		Connections:                a.live,
+		Logger:                     a.logger,
 	})
 	a.live.conductor, a.live.svc = a.conductor, a.svc
 	// The turn surface. It is the conductor itself, and it is always mounted: a turn on the
@@ -816,4 +830,24 @@ func renderPrompt(node, entry string) func(ctx context.Context, encoded string) 
 		}
 		return doc.System, nil
 	}
+}
+
+// resolveBinary is bin as an absolute path with its symlinks followed, or "" when it is empty
+// or not found. Claude Code's native install is a symlink into a versions directory, and a
+// fenced service sees only the directory the link resolves into.
+func resolveBinary(bin string) string {
+	if bin == "" {
+		return ""
+	}
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return path
 }

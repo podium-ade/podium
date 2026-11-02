@@ -84,6 +84,8 @@ type providerSpec struct {
 	// as a pasted key — xAI, where both are bearers for one endpoint. OpenAI needs a
 	// second one: a ChatGPT token is refused by api.openai.com.
 	validateOAuth func(ctx context.Context, s *AgentService, key []byte) ([]string, error)
+	// oauthOff replaces the generic "set the client id" sentence when the sign-in is off.
+	oauthOff string
 }
 
 // providerSpecs is the registry, in the order GetSettings reports them.
@@ -95,6 +97,15 @@ var providerSpecs = []providerSpec{{
 		return validateAnthropicKey(ctx, s.http, s.baseURL, key)
 	},
 	unusual: unusualFormat,
+	// A Claude subscription is spent only by the chat host's claude-agent provider, so the
+	// sign-in is offered only where the chat host can run Claude Code.
+	oauth:    true,
+	oauthEnv: "PODIUM_AGENT_CHAT_HOST_CLAUDE",
+	oauthOff: "Claude subscriptions need the chat host and Claude Code: set PODIUM_AGENT_CHAT_HOST " +
+		"and PODIUM_AGENT_CHAT_HOST_CLAUDE, or paste an API key instead",
+	validateOAuth: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
+		return validateClaudeOAuthToken(ctx, s.http, s.baseURL, key)
+	},
 }, {
 	name:   ProviderXAI,
 	label:  "xAI",
@@ -167,6 +178,12 @@ func (t credTarget) refreshName() string {
 		return refreshSecret(t.p)
 	}
 	return spec.PersonalModelRefreshSecretName(t.p.name)
+}
+
+// signIn is whether this credential can be a sign-in, so it may have a refresh token to
+// clean up. A Claude sign-in is only ever a person's: the global Anthropic key is a key.
+func (t credTarget) signIn() bool {
+	return t.p.oauth && (t.owner != "" || t.p.name != ProviderAnthropic)
 }
 
 // settingKey is the settings row this credential's metadata lives in.
@@ -277,6 +294,12 @@ type oauthFlow struct {
 	// owner is whose credential the sign-in stores: the person who started it, or empty for
 	// a caller that is not a person.
 	owner string
+	// codePaste, state and code are for a flow the human finishes by pasting a code
+	// (claudeClient): deviceCode is then the PKCE verifier, state what the code must carry,
+	// and code what this poll was given. code is never stored on the flow.
+	codePaste bool
+	state     string
+	code      string
 }
 
 // GetSettings reports what the conductor is configured with.
@@ -472,7 +495,6 @@ func (s *AgentService) storeCredential(
 // putProviderRow stores a sign-in's refresh token in the secret store, or removes it when
 // the row no longer has one, and then writes the row without any credential.
 func (s *AgentService) putProviderRow(ctx context.Context, t credTarget, row providerRow) (providerRow, error) {
-	p := t.p
 	switch {
 	case row.RefreshToken != "":
 		refresh := []byte(row.RefreshToken)
@@ -483,7 +505,7 @@ func (s *AgentService) putProviderRow(ctx context.Context, t credTarget, row pro
 				fmt.Errorf("storing the refresh token failed: %w", err))
 		}
 		row.Refreshable = true
-	case !row.Refreshable && p.oauth:
+	case !row.Refreshable && t.signIn():
 		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return providerRow{}, connect.NewError(connect.CodeOf(err),
 				fmt.Errorf("removing the refresh token failed: %w", err))
@@ -522,7 +544,7 @@ func (s *AgentService) ClearProviderKey(
 	// The refresh token goes too, and that is what actually signs out: leaving it would let
 	// the background pass mint a new access token for a provider the operator has just
 	// disconnected.
-	if p.oauth {
+	if t.signIn() {
 		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the refresh token failed: %w", err))
 		}
@@ -559,6 +581,13 @@ func (s *AgentService) StartProviderOAuth(
 	if err != nil {
 		return nil, err
 	}
+	if owner == "" && p.name == ProviderAnthropic {
+		// A global Anthropic credential is spent by every kind of turn, and only the chat
+		// host's Claude Code may spend a Claude sign-in. So it is only ever a person's own.
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(
+			"a Claude subscription is one person's: sign in to Podium as yourself and connect it "+
+				"under Yours, or paste an API key"))
+	}
 
 	startCtx, cancel := context.WithTimeout(ctx, validateTimeout)
 	defer cancel()
@@ -593,6 +622,8 @@ func (s *AgentService) StartProviderOAuth(
 		expiresAt:  expires,
 		startedBy:  Login(ctx),
 		owner:      owner,
+		codePaste:  dev.CodePaste,
+		state:      dev.State,
 	})
 	s.logger.InfoContext(ctx, "a subscription sign-in was started",
 		"provider", p.name, "login", Login(ctx), "expires_at", expires)
@@ -604,6 +635,7 @@ func (s *AgentService) StartProviderOAuth(
 		VerificationUriComplete: dev.VerificationURIComplete,
 		Interval:                int32(interval / time.Second),
 		ExpiresAt:               timestamppb.New(expires),
+		CodePaste:               dev.CodePaste,
 	}), nil
 }
 
@@ -638,6 +670,12 @@ func (s *AgentService) PollProviderOAuth(
 		return connect.NewResponse(&agentv1.PollProviderOAuthResponse{State: OAuthExpired}), nil
 	}
 
+	if flow.codePaste {
+		// A copy: the pasted code belongs to this poll, not to the remembered flow.
+		pasted := *flow
+		pasted.code = strings.TrimSpace(req.Msg.GetCode())
+		flow = &pasted
+	}
 	pollCtx, cancel := context.WithTimeout(ctx, validateTimeout)
 	defer cancel()
 	state, tok, detail, err := client.pollFlow(pollCtx, flow)
@@ -867,7 +905,9 @@ func (s *AgentService) signedInTargets(ctx context.Context) []credTarget {
 		if !p.oauth {
 			continue
 		}
-		out = append(out, globalTarget(p))
+		if globalTarget(p).signIn() {
+			out = append(out, globalTarget(p))
+		}
 		prefix := profiles.ProviderSettingKey(p.name, "") + "@"
 		rows, err := s.store.SettingsWithPrefix(ctx, prefix)
 		if err != nil {
@@ -941,6 +981,10 @@ func (s *AgentService) oauthFor(p providerSpec) (oauthSession, error) {
 			p.label))
 	}
 	c := s.oauth[p.name]
+	if c == nil && p.oauthOff != "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("%w: %s", errOAuthUnconfigured, p.oauthOff))
+	}
 	if c == nil {
 		env := p.oauthEnv
 		if env == "" {
