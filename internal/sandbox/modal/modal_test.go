@@ -192,3 +192,25 @@ func TestTTLScripts(t *testing.T) {
 		t.Fatalf("extend past the max: exit %d", code)
 	}
 }
+
+// A privileged sidecar is root on the sandbox: only an operator turns it on, and only a vm
+// sandbox, which is a machine of the task's own, takes one.
+func TestPrivilegedSidecarsAreTheOperatorsAndOnlyUnderVM(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  Config
+		want bool
+	}{
+		{Config{Runtime: "vm"}, false},
+		{Config{Runtime: "vm", PrivilegedSidecars: true}, true},
+		{Config{Runtime: "gvisor", PrivilegedSidecars: true}, false},
+	} {
+		if got := capabilities(tc.cfg).PrivilegedSidecars; got != tc.want {
+			t.Errorf("%+v: %v, want %v", tc.cfg, got, tc.want)
+		}
+	}
+	p := &Provider{cfg: Config{Runtime: "gvisor", Image: DefaultImage, PrivilegedSidecars: true}}
+	caps, err := p.Override(map[string]string{"runtime": "vm"})
+	if err != nil || !caps.PrivilegedSidecars {
+		t.Errorf("a task asking for vm gets the operator's allowance: %+v, %v", caps, err)
+	}
+}

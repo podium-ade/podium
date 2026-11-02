@@ -55,6 +55,10 @@ type Options struct {
 	// Runtime is the Docker runtime for the task container only. Empty uses the engine
 	// default. Sidecars and the workspace copy helper are never switched.
 	Runtime string
+	// HostWorkspace is set when the task is a process on this machine rather than a
+	// container: its sidecars then share the workspace by bind-mounting this directory, and
+	// reach the task as "task" at the host's address, as they would a task container.
+	HostWorkspace string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -85,7 +89,9 @@ type Executor struct {
 	allowPrivilegedSidecars bool
 	// runtime is Options.Runtime. Empty leaves HostConfig.Runtime unset.
 	runtime string
-	log     *slog.Logger
+	// hostWorkspace is Options.HostWorkspace.
+	hostWorkspace string
+	log           *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -177,6 +183,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		images:                  NewImageCache(opts.DataDir),
 		allowPrivilegedSidecars: opts.AllowPrivilegedSidecars,
 		runtime:                 opts.Runtime,
+		hostWorkspace:           opts.HostWorkspace,
 		log:                     logger,
 		runs:                    make(map[string]*runState),
 	}, nil
