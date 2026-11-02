@@ -213,7 +213,8 @@ func (cr chatRun) run(ctx context.Context) {
 	c.registerHost(r.ref, cancel)
 	defer c.unregisterHost(r.ref)
 
-	if _, err := c.host.Credential(runCtx, h.provider.ID); err != nil {
+	// A person spending their own credential needs no global one.
+	if _, err := c.host.Credential(runCtx, h.provider.ID); err != nil && h.credOwner == "" {
 		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
 			"turn_id", r.turn.ID, "provider", h.provider.ID, "error", err)
 		h.giveUp(ctx, hostNoCredential)
@@ -243,7 +244,13 @@ func (cr chatRun) run(ctx context.Context) {
 		return
 	}
 
-	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: h.login}
+	login := h.login
+	if cv.provider == claudeAgentProvider {
+		// The sign-in being spent is credOwner's; the gateway must not fall back to anybody
+		// else's.
+		login = h.credOwner
+	}
+	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: login}
 	c.chat.mu.Lock()
 	cv.turn = turn
 	c.chat.mu.Unlock()
@@ -260,11 +267,16 @@ func (cr chatRun) run(ctx context.Context) {
 		return
 	}
 	c.logger.InfoContext(ctx, "chat-host turn started", "turn_id", r.turn.ID, "session_id", r.sess.ID,
-		"source", r.src.Kind(), "provider", h.provider.ID)
+		"source", r.src.Kind(), "provider", cv.provider)
 
+	model := chathost.Model{Provider: h.provider.ID, ID: h.model, Variant: h.effort}
+	if cv.provider == claudeAgentProvider {
+		// Claude Code picks its own effort; a Podium effort level is not a claude-agent variant.
+		model = chathost.Model{Provider: claudeAgentProvider, ID: h.model}
+	}
 	res, err := c.chatHost.Answer(runCtx, chathost.Turn{
 		Location: cv.location,
-		Model:    chathost.Model{Provider: h.provider.ID, ID: h.model, Variant: h.effort},
+		Model:    model,
 		System:   system,
 		Prompt:   h.instruction,
 		Started: func(session string) {
@@ -345,18 +357,33 @@ func (c *Conductor) chatLocation(ctx context.Context, cv *chatConv, h *hostRun) 
 	if upstream == "" {
 		upstream = defaultUpstream(h.provider.ID)
 	}
+	provider := chathost.Provider{
+		ID:      h.provider.ID,
+		BaseURL: base + chatGatewayPath + cv.token,
+		// The gateway takes the conversation from the URL and replaces this.
+		APIKey: "podium",
+	}
+	if c.claudeAgentTurn(h) {
+		// A Claude subscription: Claude Code itself runs the model, through opencode's
+		// claude-agent provider, and reaches Anthropic through the gateway like any other
+		// provider. Claude Code appends /v1/... to its base URL, so the upstream is the host.
+		upstream = strings.TrimSuffix(strings.TrimSuffix(upstream, "/"), "/v1")
+		provider = chathost.Provider{
+			ID:        claudeAgentProvider,
+			Builtin:   true,
+			BaseURL:   provider.BaseURL,
+			AuthToken: "podium",
+			// Declared, so the model can be picked before Claude Code has reported its list.
+			Models: []string{h.model},
+		}
+	}
 	c.chat.mu.Lock()
-	cv.provider, cv.upstream = h.provider.ID, upstream
+	cv.provider, cv.upstream = provider.ID, upstream
 	c.chat.mu.Unlock()
 
 	loc := chathost.Location{
-		Name: cv.location,
-		Providers: []chathost.Provider{{
-			ID:      h.provider.ID,
-			BaseURL: base + chatGatewayPath + cv.token,
-			// The gateway takes the conversation from the URL and replaces this.
-			APIKey: "podium",
-		}},
+		Name:      cv.location,
+		Providers: []chathost.Provider{provider},
 	}
 	mcpURL := func(server string) string { return base + chatMCPPath + cv.token + "/" + server }
 	if h.token != "" {
@@ -440,6 +467,24 @@ func (c *Conductor) chatClosing(turn *chatTurn) bool {
 	}
 	turn.open = false
 	return false
+}
+
+// claudeAgentProvider is opencode 2's provider that runs Claude Code with a Claude login.
+const claudeAgentProvider = "claude-agent"
+
+// claudeAgentTurn is whether h spends a Claude subscription sign-in: an Anthropic turn whose
+// person signed in with Claude, on a chat host that can run Claude Code.
+func (c *Conductor) claudeAgentTurn(h *hostRun) bool {
+	return c.chatHostClaude && h.provider != nil && h.provider.ID == "anthropic" && c.claudeSignIn(h.credOwner)
+}
+
+// credentialProvider is whose credentials a gateway provider spends: claude-agent is
+// Anthropic's.
+func credentialProvider(provider string) string {
+	if provider == claudeAgentProvider {
+		return "anthropic"
+	}
+	return provider
 }
 
 // defaultUpstream is a provider's API root when the conductor has no opinion about it: the one

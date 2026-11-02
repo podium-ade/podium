@@ -63,8 +63,8 @@ const (
 // a configuration answer, not a failure of the provider.
 var errOAuthUnconfigured = errors.New("subscription sign-in is not configured on this control plane")
 
-// oauthSession is one provider's sign-in. RFC 8628 device-code (xAI) and OpenAI's Codex
-// device flow both implement it, so StartProviderOAuth / PollProviderOAuth / refreshOnce
+// oauthSession is one provider's sign-in. RFC 8628 device-code (xAI), OpenAI's Codex
+// device flow and Claude's paste-the-code flow all implement it, so StartProviderOAuth / PollProviderOAuth / refreshOnce
 // stay one code path.
 type oauthSession interface {
 	startDevice(ctx context.Context) (*deviceCodeResponse, error)
@@ -88,6 +88,10 @@ type deviceCodeResponse struct {
 	VerificationURIComplete string `json:"verification_uri_complete"`
 	ExpiresIn               int    `json:"expires_in"`
 	Interval                int    `json:"interval"`
+	// State and CodePaste are for a flow with no device grant (claudeClient): the human
+	// pastes back the code the provider's page shows, and State is what it must carry.
+	State     string `json:"-"`
+	CodePaste bool   `json:"-"`
 }
 
 // tokenResponse is what both the device grant and the refresh grant answer with.
@@ -100,6 +104,9 @@ type tokenResponse struct {
 	Scope        string `json:"scope"`
 	Error        string `json:"error"`
 	ErrorDesc    string `json:"error_description"`
+	// Account is who signed in, when the provider says so in the token response rather than
+	// in a JWT (Claude).
+	Account string `json:"-"`
 }
 
 // oauthClient is one provider's OAuth configuration and the discovery cache for it.
@@ -392,6 +399,9 @@ func oauthErrorText(raw []byte, status string) string {
 // Codex does not issue an id_token; the access token itself is a JWT, so that is tried
 // second.
 func account(tok *tokenResponse) string {
+	if tok.Account != "" {
+		return tok.Account
+	}
 	for _, jwt := range []string{tok.IDToken, tok.AccessToken} {
 		if s := jwtAccount(jwt); s != "" {
 			return s

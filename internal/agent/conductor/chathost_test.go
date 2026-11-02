@@ -178,3 +178,58 @@ func TestTwoPeopleOnOneHostAreBilledToTheirOwnKeys(t *testing.T) {
 	}
 	assert.Equal(t, []string{"ada-own-anthropic", "real-key-for-anthropic"}, keys)
 }
+
+// A Claude sign-in goes to Anthropic as a bearer with the OAuth beta beside Claude Code's own
+// betas, and only on the claude-agent provider: opencode's anthropic provider is not Claude
+// Code, so a conversation on it spends the company key even for a person who signed in.
+func TestAClaudeSignInIsSpentOnlyByClaudeCode(t *testing.T) {
+	var got *http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+
+	c := chatConductor(t)
+	c.host.PersonalCredential = func(_ context.Context, _, provider string) (string, error) {
+		assert.Equal(t, "anthropic", provider, "claude-agent spends the Anthropic credential")
+		return "sk-ant-oat01-alice", nil
+	}
+	gw := httptest.NewServer(c.ChatHostGateway())
+	t.Cleanup(gw.Close)
+
+	send := func(provider string) {
+		got = nil
+		cv, err := c.chatConvFor("sess_" + provider)
+		require.NoError(t, err)
+		cv.provider, cv.upstream = provider, upstream.URL
+		cv.turn = &chatTurn{id: "turn_1", login: "alice"}
+		req, _ := http.NewRequest(http.MethodPost, gw.URL+chatGatewayPath+cv.token+"/v1/messages", strings.NewReader("{}"))
+		req.Header.Set("Authorization", "Bearer podium")
+		req.Header.Set("anthropic-beta", "claude-code-20250219,interleaved-thinking-2025-05-14")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.NotNil(t, got)
+	}
+
+	send(claudeAgentProvider)
+	assert.Equal(t, "/v1/messages", got.URL.Path)
+	assert.Equal(t, "Bearer sk-ant-oat01-alice", got.Header.Get("Authorization"))
+	assert.Empty(t, got.Header.Get("x-api-key"))
+	assert.Equal(t, "claude-code-20250219,interleaved-thinking-2025-05-14,oauth-2025-04-20",
+		got.Header.Get("anthropic-beta"))
+
+	send("anthropic")
+	assert.Equal(t, "real-key-for-anthropic", got.Header.Get("x-api-key"))
+	assert.Empty(t, got.Header.Get("Authorization"), "the sign-in never leaves on opencode's own provider")
+}
+
+// claude-agent falls back to the company's API key like any provider, and sends it as one.
+func TestClaudeAgentSendsAnAPIKeyAsAnAPIKey(t *testing.T) {
+	h := http.Header{}
+	setProviderAuth(h, claudeAgentProvider, "sk-ant-api03-company")
+	assert.Equal(t, "sk-ant-api03-company", h.Get("x-api-key"))
+	assert.Empty(t, h.Get("Authorization"))
+	assert.Empty(t, h.Get("anthropic-beta"))
+}
