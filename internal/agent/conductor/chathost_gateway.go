@@ -95,8 +95,13 @@ const claudeOAuthPrefix = "sk-ant-oat"
 
 func claudeOAuthToken(key string) bool { return strings.HasPrefix(key, claudeOAuthPrefix) }
 
-// setProviderAuth writes key the way provider expects it.
+// setProviderAuth writes key the way provider expects it, and only that way: whatever the
+// client sent in the other headers (claude-agent's Claude Code sends `Bearer podium`) goes,
+// so a provider never sees two credentials and refuses the wrong one.
 func setProviderAuth(h http.Header, provider, key string) {
+	h.Del("Authorization")
+	h.Del("x-api-key")
+	h.Del("x-goog-api-key")
 	switch provider {
 	case "anthropic", claudeAgentProvider:
 		if !claudeOAuthToken(key) {
