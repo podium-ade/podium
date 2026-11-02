@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/node/docker"
 	"github.com/podium-ade/podium/internal/sandboxagent"
 	"github.com/podium-ade/podium/internal/sandboxagent/wire"
@@ -71,7 +71,7 @@ func run(listen, tokenFile, dir, secretDir string, tmpfs bool, logger *slog.Logg
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", listen)
+	ln, err := netlisten.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
@@ -104,6 +104,17 @@ func execRun(name string, args ...string) error {
 // taskUser is the unprivileged account a process task runs as, when the agent can make one.
 const taskUser = "podium"
 
+// addUserArgs is how this image makes the task's account: shadow's useradd where there is one,
+// busybox's adduser otherwise — Alpine and other small images have only the second.
+func addUserArgs() []string {
+	if _, err := exec.LookPath("useradd"); err != nil {
+		if _, err := exec.LookPath("adduser"); err == nil {
+			return []string{"adduser", "-D", "-s", "/bin/sh", taskUser}
+		}
+	}
+	return []string{"useradd", "-m", "-s", "/bin/sh", taskUser}
+}
+
 // newProcess builds the process strategy. With root, or sudo, the task gets an account of
 // its own with no sudo, no docker group and no way to read the provider's credentials;
 // without either it runs as the agent's own user, which is all such a sandbox offers.
@@ -116,7 +127,7 @@ func newProcess(ctx context.Context, dir string, logger *slog.Logger) (sandboxag
 	o.Sudo = !root && exec.Command("sudo", "-n", "true").Run() == nil
 	if root || o.Sudo {
 		if exec.Command("id", "-u", taskUser).Run() != nil {
-			args := []string{"useradd", "-m", "-s", "/bin/sh", taskUser}
+			args := addUserArgs()
 			if o.Sudo {
 				args = append([]string{"sudo", "-n"}, args...)
 			}

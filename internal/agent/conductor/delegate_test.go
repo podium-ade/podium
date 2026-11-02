@@ -2,7 +2,10 @@ package conductor
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 
@@ -21,12 +24,12 @@ func TestATurnTokenIsOneTurnsAuthorityAndNoLonger(t *testing.T) {
 	// 32 bytes of crypto/rand, hex: a bearer for a conversation, not an id.
 	assert.Len(t, token, 64)
 
-	got, ok := c.grantFor(token)
+	got, ok := c.grantFor(t.Context(), token)
 	require.True(t, ok)
 	assert.Equal(t, grant, got)
 
 	c.revokeTurnToken(token)
-	_, ok = c.grantFor(token)
+	_, ok = c.grantFor(t.Context(), token)
 	assert.False(t, ok, "a token must not outlive the turn it was minted for")
 }
 
@@ -272,4 +275,38 @@ func TestAnotherTurnEndingSaysNothing(t *testing.T) {
 
 	c.sayAnnouncementsFor(context.Background(), "turn_1")
 	assert.Len(t, src.said(), 1)
+}
+
+// TestASignedTurnTokenIsReadableByAnyConductorWithTheSameSecret: the replica that did not mint
+// it, or this one after a restart, reads exactly what was granted — and nothing that was not.
+func TestASignedTurnTokenIsReadableByAnyConductorWithTheSameSecret(t *testing.T) {
+	minter := &Conductor{mintSecret: "bearer"}
+	grant := turnGrant{turnID: "turn_01", sessionID: "sess_01", ref: "chat_01", src: chatSource{},
+		playbooks: []string{"podium", "reviewer"}, login: "a@example.com"}
+	token, err := minter.mintTurnToken(grant)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(token, turnTokenPrefix+"."))
+
+	again, err := minter.mintTurnToken(grant)
+	require.NoError(t, err)
+	assert.NotEqual(t, token, again, "a nonce keeps two tokens for one turn apart")
+
+	replica := &Conductor{mintSecret: "bearer"}
+	sg, ok := replica.parseTurnToken(token)
+	require.True(t, ok)
+	assert.Equal(t, signedGrant{TurnID: "turn_01", SessionID: "sess_01", Ref: "chat_01", Source: SourceChat,
+		Playbooks: []string{"podium", "reviewer"}, Login: "a@example.com"}, sg)
+
+	_, ok = (&Conductor{mintSecret: "another deployment"}).parseTurnToken(token)
+	assert.False(t, ok, "another deployment's key does not verify it")
+
+	parts := strings.Split(token, ".")
+	forged := signedGrant{TurnID: "turn_01", SessionID: "sess_01", Source: SourceChat, Playbooks: []string{"deploy-prod"}}
+	raw, _ := json.Marshal(forged)
+	parts[2] = base64.RawURLEncoding.EncodeToString(raw)
+	_, ok = replica.parseTurnToken(strings.Join(parts, "."))
+	assert.False(t, ok, "widening the menu breaks the signature")
+
+	_, ok = replica.verifyTurnToken(t.Context(), token)
+	assert.False(t, ok, "with no database to ask, a token it does not remember is not a live turn")
 }

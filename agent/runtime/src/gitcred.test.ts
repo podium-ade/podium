@@ -8,8 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HelperName,
   MintError,
-  Service,
-  TurnTokenHeader,
+  Resource,
   expiresInMs,
   helperScript,
   installHelper,
@@ -33,17 +32,18 @@ function ok(body: Partial<Minted> = minted) {
 }
 
 describe("mint", () => {
-  it("posts to the conductor's minting method with the capability in a header", async () => {
+  it("posts to the git-tokens resource with the capability as a bearer", async () => {
     const fetchImpl = ok();
     const got = await mint("http://conductor:8090/", "turn_01.scope.mac", fetchImpl);
 
     expect(got).toEqual(minted);
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`http://conductor:8090/${Service}/MintToken`);
+    expect(url).toBe(`http://conductor:8090${Resource}`);
+    expect(Resource).toBe("/v1/git-tokens");
     expect(init.method).toBe("POST");
     // A credential in a request body is a credential in every log that prints one.
-    expect(init.body).toBe("{}");
-    expect((init.headers as Record<string, string>)[TurnTokenHeader]).toBe("turn_01.scope.mac");
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer turn_01.scope.mac");
   });
 
   it("carries the conductor's refusal back with its code", async () => {
@@ -55,6 +55,19 @@ describe("mint", () => {
     );
     await expect(mint("http://conductor:8090", "forged", fetchImpl)).rejects.toThrow(MintError);
     await expect(mint("http://conductor:8090", "forged", fetchImpl)).rejects.toThrow("not valid");
+  });
+
+  it("names a Cloudflare challenge rather than a bare Forbidden", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("<!DOCTYPE html><title>Just a moment...</title>", {
+          status: 403,
+          headers: { "cf-mitigated": "challenge", "Content-Type": "text/html" },
+        }),
+    );
+    await expect(mint("https://podium.example.com/turn-surface", "cap", fetchImpl)).rejects.toThrow(
+      "Cloudflare stopped the request",
+    );
   });
 
   it("refuses a success that carries no token rather than returning an empty one", async () => {
@@ -102,9 +115,10 @@ describe("the credential helper git runs", () => {
       let seen = "";
       req.on("data", () => {});
       req.on("end", () => {
-        seen = req.headers[TurnTokenHeader.toLowerCase()] as string;
+        seen = req.headers.authorization ?? "";
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify(seen === "turn_01.scope.mac" ? minted : { message: "no" }));
+        const right = seen === "Bearer turn_01.scope.mac" && req.method === "POST" && req.url === Resource;
+        res.end(JSON.stringify(right ? minted : { message: "no" }));
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

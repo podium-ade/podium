@@ -9,6 +9,11 @@ type Metrics struct {
 	TurnDuration            *prometheus.HistogramVec
 	TurnsWithoutAccounting  prometheus.Counter
 	HostTurnsQueued         prometheus.Counter
+	HostWarmEvictions       prometheus.Counter
+	WarmInjects             *prometheus.CounterVec
+	TurnFirstMessage        *prometheus.HistogramVec
+	GatewayRequests         *prometheus.CounterVec
+	Notifications           *prometheus.CounterVec
 	Delegations             *prometheus.CounterVec
 	RelayedMessages         *prometheus.CounterVec
 	SourceEvents            *prometheus.CounterVec
@@ -39,6 +44,32 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Host turns that had to wait for a concurrency slot. Anything much above " +
 				"zero means this host is the bottleneck, not the fleet.",
 		}),
+		HostWarmEvictions: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "podium_agent_host_warm_evictions_total",
+			Help: "Warm host turns asked to give their slot up to a turn with work. A high rate " +
+				"means the warm window is buying little on this host: raise the slots or shorten it.",
+		}),
+		WarmInjects: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_warm_injects_total",
+			Help: "Messages answered by a turn that was still warm, with no new process or " +
+				"task, by where the assistant runs.",
+		}, []string{"placement"}),
+		Notifications: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_notifications_total",
+			Help: "People told their delegated task ended after they left its conversation, by how.",
+		}, []string{"via"}),
+		GatewayRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_gateway_requests_total",
+			Help: "Model requests the chat host's gateway forwarded, by provider and whose key " +
+				"paid: personal (the person's own) or company.",
+		}, []string{"provider", "credential"}),
+		TurnFirstMessage: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "podium_agent_turn_first_message_seconds",
+			Help: "Wall time from the inbound event to the first thing the turn said, by where it " +
+				"ran: host, nodes, a sandbox provider's name, or playbook for a playbook's task. " +
+				"It is the boot a person waits through, which is what placement trades.",
+			Buckets: prometheus.ExponentialBuckets(0.25, 2, 12),
+		}, []string{"placement"}),
 		Delegations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_delegations_total",
 			Help: "Tasks a host turn delegated that reached a terminal status, by playbook " +
@@ -73,6 +104,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	}
 	if reg != nil {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
+			m.HostWarmEvictions, m.WarmInjects, m.TurnFirstMessage, m.GatewayRequests, m.Notifications,
 			m.Delegations, m.RelayedMessages,
 			m.SourceEvents, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}

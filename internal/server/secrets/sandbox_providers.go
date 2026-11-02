@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	"github.com/podium-ade/podium/internal/server/store"
 )
@@ -42,6 +43,12 @@ func (s *Service) SetSandboxProvider(
 	for k := range settings {
 		if !settingKeyRE.MatchString(k) || k == "secret" {
 			return store.SandboxProvider{}, fmt.Errorf("%w: setting %q is not a setting name; a credential goes in secret", ErrInvalidSecret, k)
+		}
+	}
+	if v, ok := settings["pool_size"]; ok && v != "" {
+		if n, err := strconv.Atoi(v); err != nil || n < 0 || n > maxPoolSize {
+			return store.SandboxProvider{}, fmt.Errorf("%w: pool_size %q is not a number of sandboxes from 0 to %d",
+				ErrInvalidSecret, v, maxPoolSize)
 		}
 	}
 	if maxConcurrent < 0 {
@@ -119,3 +126,6 @@ func (s *Service) ResolveSandboxProvider(ctx context.Context, nodeID, name strin
 	s.audit(ctx, "nodes", store.ActionSandboxProviderResolve, name, map[string]any{"node_id": nodeID})
 	return SandboxProviderConfig{Settings: row.Settings, Secret: secret}, true, nil
 }
+
+// maxPoolSize bounds a provider's pool of ready sandboxes: each costs what a running one costs.
+const maxPoolSize = 20

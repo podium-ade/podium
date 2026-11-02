@@ -61,7 +61,7 @@ export function SandboxProviderDialog({
       });
     },
     onSuccess: () => {
-      toast(`${spec.label} saved. Its nodes have the new settings.`, "ok");
+      toast(`${spec.label} saved.`, "ok");
       void qc.invalidateQueries({ queryKey: ["sandboxProviders"] });
       onOpenChange(false);
     },
@@ -79,9 +79,8 @@ export function SandboxProviderDialog({
             {configured ? `Edit ${spec.label}` : `Set up ${spec.label}`}
           </DialogTitle>
           <DialogDescription className="text-base text-soft">
-            The {spec.secretLabel.toLowerCase()} is written once and can never be read back. It
-            leaves the server only on the stream of a {spec.label} sandbox node, and a saved
-            change reaches those nodes at once.
+            The {spec.secretLabel.toLowerCase()} is written once and can never be read back.
+            Podium runs {spec.label} sandboxes itself with it, and a saved change applies at once.
           </DialogDescription>
         </DialogHeader>
 

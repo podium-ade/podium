@@ -21,6 +21,9 @@ type WorkspaceSnapshot struct {
 	UpdatedAt time.Time
 	// InUse is set by ListWorkspaceSnapshots: a task of the session has not finished.
 	InUse bool
+	// BaseKey is the base object a session snapshot is a difference from; empty is a whole
+	// tree. See internal/server/snapshots/delta.go.
+	BaseKey string
 }
 
 // PutWorkspaceSnapshot records a session's latest snapshot and returns the object key it
@@ -44,6 +47,7 @@ func (s *Store) PutWorkspaceSnapshot(ctx context.Context, in WorkspaceSnapshot) 
 		Sha256:    in.SHA256,
 		NodeID:    in.NodeID,
 		TaskID:    in.TaskID,
+		BaseKey:   in.BaseKey,
 	}); err != nil {
 		return "", fmt.Errorf("put workspace snapshot %s: %w", in.SessionID, err)
 	}
@@ -70,6 +74,7 @@ func (s *Store) GetWorkspaceSnapshot(ctx context.Context, sessionID string) (Wor
 		NodeID:    row.NodeID,
 		TaskID:    row.TaskID,
 		UpdatedAt: row.UpdatedAt,
+		BaseKey:   row.BaseKey,
 	}, nil
 }
 
@@ -134,6 +139,7 @@ func (s *Store) ListWorkspaceSnapshots(ctx context.Context) ([]WorkspaceSnapshot
 			TaskID:    row.TaskID,
 			UpdatedAt: row.UpdatedAt,
 			InUse:     row.InUse,
+			BaseKey:   row.BaseKey,
 		})
 	}
 	return out, nil
@@ -196,4 +202,57 @@ func retentionFromRow(row db.SnapshotRetention) SnapshotRetention {
 		UpdatedBy:     row.UpdatedBy,
 		UpdatedAt:     row.UpdatedAt,
 	}
+}
+
+// SetSessionOrigin records the base a session was started from.
+func (s *Store) SetSessionOrigin(ctx context.Context, sessionID, baseKey string) error {
+	if err := s.q.SetSessionOrigin(ctx, db.SetSessionOriginParams{SessionID: sessionID, BaseKey: baseKey}); err != nil {
+		return fmt.Errorf("set session origin %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// GetSessionOrigin is the base a session was started from; ErrNotFound when it was not.
+func (s *Store) GetSessionOrigin(ctx context.Context, sessionID string) (string, error) {
+	key, err := s.q.GetSessionOrigin(ctx, sessionID)
+	if noRows(err) {
+		return "", fmt.Errorf("%w: session origin %s", ErrNotFound, sessionID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get session origin %s: %w", sessionID, err)
+	}
+	return key, nil
+}
+
+// DeleteSessionOrigin forgets the base a session was started from.
+func (s *Store) DeleteSessionOrigin(ctx context.Context, sessionID string) error {
+	if err := s.q.DeleteSessionOrigin(ctx, sessionID); err != nil {
+		return fmt.Errorf("delete session origin %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// RetireWorkspaceBase records a replaced base object, to be deleted once nothing refers to it.
+func (s *Store) RetireWorkspaceBase(ctx context.Context, objectKey string) error {
+	if err := s.q.RetireWorkspaceBase(ctx, objectKey); err != nil {
+		return fmt.Errorf("retire workspace base %s: %w", objectKey, err)
+	}
+	return nil
+}
+
+// UnreferencedRetiredBases is the retired base objects nothing refers to any more.
+func (s *Store) UnreferencedRetiredBases(ctx context.Context) ([]string, error) {
+	keys, err := s.q.ListUnreferencedRetiredBases(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list retired workspace bases: %w", err)
+	}
+	return keys, nil
+}
+
+// DeleteRetiredBase forgets a retired base whose object has been deleted.
+func (s *Store) DeleteRetiredBase(ctx context.Context, objectKey string) error {
+	if err := s.q.DeleteRetiredBase(ctx, objectKey); err != nil {
+		return fmt.Errorf("delete retired workspace base %s: %w", objectKey, err)
+	}
+	return nil
 }

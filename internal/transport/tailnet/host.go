@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"tailscale.com/client/local"
+
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // HostOptions configures the host transport, which borrows the machine's own tailscaled
@@ -78,7 +80,7 @@ func (h *HostListener) Listen(ctx context.Context) (net.Listener, error) {
 	h.mu.Unlock()
 
 	addr := net.JoinHostPort(st.TailscaleIPs[0].String(), "443")
-	var lcfg net.ListenConfig
+	lcfg := netlisten.Config()
 	raw, err := lcfg.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("tailnet(host): listen on %s: %w "+
@@ -93,7 +95,7 @@ func (h *HostListener) Listen(ctx context.Context) (net.Listener, error) {
 
 func (h *HostListener) startRedirect(ctx context.Context, fqdn, ip string) {
 	addr := net.JoinHostPort(ip, "80")
-	var lcfg net.ListenConfig
+	lcfg := netlisten.Config()
 	raw, err := lcfg.Listen(ctx, "tcp", addr)
 	if err != nil {
 		h.logger.WarnContext(ctx, "tailnet(host): no http redirect", "addr", addr, "error", err)

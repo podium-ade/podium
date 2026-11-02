@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/podium-ade/podium/internal/sandbox"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 const (
@@ -185,6 +186,16 @@ func sandboxName(key string) string {
 	return "podium-" + hex.EncodeToString(sum[:10])
 }
 
+// withoutEntrypoint clears an image's ENTRYPOINT. Modal runs a sandbox's command as the image's
+// entrypoint ARGUMENTS, so on an image that has one — the agent runtime's is `node main.js` —
+// the entrypoint ran instead of the keep-alive, with the keep-alive as its arguments: the
+// runtime started with no brief, said so, and exited, and the sandbox with it. A task's own
+// command is run by the agent, never by the entrypoint, so nothing is lost. Modal builds the
+// layer once per image and caches it.
+func withoutEntrypoint(img *sdk.Image) *sdk.Image {
+	return img.DockerfileCommands([]string{"ENTRYPOINT []"}, nil)
+}
+
 // dockerd starts the image's Docker engine, if it has one.
 const dockerd = "command -v dockerd >/dev/null && { dockerd >/var/log/podium-dockerd.log 2>&1 & }\n"
 
@@ -239,8 +250,9 @@ func (p *Provider) getApp(ctx context.Context, env string) (*sdk.App, error) {
 	return app, nil
 }
 
-// Create makes the sandbox from req.Image, or from req.Snapshot, the image ID ("im-...") that
-// Sandbox.SnapshotFilesystem returned.
+// Create makes the sandbox from req.Image — a registry image, or `modal:<name>` for one Modal
+// holds — or from req.Snapshot, the image ID ("im-...") that Sandbox.SnapshotFilesystem
+// returned.
 func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (string, error) {
 	if req.Key == "" {
 		return "", &sandbox.Error{Op: "create", Code: "invalid", Err: errors.New("no key")}
@@ -277,6 +289,10 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		if img, err = p.c.Images.FromID(ctx, req.Snapshot, nil); err != nil {
 			return "", toError("create", err)
 		}
+	case isModalImage(req.Image):
+		if img, err = p.modalImage(ctx, req.Image, cfg.Environment); err != nil {
+			return "", toError("create", err)
+		}
 	case req.Image != "" && req.Registry != nil:
 		// Modal pulls the image before anything runs in the sandbox, so a private one needs
 		// the login here: an ephemeral secret, in the form Modal's registry pull reads.
@@ -293,6 +309,9 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 	default:
 		img = p.c.Images.FromRegistry(cfg.Image, nil)
 	}
+	if req.Snapshot == "" {
+		img = withoutEntrypoint(img)
+	}
 	sb, err := p.c.Sandboxes.Create(ctx, app, img, params)
 	var exists sdk.AlreadyExistsError
 	if errors.As(err, &exists) {
@@ -303,6 +322,22 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 	}
 	p.remember(sb)
 	return sb.SandboxID, nil
+}
+
+func isModalImage(image string) bool {
+	_, ok := spec.ModalImage(image)
+	return ok
+}
+
+// modalImage is an image Modal already holds: one published by name with Modal's SDK
+// (Image.publish), looked up in the sandbox's environment, or one by its ID. Modal builds and
+// keeps it, so starting a sandbox pulls nothing from a registry.
+func (p *Provider) modalImage(ctx context.Context, image, env string) (*sdk.Image, error) {
+	name, _ := spec.ModalImage(image)
+	if strings.HasPrefix(name, "im-") {
+		return p.c.Images.FromID(ctx, name, nil)
+	}
+	return p.c.Images.FromName(ctx, name, &sdk.ImageFromNameParams{Environment: env})
 }
 
 // byName is the running sandbox called name, or "" when there is none.

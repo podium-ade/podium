@@ -216,6 +216,7 @@ func nodeFromRow(row db.Node) (Node, error) {
 		TSStableID:       deref(row.TsStableID),
 		Draining:         row.Draining,
 		MaxTasksOverride: row.MaxTasksOverride,
+		SessionServer:    row.SessionServer,
 	}
 	if err := json.Unmarshal(row.Labels, &n.Labels); err != nil {
 		return Node{}, fmt.Errorf("decode labels of node %s: %w", row.ID, err)

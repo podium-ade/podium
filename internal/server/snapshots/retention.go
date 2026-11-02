@@ -83,6 +83,9 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 	if err != nil {
 		return Swept{}, err
 	}
+	// Bases replaced since the last sweep go once nothing restores from them, whatever the
+	// policy: they are not a session's snapshot to keep.
+	defer s.sweepRetiredBases(ctx)
 	if policy.MaxAge <= 0 && policy.MaxTotalBytes <= 0 {
 		return Swept{}, nil
 	}
@@ -151,6 +154,10 @@ func (s *Service) drop(ctx context.Context, row store.WorkspaceSnapshot) (bool, 
 		return false, err
 	}
 	s.remove(ctx, row.ObjectKey)
+	// The session starts over from the repository's base, whichever that is by then.
+	if err := s.store.DeleteSessionOrigin(ctx, row.SessionID); err != nil {
+		s.logger.WarnContext(ctx, "forgetting a session's base failed", "session_id", row.SessionID, "error", err)
+	}
 	return true, nil
 }
 

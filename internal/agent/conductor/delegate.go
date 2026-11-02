@@ -84,14 +84,21 @@ type turnGrant struct {
 	login string
 }
 
-// mintTurnToken issues a token for one host turn. It lives until revokeTurnToken, which
-// host.go calls when the turn ends — a turn's authority does not outlive the turn.
+// mintTurnToken issues a token for one assistant turn. It lives until revokeTurnToken, which
+// the turn calls when it ends — a turn's authority does not outlive the turn.
+//
+// With a mint secret the token is SIGNED (turntoken.go): this process still remembers it, and
+// another conductor, or this one after a restart, can verify it too and check the turn is still
+// running. Without one it is 32 random bytes this process alone knows.
 func (c *Conductor) mintTurnToken(g turnGrant) (string, error) {
 	raw := make([]byte, turnTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("conductor: minting a turn token failed: %w", err)
 	}
 	token := hex.EncodeToString(raw)
+	if c.mintSecret != "" {
+		token = c.signTurnToken(token, g)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.turnTokens == nil {
@@ -108,7 +115,7 @@ const PullRequestMCPName = mcp.ReservedPullRequest
 // TurnPullRequest is the pull request a live turn token's conversation is, as its source key.
 // False for a token that names no live turn, and for a turn that is not on a pull request.
 func (c *Conductor) TurnPullRequest(ctx context.Context, token string) (string, bool) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return "", false
 	}
@@ -125,11 +132,19 @@ func (c *Conductor) revokeTurnToken(token string) {
 	delete(c.turnTokens, token)
 }
 
-func (c *Conductor) grantFor(token string) (turnGrant, bool) {
+// grantFor is what a token may do. A token this process minted and has not revoked is
+// answered from memory. Any other is answered only if it is signed by this deployment and its
+// turn is still running — which is how a turn survives a restart of the conductor that started
+// it, and how a second conductor serves a turn the first one started. The turn's own status is
+// the revocation list: a finished turn's token is refused everywhere at once.
+func (c *Conductor) grantFor(ctx context.Context, token string) (turnGrant, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	g, ok := c.turnTokens[token]
-	return g, ok
+	c.mu.Unlock()
+	if ok {
+		return g, true
+	}
+	return c.verifyTurnToken(ctx, token)
 }
 
 // DelegablePlaybooks is the menu a host turn is shown, and therefore the only playbooks it
@@ -231,7 +246,7 @@ type DelegateOptions struct {
 func (c *Conductor) Delegate(
 	ctx context.Context, token, playbookName, instruction string, opts DelegateOptions,
 ) (store.Delegation, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return store.Delegation{}, ErrNoTurn
 	}
@@ -279,11 +294,13 @@ func (c *Conductor) delegate(
 
 	// The claim and the row are one step: a second delegation that looked before this row
 	// existed would find the workspace free as well.
-	guarded := !opts.ReadOnly && sess.SourceKind == SourceGitHub
+	// Every writer is queued, not only a pull request's: two writers of one workspace each
+	// store over what the other did. A read-only task restores and stores nothing.
+	guarded := !opts.ReadOnly
 	c.workspaceMu.Lock()
 	ahead := 0
 	if guarded {
-		writers, err := c.writersAhead(ctx, sess.ID, "")
+		writers, err := c.writersAhead(ctx, sess, playbookName, "")
 		if err != nil {
 			c.workspaceMu.Unlock()
 			return store.Delegation{}, err
@@ -319,7 +336,7 @@ func (c *Conductor) delegate(
 	if ahead == 0 {
 		return c.launch(ctx, g, sess, playbook, dlg, choice, opts)
 	}
-	c.logger.InfoContext(ctx, "a delegation waits for the pull request's workspace",
+	c.logger.InfoContext(ctx, "a delegation waits for its workspace",
 		"delegation_id", dlg.ID, "session_id", sess.ID, "playbook", playbookName, "ahead", ahead)
 	c.wg.Add(1)
 	go func() {
@@ -329,7 +346,7 @@ func (c *Conductor) delegate(
 		if opts.Wait {
 			limit = queueWait
 		}
-		if err := c.awaitWorkspace(bg, sess.ID, dlg.ID, limit); err != nil {
+		if err := c.awaitWorkspace(bg, sess, playbookName, dlg.ID, limit); err != nil {
 			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
 				"delegation_id", dlg.ID, "error", err)
 			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
@@ -337,7 +354,7 @@ func (c *Conductor) delegate(
 					"delegation_id", dlg.ID, "error", ferr)
 			}
 			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
-				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of this pull request's workspace.", playbookName)})
+				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of its workspace.", playbookName)})
 			return
 		}
 		if _, err := c.launch(bg, g, sess, playbook, dlg, choice, opts); err != nil {
@@ -407,24 +424,55 @@ func (c *Conductor) launch(
 	return dlg, nil
 }
 
-// writersAhead is the pull request's running delegations that write its workspace and were
-// recorded before self — all of them when self is "". A delegation waits only for the ones
-// ahead of it, so two waiting delegations queue rather than wait for each other.
-func (c *Conductor) writersAhead(ctx context.Context, sessionID, self string) ([]store.Delegation, error) {
-	rows, err := c.store.RunningDelegationsForSession(ctx, sessionID)
+// writersAhead is the conversation's running delegations that write the workspace playbook
+// writes, recorded before self — all of them when self is "". A delegation waits only for the
+// ones ahead of it, so two waiting delegations queue rather than wait for each other.
+//
+// A workspace is a conversation's and a playbook's, so writers of other playbooks are not in
+// the way — except on a pull request, where every writer pushes to the same branch and one
+// at a time changes it.
+func (c *Conductor) writersAhead(ctx context.Context, sess store.Session, playbook, self string) ([]store.Delegation, error) {
+	rows, err := c.store.RunningDelegationsForSession(ctx, sess.ID)
 	if err != nil {
-		return nil, fmt.Errorf("conductor: reading what is running in this pull request: %w", err)
+		return nil, fmt.Errorf("conductor: reading what is running in this conversation: %w", err)
 	}
+	everyWriter := sess.SourceKind == SourceGitHub
 	var out []store.Delegation
 	for _, d := range rows {
 		if d.ID == self {
 			break
 		}
-		if !d.ReadOnly {
+		if !d.ReadOnly && (everyWriter || d.Playbook == playbook) {
 			out = append(out, d)
 		}
 	}
 	return out, nil
+}
+
+// readWorkspace is the workspace a read-only task of the conversation restores: the one its
+// latest writer works in, which is what "read the code as it now is" means — a reviewer reads
+// the fixer's work, not a workspace of its own nothing ever wrote. With no writer yet it is
+// the playbook's own.
+func (c *Conductor) readWorkspace(ctx context.Context, sess store.Session, playbook string) string {
+	sessionID := sess.ID
+	var latest *store.Delegation
+	consider := func(rows []store.Delegation) {
+		for i, d := range rows {
+			if !d.ReadOnly && (latest == nil || d.CreatedAt.After(latest.CreatedAt)) {
+				latest = &rows[i]
+			}
+		}
+	}
+	if rows, err := c.store.RunningDelegationsForSession(ctx, sessionID); err == nil {
+		consider(rows)
+	}
+	if rows, err := c.store.FinishedDelegationsForSession(ctx, sessionID, time.Time{}, 50); err == nil {
+		consider(rows)
+	}
+	if latest == nil {
+		return workspaceKey(sess, playbook)
+	}
+	return workspaceKey(sess, latest.Playbook)
 }
 
 // stillWorking is the first writer that has not answered: a task working, or one not
@@ -470,10 +518,10 @@ var endWaitGrace = 5 * time.Minute
 // awaitWorkspace waits until no writer ahead of self is running. A writer that has answered
 // is released; one still working is waited for until it answers. The node stores a task's
 // snapshot before it reports the task exited, so a free workspace is a stored one.
-func (c *Conductor) awaitWorkspace(ctx context.Context, sessionID, self string, limit time.Duration) error {
+func (c *Conductor) awaitWorkspace(ctx context.Context, sess store.Session, playbook, self string, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for {
-		writers, err := c.writersAhead(ctx, sessionID, self)
+		writers, err := c.writersAhead(ctx, sess, playbook, self)
 		if err != nil {
 			return err
 		}
@@ -639,6 +687,7 @@ func (c *Conductor) startDelegatedTask(
 		c.logger.WarnContext(ctx, "reading the conversation for a delegated task failed; running it without history",
 			"delegation_id", dlg.ID, "ref", g.ref, "error", err)
 	}
+	entries = c.withSummary(ctx, sess.ID, entries)
 	j := playbookJob(playbook)
 	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
@@ -691,10 +740,11 @@ func (c *Conductor) startDelegatedTask(
 		return nil, err
 	}
 	taskSpec := c.taskSpec(g.src, c.placed(ctx, playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
-	applyWorkspace(taskSpec, sess.ID, playbook)
+	applyWorkspace(taskSpec, sess, playbook)
 	if opts.ReadOnly {
 		taskSpec.WorkspaceReadOnly = true
 		taskSpec.WorkspacePublishBase = false
+		taskSpec.WorkspaceSession = c.readWorkspace(ctx, sess, playbook.Name)
 	}
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
@@ -736,6 +786,9 @@ func (c *Conductor) followDelegation(
 	// cancelled as soon as the response is written, whereas the task being followed here
 	// runs for as long as it runs. See Conductor.background.
 	runCtx := c.background()
+	// Followed here, and nowhere else while this conductor lives: a second conductor adopts it
+	// only once this one stops renewing.
+	c.acquire(runCtx, store.DelegationLease(dlg.ID))
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -743,6 +796,9 @@ func (c *Conductor) followDelegation(
 			c.mu.Lock()
 			delete(c.liveDelegations, dlg.ID)
 			c.mu.Unlock()
+			if runCtx.Err() == nil {
+				c.release(runCtx, store.DelegationLease(dlg.ID))
+			}
 		}()
 		run.run(runCtx)
 	}()
@@ -752,7 +808,7 @@ func (c *Conductor) followDelegation(
 // A turn may ask about work of this conversation, including a task an earlier turn started
 // that is still running — that is how a follow-up injects into it.
 func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return store.Delegation{}, "", ErrNoTurn
 	}
@@ -774,7 +830,7 @@ func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.
 // Delegations is this conversation's delegated tasks: everything this turn has started,
 // plus any still running from an earlier turn of the same conversation, oldest first.
 func (c *Conductor) Delegations(ctx context.Context, token string) ([]store.Delegation, error) {
-	g, ok := c.grantFor(token)
+	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return nil, ErrNoTurn
 	}
@@ -1056,6 +1112,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	r.c.linkPullRequests(ctx, r.src, r.ref, answer,
 		"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID)
 	r.c.metrics.Delegations.WithLabelValues(r.dlg.Playbook, status).Inc()
+	r.c.notifyAway(ctx, r.src, r.ref, r.dlg, status, answer)
 	r.c.logger.InfoContext(ctx, "a delegated task finished", "delegation_id", r.dlg.ID,
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)
 }
@@ -1107,14 +1164,24 @@ func (r *delegationRun) progressText() string {
 // recoverDelegations resumes following every delegated task that was in flight when this
 // process stopped. A delegation's task runs on a NODE and does not care that the conductor
 // died, so the alternative to this is a container finishing work nobody is listening for.
-func (c *Conductor) recoverDelegations(ctx context.Context) {
+func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 	running, err := c.store.RunningDelegations(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "reading the delegations that were in flight failed", "error", err)
 		return
 	}
 	profile := c.profiles.Current()
+	c.mu.Lock()
+	runStarted := c.runStarted
+	c.mu.Unlock()
 	for _, dlg := range running {
+		if startup && !runStarted.IsZero() && !dlg.CreatedAt.Before(runStarted) {
+			// Recorded by this process while the pass ran: the turn surface serves before
+			// Run's recovery finishes, and a delegation's row comes before its task. It is
+			// in flight here, not left behind — failing it as "its task never was" would
+			// fail a task that is about to start.
+			continue
+		}
 		sess, err := c.store.GetSession(ctx, dlg.SessionID)
 		if err != nil {
 			c.logger.ErrorContext(ctx, "a running delegation has no session",
@@ -1122,6 +1189,18 @@ func (c *Conductor) recoverDelegations(ctx context.Context) {
 			continue
 		}
 		src := c.sourceOf(sess.SourceKind)
+		c.mu.Lock()
+		_, following := c.liveDelegations[dlg.ID]
+		c.mu.Unlock()
+		if following || (dlg.TaskID == "" && !startup) {
+			// Followed here already; or not started yet, which only the conductor that
+			// recorded it can tell apart from one that never will be.
+			continue
+		}
+		if !c.acquire(ctx, store.DelegationLease(dlg.ID)) {
+			// Another conductor is following it.
+			continue
+		}
 		if dlg.TaskID == "" {
 			// Recorded, and its task never was. Nothing is running.
 			c.logger.WarnContext(ctx, "a delegation was recorded but its task never was; failing it",
@@ -1130,6 +1209,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context) {
 				c.logger.ErrorContext(ctx, "failing an orphaned delegation failed",
 					"delegation_id", dlg.ID, "error", err)
 			}
+			c.release(ctx, store.DelegationLease(dlg.ID))
 			continue
 		}
 		if src == nil {

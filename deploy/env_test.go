@@ -37,6 +37,19 @@ var notConfiguration = map[string]string{
 	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
 	// this is the name the runtime reads it under.
 	"PODIUM_RUNNER_PATH": "set by the conductor on a host turn's runtime",
+	// The conductor sets it on a WARM host turn's runtime: the inbox socket in the turn's
+	// jail that the next message of its conversation is written into. The node sets the same
+	// name inside a task container.
+	"PODIUM_INBOX_SOCK": "set by the conductor or the node on a turn's runtime",
+	// Test-only: a Postgres to run the integration tests against without Docker, and a
+	// bubblewrap binary to run the real sandbox test with.
+	"PODIUM_TEST_POSTGRES_URL":      "test-only, read by integration tests",
+	"PODIUM_TEST_CHATHOST_LOAD":     "test-only, runs the chat host's 300-turn load test",
+	"PODIUM_TEST_CHATHOST_LOAD_LOG": "test-only, where that load test writes the conductor's log",
+	"PODIUM_TEST_OPENCODE2":         "test-only, the opencode 2 binary the chat-host tests run",
+	"PODIUM_TEST_BWRAP":             "test-only, read by the isolation and sandbox tests",
+	"PODIUM_TEST_SANDBOX_AGENT":     "test-only, read by the sandbox end-to-end tests",
+	"PODIUM_TEST_RUNTIME":           "test-only, read by the sandbox end-to-end tests",
 	// Minted per host turn by the conductor and read by the MCP server beside it, so that
 	// turn can delegate a task in its own conversation. It lives as long as the turn and
 	// an operator never sets one.
@@ -55,9 +68,10 @@ var notConfiguration = map[string]string{
 	"PODIUM_WORKSPACE_WARM": "per playbook, read by the conductor",
 	// Set to 1 on a playbook when that task should publish its workspace as the
 	// shared base for the playbook's first repository. Documented in docs/task-spec.md.
-	"PODIUM_PUBLISH_BASE": "per playbook, read by the conductor",
-	"PODIUM_HOLD":         "set by the node on a task whose spec exposes ports",
-	"PODIUM_URL_":         "the prefix of the per-port preview URLs the node sets on an exposing task",
+	"PODIUM_WORKSPACE_EXCLUDE": "per playbook, read by the node from the task's environment",
+	"PODIUM_PUBLISH_BASE":      "per playbook, read by the conductor",
+	"PODIUM_HOLD":              "set by the node on a task whose spec exposes ports",
+	"PODIUM_URL_":              "the prefix of the per-port preview URLs the node sets on an exposing task",
 	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
 	// the container. An operator never sets any of them: the brief is built per turn, and
 	// the three dry-run knobs are the test seam step 16 defined. They are documented in

@@ -405,3 +405,18 @@ func signalSelfWhenReady(marker string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A task whose socket is not at the default path keeps the path, so its own `podium-runner
+// message` finds the node. That is a process task in a sandbox.
+func TestAProcessTaskKeepsItsSocketPath(t *testing.T) {
+	t.Setenv(EnvEventsSock, "/podium/run/task_1.sock")
+	found := false
+	for _, kv := range childEnv() {
+		if kv == EnvEventsSock+"=/podium/run/task_1.sock" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("%s did not reach the child, so its messages have nowhere to go", EnvEventsSock)
+	}
+}
