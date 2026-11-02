@@ -180,6 +180,12 @@ func (t credTarget) refreshName() string {
 	return spec.PersonalModelRefreshSecretName(t.p.name)
 }
 
+// signIn is whether this credential can be a sign-in, so it may have a refresh token to
+// clean up. A Claude sign-in is only ever a person's: the global Anthropic key is a key.
+func (t credTarget) signIn() bool {
+	return t.p.oauth && (t.owner != "" || t.p.name != ProviderAnthropic)
+}
+
 // settingKey is the settings row this credential's metadata lives in.
 func (t credTarget) settingKey() string { return profiles.ProviderSettingKey(t.p.name, t.owner) }
 
@@ -489,7 +495,6 @@ func (s *AgentService) storeCredential(
 // putProviderRow stores a sign-in's refresh token in the secret store, or removes it when
 // the row no longer has one, and then writes the row without any credential.
 func (s *AgentService) putProviderRow(ctx context.Context, t credTarget, row providerRow) (providerRow, error) {
-	p := t.p
 	switch {
 	case row.RefreshToken != "":
 		refresh := []byte(row.RefreshToken)
@@ -500,7 +505,7 @@ func (s *AgentService) putProviderRow(ctx context.Context, t credTarget, row pro
 				fmt.Errorf("storing the refresh token failed: %w", err))
 		}
 		row.Refreshable = true
-	case !row.Refreshable && p.oauth:
+	case !row.Refreshable && t.signIn():
 		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return providerRow{}, connect.NewError(connect.CodeOf(err),
 				fmt.Errorf("removing the refresh token failed: %w", err))
@@ -539,7 +544,7 @@ func (s *AgentService) ClearProviderKey(
 	// The refresh token goes too, and that is what actually signs out: leaving it would let
 	// the background pass mint a new access token for a provider the operator has just
 	// disconnected.
-	if p.oauth {
+	if t.signIn() {
 		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the refresh token failed: %w", err))
 		}
@@ -900,7 +905,9 @@ func (s *AgentService) signedInTargets(ctx context.Context) []credTarget {
 		if !p.oauth {
 			continue
 		}
-		out = append(out, globalTarget(p))
+		if globalTarget(p).signIn() {
+			out = append(out, globalTarget(p))
+		}
 		prefix := profiles.ProviderSettingKey(p.name, "") + "@"
 		rows, err := s.store.SettingsWithPrefix(ctx, prefix)
 		if err != nil {
