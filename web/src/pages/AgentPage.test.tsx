@@ -439,6 +439,7 @@ describe("AgentPage", () => {
       playbooks: [
         { ...profileResponse.playbooks[0], name: "coder", docker: true },
         { ...profileResponse.playbooks[0], name: "viewer", browser: true },
+        { ...profileResponse.playbooks[0], name: "vmviewer", browser: true, sandbox: { modal: { runtime: "vm" } } },
         { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
       ],
     });
@@ -451,16 +452,19 @@ describe("AgentPage", () => {
     expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 
+    const warning = async () =>
+      (await screen.findByText("These playbooks' sidecars cannot run there")).closest("[data-slot=alert]");
     await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
-    const dind = (await screen.findByText("These playbooks cannot run in a sandbox")).closest("[data-slot=alert]");
-    expect(dind).toHaveTextContent("coder");
-    expect(dind).not.toHaveTextContent("pinned");
-    expect(screen.queryByText(/need Docker/)).toBeNull();
+    let alert = await warning();
+    expect(alert).toHaveTextContent("coder: A Docker daemon is a privileged sidecar, which boat sandboxes do not run.");
+    expect(alert).not.toHaveTextContent("viewer");
+    expect(alert).not.toHaveTextContent("pinned");
 
     await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
-    const gvisor = (await screen.findByText(/need Docker/)).closest("[data-slot=alert]");
-    expect(gvisor).toHaveTextContent("viewer");
-    expect(gvisor).not.toHaveTextContent("coder");
+    alert = await warning();
+    expect(alert).toHaveTextContent("coder: Modal runs sidecars only under the vm runtime");
+    expect(alert).toHaveTextContent("viewer: Modal runs sidecars only under the vm runtime");
+    expect(alert).not.toHaveTextContent("vmviewer");
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));

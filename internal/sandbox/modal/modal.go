@@ -73,6 +73,10 @@ type Config struct {
 	// that asks for more than a limit is refused rather than given less than it asked for.
 	CPULimit      float64 `json:"cpu_limit"`
 	MemoryLimitMB int     `json:"memory_limit_mb"`
+	// PrivilegedSidecars lets a task under the vm runtime have a privileged sidecar, a Docker
+	// daemon for one. The sandbox is a VM of the task's own and holds no Modal credential, so
+	// root there reaches only what the task already has. gVisor runs none at all.
+	PrivilegedSidecars bool `json:"privileged_sidecars"`
 	// Runtime is "gvisor" (the default) or "vm". Only vm sandboxes can mount a tmpfs or run
 	// Docker; when one's image has dockerd, the sandbox starts it.
 	Runtime string `json:"runtime"`
@@ -204,7 +208,10 @@ func (p *Provider) Capabilities() sandbox.Capabilities { return capabilities(p.c
 
 func capabilities(c Config) sandbox.Capabilities {
 	vm := c.vm()
-	return sandbox.Capabilities{NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL}
+	return sandbox.Capabilities{
+		NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL,
+		PrivilegedSidecars: vm && c.PrivilegedSidecars,
+	}
 }
 
 // sandboxName is the Modal name for a key. Modal keeps names unique among an App's running

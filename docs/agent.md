@@ -835,10 +835,12 @@ sandbox:
   modal: { runtime: vm, environment: staging }          # vm has Docker; the environment to use
 ```
 
-`docker: true` does not run in a sandbox: its daemon is a privileged sidecar, which sandbox
-nodes refuse, so pin such a playbook to `nodes`. `browser: true` needs Docker in the sandbox:
-boat has it, Modal only under `runtime: vm`, set on the provider or here. Settings names the
-playbooks that would follow the default somewhere they cannot run. `resources` still size the
+Sidecars need Docker in the sandbox. boat has it; Modal has it under `runtime: vm`, set on the
+provider or here, when the turn's image carries `dockerd`, which the agent runtime image does not:
+see [sandboxes.md](sandboxes.md#sidecars-on-modal). `docker: true`'s daemon is
+also a privileged sidecar, which only a Modal provider with **Privileged sidecars** on takes; boat
+does not, so pin such a playbook to `nodes` there. Settings and the playbook editor name the
+playbooks that would land somewhere their sidecars cannot run. `resources` still size the
 sandbox, and boat's `type` overrides the size they would pick.
 
 #### `skills:` — third-party Agent Skills

@@ -52,9 +52,9 @@ describe("PlaybookEditor", () => {
     expect(screen.getByLabelText("Environment")).toHaveValue("staging");
 
     await userEvent.selectOptions(runsOn, "modal");
-    expect(screen.getByText("Modal's gvisor runtime has no Docker")).toBeInTheDocument();
+    expect(screen.getByText("Its sidecars cannot run on Modal")).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
-    expect(screen.queryByText("Modal's gvisor runtime has no Docker")).toBeNull();
+    expect(screen.queryByText("Its sidecars cannot run on Modal")).toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("Machine type"), "large");
 
     await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
