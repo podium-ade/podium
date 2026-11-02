@@ -1290,10 +1290,21 @@ func (c *Conductor) openaiAuthKind() string {
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
 // reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.
-// placed is playbook with where its turn runs decided: its own runs_on, or the conductor's
-// default when it names none. A default that cannot be read is the fleet's own machines.
+// placed is playbook with where its turn runs decided: its own runs_on, Modal for an image
+// Modal holds, or the conductor's default when it names none. A default that cannot be read
+// is the fleet's own machines.
 func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) profiles.Playbook {
-	if playbook.RunsOn != "" || c.store == nil {
+	if playbook.RunsOn != "" {
+		return playbook
+	}
+	// An image Modal holds runs only in a Modal sandbox, whatever the fleet's default is: the
+	// spec would place it there anyway, and the brief's surface URL and the playbook's Modal
+	// settings have to follow where it actually runs.
+	if _, ok := spec.ModalImage(playbook.Image); ok {
+		playbook.RunsOn = "modal"
+		return playbook
+	}
+	if c.store == nil {
 		return playbook
 	}
 	var row profiles.RunsOn
