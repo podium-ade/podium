@@ -717,7 +717,7 @@ func (c *Conductor) startDelegatedTask(
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent)
+	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent, false)
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login

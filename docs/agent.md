@@ -358,6 +358,18 @@ every one finishing within 4.7 s.
   past either waits. A location nobody has written to for half an hour is closed, and its tokens
   with it.
 
+- **A Claude subscription.** With `PODIUM_AGENT_CHAT_HOST_CLAUDE` set to a Claude Code binary
+  (2.1.248 or later), a member can sign in with their Claude Pro or Max plan under Settings →
+  Models (Yours): Podium opens Claude's own sign-in page, and the member pastes back the code
+  it shows (OAuth with PKCE, using Claude Code's client). The refresh token stays in the secret
+  store and the conductor renews the access token, as it does for xAI and ChatGPT. That
+  member's conversations then use opencode's built-in `claude-agent` provider, which runs Claude
+  Code itself with Claude Code's own system prompt. Its location gives Claude Code the gateway
+  as `ANTHROPIC_BASE_URL` and a placeholder bearer, and the gateway replaces that with the
+  sign-in and adds the OAuth beta. A Claude sign-in is spent nowhere else: delegated tasks, host
+  turns without a chat host, and opencode's own `anthropic` provider all spend the global key
+  instead. It is never the global credential either, since it belongs to one person.
+
 opencode 2's API is young and moves between releases: the chat host is tested against 2.2.5.
 Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.
 

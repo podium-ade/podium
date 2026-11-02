@@ -689,8 +689,8 @@ message ClearProviderKeyRequest {
 message ClearProviderKeyResponse {}
 
 message StartProviderOAuthRequest {
-  // provider is "xai" or "openai". Anthropic and Google take an API key on this control plane and answer
-  // invalid_argument here. A sign-in is always the caller's own: a subscription is one
+  // provider is "xai", "openai" or "anthropic". Google takes an API key on this control plane and
+  // answers invalid_argument here. A sign-in is always the caller's own: a subscription is one
   // person's, so there is no global one.
   string provider = 1;
 }
@@ -714,11 +714,19 @@ message StartProviderOAuthResponse {
   int32 interval = 5;
   // expires_at is when the code stops being accepted and the flow has to be restarted.
   google.protobuf.Timestamp expires_at = 6;
+  // code_paste is true for a provider with no device grant (Anthropic). The human opens
+  // verification_uri, approves, and is shown a code on the provider's page; that code is
+  // pasted back as PollProviderOAuthRequest.code. user_code is empty, and polling without a
+  // code answers pending without asking the provider.
+  bool code_paste = 7;
 }
 
 message PollProviderOAuthRequest {
   string provider = 1;
   string flow_id = 2;
+  // code is what the provider's page showed, for a flow started with code_paste. It is
+  // single-use and worthless without the verifier the conductor kept for this flow.
+  string code = 3;
 }
 
 // PollProviderOAuthResponse says where the sign-in got to. Exactly one poll ends it: the

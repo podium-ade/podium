@@ -43,6 +43,11 @@ type Options struct {
 	// Binary is opencode 2 (`@opencode/cli`). It is pinned: the API and the tool names this
 	// package relies on are opencode's own and move between releases.
 	Binary string
+	// Claude is a Claude Code binary for opencode's claude-agent provider, which a location
+	// uses for a person signed in with their Claude subscription. Empty leaves the provider
+	// with no `claude` to run: the service's PATH is the conductor's, so set it whenever a
+	// location may name claude-agent.
+	Claude string
 	// Dir holds the service's own home and one directory per conversation. It must be
 	// private to the conductor's user: a location's config carries its conversation's tokens.
 	Dir string
@@ -229,6 +234,14 @@ func (h *Host) runOnce(ctx context.Context, p *proc) error {
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
 		"OPENCODE_DISABLE_FREE_MODELS=1",
 		"OPENCODE_DISABLE_CLAUDE_CODE=1",
+		// Where claude-agent finds Claude Code. It inherits this environment and nothing
+		// else, so no credential of the conductor's reaches it: its model requests go to the
+		// gateway, which a location's config names, with a placeholder the gateway replaces.
+		"OPENCODE_CLAUDE_PATH=" + h.o.Claude,
+		// Claude Code's telemetry, error reports and update checks are not model requests and
+		// have no business leaving the conductor's machine.
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"DISABLE_AUTOUPDATER=1",
 		// opencode 2 is a Bun binary, and Bun keeps at most 256 HTTP requests in flight by
 		// default: every conversation's model requests go to the same gateway, so past 256
 		// turns at once they queued. Measured: 400 at once took 4.6s at p95 against a model
