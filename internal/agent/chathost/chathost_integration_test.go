@@ -341,3 +341,36 @@ func TestAShellIsRefusedAndTheFenceHoldsWithoutTheRules(t *testing.T) {
 		})
 	}
 }
+
+// TestAConversationReopensAfterItWasClosed: a conversation quiet for a while is closed and its
+// directory removed. opencode keeps the location alive and its file watcher reloads it with no
+// config — no MCP servers. Reopening writes the config again, under a new turn's token, and the
+// location must pick it up: it did not, and the turn waited out 30s for tools that were never
+// coming.
+func TestAConversationReopensAfterItWasClosed(t *testing.T) {
+	h, ctx := startHost(t)
+	modelSrv := httptest.NewServer(&fakeModel{})
+	t.Cleanup(modelSrv.Close)
+	mcpFake := &fakeMCP{}
+	mcpSrv := httptest.NewServer(mcpFake)
+	t.Cleanup(mcpSrv.Close)
+	loc := func(token string) chathost.Location {
+		return chathost.Location{Name: "conv",
+			Providers: []chathost.Provider{{ID: "fake", Package: "@opencode/ai/providers/openai-compatible",
+				BaseURL: modelSrv.URL + "/v1", APIKey: "k", Models: []string{"m1"}}},
+			MCP: []chathost.MCPServer{{Name: "podium", URL: mcpSrv.URL + "/mcp/" + token}}}
+	}
+
+	require.NoError(t, h.Open(ctx, loc("first")))
+	require.NoError(t, h.Close("conv"))
+	// opencode's watcher sees the directory go and reloads the location empty.
+	time.Sleep(3 * time.Second)
+
+	open, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	require.NoError(t, h.Open(open, loc("second")), "reopening connects the new turn's tools")
+	res, err := h.Answer(ctx, chathost.Turn{Location: "conv", Model: chathost.Model{Provider: "fake", ID: "m1"},
+		System: "s", Prompt: `CALL return await tools.podium.echo({text: "hi"})`})
+	require.NoError(t, err)
+	assert.Contains(t, res.Text, "echo from /mcp/second")
+}
