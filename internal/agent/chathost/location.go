@@ -93,7 +93,12 @@ func (h *Host) Open(ctx context.Context, loc Location) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	if changed && wasBooted {
+	// A changed config is reloaded whether or not this host thinks the location is booted.
+	// Close forgets a location and removes its directory, but opencode keeps the location
+	// alive, and its file watcher reloads it with no config at all — no MCP servers. Writing
+	// the file again is not seen by that watcher, so without a reload a reopened conversation
+	// waited out awaitMCP for tools it would never get.
+	if changed {
 		if err := p.reloadLocation(ctx, dir); err != nil {
 			return err
 		}
