@@ -348,7 +348,7 @@ every one finishing within 4.7 s.
   latest eight messages instead of the whole history.
 - **Whose key pays.** A person who sets their own key for the assistant's provider — a
   personal secret named `model.<provider>.api_key` (`model.anthropic.api_key`,
-  `model.openai.api_key`, …) on the Secrets page — pays for their own conversations with it;
+  `model.openai.api_key`, …), set under Settings → Models (Yours) or on the Secrets page — pays for their own conversations with it;
   everyone else is on the company's. `podium_agent_gateway_requests_total{credential}` counts
   which. A playbook may not name that secret.
 - **A message mid-turn is answered in it.** One that arrives while the assistant is answering
@@ -1363,6 +1363,31 @@ turn uses; this page is how those models get a credential.
 Open the UI and click **Models**, under **Compute** in the sidebar.
 
 <!-- screenshot: the Models page, an Anthropic row, an xAI row, an OpenAI row and a Google row, none set -->
+
+### Yours and Global
+
+A signed-in person sees two tabs, the same as Secrets and MCP servers:
+
+- **Yours** is that person's own credential for each provider: an API key or, for xAI and
+  OpenAI, a subscription sign-in. Any member can set, rotate or remove their own. It is stored
+  as a personal secret on their list — `model.<provider>.api_key`, plus `model.<provider>.refresh_token` for a
+  sign-in — and the conductor refreshes a sign-in in the background exactly as it does any other.
+- **Global** is the workspace's API key for each provider, stored as
+  `podium.agent.<provider>_api_key`. **Only an admin or owner can change it, and it takes an API
+  key only**: a subscription belongs to the person who signed in, so there is no global one.
+  A member sees the Global tab read-only.
+
+A turn somebody starts from Chat spends **their own credential when they set one for that
+provider, and the global key otherwise**; a row on Yours that is unset says *Using the global
+key*. A turn with no Podium person behind it — a Slack mention, a Linear assignment, a GitHub
+review — always spends the global key. The decision is made once when the turn starts, so the
+secret it is handed and the endpoint its brief names (an OpenAI subscription talks to Codex,
+a key to `api.openai.com`) always agree. The picker's `ListAgents` reports a backend as ready
+when either credential is set, and says whose (`credential_source`).
+
+A caller that is not a signed-in person — the local token — has no list of its own and sees
+Global only, including the subscription sign-in it always had. A global sign-in stored before
+this change keeps being refreshed until somebody replaces it with a key or signs it out.
 
 Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 

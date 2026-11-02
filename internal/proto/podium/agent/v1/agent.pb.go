@@ -1437,7 +1437,10 @@ type ProviderSettings struct {
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// refreshable is true when a refresh token was issued, which is what makes an OAuth
 	// credential survive its first hour without a human.
-	Refreshable   bool `protobuf:"varint,10,opt,name=refreshable,proto3" json:"refreshable,omitempty"`
+	Refreshable bool `protobuf:"varint,10,opt,name=refreshable,proto3" json:"refreshable,omitempty"`
+	// global is true for the company credential an admin set, which every turn without a
+	// credential of its person's own spends, and false for one person's own.
+	Global        bool `protobuf:"varint,11,opt,name=global,proto3" json:"global,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1542,13 +1545,25 @@ func (x *ProviderSettings) GetRefreshable() bool {
 	return false
 }
 
+func (x *ProviderSettings) GetGlobal() bool {
+	if x != nil {
+		return x.Global
+	}
+	return false
+}
+
 type GetSettingsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// provider is the Anthropic row, kept for the clients that only ever knew about one.
 	Provider *ProviderSettings `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	// providers is every provider this conductor knows, Anthropic included, in a stable
-	// order. New clients read this and ignore the field above.
-	Providers     []*ProviderSettings `protobuf:"bytes,2,rep,name=providers,proto3" json:"providers,omitempty"`
+	// order. New clients read this and ignore the field above. These are the global
+	// credentials: the ones an admin set for everyone.
+	Providers []*ProviderSettings `protobuf:"bytes,2,rep,name=providers,proto3" json:"providers,omitempty"`
+	// personal is the caller's own credential for every provider, in the same order. A turn
+	// the caller asks for spends theirs when it is set and the global one when it is not.
+	// Empty for a caller who is not a signed-in person, such as the dev token.
+	Personal      []*ProviderSettings `protobuf:"bytes,3,rep,name=personal,proto3" json:"personal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1593,6 +1608,13 @@ func (x *GetSettingsResponse) GetProvider() *ProviderSettings {
 func (x *GetSettingsResponse) GetProviders() []*ProviderSettings {
 	if x != nil {
 		return x.Providers
+	}
+	return nil
+}
+
+func (x *GetSettingsResponse) GetPersonal() []*ProviderSettings {
+	if x != nil {
+		return x.Personal
 	}
 	return nil
 }
@@ -3092,7 +3114,11 @@ type SetProviderKeyRequest struct {
 	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	// SENSITIVE: never log this field. The handler wraps the request in a redacting
 	// slog.LogValuer so no log site has to remember.
-	Key           string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// global sets the company key every turn falls back to. Only an admin or owner may, and
+	// only an API key: a subscription belongs to the person who signed in. False saves the
+	// caller's own key.
+	Global        bool `protobuf:"varint,3,opt,name=global,proto3" json:"global,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3139,6 +3165,13 @@ func (x *SetProviderKeyRequest) GetKey() string {
 		return x.Key
 	}
 	return ""
+}
+
+func (x *SetProviderKeyRequest) GetGlobal() bool {
+	if x != nil {
+		return x.Global
+	}
+	return false
 }
 
 type SetProviderKeyResponse struct {
@@ -3259,8 +3292,11 @@ func (x *ProviderKeyError) GetProviderMessage() string {
 }
 
 type ClearProviderKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	// global removes the company credential, which only an admin or owner may. False
+	// removes the caller's own.
+	Global        bool `protobuf:"varint,2,opt,name=global,proto3" json:"global,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3302,6 +3338,13 @@ func (x *ClearProviderKeyRequest) GetProvider() string {
 	return ""
 }
 
+func (x *ClearProviderKeyRequest) GetGlobal() bool {
+	if x != nil {
+		return x.Global
+	}
+	return false
+}
+
 type ClearProviderKeyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -3341,7 +3384,8 @@ func (*ClearProviderKeyResponse) Descriptor() ([]byte, []int) {
 type StartProviderOAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// provider is "xai" or "openai". Anthropic and Google take an API key on this control plane and answer
-	// invalid_argument here.
+	// invalid_argument here. A sign-in is always the caller's own: a subscription is one
+	// person's, so there is no global one.
 	Provider      string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3706,12 +3750,16 @@ type AgentBackend struct {
 	Note         string        `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
 	DefaultModel string        `protobuf:"bytes,5,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
 	Models       []*AgentModel `protobuf:"bytes,6,rep,name=models,proto3" json:"models,omitempty"`
-	// ready is true when this control plane holds a credential for the backend. A playbook may
-	// still be saved against a backend that is not ready — the operator may be setting it up
-	// in either order — and the UI says so rather than refusing.
-	Ready         bool `protobuf:"varint,7,opt,name=ready,proto3" json:"ready,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// ready is true when a turn the caller asks for would find a credential for the backend:
+	// their own, or the global one. A playbook may still be saved against a backend that is
+	// not ready — the operator may be setting it up in either order — and the UI says so
+	// rather than refusing.
+	Ready bool `protobuf:"varint,7,opt,name=ready,proto3" json:"ready,omitempty"`
+	// credential_source is whose credential that turn would spend: "personal" for the
+	// caller's own, "global" for the company one, and "" when neither is set.
+	CredentialSource string `protobuf:"bytes,8,opt,name=credential_source,json=credentialSource,proto3" json:"credential_source,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *AgentBackend) Reset() {
@@ -3791,6 +3839,13 @@ func (x *AgentBackend) GetReady() bool {
 		return x.Ready
 	}
 	return false
+}
+
+func (x *AgentBackend) GetCredentialSource() string {
+	if x != nil {
+		return x.CredentialSource
+	}
+	return ""
 }
 
 type ListAgentsRequest struct {
@@ -10670,7 +10725,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x10SetRunsOnRequest\x12\x17\n" +
 	"\aruns_on\x18\x01 \x01(\tR\x06runsOn\"E\n" +
 	"\x11SetRunsOnResponse\x120\n" +
-	"\aruns_on\x18\x01 \x01(\v2\x17.podium.agent.v1.RunsOnR\x06runsOn\"\xd6\x02\n" +
+	"\aruns_on\x18\x01 \x01(\v2\x17.podium.agent.v1.RunsOnR\x06runsOn\"\xee\x02\n" +
 	"\x10ProviderSettings\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x17\n" +
 	"\akey_set\x18\x02 \x01(\bR\x06keySet\x12\x19\n" +
@@ -10683,10 +10738,12 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12 \n" +
 	"\vrefreshable\x18\n" +
-	" \x01(\bR\vrefreshable\"\x95\x01\n" +
+	" \x01(\bR\vrefreshable\x12\x16\n" +
+	"\x06global\x18\v \x01(\bR\x06global\"\xd4\x01\n" +
 	"\x13GetSettingsResponse\x12=\n" +
 	"\bprovider\x18\x01 \x01(\v2!.podium.agent.v1.ProviderSettingsR\bprovider\x12?\n" +
-	"\tproviders\x18\x02 \x03(\v2!.podium.agent.v1.ProviderSettingsR\tproviders\"\x17\n" +
+	"\tproviders\x18\x02 \x03(\v2!.podium.agent.v1.ProviderSettingsR\tproviders\x12=\n" +
+	"\bpersonal\x18\x03 \x03(\v2!.podium.agent.v1.ProviderSettingsR\bpersonal\"\x17\n" +
 	"\x15GetConnectionsRequest\"\x8a\x02\n" +
 	"\x0fSlackConnection\x12\x1e\n" +
 	"\n" +
@@ -10792,18 +10849,20 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\aaccount\x18\x01 \x01(\v2\x1e.podium.agent.v1.GitHubAccountR\aaccount\" \n" +
 	"\x1eDisconnectGitHubAccountRequest\"[\n" +
 	"\x1fDisconnectGitHubAccountResponse\x128\n" +
-	"\aaccount\x18\x01 \x01(\v2\x1e.podium.agent.v1.GitHubAccountR\aaccount\"E\n" +
+	"\aaccount\x18\x01 \x01(\v2\x1e.podium.agent.v1.GitHubAccountR\aaccount\"]\n" +
 	"\x15SetProviderKeyRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\"\x87\x01\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x16\n" +
+	"\x06global\x18\x03 \x01(\bR\x06global\"\x87\x01\n" +
 	"\x16SetProviderKeyResponse\x12=\n" +
 	"\bprovider\x18\x01 \x01(\v2!.podium.agent.v1.ProviderSettingsR\bprovider\x12\x16\n" +
 	"\x06models\x18\x02 \x03(\tR\x06models\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\"=\n" +
 	"\x10ProviderKeyError\x12)\n" +
-	"\x10provider_message\x18\x01 \x01(\tR\x0fproviderMessage\"5\n" +
+	"\x10provider_message\x18\x01 \x01(\tR\x0fproviderMessage\"M\n" +
 	"\x17ClearProviderKeyRequest\x12\x1a\n" +
-	"\bprovider\x18\x01 \x01(\tR\bprovider\"\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +
+	"\x06global\x18\x02 \x01(\bR\x06global\"\x1a\n" +
 	"\x18ClearProviderKeyResponse\"7\n" +
 	"\x19StartProviderOAuthRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\"\x90\x02\n" +
@@ -10829,7 +10888,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x12\n" +
 	"\x04note\x18\x03 \x01(\tR\x04note\x12%\n" +
 	"\x0econtext_tokens\x18\x04 \x01(\x05R\rcontextTokens\x12\x18\n" +
-	"\aefforts\x18\x05 \x03(\tR\aefforts\"\xe1\x01\n" +
+	"\aefforts\x18\x05 \x03(\tR\aefforts\"\x8e\x02\n" +
 	"\fAgentBackend\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1a\n" +
@@ -10837,7 +10896,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x04note\x18\x04 \x01(\tR\x04note\x12#\n" +
 	"\rdefault_model\x18\x05 \x01(\tR\fdefaultModel\x123\n" +
 	"\x06models\x18\x06 \x03(\v2\x1b.podium.agent.v1.AgentModelR\x06models\x12\x14\n" +
-	"\x05ready\x18\a \x01(\bR\x05ready\"\x13\n" +
+	"\x05ready\x18\a \x01(\bR\x05ready\x12+\n" +
+	"\x11credential_source\x18\b \x01(\tR\x10credentialSource\"\x13\n" +
 	"\x11ListAgentsRequest\"p\n" +
 	"\x12ListAgentsResponse\x125\n" +
 	"\x06agents\x18\x01 \x03(\v2\x1d.podium.agent.v1.AgentBackendR\x06agents\x12#\n" +
@@ -11598,219 +11658,220 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	161, // 20: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
 	20,  // 21: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	20,  // 22: podium.agent.v1.GetSettingsResponse.providers:type_name -> podium.agent.v1.ProviderSettings
-	161, // 23: podium.agent.v1.SlackConnection.set_at:type_name -> google.protobuf.Timestamp
-	161, // 24: podium.agent.v1.GitHubConnection.set_at:type_name -> google.protobuf.Timestamp
-	25,  // 25: podium.agent.v1.GitHubConnection.filters:type_name -> podium.agent.v1.GitHubWebhookFilters
-	161, // 26: podium.agent.v1.GitHubWebhookFilters.set_at:type_name -> google.protobuf.Timestamp
-	23,  // 27: podium.agent.v1.GetConnectionsResponse.slack:type_name -> podium.agent.v1.SlackConnection
-	24,  // 28: podium.agent.v1.GetConnectionsResponse.github:type_name -> podium.agent.v1.GitHubConnection
-	26,  // 29: podium.agent.v1.GetConnectionsResponse.linear:type_name -> podium.agent.v1.LinearConnection
-	23,  // 30: podium.agent.v1.SetSlackConnectionResponse.slack:type_name -> podium.agent.v1.SlackConnection
-	23,  // 31: podium.agent.v1.ClearSlackConnectionResponse.slack:type_name -> podium.agent.v1.SlackConnection
-	24,  // 32: podium.agent.v1.SetGitHubConnectionResponse.github:type_name -> podium.agent.v1.GitHubConnection
-	25,  // 33: podium.agent.v1.SetGitHubWebhookFiltersRequest.filters:type_name -> podium.agent.v1.GitHubWebhookFilters
-	24,  // 34: podium.agent.v1.SetGitHubWebhookFiltersResponse.github:type_name -> podium.agent.v1.GitHubConnection
-	24,  // 35: podium.agent.v1.ClearGitHubConnectionResponse.github:type_name -> podium.agent.v1.GitHubConnection
-	161, // 36: podium.agent.v1.GitHubAccount.connected_at:type_name -> google.protobuf.Timestamp
-	38,  // 37: podium.agent.v1.GetGitHubAccountResponse.account:type_name -> podium.agent.v1.GitHubAccount
-	161, // 38: podium.agent.v1.StartGitHubOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
-	38,  // 39: podium.agent.v1.CompleteGitHubOAuthResponse.account:type_name -> podium.agent.v1.GitHubAccount
-	38,  // 40: podium.agent.v1.DisconnectGitHubAccountResponse.account:type_name -> podium.agent.v1.GitHubAccount
-	20,  // 41: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	161, // 42: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
-	20,  // 43: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	56,  // 44: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
-	57,  // 45: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
-	158, // 46: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
-	161, // 47: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
-	60,  // 48: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
-	60,  // 49: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
-	67,  // 50: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
-	69,  // 51: podium.agent.v1.ListPlaybooksResponse.assistant:type_name -> podium.agent.v1.Assistant
-	161, // 52: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
-	161, // 53: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
-	72,  // 54: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
-	161, // 55: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
-	161, // 56: podium.agent.v1.ChatPullRequest.created_at:type_name -> google.protobuf.Timestamp
-	75,  // 57: podium.agent.v1.ChatPullRequests.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	73,  // 58: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
-	74,  // 59: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
-	71,  // 60: podium.agent.v1.ChatFrame.chat:type_name -> podium.agent.v1.Chat
-	76,  // 61: podium.agent.v1.ChatFrame.pull_requests:type_name -> podium.agent.v1.ChatPullRequests
-	71,  // 62: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
-	71,  // 63: podium.agent.v1.RenameChatResponse.chat:type_name -> podium.agent.v1.Chat
-	2,   // 64: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
-	71,  // 65: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
-	73,  // 66: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
-	75,  // 67: podium.agent.v1.AttachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	75,  // 68: podium.agent.v1.DetachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	161, // 69: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
-	96,  // 70: podium.agent.v1.PlaybookSandbox.boat:type_name -> podium.agent.v1.PlaybookBoat
-	97,  // 71: podium.agent.v1.PlaybookSandbox.modal:type_name -> podium.agent.v1.PlaybookModal
-	94,  // 72: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
-	98,  // 73: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
-	99,  // 74: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
-	159, // 75: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
-	161, // 76: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
-	100, // 77: podium.agent.v1.PlaybookDefinition.git:type_name -> podium.agent.v1.PlaybookGit
-	98,  // 78: podium.agent.v1.PlaybookDefinition.user_secrets:type_name -> podium.agent.v1.PlaybookSecretRef
-	95,  // 79: podium.agent.v1.PlaybookDefinition.sandbox:type_name -> podium.agent.v1.PlaybookSandbox
-	93,  // 80: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	101, // 81: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
-	93,  // 82: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	101, // 83: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	101, // 84: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	101, // 85: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	101, // 86: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	161, // 87: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
-	160, // 88: podium.agent.v1.AgentSkill.files:type_name -> podium.agent.v1.AgentSkill.FilesEntry
-	118, // 89: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
-	118, // 90: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
-	118, // 91: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
-	161, // 92: podium.agent.v1.McpServer.token_set_at:type_name -> google.protobuf.Timestamp
-	161, // 93: podium.agent.v1.McpServer.updated_at:type_name -> google.protobuf.Timestamp
-	161, // 94: podium.agent.v1.McpServer.expires_at:type_name -> google.protobuf.Timestamp
-	127, // 95: podium.agent.v1.ListMcpServersResponse.servers:type_name -> podium.agent.v1.McpServer
-	127, // 96: podium.agent.v1.CreateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
-	127, // 97: podium.agent.v1.CreateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
-	127, // 98: podium.agent.v1.UpdateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
-	127, // 99: podium.agent.v1.UpdateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
-	127, // 100: podium.agent.v1.SetMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
-	127, // 101: podium.agent.v1.ClearMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
-	161, // 102: podium.agent.v1.StartMcpOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
-	127, // 103: podium.agent.v1.CompleteMcpOAuthResponse.server:type_name -> podium.agent.v1.McpServer
-	161, // 104: podium.agent.v1.SlackChannel.updated_at:type_name -> google.protobuf.Timestamp
-	144, // 105: podium.agent.v1.ListSlackChannelsResponse.channels:type_name -> podium.agent.v1.SlackChannel
-	144, // 106: podium.agent.v1.SetSlackChannelDescriptionResponse.channel:type_name -> podium.agent.v1.SlackChannel
-	161, // 107: podium.agent.v1.Personality.updated_at:type_name -> google.protobuf.Timestamp
-	149, // 108: podium.agent.v1.ListPersonalitiesResponse.personalities:type_name -> podium.agent.v1.Personality
-	149, // 109: podium.agent.v1.CreatePersonalityResponse.personality:type_name -> podium.agent.v1.Personality
-	149, // 110: podium.agent.v1.UpdatePersonalityResponse.personality:type_name -> podium.agent.v1.Personality
-	3,   // 111: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
-	5,   // 112: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
-	7,   // 113: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
-	12,  // 114: podium.agent.v1.AgentService.GetUsage:input_type -> podium.agent.v1.GetUsageRequest
-	14,  // 115: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
-	15,  // 116: podium.agent.v1.AgentService.GetRunsOn:input_type -> podium.agent.v1.GetRunsOnRequest
-	18,  // 117: podium.agent.v1.AgentService.SetRunsOn:input_type -> podium.agent.v1.SetRunsOnRequest
-	47,  // 118: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
-	50,  // 119: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
-	22,  // 120: podium.agent.v1.AgentService.GetConnections:input_type -> podium.agent.v1.GetConnectionsRequest
-	28,  // 121: podium.agent.v1.AgentService.SetSlackConnection:input_type -> podium.agent.v1.SetSlackConnectionRequest
-	30,  // 122: podium.agent.v1.AgentService.ClearSlackConnection:input_type -> podium.agent.v1.ClearSlackConnectionRequest
-	32,  // 123: podium.agent.v1.AgentService.SetGitHubConnection:input_type -> podium.agent.v1.SetGitHubConnectionRequest
-	34,  // 124: podium.agent.v1.AgentService.SetGitHubWebhookFilters:input_type -> podium.agent.v1.SetGitHubWebhookFiltersRequest
-	36,  // 125: podium.agent.v1.AgentService.ClearGitHubConnection:input_type -> podium.agent.v1.ClearGitHubConnectionRequest
-	39,  // 126: podium.agent.v1.AgentService.GetGitHubAccount:input_type -> podium.agent.v1.GetGitHubAccountRequest
-	41,  // 127: podium.agent.v1.AgentService.StartGitHubOAuth:input_type -> podium.agent.v1.StartGitHubOAuthRequest
-	43,  // 128: podium.agent.v1.AgentService.CompleteGitHubOAuth:input_type -> podium.agent.v1.CompleteGitHubOAuthRequest
-	45,  // 129: podium.agent.v1.AgentService.DisconnectGitHubAccount:input_type -> podium.agent.v1.DisconnectGitHubAccountRequest
-	52,  // 130: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
-	54,  // 131: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
-	58,  // 132: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
-	61,  // 133: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
-	63,  // 134: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
-	65,  // 135: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
-	68,  // 136: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
-	102, // 137: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
-	104, // 138: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
-	106, // 139: podium.agent.v1.AgentService.ReloadProfileDir:input_type -> podium.agent.v1.ReloadProfileDirRequest
-	108, // 140: podium.agent.v1.AgentService.GetProfileFile:input_type -> podium.agent.v1.GetProfileFileRequest
-	110, // 141: podium.agent.v1.AgentService.UpdateProfileFile:input_type -> podium.agent.v1.UpdateProfileFileRequest
-	112, // 142: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
-	114, // 143: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
-	116, // 144: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
-	119, // 145: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
-	121, // 146: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
-	123, // 147: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
-	125, // 148: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
-	128, // 149: podium.agent.v1.AgentService.ListMcpServers:input_type -> podium.agent.v1.ListMcpServersRequest
-	130, // 150: podium.agent.v1.AgentService.CreateMcpServer:input_type -> podium.agent.v1.CreateMcpServerRequest
-	132, // 151: podium.agent.v1.AgentService.UpdateMcpServer:input_type -> podium.agent.v1.UpdateMcpServerRequest
-	134, // 152: podium.agent.v1.AgentService.DeleteMcpServer:input_type -> podium.agent.v1.DeleteMcpServerRequest
-	136, // 153: podium.agent.v1.AgentService.SetMcpServerToken:input_type -> podium.agent.v1.SetMcpServerTokenRequest
-	138, // 154: podium.agent.v1.AgentService.ClearMcpServerToken:input_type -> podium.agent.v1.ClearMcpServerTokenRequest
-	140, // 155: podium.agent.v1.AgentService.StartMcpOAuth:input_type -> podium.agent.v1.StartMcpOAuthRequest
-	142, // 156: podium.agent.v1.AgentService.CompleteMcpOAuth:input_type -> podium.agent.v1.CompleteMcpOAuthRequest
-	78,  // 157: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
-	82,  // 158: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
-	80,  // 159: podium.agent.v1.AgentService.RenameChat:input_type -> podium.agent.v1.RenameChatRequest
-	84,  // 160: podium.agent.v1.AgentService.DeleteChat:input_type -> podium.agent.v1.DeleteChatRequest
-	86,  // 161: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
-	88,  // 162: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
-	89,  // 163: podium.agent.v1.AgentService.AttachChatPullRequest:input_type -> podium.agent.v1.AttachChatPullRequestRequest
-	91,  // 164: podium.agent.v1.AgentService.DetachChatPullRequest:input_type -> podium.agent.v1.DetachChatPullRequestRequest
-	145, // 165: podium.agent.v1.AgentService.ListSlackChannels:input_type -> podium.agent.v1.ListSlackChannelsRequest
-	147, // 166: podium.agent.v1.AgentService.SetSlackChannelDescription:input_type -> podium.agent.v1.SetSlackChannelDescriptionRequest
-	150, // 167: podium.agent.v1.AgentService.ListPersonalities:input_type -> podium.agent.v1.ListPersonalitiesRequest
-	152, // 168: podium.agent.v1.AgentService.CreatePersonality:input_type -> podium.agent.v1.CreatePersonalityRequest
-	154, // 169: podium.agent.v1.AgentService.UpdatePersonality:input_type -> podium.agent.v1.UpdatePersonalityRequest
-	156, // 170: podium.agent.v1.AgentService.DeletePersonality:input_type -> podium.agent.v1.DeletePersonalityRequest
-	4,   // 171: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,   // 172: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,   // 173: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	13,  // 174: podium.agent.v1.AgentService.GetUsage:output_type -> podium.agent.v1.GetUsageResponse
-	21,  // 175: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
-	17,  // 176: podium.agent.v1.AgentService.GetRunsOn:output_type -> podium.agent.v1.GetRunsOnResponse
-	19,  // 177: podium.agent.v1.AgentService.SetRunsOn:output_type -> podium.agent.v1.SetRunsOnResponse
-	48,  // 178: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
-	51,  // 179: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
-	27,  // 180: podium.agent.v1.AgentService.GetConnections:output_type -> podium.agent.v1.GetConnectionsResponse
-	29,  // 181: podium.agent.v1.AgentService.SetSlackConnection:output_type -> podium.agent.v1.SetSlackConnectionResponse
-	31,  // 182: podium.agent.v1.AgentService.ClearSlackConnection:output_type -> podium.agent.v1.ClearSlackConnectionResponse
-	33,  // 183: podium.agent.v1.AgentService.SetGitHubConnection:output_type -> podium.agent.v1.SetGitHubConnectionResponse
-	35,  // 184: podium.agent.v1.AgentService.SetGitHubWebhookFilters:output_type -> podium.agent.v1.SetGitHubWebhookFiltersResponse
-	37,  // 185: podium.agent.v1.AgentService.ClearGitHubConnection:output_type -> podium.agent.v1.ClearGitHubConnectionResponse
-	40,  // 186: podium.agent.v1.AgentService.GetGitHubAccount:output_type -> podium.agent.v1.GetGitHubAccountResponse
-	42,  // 187: podium.agent.v1.AgentService.StartGitHubOAuth:output_type -> podium.agent.v1.StartGitHubOAuthResponse
-	44,  // 188: podium.agent.v1.AgentService.CompleteGitHubOAuth:output_type -> podium.agent.v1.CompleteGitHubOAuthResponse
-	46,  // 189: podium.agent.v1.AgentService.DisconnectGitHubAccount:output_type -> podium.agent.v1.DisconnectGitHubAccountResponse
-	53,  // 190: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
-	55,  // 191: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
-	59,  // 192: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
-	62,  // 193: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
-	64,  // 194: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
-	66,  // 195: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
-	70,  // 196: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
-	103, // 197: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
-	105, // 198: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
-	107, // 199: podium.agent.v1.AgentService.ReloadProfileDir:output_type -> podium.agent.v1.ReloadProfileDirResponse
-	109, // 200: podium.agent.v1.AgentService.GetProfileFile:output_type -> podium.agent.v1.GetProfileFileResponse
-	111, // 201: podium.agent.v1.AgentService.UpdateProfileFile:output_type -> podium.agent.v1.UpdateProfileFileResponse
-	113, // 202: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
-	115, // 203: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
-	117, // 204: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
-	120, // 205: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
-	122, // 206: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
-	124, // 207: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
-	126, // 208: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
-	129, // 209: podium.agent.v1.AgentService.ListMcpServers:output_type -> podium.agent.v1.ListMcpServersResponse
-	131, // 210: podium.agent.v1.AgentService.CreateMcpServer:output_type -> podium.agent.v1.CreateMcpServerResponse
-	133, // 211: podium.agent.v1.AgentService.UpdateMcpServer:output_type -> podium.agent.v1.UpdateMcpServerResponse
-	135, // 212: podium.agent.v1.AgentService.DeleteMcpServer:output_type -> podium.agent.v1.DeleteMcpServerResponse
-	137, // 213: podium.agent.v1.AgentService.SetMcpServerToken:output_type -> podium.agent.v1.SetMcpServerTokenResponse
-	139, // 214: podium.agent.v1.AgentService.ClearMcpServerToken:output_type -> podium.agent.v1.ClearMcpServerTokenResponse
-	141, // 215: podium.agent.v1.AgentService.StartMcpOAuth:output_type -> podium.agent.v1.StartMcpOAuthResponse
-	143, // 216: podium.agent.v1.AgentService.CompleteMcpOAuth:output_type -> podium.agent.v1.CompleteMcpOAuthResponse
-	79,  // 217: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
-	83,  // 218: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
-	81,  // 219: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
-	85,  // 220: podium.agent.v1.AgentService.DeleteChat:output_type -> podium.agent.v1.DeleteChatResponse
-	87,  // 221: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
-	77,  // 222: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
-	90,  // 223: podium.agent.v1.AgentService.AttachChatPullRequest:output_type -> podium.agent.v1.AttachChatPullRequestResponse
-	92,  // 224: podium.agent.v1.AgentService.DetachChatPullRequest:output_type -> podium.agent.v1.DetachChatPullRequestResponse
-	146, // 225: podium.agent.v1.AgentService.ListSlackChannels:output_type -> podium.agent.v1.ListSlackChannelsResponse
-	148, // 226: podium.agent.v1.AgentService.SetSlackChannelDescription:output_type -> podium.agent.v1.SetSlackChannelDescriptionResponse
-	151, // 227: podium.agent.v1.AgentService.ListPersonalities:output_type -> podium.agent.v1.ListPersonalitiesResponse
-	153, // 228: podium.agent.v1.AgentService.CreatePersonality:output_type -> podium.agent.v1.CreatePersonalityResponse
-	155, // 229: podium.agent.v1.AgentService.UpdatePersonality:output_type -> podium.agent.v1.UpdatePersonalityResponse
-	157, // 230: podium.agent.v1.AgentService.DeletePersonality:output_type -> podium.agent.v1.DeletePersonalityResponse
-	171, // [171:231] is the sub-list for method output_type
-	111, // [111:171] is the sub-list for method input_type
-	111, // [111:111] is the sub-list for extension type_name
-	111, // [111:111] is the sub-list for extension extendee
-	0,   // [0:111] is the sub-list for field type_name
+	20,  // 23: podium.agent.v1.GetSettingsResponse.personal:type_name -> podium.agent.v1.ProviderSettings
+	161, // 24: podium.agent.v1.SlackConnection.set_at:type_name -> google.protobuf.Timestamp
+	161, // 25: podium.agent.v1.GitHubConnection.set_at:type_name -> google.protobuf.Timestamp
+	25,  // 26: podium.agent.v1.GitHubConnection.filters:type_name -> podium.agent.v1.GitHubWebhookFilters
+	161, // 27: podium.agent.v1.GitHubWebhookFilters.set_at:type_name -> google.protobuf.Timestamp
+	23,  // 28: podium.agent.v1.GetConnectionsResponse.slack:type_name -> podium.agent.v1.SlackConnection
+	24,  // 29: podium.agent.v1.GetConnectionsResponse.github:type_name -> podium.agent.v1.GitHubConnection
+	26,  // 30: podium.agent.v1.GetConnectionsResponse.linear:type_name -> podium.agent.v1.LinearConnection
+	23,  // 31: podium.agent.v1.SetSlackConnectionResponse.slack:type_name -> podium.agent.v1.SlackConnection
+	23,  // 32: podium.agent.v1.ClearSlackConnectionResponse.slack:type_name -> podium.agent.v1.SlackConnection
+	24,  // 33: podium.agent.v1.SetGitHubConnectionResponse.github:type_name -> podium.agent.v1.GitHubConnection
+	25,  // 34: podium.agent.v1.SetGitHubWebhookFiltersRequest.filters:type_name -> podium.agent.v1.GitHubWebhookFilters
+	24,  // 35: podium.agent.v1.SetGitHubWebhookFiltersResponse.github:type_name -> podium.agent.v1.GitHubConnection
+	24,  // 36: podium.agent.v1.ClearGitHubConnectionResponse.github:type_name -> podium.agent.v1.GitHubConnection
+	161, // 37: podium.agent.v1.GitHubAccount.connected_at:type_name -> google.protobuf.Timestamp
+	38,  // 38: podium.agent.v1.GetGitHubAccountResponse.account:type_name -> podium.agent.v1.GitHubAccount
+	161, // 39: podium.agent.v1.StartGitHubOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	38,  // 40: podium.agent.v1.CompleteGitHubOAuthResponse.account:type_name -> podium.agent.v1.GitHubAccount
+	38,  // 41: podium.agent.v1.DisconnectGitHubAccountResponse.account:type_name -> podium.agent.v1.GitHubAccount
+	20,  // 42: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	161, // 43: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	20,  // 44: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	56,  // 45: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
+	57,  // 46: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
+	158, // 47: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
+	161, // 48: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
+	60,  // 49: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	60,  // 50: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	67,  // 51: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
+	69,  // 52: podium.agent.v1.ListPlaybooksResponse.assistant:type_name -> podium.agent.v1.Assistant
+	161, // 53: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
+	161, // 54: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
+	72,  // 55: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
+	161, // 56: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
+	161, // 57: podium.agent.v1.ChatPullRequest.created_at:type_name -> google.protobuf.Timestamp
+	75,  // 58: podium.agent.v1.ChatPullRequests.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	73,  // 59: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
+	74,  // 60: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
+	71,  // 61: podium.agent.v1.ChatFrame.chat:type_name -> podium.agent.v1.Chat
+	76,  // 62: podium.agent.v1.ChatFrame.pull_requests:type_name -> podium.agent.v1.ChatPullRequests
+	71,  // 63: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
+	71,  // 64: podium.agent.v1.RenameChatResponse.chat:type_name -> podium.agent.v1.Chat
+	2,   // 65: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
+	71,  // 66: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
+	73,  // 67: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
+	75,  // 68: podium.agent.v1.AttachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	75,  // 69: podium.agent.v1.DetachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	161, // 70: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
+	96,  // 71: podium.agent.v1.PlaybookSandbox.boat:type_name -> podium.agent.v1.PlaybookBoat
+	97,  // 72: podium.agent.v1.PlaybookSandbox.modal:type_name -> podium.agent.v1.PlaybookModal
+	94,  // 73: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
+	98,  // 74: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
+	99,  // 75: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
+	159, // 76: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
+	161, // 77: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
+	100, // 78: podium.agent.v1.PlaybookDefinition.git:type_name -> podium.agent.v1.PlaybookGit
+	98,  // 79: podium.agent.v1.PlaybookDefinition.user_secrets:type_name -> podium.agent.v1.PlaybookSecretRef
+	95,  // 80: podium.agent.v1.PlaybookDefinition.sandbox:type_name -> podium.agent.v1.PlaybookSandbox
+	93,  // 81: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	101, // 82: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
+	93,  // 83: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	101, // 84: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	101, // 85: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	101, // 86: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	101, // 87: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	161, // 88: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
+	160, // 89: podium.agent.v1.AgentSkill.files:type_name -> podium.agent.v1.AgentSkill.FilesEntry
+	118, // 90: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
+	118, // 91: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	118, // 92: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	161, // 93: podium.agent.v1.McpServer.token_set_at:type_name -> google.protobuf.Timestamp
+	161, // 94: podium.agent.v1.McpServer.updated_at:type_name -> google.protobuf.Timestamp
+	161, // 95: podium.agent.v1.McpServer.expires_at:type_name -> google.protobuf.Timestamp
+	127, // 96: podium.agent.v1.ListMcpServersResponse.servers:type_name -> podium.agent.v1.McpServer
+	127, // 97: podium.agent.v1.CreateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
+	127, // 98: podium.agent.v1.CreateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
+	127, // 99: podium.agent.v1.UpdateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
+	127, // 100: podium.agent.v1.UpdateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
+	127, // 101: podium.agent.v1.SetMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
+	127, // 102: podium.agent.v1.ClearMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
+	161, // 103: podium.agent.v1.StartMcpOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	127, // 104: podium.agent.v1.CompleteMcpOAuthResponse.server:type_name -> podium.agent.v1.McpServer
+	161, // 105: podium.agent.v1.SlackChannel.updated_at:type_name -> google.protobuf.Timestamp
+	144, // 106: podium.agent.v1.ListSlackChannelsResponse.channels:type_name -> podium.agent.v1.SlackChannel
+	144, // 107: podium.agent.v1.SetSlackChannelDescriptionResponse.channel:type_name -> podium.agent.v1.SlackChannel
+	161, // 108: podium.agent.v1.Personality.updated_at:type_name -> google.protobuf.Timestamp
+	149, // 109: podium.agent.v1.ListPersonalitiesResponse.personalities:type_name -> podium.agent.v1.Personality
+	149, // 110: podium.agent.v1.CreatePersonalityResponse.personality:type_name -> podium.agent.v1.Personality
+	149, // 111: podium.agent.v1.UpdatePersonalityResponse.personality:type_name -> podium.agent.v1.Personality
+	3,   // 112: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
+	5,   // 113: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
+	7,   // 114: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
+	12,  // 115: podium.agent.v1.AgentService.GetUsage:input_type -> podium.agent.v1.GetUsageRequest
+	14,  // 116: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
+	15,  // 117: podium.agent.v1.AgentService.GetRunsOn:input_type -> podium.agent.v1.GetRunsOnRequest
+	18,  // 118: podium.agent.v1.AgentService.SetRunsOn:input_type -> podium.agent.v1.SetRunsOnRequest
+	47,  // 119: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
+	50,  // 120: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
+	22,  // 121: podium.agent.v1.AgentService.GetConnections:input_type -> podium.agent.v1.GetConnectionsRequest
+	28,  // 122: podium.agent.v1.AgentService.SetSlackConnection:input_type -> podium.agent.v1.SetSlackConnectionRequest
+	30,  // 123: podium.agent.v1.AgentService.ClearSlackConnection:input_type -> podium.agent.v1.ClearSlackConnectionRequest
+	32,  // 124: podium.agent.v1.AgentService.SetGitHubConnection:input_type -> podium.agent.v1.SetGitHubConnectionRequest
+	34,  // 125: podium.agent.v1.AgentService.SetGitHubWebhookFilters:input_type -> podium.agent.v1.SetGitHubWebhookFiltersRequest
+	36,  // 126: podium.agent.v1.AgentService.ClearGitHubConnection:input_type -> podium.agent.v1.ClearGitHubConnectionRequest
+	39,  // 127: podium.agent.v1.AgentService.GetGitHubAccount:input_type -> podium.agent.v1.GetGitHubAccountRequest
+	41,  // 128: podium.agent.v1.AgentService.StartGitHubOAuth:input_type -> podium.agent.v1.StartGitHubOAuthRequest
+	43,  // 129: podium.agent.v1.AgentService.CompleteGitHubOAuth:input_type -> podium.agent.v1.CompleteGitHubOAuthRequest
+	45,  // 130: podium.agent.v1.AgentService.DisconnectGitHubAccount:input_type -> podium.agent.v1.DisconnectGitHubAccountRequest
+	52,  // 131: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
+	54,  // 132: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
+	58,  // 133: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
+	61,  // 134: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
+	63,  // 135: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
+	65,  // 136: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
+	68,  // 137: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
+	102, // 138: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
+	104, // 139: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
+	106, // 140: podium.agent.v1.AgentService.ReloadProfileDir:input_type -> podium.agent.v1.ReloadProfileDirRequest
+	108, // 141: podium.agent.v1.AgentService.GetProfileFile:input_type -> podium.agent.v1.GetProfileFileRequest
+	110, // 142: podium.agent.v1.AgentService.UpdateProfileFile:input_type -> podium.agent.v1.UpdateProfileFileRequest
+	112, // 143: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
+	114, // 144: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
+	116, // 145: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
+	119, // 146: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
+	121, // 147: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
+	123, // 148: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
+	125, // 149: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
+	128, // 150: podium.agent.v1.AgentService.ListMcpServers:input_type -> podium.agent.v1.ListMcpServersRequest
+	130, // 151: podium.agent.v1.AgentService.CreateMcpServer:input_type -> podium.agent.v1.CreateMcpServerRequest
+	132, // 152: podium.agent.v1.AgentService.UpdateMcpServer:input_type -> podium.agent.v1.UpdateMcpServerRequest
+	134, // 153: podium.agent.v1.AgentService.DeleteMcpServer:input_type -> podium.agent.v1.DeleteMcpServerRequest
+	136, // 154: podium.agent.v1.AgentService.SetMcpServerToken:input_type -> podium.agent.v1.SetMcpServerTokenRequest
+	138, // 155: podium.agent.v1.AgentService.ClearMcpServerToken:input_type -> podium.agent.v1.ClearMcpServerTokenRequest
+	140, // 156: podium.agent.v1.AgentService.StartMcpOAuth:input_type -> podium.agent.v1.StartMcpOAuthRequest
+	142, // 157: podium.agent.v1.AgentService.CompleteMcpOAuth:input_type -> podium.agent.v1.CompleteMcpOAuthRequest
+	78,  // 158: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
+	82,  // 159: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
+	80,  // 160: podium.agent.v1.AgentService.RenameChat:input_type -> podium.agent.v1.RenameChatRequest
+	84,  // 161: podium.agent.v1.AgentService.DeleteChat:input_type -> podium.agent.v1.DeleteChatRequest
+	86,  // 162: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
+	88,  // 163: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
+	89,  // 164: podium.agent.v1.AgentService.AttachChatPullRequest:input_type -> podium.agent.v1.AttachChatPullRequestRequest
+	91,  // 165: podium.agent.v1.AgentService.DetachChatPullRequest:input_type -> podium.agent.v1.DetachChatPullRequestRequest
+	145, // 166: podium.agent.v1.AgentService.ListSlackChannels:input_type -> podium.agent.v1.ListSlackChannelsRequest
+	147, // 167: podium.agent.v1.AgentService.SetSlackChannelDescription:input_type -> podium.agent.v1.SetSlackChannelDescriptionRequest
+	150, // 168: podium.agent.v1.AgentService.ListPersonalities:input_type -> podium.agent.v1.ListPersonalitiesRequest
+	152, // 169: podium.agent.v1.AgentService.CreatePersonality:input_type -> podium.agent.v1.CreatePersonalityRequest
+	154, // 170: podium.agent.v1.AgentService.UpdatePersonality:input_type -> podium.agent.v1.UpdatePersonalityRequest
+	156, // 171: podium.agent.v1.AgentService.DeletePersonality:input_type -> podium.agent.v1.DeletePersonalityRequest
+	4,   // 172: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,   // 173: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,   // 174: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	13,  // 175: podium.agent.v1.AgentService.GetUsage:output_type -> podium.agent.v1.GetUsageResponse
+	21,  // 176: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	17,  // 177: podium.agent.v1.AgentService.GetRunsOn:output_type -> podium.agent.v1.GetRunsOnResponse
+	19,  // 178: podium.agent.v1.AgentService.SetRunsOn:output_type -> podium.agent.v1.SetRunsOnResponse
+	48,  // 179: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	51,  // 180: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	27,  // 181: podium.agent.v1.AgentService.GetConnections:output_type -> podium.agent.v1.GetConnectionsResponse
+	29,  // 182: podium.agent.v1.AgentService.SetSlackConnection:output_type -> podium.agent.v1.SetSlackConnectionResponse
+	31,  // 183: podium.agent.v1.AgentService.ClearSlackConnection:output_type -> podium.agent.v1.ClearSlackConnectionResponse
+	33,  // 184: podium.agent.v1.AgentService.SetGitHubConnection:output_type -> podium.agent.v1.SetGitHubConnectionResponse
+	35,  // 185: podium.agent.v1.AgentService.SetGitHubWebhookFilters:output_type -> podium.agent.v1.SetGitHubWebhookFiltersResponse
+	37,  // 186: podium.agent.v1.AgentService.ClearGitHubConnection:output_type -> podium.agent.v1.ClearGitHubConnectionResponse
+	40,  // 187: podium.agent.v1.AgentService.GetGitHubAccount:output_type -> podium.agent.v1.GetGitHubAccountResponse
+	42,  // 188: podium.agent.v1.AgentService.StartGitHubOAuth:output_type -> podium.agent.v1.StartGitHubOAuthResponse
+	44,  // 189: podium.agent.v1.AgentService.CompleteGitHubOAuth:output_type -> podium.agent.v1.CompleteGitHubOAuthResponse
+	46,  // 190: podium.agent.v1.AgentService.DisconnectGitHubAccount:output_type -> podium.agent.v1.DisconnectGitHubAccountResponse
+	53,  // 191: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
+	55,  // 192: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
+	59,  // 193: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
+	62,  // 194: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
+	64,  // 195: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
+	66,  // 196: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
+	70,  // 197: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
+	103, // 198: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
+	105, // 199: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
+	107, // 200: podium.agent.v1.AgentService.ReloadProfileDir:output_type -> podium.agent.v1.ReloadProfileDirResponse
+	109, // 201: podium.agent.v1.AgentService.GetProfileFile:output_type -> podium.agent.v1.GetProfileFileResponse
+	111, // 202: podium.agent.v1.AgentService.UpdateProfileFile:output_type -> podium.agent.v1.UpdateProfileFileResponse
+	113, // 203: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
+	115, // 204: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
+	117, // 205: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
+	120, // 206: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
+	122, // 207: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
+	124, // 208: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
+	126, // 209: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
+	129, // 210: podium.agent.v1.AgentService.ListMcpServers:output_type -> podium.agent.v1.ListMcpServersResponse
+	131, // 211: podium.agent.v1.AgentService.CreateMcpServer:output_type -> podium.agent.v1.CreateMcpServerResponse
+	133, // 212: podium.agent.v1.AgentService.UpdateMcpServer:output_type -> podium.agent.v1.UpdateMcpServerResponse
+	135, // 213: podium.agent.v1.AgentService.DeleteMcpServer:output_type -> podium.agent.v1.DeleteMcpServerResponse
+	137, // 214: podium.agent.v1.AgentService.SetMcpServerToken:output_type -> podium.agent.v1.SetMcpServerTokenResponse
+	139, // 215: podium.agent.v1.AgentService.ClearMcpServerToken:output_type -> podium.agent.v1.ClearMcpServerTokenResponse
+	141, // 216: podium.agent.v1.AgentService.StartMcpOAuth:output_type -> podium.agent.v1.StartMcpOAuthResponse
+	143, // 217: podium.agent.v1.AgentService.CompleteMcpOAuth:output_type -> podium.agent.v1.CompleteMcpOAuthResponse
+	79,  // 218: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
+	83,  // 219: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
+	81,  // 220: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
+	85,  // 221: podium.agent.v1.AgentService.DeleteChat:output_type -> podium.agent.v1.DeleteChatResponse
+	87,  // 222: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
+	77,  // 223: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
+	90,  // 224: podium.agent.v1.AgentService.AttachChatPullRequest:output_type -> podium.agent.v1.AttachChatPullRequestResponse
+	92,  // 225: podium.agent.v1.AgentService.DetachChatPullRequest:output_type -> podium.agent.v1.DetachChatPullRequestResponse
+	146, // 226: podium.agent.v1.AgentService.ListSlackChannels:output_type -> podium.agent.v1.ListSlackChannelsResponse
+	148, // 227: podium.agent.v1.AgentService.SetSlackChannelDescription:output_type -> podium.agent.v1.SetSlackChannelDescriptionResponse
+	151, // 228: podium.agent.v1.AgentService.ListPersonalities:output_type -> podium.agent.v1.ListPersonalitiesResponse
+	153, // 229: podium.agent.v1.AgentService.CreatePersonality:output_type -> podium.agent.v1.CreatePersonalityResponse
+	155, // 230: podium.agent.v1.AgentService.UpdatePersonality:output_type -> podium.agent.v1.UpdatePersonalityResponse
+	157, // 231: podium.agent.v1.AgentService.DeletePersonality:output_type -> podium.agent.v1.DeletePersonalityResponse
+	172, // [172:232] is the sub-list for method output_type
+	112, // [112:172] is the sub-list for method input_type
+	112, // [112:112] is the sub-list for extension type_name
+	112, // [112:112] is the sub-list for extension extendee
+	0,   // [0:112] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_agent_proto_init() }

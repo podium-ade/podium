@@ -232,7 +232,9 @@ SAML is not implemented.
   reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
   credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
   for a `grok` one, `podium.agent.openai_api_key` for an `openai` one, or
-  `podium.agent.google_api_key` for a `gemini` one, never two. Keep
+  `podium.agent.google_api_key` for a `gemini` one, never two. When the person who started the
+  turn saved their own credential for that provider, that personal secret (`model.<provider>.api_key`,
+  owned by them) is attached instead of the global one; no playbook may name it. Keep
   `secrets:` minimal per playbook and do not put a credential in a playbook a public channel can
   reach.
 - **A global secret is attached only by the conductor.** `CreateTask` refuses a global name from
@@ -307,8 +309,9 @@ SAML is not implemented.
   attacker the bot's Slack tokens, GitHub App key and the ability to submit tasks — which is
   already everything a member can do, because CreateTask is not an admin action.
 - **The provider key is a secret like any other, and the web UI can replace or remove it.**
-  Whoever can reach the UI can paste a new Anthropic key over the current one, or remove it and
-  stop every turn. There is no confirmation beyond an inline one and no audit of who did it
+  An admin or owner can paste a new global Anthropic key over the current one, or remove it and
+  stop every turn that has no credential of its own. A member can only set or remove their own
+  key, which only their own turns spend. There is no confirmation beyond an inline one and no audit of who did it
   beyond `set_by`, which records the login at the time of the last successful save and is
   overwritten by the next. Only the last four characters of the key are ever stored outside the
   secret store, and there is no read endpoint: `podium secret rm
