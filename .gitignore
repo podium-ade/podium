@@ -92,3 +92,6 @@ internal/node/docker/runnerbin/*
 !internal/node/docker/runnerbin/.gitkeep
 internal/node/sandboxexec/agentbin/linux/*
 !internal/node/sandboxexec/agentbin/linux/.gitkeep
+
+# Python bytecode (examples/modal)
+__pycache__/

@@ -140,23 +140,22 @@ Two things this does not do, and one to keep in mind:
 already holds every capability, and it costs nothing: `docker:29-dind` starts and runs nested
 containers under it, which is asserted by an integration test.
 
-### A sandbox node
+### Cloud sandboxes
 
-A [sandbox node](sandboxes.md) runs each task in a cloud sandbox of its own, which moves the
-boundaries:
+A task on a [cloud sandbox provider](sandboxes.md) runs in a sandbox of its own, which
+podium-server makes and drives. That moves the boundaries:
 
 - **Isolation is the provider's.** A boat sandbox is a VM with its own kernel; a Modal
   sandbox is a gVisor container, or a VM with `runtime: vm`. Nothing but the task runs in it,
   and it is deleted when the task ends, so there is no other task to escape to.
-- **The provider credential, not a Docker socket, is what a sandbox node holds.** That key can
-  create and delete every sandbox on the account: make it a scoped key (boat: `sandbox.*`,
-  `exec`, `file.*`, `host`, `account.read`, `snapshot.read`; never `admin`). Set in the UI it
-  is stored like a registry login — encrypted under the master key, written by admins only,
-  no read endpoint — and sent only on the streams of that provider's nodes, which keep it in
-  memory; set in a node's own config file it never reaches the control plane at all.
-- **Secrets leave the node.** Resolved secrets and registry logins travel to the sandbox's
-  agent over the provider's HTTPS proxy, authenticated by the provider and by a per-task
-  bearer token the node hands the agent in a file it deletes. File secrets land on a tmpfs
+- **The provider credential is held by podium-server.** That key can create and delete every
+  sandbox on the account: make it a scoped key (boat: `sandbox.*`, `exec`, `file.*`, `host`,
+  `account.read`, `snapshot.read`; never `admin`). It is stored like a registry login —
+  encrypted under the master key, written by admins only, no read endpoint — and decrypted
+  only in the server's memory. No node ever receives it.
+- **Secrets leave Podium.** Resolved secrets and registry logins travel from the server to the
+  sandbox's agent over the provider's HTTPS proxy, authenticated by the provider and by a
+  per-task bearer token the server hands the agent in a file it deletes. File secrets land on a tmpfs
   where the provider allows one; on Modal's gVisor runtime they are in a 0700 directory
   removed at the end. boat sandboxes are created with `noEnv`, `snapshots: false` and
   `monitoring: false`, so boat holds no disk image of them and stores none of their output.
@@ -169,7 +168,7 @@ boundaries:
   In the docker strategy it is a container under the usual hardening.
 - **What the internet can reach.** The agent's port, through the provider's proxy, with the
   provider's credential and the bearer token. A boat VM also answers SSH (public key only;
-  the node adds none) and boat's own agent port. `expose: {via: sandbox}` previews are
+  Podium adds none) and boat's own agent port. `expose: {via: sandbox}` previews are
   internet-facing and gated only by their URL's token.
 - **Egress is open**, as it is for a container task.
 
@@ -382,6 +381,35 @@ SAML is not implemented.
   anything able to reach it that also learns `PODIUM_AGENT_TOKEN` can claim to be any operator;
   at that point the header has to become a signed assertion, and this document is the record
   that it is not one yet.
+
+### The chat host
+
+With `PODIUM_AGENT_CHAT_HOST`, every conversation's assistant runs inside one opencode service on
+the conductor's machine. A shared process is only safe to share if no conversation can act as
+another, so:
+
+- **Each conversation is a location of its own** whose config names this conductor's model
+  gateway and tool servers under a token belonging to that conversation alone. The token is in
+  a URL only that location's config holds; nothing the model can run reads files, so it cannot
+  learn another conversation's.
+- **The service holds no model credential.** Its provider key is a placeholder; the gateway
+  swaps in the credential this conductor holds, and refuses a conversation that is not running a
+  turn. A person's own key (their personal secret `model.<provider>.api_key`) is preferred
+  for their conversations, so a turn is billed to its own person; the conductor may read that
+  personal secret and nothing a playbook names can. Every model request is visible to the
+  conductor.
+- **The model has no shell, files or network.** opencode 2 offers tools only as JavaScript inside
+  its `execute` tool; the service's config denies the shell, the file tools, `fetch` (checked as
+  `webfetch`), web search, subagents, skills and opencode's own session, worktree and schedule
+  tools — `session_move` above all, which would move a session into another conversation's
+  location. `internal/agent/chathost` lists them, and its tests assert each is refused against the
+  pinned opencode.
+- **Defence in depth.** One permission rule wrong would be a shell on the conductor's machine, so
+  under `PODIUM_AGENT_HOST_ISOLATION=bwrap` the service runs in bubblewrap: the system read-only,
+  none of the conductor's home or configuration, its own directory the only writable path. The
+  network is shared — it reaches the gateway on loopback — so a failure of the permission rules
+  would leave the network reachable from the service's own process; the rules are what stop the
+  model using it.
 
 ### A playbook with a data credential
 
@@ -765,8 +793,9 @@ reach the control plane, its own node and the shared memory, and the conductor n
 a new edge in the trust model and it is worth being explicit about, because a task is
 [untrusted](#3-a-task-container--untrusted).
 
-What is exposed is one method — `podium.agent.v1.GitCredentialService/MintToken`, on the
-conductor's own listener at `PODIUM_AGENT_TASK_URL` — and nothing else. Everything that keeps it
+What is exposed is one route — `POST /v1/git-tokens`, the capability as `Authorization: Bearer`,
+on the conductor's own listener at `PODIUM_AGENT_TASK_URL` — and nothing else. (Runtimes built
+before it existed call the same thing as `podium.agent.v1.GitCredentialService/MintToken`.) Everything that keeps it
 narrow is in the shape of the call:
 
 - **It takes no arguments.** The repositories are inside the capability the conductor signed, so
@@ -993,13 +1022,41 @@ Everything below is a real hole, not a hypothetical:
   conductor has no allowlist and no roles. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
-  environment built from empty. Unset `PODIUM_AGENT_HOST_RUNTIME` to keep every turn in a
-  container.
+  environment built from empty — unless `PODIUM_AGENT_HOST_ISOLATION=bwrap` puts each turn in a
+  bubblewrap sandbox: its own PID namespace, so it cannot read another turn's
+  `/proc/<pid>/environ`; the system read-only; nothing of this user's home but the runtime; and
+  its jail as the only writable directory. `PODIUM_AGENT_HOST_MEMORY_MAX` adds a memory ceiling
+  per turn.
 - **The assistant's model credential is in the conductor's database and in that turn's
   environment**, because the secret store has no read path and a turn running here has no node
   to resolve one for it.
-- **Nothing caps how many assistant turns run at once.** Every open chat that is answering is another
-  `node` and another `opencode` process on the conductor's machine, with no queue and no limit.
+- **Host turns are capped, not queued for free.** At most `PODIUM_AGENT_HOST_MAX_TURNS` (4)
+  run at once, each a `node` and an `opencode` process on the conductor's machine; the rest wait.
+- **The turn surface can face the internet.** With playbooks in a cloud sandbox,
+  `PODIUM_AGENT_SANDBOX_URL` has to reach this conductor from outside the operator's network.
+  Point it at `PODIUM_AGENT_SURFACE_LISTEN`, which serves the turn surface and nothing else:
+  delegation and the pull-request reader take a turn's signed token, minting takes a task's
+  signed capability, and both are refused once their turn has finished. Each is
+  `Authorization: Bearer <credential>`:
+
+  | Route | What |
+  |---|---|
+  | `POST /v1/delegations` | delegate (`{playbook, instruction, readOnly}`) |
+  | `GET /v1/delegations`, `GET /v1/delegations/{id}` | this conversation's delegations |
+  | `POST /v1/delegations/{id}/cancel`, `…/messages` | stop one, tell its task something |
+  | `DELETE /v1/delegations/{id}/preview` | release its preview |
+  | `POST /v1/git-tokens` | redeem the capability for a GitHub token |
+  | `/v1/mcp/pull-request` | the pull-request reader (MCP) |
+
+  The same calls as Connect procedures (`podium.agent.v1.TurnService/*`,
+  `GitCredentialService/MintToken`, `/mcp/pull-request`) stay for runtimes built before the
+  routes existed, and are deprecated. The operator API is not
+  on that listener. podium-server passes the same routes through under `/turn-surface` at its
+  public address (`PODIUM_AGENT_SANDBOX_URL=PODIUM_PUBLIC_URL/turn-surface`), outside its
+  sign-in, and nothing else under that prefix — a path that is not a surface route, or is not
+  already clean, is 404 and never forwarded: it forwards the request's
+  own credential, adds none of its own, and strips the headers the conductor reads as the
+  server's word about a person, so nothing arriving there can act as the server.
 - **An assistant turn has no step cap unless `profile.yaml: max_turns` sets one.** It always
   has a wall clock, though — `timeout`, fifteen minutes by default and with no "off" — so a
   stuck turn stops on its own rather than running until somebody notices.
@@ -1037,9 +1094,9 @@ Everything below is a real hole, not a hypothetical:
 - **The conductor can read its own credentials back from the secret store**, to refresh a
   sign-in and to run a host turn. A stolen conductor token reads them too. See
   [What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).
-- **A sandbox node sends a task's secrets to the cloud provider**, and its `via: sandbox`
-  previews are on the internet behind nothing but the token in their URL. The node's
-  provider key can create and delete every sandbox on that account. See *A sandbox node*.
+- **A cloud sandbox task's secrets go to the cloud provider**, and its `via: sandbox`
+  previews are on the internet behind nothing but the token in their URL. The provider key
+  the server holds can create and delete every sandbox on that account. See *Cloud sandboxes*.
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.

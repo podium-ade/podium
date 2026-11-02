@@ -52,6 +52,12 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	// PODIUM_TEST_POSTGRES_URL is a server somebody already runs, for a machine with no
+	// Docker engine. Every test still gets a database of its own inside it.
+	if url := os.Getenv("PODIUM_TEST_POSTGRES_URL"); url != "" {
+		adminURL = url
+		os.Exit(m.Run())
+	}
 	ctx := context.Background()
 	ctr, err := postgres.Run(ctx, postgresImage,
 		postgres.WithDatabase("podium_agent"),
@@ -79,7 +85,7 @@ func TestMain(m *testing.M) {
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
 	ctx := context.Background()
-	name := fmt.Sprintf("podium_agent_conductor_%d", dbSeq.Add(1))
+	name := fmt.Sprintf("podium_agent_conductor_%d_%d", os.Getpid(), dbSeq.Add(1))
 
 	conn, err := pgx.Connect(ctx, adminURL)
 	require.NoError(t, err)
@@ -163,6 +169,8 @@ func startWith(
 		Profiles: profiles.NewLive(testProfile(t)),
 		Sources:  []conductor.Source{src},
 		Logger:   quietLogger(),
+		// One replica, restarted: what a conductor is to its own leases across a restart.
+		ReplicaID: "test-conductor",
 	}
 	if tweak != nil {
 		tweak(&opts)
@@ -1684,6 +1692,43 @@ func TestAReadOnlyDelegationStoresNothing(t *testing.T) {
 	dlgs := delegationsOf(t, st, ev.SourceKey)
 	require.Len(t, dlgs, 1)
 	assert.True(t, dlgs[0].ReadOnly)
+}
+
+// TestAConversationsPlaybooksKeepAWorkspaceEach: outside a pull request a writer keeps the
+// workspace of its conversation AND playbook, so two playbooks never restore or overwrite each
+// other's; a read-only task reads the latest writer's, which is the code as it now is.
+func TestAConversationsPlaybooksKeepAWorkspaceEach(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, nil)
+
+	ctx := context.Background()
+	ev := inbound("C1/41.1", "hello")
+	sess, err := st.UpsertSession(ctx, store.Session{SourceKind: ev.SourceKind, SourceKey: ev.SourceKey, Playbook: "general"})
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "dogfood", "change it", conductor.DelegateOptions{})
+	require.NoError(t, err)
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "general", "change something else", conductor.DelegateOptions{})
+	require.NoError(t, err, "another playbook's writer is not in the way")
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "read it", conductor.DelegateOptions{ReadOnly: true})
+	require.NoError(t, err)
+
+	waitFor(t, 30*time.Second, "three tasks", func() bool { return len(fake.Specs()) == 3 })
+	specs := fake.Specs()
+	assert.Equal(t, sess.ID+".dogfood", specs[0].GetWorkspaceSession())
+	assert.Equal(t, sess.ID+".general", specs[1].GetWorkspaceSession())
+	assert.Equal(t, sess.ID+".general", specs[2].GetWorkspaceSession(), "a reader reads the latest writer's workspace")
+	assert.True(t, specs[2].GetWorkspaceReadonly())
+
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "dogfood", "and again", conductor.DelegateOptions{})
+	require.ErrorIs(t, err, conductor.ErrWorkspaceBusy, "a second writer of one workspace waits for the first")
 }
 
 // TestAReviewIsFixedAndReviewedAgainOnOneWorkspace is the whole loop on a pull request: the

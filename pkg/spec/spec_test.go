@@ -510,6 +510,29 @@ func TestSandboxSpec(t *testing.T) {
 	assert.Equal(t, "ci-base", rt.Sandbox.Snapshot)
 }
 
+// TestAModalImageRunsOnModal: `modal:<name>` is an image Modal holds, so the task it names is
+// placed in a Modal sandbox whatever else it says, and nowhere else.
+func TestAModalImageRunsOnModal(t *testing.T) {
+	got := mustSpec(t, "image: modal:podium-agent-runtime-dev:0.7.3\n")
+	require.NotNil(t, got.Sandbox)
+	assert.Equal(t, "modal", got.Sandbox.Provider)
+	assert.Equal(t, []string{LabelSandbox, LabelSandboxProvider + "modal"}, got.Labels)
+	name, ok := ModalImage(got.Image)
+	assert.True(t, ok)
+	assert.Equal(t, "podium-agent-runtime-dev:0.7.3", name)
+	_, ok = ModalImage("ghcr.io/podium-ade/podium-agent-runtime:0.7.3")
+	assert.False(t, ok, "a registry image is not one")
+
+	for doc, want := range map[string]string{
+		"image: \"modal:\"\n":                                  "names no Modal image",
+		"image: modal:rt\nsandbox: {provider: boat}\n":         "is a Modal image, but sandbox.provider is boat",
+		"image: a\nsidecars: {db: {image: \"modal:redis\"}}\n": "a sidecar runs under Docker",
+	} {
+		_, err := ParseTaskSpec(strings.NewReader(doc))
+		assert.ErrorContains(t, err, want, doc)
+	}
+}
+
 func TestSandboxProviderOverrides(t *testing.T) {
 	doc := "image: alpine:3\nsandbox:\n  provider: boat\n  boat: {type: large, template: ci-base, org: acme}\n"
 	got := mustSpec(t, doc)

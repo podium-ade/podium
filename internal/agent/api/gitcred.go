@@ -64,7 +64,7 @@ func (s *GitCredentialService) MintToken(
 	capability := strings.TrimSpace(req.Header().Get(TurnTokenHeader))
 	if capability == "" {
 		return nil, connect.NewError(connect.CodeUnauthenticated,
-			errors.New(TurnTokenHeader+" is required"))
+			errors.New("a turn's capability is required (Authorization: Bearer, or "+TurnTokenHeader+")"))
 	}
 	cred, err := s.minter.MintGitToken(ctx, capability)
 	switch {

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/pkg/spec"
 )
 
@@ -21,14 +22,41 @@ const workspaceWarmEnv = "PODIUM_WORKSPACE_WARM"
 // not a base anyone else should start from.
 const workspacePublishEnv = "PODIUM_PUBLISH_BASE"
 
-// applyWorkspace marks a node task as a session workspace. Host turns never call it:
-// they have no volume. The repo lets a session that has never snapshotted start from
-// the base, once one has been published.
-func applyWorkspace(s *spec.TaskSpec, sessionID string, playbook profiles.Playbook) {
-	if s == nil || sessionID == "" {
+// DefaultWorkspaceExclude is what a playbook's snapshots leave out when it names nothing:
+// dependency trees and build caches, which the next task rebuilds and which are most of a
+// workspace's size.
+const DefaultWorkspaceExclude = "node_modules,.cache,__pycache__,.venv,target"
+
+// workspaceKey is the snapshot a playbook's tasks in a conversation keep: one per conversation
+// AND playbook. A conversation's playbooks run on different images, and one sharing another's
+// workspace restored a dev image's node_modules and build caches into a data image, and two of
+// them running at once each stored over what the other had done.
+//
+// A pull request is the exception, and keeps one workspace for every playbook: they all work
+// on its one branch, a review reads what the fix changed, and one at a time changes it.
+func workspaceKey(sess store.Session, playbook string) string {
+	if sess.SourceKind == SourceGitHub {
+		return sess.ID
+	}
+	return spec.WorkspacePlaybookKey(sess.ID, playbook)
+}
+
+// applyWorkspace marks a node task as a conversation's workspace for its playbook. Host turns
+// never call it: they have no volume. The repo lets a workspace that has never snapshotted
+// start from the base, once one has been published.
+func applyWorkspace(s *spec.TaskSpec, sess store.Session, playbook profiles.Playbook) {
+	if s == nil || sess.ID == "" {
 		return
 	}
-	s.WorkspaceSession = sessionID
+	s.WorkspaceSession = workspaceKey(sess, playbook.Name)
+	// Rebuildable directories stay out of the snapshot unless the playbook says otherwise —
+	// including by setting the variable to nothing, which keeps everything.
+	if _, set := playbook.Env[spec.WorkspaceExcludeEnv]; !set {
+		if s.Env == nil {
+			s.Env = map[string]string{}
+		}
+		s.Env[spec.WorkspaceExcludeEnv] = DefaultWorkspaceExclude
+	}
 	if len(playbook.Repos) > 0 {
 		s.WorkspaceRepo = playbook.Repos[0].URL
 	}

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/transport"
 )
 
@@ -118,7 +119,7 @@ func CheckListen(addr string, allowNonLoopback bool) error {
 
 // Listen binds the configured loopback address.
 func (l *Listener) Listen(ctx context.Context) (net.Listener, error) {
-	var lc net.ListenConfig
+	lc := netlisten.Config()
 	ln, err := lc.Listen(ctx, "tcp", l.addr)
 	if err != nil {
 		return nil, fmt.Errorf("local transport: listen on %s: %w", l.addr, err)

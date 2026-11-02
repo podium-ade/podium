@@ -148,6 +148,11 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
   - {name: mcp.linear_token, target: env, key: LINEAR_TOKEN}
 `
 		}, []string{"playbooks/general.yaml", "mcp.linear_token"}},
+		{"a person's model key", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + `user_secrets:
+  - {name: model.anthropic.api_key, target: env, key: ANTHROPIC_API_KEY}
+`
+		}, []string{"playbooks/general.yaml", "model key"}},
 		{"the brief env var", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "env: {PODIUM_AGENT_TURN: x}\n"
 		}, []string{"playbooks/general.yaml", "PODIUM_AGENT_TURN"}},

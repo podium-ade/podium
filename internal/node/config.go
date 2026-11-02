@@ -14,6 +14,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/podium-ade/podium/internal/node/sandboxexec"
 	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
@@ -46,6 +47,10 @@ const (
 // Config is the whole of podium-node's configuration: /etc/podium/node.yaml overlaid by
 // PODIUM_NODE_* environment variables, which in turn are overlaid by flags.
 type Config struct {
+	// pool is a managed runner's sandbox pool, from its provider's settings. Never read from a
+	// file or the environment: see NewManaged.
+	pool sandboxexec.PoolOptions
+
 	// Server is the control plane base URL, PODIUM_NODE_SERVER.
 	Server string `yaml:"server"`
 	// Transport is PODIUM_NODE_TRANSPORT: dev only in MVP-0.
@@ -135,10 +140,10 @@ const (
 // SandboxConfig is the sandbox backend's block: which provider, and that provider's own
 // settings under its name.
 type SandboxConfig struct {
-	// Provider is PODIUM_NODE_SANDBOX_PROVIDER, for example "boat".
+	// Provider is the sandbox provider a managed runner drives, for example "boat".
 	Provider string `yaml:"provider"`
 	// Template is the provider snapshot a task with an image starts from on a provider
-	// that cannot boot images itself, PODIUM_NODE_SANDBOX_TEMPLATE. Empty is the
+	// that cannot boot images itself; the provider's settings override it. Empty is the
 	// provider's own base.
 	Template string `yaml:"template"`
 	// Providers holds every other key: each provider's settings, by its name.
@@ -227,8 +232,7 @@ func applyEnv(cfg *Config) {
 	envBool("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", &cfg.AllowPrivilegedSidecars)
 	envString("PODIUM_NODE_RUNTIME", &cfg.Runtime)
 	envString("PODIUM_NODE_BACKEND", &cfg.Backend)
-	envString("PODIUM_NODE_SANDBOX_PROVIDER", &cfg.Sandbox.Provider)
-	envString("PODIUM_NODE_SANDBOX_TEMPLATE", &cfg.Sandbox.Template)
+
 }
 
 func envBool(key string, dst *bool) {
@@ -306,12 +310,11 @@ func (c *Config) Validate() error {
 	switch c.Backend {
 	case BackendDocker, "":
 	case BackendSandbox:
-		if c.Sandbox.Provider == "" {
-			return errors.New("backend sandbox needs a provider: set PODIUM_NODE_SANDBOX_PROVIDER or `sandbox.provider`")
-		}
-		if len(c.PreviewLANAddresses) > 0 || c.PreviewTailnetSlots > 0 {
-			return errors.New("a sandbox node publishes previews through its provider; drop the LAN and tailnet preview settings")
-		}
+		// A node is a machine of your own. Cloud sandboxes are run by podium-server itself,
+		// for every provider configured on the Sandboxes screen: see NewManaged.
+		return errors.New("backend sandbox is gone from podium-node: podium-server runs cloud " +
+			"sandboxes itself. Configure the provider on the Sandboxes screen and remove " +
+			"`backend: sandbox` (PODIUM_NODE_BACKEND) from this node")
 	default:
 		return fmt.Errorf("backend %q is not %s or %s", c.Backend, BackendDocker, BackendSandbox)
 	}

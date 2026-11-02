@@ -837,6 +837,23 @@ func (s *AgentService) HostCredential(ctx context.Context, provider string) (str
 	return string(value), nil
 }
 
+// PersonalHostCredential is login's own key for provider — the personal secret
+// spec.PersonalModelKeySecretName — or "" when they set none, which is not an error: the
+// company's key is spent instead.
+func (s *AgentService) PersonalHostCredential(ctx context.Context, login, provider string) (string, error) {
+	if s.secrets == nil || login == "" {
+		return "", nil
+	}
+	value, err := s.secrets.ReadSecret(ctx, login, spec.PersonalModelKeySecretName(provider))
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s's own %s key: %w", login, provider, err)
+	}
+	return strings.TrimSpace(string(value)), nil
+}
+
 // The in-flight sign-in map. It is per process and is deliberately not persisted: a device
 // code outlives neither its own expiry nor a restart, and a restart mid-sign-in is a
 // "start again", not a state to recover.

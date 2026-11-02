@@ -11,6 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // metricsServer is the daemon's operational surface: liveness, readiness and Prometheus
@@ -30,7 +32,13 @@ func (m *metricsServer) addr() string {
 
 // serveMetrics binds cfg.MetricsListen and starts serving. A bind failure is fatal: an
 // operator who asked for a metrics endpoint should hear that they did not get one.
+//
+// An empty address serves nothing: a managed runner is inside podium-server, which has a
+// health endpoint of its own, and must not take a port a node on the same machine wants.
 func (n *Node) serveMetrics(ctx context.Context) error {
+	if n.cfg.MetricsListen == "" {
+		return nil
+	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		collectors.NewGoCollector(),
@@ -67,7 +75,7 @@ func (n *Node) serveMetrics(ctx context.Context) error {
 	})
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 
-	var lc net.ListenConfig
+	lc := netlisten.Config()
 	ln, err := lc.Listen(ctx, "tcp", n.cfg.MetricsListen)
 	if err != nil {
 		return fmt.Errorf("bind the node's metrics endpoint on %s: %w "+

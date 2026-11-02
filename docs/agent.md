@@ -232,7 +232,7 @@ that is what the tool list is traded for:
 ```
 opencode                     the model asks for podium_delegate
   ↓  MCP over stdio          dist/mcp.js, a second entrypoint of the same runtime
-  ↓  Delegate RPC            127.0.0.1:8090, the turn's own token in X-Podium-Turn
+  ↓  POST /v1/delegations   127.0.0.1:8090, the turn's own token as Authorization: Bearer
   ↓  CreateTask              an ORDINARY task: the playbook's image, tools, secrets, repos
   ↓  StreamTaskEvents        its progress and its answer go into the SAME chat
   ↓  FinishDelegation        the delegations row records how it ended
@@ -291,6 +291,98 @@ The rules that matter:
 Slack and Linear turns are unaffected: they keep running as tasks. Their playbooks are the ones
 that want a repository and a Docker daemon, and neither surface is somebody watching a cursor.
 
+### Host turns: isolation and warm windows
+
+The assistant runs as a child of this conductor. `PODIUM_AGENT_HOST_ISOLATION=bwrap` fences each
+turn in a bubblewrap sandbox of its own, `PODIUM_AGENT_HOST_MEMORY_MAX` caps its memory, and at
+most `PODIUM_AGENT_HOST_MAX_TURNS` run at once.
+
+A host turn can stay warm (`PODIUM_AGENT_HOST_WARM`): the conductor serves the runtime an
+inbox in the turn's jail, exactly as a node serves a task's, and the conversation's next message
+is injected into it rather than starting another. A warm turn holds its slot, so when every slot
+is taken the longest-idle warm conversation is told to stop waiting and gives its slot to one
+with work (`podium_agent_host_warm_evictions_total`).
+
+`podium_agent_turn_first_message_seconds{placement}` is how long a person waits for the first
+word: `host` for the assistant, `playbook` for a playbook's task.
+
+#### The turn surface
+
+A running turn calls back into this conductor for three things, each authenticated by its own
+credential and never the operator's bearer: `TurnService` (delegate, check, inject) and the
+`pull-request` MCP server with the turn's token, and `GitCredentialService` with the task's signed
+capability. A turn on the host reaches them over loopback and one on a node at
+`PODIUM_AGENT_TASK_URL`. A cloud sandbox is on nobody's Docker network, so
+`host.docker.internal` resolves to nothing there: it uses `PODIUM_AGENT_SANDBOX_URL`, which should
+point — through a Funnel or a tunnel — at `PODIUM_AGENT_SURFACE_LISTEN`, a listener that serves
+those three and a health probe and nothing else.
+
+Turn tokens are **signed** with a key derived from the conductor's bearer, the way a git
+capability is. The conductor that minted one answers it from memory; any other — a second
+conductor, or this one after a restart — checks the signature and that the turn is still running.
+That check is the revocation: a finished turn's token is refused everywhere at once.
+
+### The chat host
+
+Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.2.5`) and the
+assistant stops being a process per turn: every conversation is answered on one long-lived
+opencode service the conductor runs on its own machine, under the same bubblewrap fence as host
+turns when `PODIUM_AGENT_HOST_ISOLATION=bwrap` is set. Measured against a model that answers in
+three seconds, one such service held 400 conversations answering at once in about a gigabyte,
+every one finishing within 4.7 s.
+
+- **One conversation, one location.** Each conversation gets a directory of its own whose config
+  names this conductor's **model gateway** and its **tools**, each behind a token that belongs to
+  that conversation alone. The service itself holds no model credential: the gateway replaces
+  opencode's placeholder with the credential this conductor holds, in the provider's own header,
+  and forwards only while the conversation is running a turn.
+- **What the model can do.** Its tools are the assistant's — delegate, check on and inject into a
+  delegation, release a preview, name the chat, read the pull request — called as JavaScript
+  inside opencode's `execute` tool. The service's own config denies everything else: the shell,
+  files, the network (`fetch` inside `execute`), web search, and opencode's tools for moving a
+  session between conversations.
+- **The conductor stays the record.** A turn's prompt is the runtime's own (rendered by
+  `dist/render.js` beside `PODIUM_AGENT_HOST_RUNTIME`) and carries the transcript, so each turn is
+  a fresh opencode session and a restarted chat host loses nothing. A conversation nobody has
+  written to for ten minutes is summarised there, and its turns then get the summary and the
+  latest eight messages instead of the whole history.
+- **Whose key pays.** A person who sets their own key for the assistant's provider — a
+  personal secret named `model.<provider>.api_key` (`model.anthropic.api_key`,
+  `model.openai.api_key`, …) on the Secrets page — pays for their own conversations with it;
+  everyone else is on the company's. `podium_agent_gateway_requests_total{credential}` counts
+  which. A playbook may not name that secret.
+- **A message mid-turn is answered in it.** One that arrives while the assistant is answering
+  goes into the same turn, and each gets its own answer; nothing waits for the turn to end.
+- **Limits.** `PODIUM_AGENT_CHAT_HOST_MAX_TURNS` (512) turns at once, and
+  `PODIUM_AGENT_CHAT_HOST_MAX_PER_USER` (4) for one person across their conversations; a turn
+  past either waits. A location nobody has written to for half an hour is closed, and its tokens
+  with it.
+
+opencode 2's API is young and moves between releases: the chat host is tested against 2.2.5.
+Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.
+
+### More than one conductor
+
+Conductors can share one database. Each piece of work one of them does is **leased**
+(`work_leases`): a session's turns, a delegated task being followed, a turn with no task, and
+polling Linear.
+
+- A conductor serves a session only while it holds its lease. A message that lands on another
+  conductor is handed over: injected into the owner's warm turn when there is one, and otherwise
+  left on the lease for the owner to take as its next turn.
+- Leases last 30 seconds unrenewed. A conductor that dies stops renewing, and every other
+  conductor looks for such work about every half a minute and adopts it: a running task is
+  followed from where its relay stopped, and the relayed ledger keeps anything from being said
+  twice.
+- One conductor polls Linear at a time; another takes over when it stops.
+
+`PODIUM_AGENT_REPLICA_ID` is what the leases are held under. It defaults to
+`<hostname>/<listen>`, which is stable across a conductor's restarts — a restarted conductor picks
+its own work up at once — and different for each conductor unless two share a host and a port.
+
+A host turn is a process on one machine: a message handed over to a conductor whose turn is on its
+host is injected into it when it is warm, and otherwise waits for that turn to finish.
+
 ### Cancelling a turn
 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees
@@ -326,6 +418,20 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
+| `PODIUM_AGENT_HOST_ISOLATION` | no | none | `bwrap` runs every host turn in a bubblewrap sandbox of its own: its own PID namespace, the system read-only, nothing of this user's home but the runtime, and its jail as the only writable directory. Set it wherever more than one person talks to this conductor. See [Host turns](#host-turns-isolation-and-warm-windows) |
+| `PODIUM_AGENT_HOST_BWRAP` | no | `bwrap` on `PATH` | the bubblewrap binary |
+| `PODIUM_AGENT_HOST_MEMORY_MAX` | no | none | one host turn's memory ceiling in systemd's syntax (`1G`). Each turn then runs in a transient `systemd-run --user --scope`, and a turn that balloons is killed alone |
+| `PODIUM_AGENT_CHAT_HOST` | no | none | an opencode 2 binary. Set, conversations are answered on one long-lived opencode service on this machine — the chat host — instead of a runtime per turn. See [The chat host](#the-chat-host) |
+| `PODIUM_AGENT_CHAT_HOST_MAX_TURNS` | no | `512` | chat-host turns running at once; a turn past it waits |
+| `PODIUM_AGENT_CHAT_HOST_MAX_PER_USER` | no | `4` | one person's chat-host turns running at once, across all their conversations |
+| `PODIUM_AGENT_PUBLIC_URL` | no | none | the web UI's address, for the link to the chat in a notification |
+| `PODIUM_AGENT_SMTP_URL` | no | none | `smtp://user:password@host:port`. Set, a person whose delegated task ended after they left the web chat is emailed, when Slack cannot reach them. Needs `PODIUM_AGENT_SMTP_FROM` |
+| `PODIUM_AGENT_SMTP_FROM` | with the above | — | the address that email comes from |
+| `PODIUM_AGENT_NOTIFY_AWAY` | no | `10m` | how long a person has said nothing in a web chat before a task ending there is sent to them — by Slack direct message while Slack is connected, else by email |
+| `PODIUM_AGENT_HOST_WARM` | no | `0s` | how long a host turn stays up after it answers, for the next message of its conversation. A warm turn holds its slot while it waits and gives it up to a conversation with work |
+| `PODIUM_AGENT_SANDBOX_URL` | for a provider | `PODIUM_AGENT_TASK_URL` | this conductor's turn surface as a cloud **sandbox** reaches it: where a playbook in one mints a clone token |
+| `PODIUM_AGENT_SURFACE_LISTEN` | no | none | a second listener serving the turn surface and nothing else — no operator API. It is the one to expose to sandboxes |
+| `PODIUM_AGENT_REPLICA_ID` | no | `<hostname>/<listen>` | this conductor's identity among the conductors on its database. Different for each, and the same across one conductor's restarts |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these as soon as it is saved |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -1691,7 +1797,7 @@ A pull request is a **conversation**, one session per pull request (`github:owne
   review, its inline notes and the diff they quote — and from the pull request itself,
   through the conductor's own `pull-request` MCP server: `files`, `diff`, and `file` (one
   file at the head commit, with line numbers), each cut at 64 KB. That server is on the
-  turn listener at `/mcp/pull-request`, answers only a live turn's own token, and only
+  turn listener at `/v1/mcp/pull-request`, answers only a live turn's own token, and only
   about that turn's pull request; it reads and nothing else. A question that needs more —
   running the code — goes to a task with `read_only`. Asked to review, or to review again,
   it delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
@@ -1978,6 +2084,31 @@ first a missing image is known about is the pull failing on the node, which fail
   **Registries** screen — a Google Artifact Registry service-account key, a GHCR token — travels
   inside every assignment whose images are pulled from that host, and the playbook's `image:` is
   written the same way as a public one. See [task-spec.md](task-spec.md#private-registries).
+
+### On Modal: an image Modal holds
+
+A turn on Modal can run from an image **Modal builds and keeps**, so no registry is involved at
+all: not one Modal has to reach, and not one you have to run. Build it with Modal's own SDK and
+publish it by name, then write that name with a `modal:` prefix wherever an image goes — a
+playbook's `image:`, or Modal's **Ready sandbox images**:
+
+```sh
+pip install modal && modal token new
+python examples/modal/publish_image.py agent-warehouse.Dockerfile --context . \
+    --name agent-warehouse:2026-09-05
+```
+
+```yaml
+image: modal:agent-warehouse:2026-09-05     # or modal:im-… for one by its ID
+```
+
+[`examples/modal/publish_image.py`](../examples/modal/publish_image.py) is a short script around
+`modal.Image.from_dockerfile(...).publish(name)`; Podium itself builds nothing. The same
+Dockerfile as above works, with two differences: keep it single-stage, `FROM` the published
+runtime (Modal documents no multi-stage builds), and know that Modal ignores `USER` — Podium runs
+the turn as an unprivileged account of its own either way. A `modal:` image runs only on Modal,
+so a turn with one goes there whatever its `runs_on` says.
+
 
 ---
 
