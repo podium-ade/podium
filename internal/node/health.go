@@ -11,6 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // metricsServer is the daemon's operational surface: liveness, readiness and Prometheus
@@ -73,7 +75,7 @@ func (n *Node) serveMetrics(ctx context.Context) error {
 	})
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 
-	var lc net.ListenConfig
+	lc := netlisten.Config()
 	ln, err := lc.Listen(ctx, "tcp", n.cfg.MetricsListen)
 	if err != nil {
 		return fmt.Errorf("bind the node's metrics endpoint on %s: %w "+

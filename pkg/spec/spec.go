@@ -278,6 +278,36 @@ type ExposedPort struct {
 	From string `yaml:"from,omitempty" json:"from,omitempty"`
 }
 
+// WorkspaceExcludeEnv names, in a task's environment, the directories its workspace snapshot
+// leaves out: a comma-separated list of names, matched against every path component. What is
+// in them is rebuilt by the next task — node_modules, build caches — and is most of what a
+// snapshot weighs, stored again for every conversation.
+const WorkspaceExcludeEnv = "PODIUM_WORKSPACE_EXCLUDE"
+
+// workspacePlaybookSep joins a conversation and a playbook into one workspace's key. Session
+// IDs never contain it (they are a prefix, "_" and a ULID).
+const workspacePlaybookSep = "."
+
+// WorkspacePlaybookKey is the WorkspaceSession of a playbook's own workspace in a
+// conversation: each playbook of a conversation keeps one.
+func WorkspacePlaybookKey(session, playbook string) string {
+	if playbook == "" {
+		return session
+	}
+	return session + workspacePlaybookSep + playbook
+}
+
+// WorkspaceConversation is the conversation a playbook's workspace key belongs to, when key is
+// one. A conversation's workspace was keyed by the conversation alone before each playbook kept
+// its own, so a playbook workspace with no snapshot yet continues from that one.
+func WorkspaceConversation(key string) (string, bool) {
+	session, playbook, ok := strings.Cut(key, workspacePlaybookSep)
+	if !ok || session == "" || playbook == "" {
+		return "", false
+	}
+	return session, true
+}
+
 // URLEnv is the variable a task reads a port's URL from: PODIUM_URL_ and the name,
 // uppercased, with dashes as underscores.
 func URLEnv(name string) string {
@@ -661,12 +691,24 @@ const ConductorReservedPrefix = "podium.agent."
 // and their MCP servers' tokens and sign-ins. No person may read any value.
 func ConductorMayRead(name, owner string) bool {
 	if owner != "" {
-		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name)
+		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name) ||
+			IsPersonalModelKeySecret(name)
 	}
 	return strings.HasPrefix(name, ConductorReservedPrefix)
 }
 
 var personalMCPOAuthSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}\.oauth$`)
+
+var personalModelKeySecretRE = regexp.MustCompile(`^model\.[a-z][a-z0-9-]{0,31}\.api_key$`)
+
+// PersonalModelKeySecretName is where one person keeps their own key for a model provider —
+// anthropic, openai, xai, google. A person sets it on the Secrets page as a personal secret;
+// the conductor reads it to spend that person's credential rather than the company's on their
+// conversations. A playbook may not name it.
+func PersonalModelKeySecretName(provider string) string { return "model." + provider + ".api_key" }
+
+// IsPersonalModelKeySecret reports whether name is a person's model provider key.
+func IsPersonalModelKeySecret(name string) bool { return personalModelKeySecretRE.MatchString(name) }
 
 // PersonalMCPOAuthSecretName is where one person's MCP sign-in keeps its client secret and
 // refresh token. The conductor writes and reads it. A playbook may not name it.

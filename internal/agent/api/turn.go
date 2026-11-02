@@ -205,7 +205,7 @@ func (s *TurnService) token(h interface{ Get(string) string }) (string, error) {
 	token := strings.TrimSpace(h.Get(TurnTokenHeader))
 	if token == "" {
 		return "", connect.NewError(connect.CodeUnauthenticated, errors.New(
-			TurnTokenHeader+" is required: only a running turn may use this service"))
+			"a turn's credential is required (Authorization: Bearer, or "+TurnTokenHeader+"): only a running turn may use this service"))
 	}
 	return token, nil
 }

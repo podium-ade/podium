@@ -288,6 +288,28 @@ type Config struct {
 	// for the next message of its conversation. Zero, the default, exits as soon as the turn
 	// ends. A warm turn holds a host slot while it waits and gives it up to a turn with work.
 	HostWarm time.Duration
+	// ChatHost is PODIUM_AGENT_CHAT_HOST: an opencode 2 binary. Set, the conductor runs it as
+	// a chat host and answers every conversation on it, rather than starting the runtime for
+	// each turn. It needs PODIUM_AGENT_HOST_RUNTIME, whose prompt and credentials it uses.
+	// See internal/agent/chathost.
+	ChatHost string
+	// ChatHostMaxTurns is PODIUM_AGENT_CHAT_HOST_MAX_TURNS: the chat-host turns running at
+	// once. Zero is the conductor's default.
+	ChatHostMaxTurns int
+	// ChatHostMaxPerUser is PODIUM_AGENT_CHAT_HOST_MAX_PER_USER: one person's chat-host
+	// turns running at once, across their conversations. Zero is the conductor's default.
+	ChatHostMaxPerUser int
+	// PublicURL is PODIUM_AGENT_PUBLIC_URL: the web UI's address, for links the conductor
+	// sends outside the UI. Empty sends none.
+	PublicURL string
+	// SMTPURL is PODIUM_AGENT_SMTP_URL, smtp://user:password@host:port: where a person is
+	// emailed that their delegated task ended after they left. SENSITIVE: never logged.
+	SMTPURL string
+	// SMTPFrom is PODIUM_AGENT_SMTP_FROM, the address that email comes from.
+	SMTPFrom string
+	// NotifyAway is PODIUM_AGENT_NOTIFY_AWAY: how long a person has said nothing in a
+	// conversation before a task ending there is sent to them. Zero is the conductor's default.
+	NotifyAway time.Duration
 	// ReplicaID is PODIUM_AGENT_REPLICA_ID: this conductor's identity among the conductors
 	// that share its database, which its leases on sessions and delegations are held under.
 	// Default ReplicaIDFor(hostname, Listen): stable across this conductor's restarts, so it
@@ -351,6 +373,13 @@ func FromEnv() Config {
 		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
 		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
 		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
+		ChatHost:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
+		ChatHostMaxTurns:   envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
+		ChatHostMaxPerUser: envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
+		PublicURL:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
+		SMTPURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
+		SMTPFrom:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
+		NotifyAway:         envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
 		ReplicaID:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
 		SandboxURL:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
 		SurfaceListen:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
@@ -555,6 +584,9 @@ func (c Config) LogValue() slog.Value {
 		slog.String("host_isolation", c.HostIsolation),
 		slog.String("host_memory_max", c.HostMemoryMax),
 		slog.Duration("host_warm", c.HostWarm),
+		slog.String("chat_host", c.ChatHost),
+		slog.String("public_url", c.PublicURL),
+		slog.Bool("smtp", c.SMTPURL != ""),
 		slog.String("replica_id", c.Replica()),
 		slog.String("sandbox_url", c.SandboxURL),
 		slog.String("surface_listen", c.SurfaceListen),
@@ -831,11 +863,31 @@ func (c Config) validateHostAndSurface() error {
 	if c.HostWarm < 0 {
 		return errors.New("PODIUM_AGENT_HOST_WARM must not be negative; 0s turns the warm window off")
 	}
+	if (c.SMTPURL == "") != (c.SMTPFrom == "") {
+		return errors.New("PODIUM_AGENT_SMTP_URL and PODIUM_AGENT_SMTP_FROM go together")
+	}
+	if c.PublicURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_PUBLIC_URL", c.PublicURL); err != nil {
+			return err
+		}
+	}
+	if c.ChatHostMaxTurns < 0 || c.ChatHostMaxPerUser < 0 {
+		return errors.New("PODIUM_AGENT_CHAT_HOST_MAX_TURNS and PODIUM_AGENT_CHAT_HOST_MAX_PER_USER must not be negative")
+	}
+	if c.ChatHost != "" {
+		if c.HostRuntime == "" {
+			return errors.New("PODIUM_AGENT_CHAT_HOST needs PODIUM_AGENT_HOST_RUNTIME: a chat-host turn's " +
+				"prompt is the runtime's, rendered by its dist/render.js")
+		}
+		if _, err := exec.LookPath(c.ChatHost); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_CHAT_HOST=%q is not a binary this host can run: %w", c.ChatHost, err)
+		}
+	}
 	if c.HostMemoryMax != "" && !memoryMaxRE.MatchString(c.HostMemoryMax) {
 		return fmt.Errorf("PODIUM_AGENT_HOST_MEMORY_MAX=%q is not a size systemd reads, like 1G or 768M", c.HostMemoryMax)
 	}
 	if c.SandboxURL != "" {
-		if err := absoluteURL("PODIUM_AGENT_SANDBOX_URL", c.SandboxURL); err != nil {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_SANDBOX_URL", c.SandboxURL); err != nil {
 			return err
 		}
 	}

@@ -382,6 +382,35 @@ SAML is not implemented.
   at that point the header has to become a signed assertion, and this document is the record
   that it is not one yet.
 
+### The chat host
+
+With `PODIUM_AGENT_CHAT_HOST`, every conversation's assistant runs inside one opencode service on
+the conductor's machine. A shared process is only safe to share if no conversation can act as
+another, so:
+
+- **Each conversation is a location of its own** whose config names this conductor's model
+  gateway and tool servers under a token belonging to that conversation alone. The token is in
+  a URL only that location's config holds; nothing the model can run reads files, so it cannot
+  learn another conversation's.
+- **The service holds no model credential.** Its provider key is a placeholder; the gateway
+  swaps in the credential this conductor holds, and refuses a conversation that is not running a
+  turn. A person's own key (their personal secret `model.<provider>.api_key`) is preferred
+  for their conversations, so a turn is billed to its own person; the conductor may read that
+  personal secret and nothing a playbook names can. Every model request is visible to the
+  conductor.
+- **The model has no shell, files or network.** opencode 2 offers tools only as JavaScript inside
+  its `execute` tool; the service's config denies the shell, the file tools, `fetch` (checked as
+  `webfetch`), web search, subagents, skills and opencode's own session, worktree and schedule
+  tools — `session_move` above all, which would move a session into another conversation's
+  location. `internal/agent/chathost` lists them, and its tests assert each is refused against the
+  pinned opencode.
+- **Defence in depth.** One permission rule wrong would be a shell on the conductor's machine, so
+  under `PODIUM_AGENT_HOST_ISOLATION=bwrap` the service runs in bubblewrap: the system read-only,
+  none of the conductor's home or configuration, its own directory the only writable path. The
+  network is shared — it reaches the gateway on loopback — so a failure of the permission rules
+  would leave the network reachable from the service's own process; the rules are what stop the
+  model using it.
+
 ### A playbook with a data credential
 
 A playbook you give a database or warehouse credential (see
@@ -764,8 +793,9 @@ reach the control plane, its own node and the shared memory, and the conductor n
 a new edge in the trust model and it is worth being explicit about, because a task is
 [untrusted](#3-a-task-container--untrusted).
 
-What is exposed is one method — `podium.agent.v1.GitCredentialService/MintToken`, on the
-conductor's own listener at `PODIUM_AGENT_TASK_URL` — and nothing else. Everything that keeps it
+What is exposed is one route — `POST /v1/git-tokens`, the capability as `Authorization: Bearer`,
+on the conductor's own listener at `PODIUM_AGENT_TASK_URL` — and nothing else. (Runtimes built
+before it existed call the same thing as `podium.agent.v1.GitCredentialService/MintToken`.) Everything that keeps it
 narrow is in the shape of the call:
 
 - **It takes no arguments.** The repositories are inside the capability the conductor signed, so
@@ -1006,8 +1036,27 @@ Everything below is a real hole, not a hypothetical:
   `PODIUM_AGENT_SANDBOX_URL` has to reach this conductor from outside the operator's network.
   Point it at `PODIUM_AGENT_SURFACE_LISTEN`, which serves the turn surface and nothing else:
   delegation and the pull-request reader take a turn's signed token, minting takes a task's
-  signed capability, and both are refused once their turn has finished. The operator API is not
-  on that listener.
+  signed capability, and both are refused once their turn has finished. Each is
+  `Authorization: Bearer <credential>`:
+
+  | Route | What |
+  |---|---|
+  | `POST /v1/delegations` | delegate (`{playbook, instruction, readOnly}`) |
+  | `GET /v1/delegations`, `GET /v1/delegations/{id}` | this conversation's delegations |
+  | `POST /v1/delegations/{id}/cancel`, `…/messages` | stop one, tell its task something |
+  | `DELETE /v1/delegations/{id}/preview` | release its preview |
+  | `POST /v1/git-tokens` | redeem the capability for a GitHub token |
+  | `/v1/mcp/pull-request` | the pull-request reader (MCP) |
+
+  The same calls as Connect procedures (`podium.agent.v1.TurnService/*`,
+  `GitCredentialService/MintToken`, `/mcp/pull-request`) stay for runtimes built before the
+  routes existed, and are deprecated. The operator API is not
+  on that listener. podium-server passes the same routes through under `/turn-surface` at its
+  public address (`PODIUM_AGENT_SANDBOX_URL=PODIUM_PUBLIC_URL/turn-surface`), outside its
+  sign-in, and nothing else under that prefix — a path that is not a surface route, or is not
+  already clean, is 404 and never forwarded: it forwards the request's
+  own credential, adds none of its own, and strips the headers the conductor reads as the
+  server's word about a person, so nothing arriving there can act as the server.
 - **An assistant turn has no step cap unless `profile.yaml: max_turns` sets one.** It always
   has a wall clock, though — `timeout`, fifteen minutes by default and with no "off" — so a
   stuck turn stops on its own rather than running until somebody notices.

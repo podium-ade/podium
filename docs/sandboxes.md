@@ -124,7 +124,9 @@ an image from a registry Modal cannot reach, such as one on your own network. A 
 
 Making a sandbox, waiting for it, starting the agent and exposing its port is most of what a
 short task waits for. **Ready sandboxes** (`pool_size`, up to 20) in the provider's dialog keeps
-that many waiting, made from **Ready sandbox image** (`pool_image`).
+that many waiting for each image in **Ready sandbox images** (`pool_image`, comma-separated). A
+playbook is an image, a prompt and its tools, so a handful of images covers most of them: pool
+the ones whose tasks you want to start at once.
 
 A task whose sandbox would be exactly the pool's shape — the pool's image (or the template, on a
 provider that boots none), the default size, no per-task overrides, no exposed ports — takes a

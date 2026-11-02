@@ -5,13 +5,18 @@
 package agent
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,15 +27,19 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/api"
 	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/chathost"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
 	"github.com/podium-ade/podium/internal/agent/connections"
 	"github.com/podium-ade/podium/internal/agent/ghreview"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/notify"
 	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
+	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
 
@@ -60,12 +69,14 @@ type Agent struct {
 	turns     *api.TurnService
 	gitcred   *api.GitCredentialService
 	conductor *conductor.Conductor
-	live      *liveConnections
-	linear    *agentlinear.Source
-	chat      *chat.Source
-	dev       *api.DevSource
-	memory    memory.Client
-	http      *http.Server
+	// chatHost is the opencode 2 service conversations are answered on, when there is one.
+	chatHost *chathost.Host
+	live     *liveConnections
+	linear   *agentlinear.Source
+	chat     *chat.Source
+	dev      *api.DevSource
+	memory   memory.Client
+	http     *http.Server
 	// surface is the optional second listener that serves the turn surface and nothing
 	// else (PODIUM_AGENT_SURFACE_LISTEN). Nil when none is configured.
 	surface *http.Server
@@ -281,6 +292,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			Credential: func(ctx context.Context, provider string) (string, error) {
 				return a.svc.HostCredential(ctx, provider)
 			},
+			PersonalCredential: func(ctx context.Context, login, provider string) (string, error) {
+				return a.svc.PersonalHostCredential(ctx, login, provider)
+			},
 			TurnURL:   turnURL(cfg.Listen),
 			Isolation: cfg.HostIsolation,
 			Bwrap:     cfg.HostBwrap,
@@ -291,7 +305,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			host.Isolation = conductor.IsolationNone
 		}
 		if host.TurnURL != "" {
-			host.PullRequestMCPURL = host.TurnURL + ghreview.MCPPath
+			host.PullRequestMCPURL = host.TurnURL + api.PullRequestMCPRESTPath
 		}
 		if cfg.MemoryEnabled() {
 			// The memory server as THIS PROCESS reaches it. A task is told
@@ -312,6 +326,40 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		logger.Info("host turns: not configured; every turn runs as a task. " +
 			"Set PODIUM_AGENT_HOST_RUNTIME and PODIUM_AGENT_RUNNER_BIN to answer " +
 			"conversations on this host.")
+	}
+
+	// Who to tell, outside the conversation, that a task they asked for has ended: a Slack
+	// direct message while Slack is connected, then email when SMTP is set.
+	notifiers := []conductor.Notifier{notify.Slack{Current: func() *agentslack.Source {
+		if a.live == nil {
+			return nil
+		}
+		return a.live.slackSource()
+	}}}
+	if cfg.SMTPURL != "" {
+		email := notify.Email{URL: cfg.SMTPURL, From: cfg.SMTPFrom}
+		if err := email.Validate(); err != nil {
+			st.Close()
+			return nil, err
+		}
+		notifiers = append(notifiers, email)
+	}
+
+	var chatHostOpt conductor.ChatHost
+	if cfg.ChatHost != "" && host != nil {
+		a.chatHost, err = chathost.New(chathost.Options{
+			Binary: cfg.ChatHost,
+			Dir:    filepath.Join(cmp.Or(cfg.HostDir, os.TempDir()), "podium-chat-host"),
+			Wrap:   host.FenceService(),
+			Logger: logger,
+		})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		chatHostOpt = a.chatHost
+		logger.Info("chat host: enabled — conversations are answered on one opencode service",
+			"binary", cfg.ChatHost, "isolation", cmp.Or(host.Isolation, "none"))
 	}
 
 	if gh != nil {
@@ -344,8 +392,17 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		MintSecret: a.cfg.Token,
 		// This conductor among the others on its database, and how a playbook placed on a
 		// sandbox provider reaches back here. See conductor/lease.go and surface.go.
-		ReplicaID:      a.cfg.Replica(),
-		SandboxTaskURL: a.cfg.SandboxURL,
+		ReplicaID:          a.cfg.Replica(),
+		SandboxTaskURL:     a.cfg.SandboxURL,
+		ChatHost:           chatHostOpt,
+		ChatHostURL:        turnURL(a.cfg.Listen),
+		ChatHostRender:     renderPrompt(a.cfg.HostNode, a.cfg.HostRuntime),
+		AnthropicBaseURL:   a.cfg.AnthropicBaseURL,
+		ChatHostMaxTurns:   a.cfg.ChatHostMaxTurns,
+		ChatHostMaxPerUser: a.cfg.ChatHostMaxPerUser,
+		Notifiers:          notifiers,
+		NotifyAwayAfter:    a.cfg.NotifyAway,
+		PublicURL:          a.cfg.PublicURL,
 	})
 	if err != nil {
 		st.Close()
@@ -442,6 +499,18 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	root.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	root.Handle("/"+agentv1connect.AgentServiceName+"/", api.RequireBearer(a.cfg.Token, rpc))
 	a.mountSurface(root)
+	if a.chatHost != nil {
+		// The chat host's model gateway and tools. Each request names a conversation by a
+		// token only that conversation's location holds, and is refused outside its turns.
+		root.Handle("/chat-host/gateway/", a.conductor.ChatHostGateway())
+		var pr http.Handler
+		if a.live != nil {
+			pr = ghreview.MCPHandler(func(token string) (string, bool) {
+				return a.conductor.TurnPullRequest(context.Background(), token)
+			}, a.live.githubSource)
+		}
+		root.Handle("/chat-host/mcp/", a.conductor.ChatHostMCP(pr))
+	}
 	if a.dev != nil {
 		dev := api.RequireBearer(a.cfg.Token, a.dev.Handler())
 		root.Handle(api.DevInboundPath, dev)
@@ -465,18 +534,26 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 // from a node at PODIUM_AGENT_TASK_URL, and from a sandbox at PODIUM_AGENT_SANDBOX_URL — which
 // is why surfaceMux exists: it is these routes alone, so the listener that faces sandboxes
 // carries no operator API at all.
+//
+// It is served twice over: as HTTP resources under /v1/ (api.NewTurnREST), which is what this
+// runtime calls, and as the Connect procedures runtimes built before that still call.
 func (a *Agent) mountSurface(mux *http.ServeMux) {
 	opts := []connect.HandlerOption{}
+	var prMCP http.Handler
 	if a.turns != nil {
 		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
 		mux.Handle(turnPath, turnHandler)
-		mux.Handle(ghreview.MCPPath, ghreview.MCPHandler(func(token string) (string, bool) {
+		prMCP = ghreview.MCPHandler(func(token string) (string, bool) {
 			return a.conductor.TurnPullRequest(context.Background(), token)
-		}, a.live.githubSource))
+		}, a.live.githubSource)
+		mux.Handle(ghreview.MCPPath, prMCP)
 	}
 	if a.gitcred != nil {
 		gitPath, gitHandler := agentv1connect.NewGitCredentialServiceHandler(a.gitcred, opts...)
 		mux.Handle(gitPath, gitHandler)
+	}
+	if a.turns != nil || a.gitcred != nil {
+		mux.Handle(api.TurnRESTPrefix, api.NewTurnREST(a.turns, a.gitcred, prMCP))
 	}
 }
 
@@ -606,7 +683,7 @@ func (a *Agent) Addr() string {
 // Run binds the listener, starts the sources and the turn loop, and blocks until ctx is
 // cancelled.
 func (a *Agent) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", a.cfg.Listen)
+	ln, err := netlisten.Listen("tcp", a.cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", a.cfg.Listen, err)
 	}
@@ -625,6 +702,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	// so nothing but this keeps a signed-in provider working past its first hour.
 	go a.svc.RefreshTokens(runCtx)
 
+	if a.chatHost != nil {
+		go func() {
+			if err := a.chatHost.Run(runCtx); err != nil {
+				a.logger.ErrorContext(runCtx, "the chat host stopped for good", "error", err)
+			}
+		}()
+	}
+
 	serveErr := make(chan error, 2)
 	go func() {
 		if err := a.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -634,7 +719,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		serveErr <- nil
 	}()
 	if a.surface != nil {
-		sln, err := net.Listen("tcp", a.cfg.SurfaceListen)
+		sln, err := netlisten.Listen("tcp", a.cfg.SurfaceListen)
 		if err != nil {
 			_ = a.http.Close()
 			return fmt.Errorf("listen on %s (PODIUM_AGENT_SURFACE_LISTEN): %w", a.cfg.SurfaceListen, err)
@@ -698,4 +783,30 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.logger.WarnContext(ctx, "a turn was still in flight at shutdown; it will be resumed on the next start")
 	}
 	return runErr
+}
+
+// renderPrompt renders a chat-host turn's system prompt with the runtime beside entry: node
+// runs its dist/render.js with the brief in PODIUM_AGENT_TURN, and prints {"system": ...}.
+func renderPrompt(node, entry string) func(ctx context.Context, encoded string) (string, error) {
+	if entry == "" {
+		return nil
+	}
+	script := filepath.Join(filepath.Dir(entry), "render.js")
+	return func(ctx context.Context, encoded string) (string, error) {
+		cmd := exec.CommandContext(ctx, cmp.Or(node, "node"), script) //nolint:gosec // the configured runtime
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), conductor.BriefEnv + "=" + encoded}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("render the prompt: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		var doc struct {
+			System string `json:"system"`
+		}
+		if err := json.Unmarshal(out, &doc); err != nil || doc.System == "" {
+			return "", fmt.Errorf("render the prompt: not a prompt: %w", err)
+		}
+		return doc.System, nil
+	}
 }

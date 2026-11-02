@@ -117,6 +117,14 @@ func (s *Source) Send(ctx context.Context, ev conductor.InboundEvent) error {
 	}
 }
 
+// Heard adds an entry to ref's transcript without it being an event: something said in the
+// conversation that starts no turn.
+func (s *Source) Heard(ref string, entry conductor.BriefEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transcript[ref] = append(s.transcript[ref], entry)
+}
+
 // FetchTranscript implements conductor.Source.
 func (s *Source) FetchTranscript(_ context.Context, ref string) ([]conductor.BriefEntry, error) {
 	s.mu.Lock()

@@ -167,6 +167,10 @@ type HostRuntime struct {
 	// holds. Without it a host turn cannot start, because the runtime refuses a turn whose
 	// provider key is unset.
 	Credential func(ctx context.Context, provider string) (string, error)
+	// PersonalCredential is one person's own key for a provider, when they set one (a personal
+	// secret, spec.PersonalModelKeySecretName); empty when they did not. The chat host's gateway
+	// spends it on that person's turns before the company's. Nil is nobody's.
+	PersonalCredential func(ctx context.Context, login, provider string) (string, error)
 	// TurnURL is the conductor's own address as a host turn reaches it — loopback, the same
 	// listener the operator API is on, with TurnService mounted beside it. Empty means this
 	// conductor offers no delegation: a host turn then answers with what it has and cannot
@@ -301,6 +305,13 @@ type hostRun struct {
 	menu []DelegablePlaybook
 	// token is this turn's authority to delegate, minted on start and revoked when it ends.
 	token string
+	// model, effort, instruction, memoryURL and pullRequest are what a chat-host turn needs
+	// that a runtime would have read out of the brief. See chathost.go.
+	model, effort, instruction, memoryURL string
+	pullRequest                           bool
+	// who is the person a chat-host turn counts against; login is whose credential it may
+	// spend, empty when no person is signed in.
+	who, login string
 }
 
 // run starts the runtime, relays what it says, and records how it ended. Like turnRun.run it

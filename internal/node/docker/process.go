@@ -535,9 +535,22 @@ func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error 
 	args := p.asTask("tar", "-c", "-f", "-", "-C", "/", strings.TrimPrefix(workspacePath, "/"))
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // fixed command
 	var stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = f, &stderr
-	if err := cmd.Run(); err != nil {
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("tar workspace: %w", err)
+	}
+	ferr := filterTar(f, out, excludedNames(req.Spec.Env))
+	// Whatever the filter did not read, so tar is never left blocked on a full pipe.
+	_, _ = io.Copy(io.Discard, out)
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("tar workspace: %w: %s", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	if ferr != nil {
+		return fmt.Errorf("tar workspace: %w", ferr)
 	}
 	st, err := f.Stat()
 	if err != nil {

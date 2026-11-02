@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +87,27 @@ type runner struct {
 // runnerConfig is what restarts a runner when it changes.
 type runnerConfig struct {
 	maxTasks int
-	pool     sandboxexec.PoolOptions
+	// poolSize and poolImages are the pool settings as written: comparable, so a change
+	// restarts the runner. poolImages is a comma-separated list, one pool each.
+	poolSize   int
+	poolImages string
+}
+
+// poolOptions is the pool a runner keeps.
+func (c runnerConfig) poolOptions() sandboxexec.PoolOptions {
+	if c.poolSize <= 0 {
+		return sandboxexec.PoolOptions{}
+	}
+	var images []string
+	for _, img := range strings.Split(c.poolImages, ",") {
+		if img = strings.TrimSpace(img); img != "" {
+			images = append(images, img)
+		}
+	}
+	if len(images) == 0 {
+		images = []string{""}
+	}
+	return sandboxexec.PoolOptions{Size: c.poolSize, Images: images}
 }
 
 // New returns a Manager. It runs nothing until Run.
@@ -198,7 +219,7 @@ func configOf(p store.SandboxProvider) runnerConfig {
 		cfg.maxTasks = int(p.MaxConcurrent)
 	}
 	if n, err := strconv.Atoi(p.Settings[SettingPoolSize]); err == nil && n > 0 {
-		cfg.pool = sandboxexec.PoolOptions{Size: n, Image: p.Settings[SettingPoolImage]}
+		cfg.poolSize, cfg.poolImages = n, p.Settings[SettingPoolImage]
 	}
 	return cfg
 }
@@ -214,7 +235,7 @@ func (m *Manager) start(ctx context.Context, client podiumv1connect.NodeServiceC
 	}
 	logger := m.o.Logger.With("provider", provider)
 	n, err := node.NewManaged(ctx, node.ManagedOptions{
-		Provider: provider, DataDir: dir, MaxTasks: cfg.maxTasks, Pool: cfg.pool,
+		Provider: provider, DataDir: dir, MaxTasks: cfg.maxTasks, Pool: cfg.poolOptions(),
 		Client: client, Identity: id,
 	}, logger)
 	if err != nil {
@@ -233,7 +254,7 @@ func (m *Manager) start(ctx context.Context, client podiumv1connect.NodeServiceC
 		}
 	}()
 	logger.InfoContext(ctx, "sandbox provider running", "node_id", id.NodeID,
-		"max_tasks", cfg.maxTasks, "pool", cfg.pool.Size)
+		"max_tasks", cfg.maxTasks, "pool", cfg.poolSize, "pool_images", cfg.poolImages)
 	return nil
 }
 

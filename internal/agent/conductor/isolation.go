@@ -168,3 +168,51 @@ func ValidateIsolation(isolation, bwrap string) error {
 		return errors.New("host isolation " + isolation + " is not " + IsolationBwrap + " or empty")
 	}
 }
+
+// FenceService is the fence for a long-lived service this conductor runs on its machine — the
+// chat host — or nil when host turns are not isolated. It is a host turn's fence with a
+// different inside: the service's own install read-only, and only the directories it names
+// writable.
+func (h *HostRuntime) FenceService() func(argv []string, writable []string) []string {
+	if !h.isolated() {
+		return nil
+	}
+	return func(argv []string, writable []string) []string {
+		bin := h.Bwrap
+		if bin == "" {
+			bin = "bwrap"
+		}
+		args := []string{bin, "--die-with-parent", "--unshare-all", "--share-net",
+			"--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"}
+		for _, p := range bwrapSystemPaths {
+			args = append(args, "--ro-bind-try", p, p)
+		}
+		if len(argv) > 0 {
+			if install := installRoot(argv[0]); install != "" {
+				args = append(args, "--ro-bind-try", install, install)
+			}
+		}
+		for _, w := range writable {
+			args = append(args, "--bind", w, w)
+		}
+		return append(append(args, "--"), argv...)
+	}
+}
+
+// installRoot is the directory a binary's install lives in: the node_modules it was installed
+// under, which also holds its platform package, or else its own directory.
+func installRoot(bin string) string {
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	for dir := filepath.Dir(path); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "node_modules" {
+			return dir
+		}
+	}
+	return filepath.Dir(path)
+}

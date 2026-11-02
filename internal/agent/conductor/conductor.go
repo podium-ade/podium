@@ -138,6 +138,33 @@ type Options struct {
 	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
 	GitHubAPIURL string
 	GitHubURL    string
+	// ChatHost answers conversations on one long-lived opencode 2 service instead of a
+	// runtime per turn (chathost.go). Nil runs every assistant turn as a host process. It
+	// needs Host as well: the brief, the prompt and the credentials are a host turn's.
+	ChatHost ChatHost
+	// ChatHostURL is this conductor as the chat host reaches it: where its gateway and tools
+	// are. Loopback, since the chat host runs on this machine.
+	ChatHostURL string
+	// ChatHostRender renders a turn's system prompt from its encoded brief — the runtime's
+	// own prompt, in the form the chat host calls tools in.
+	ChatHostRender func(ctx context.Context, encodedBrief string) (string, error)
+	// Notifiers tell a person their delegated task ended when they have left its conversation
+	// (notify.go), tried in order. None sends nothing.
+	Notifiers []Notifier
+	// NotifyAwayAfter is how long a person has said nothing before they count as away. Zero
+	// means DefaultNotifyAwayAfter.
+	NotifyAwayAfter time.Duration
+	// PublicURL is this deployment's web UI, for the link in a notification. Empty sends none.
+	PublicURL string
+	// AnthropicBaseURL is where the chat host's gateway sends Anthropic requests: the host,
+	// without /v1. Empty is https://api.anthropic.com.
+	AnthropicBaseURL string
+	// ChatHostMaxPerUser bounds one person's chat-host turns running at once, across all of
+	// their conversations. Zero means DefaultChatHostMaxPerUser.
+	ChatHostMaxPerUser int
+	// ChatHostMaxTurns bounds the chat-host turns running at once. Zero means
+	// DefaultChatHostMaxTurns.
+	ChatHostMaxTurns int
 	// ReplicaID is this conductor's identity among the conductors sharing its database, and
 	// what its leases are held under (lease.go). It must be different for each conductor and
 	// the same across one conductor's restarts. Empty is a random id.
@@ -195,6 +222,19 @@ type Conductor struct {
 	mintSecret string
 	// sandboxTaskURL is where a sandbox reaches the turn surface. See surface.go.
 	sandboxTaskURL string
+	// chatHost and the rest are the chat host, when there is one. See chathost.go.
+	chatHost    ChatHost
+	chatHostURL string
+	chatRender  func(ctx context.Context, encodedBrief string) (string, error)
+	chatSlots   chan struct{}
+	chatPerUser int
+	chat        chatState
+	// anthropicBaseURL is AnthropicBaseURL.
+	anthropicBaseURL string
+	// notifiers, notifyAwayAfter and publicURL are notify.go's.
+	notifiers       []Notifier
+	notifyAwayAfter time.Duration
+	publicURL       string
 	// replicaID, leaseTTL and heldLeases are this conductor's share of the work with the
 	// others on its database. heldLeases is guarded by mu. See lease.go.
 	replicaID  string
@@ -314,6 +354,15 @@ func New(opts Options) (*Conductor, error) {
 		gitTaskURL:         opts.GitTaskURL,
 		mintSecret:         opts.MintSecret,
 		sandboxTaskURL:     opts.SandboxTaskURL,
+		chatHost:           opts.ChatHost,
+		chatHostURL:        opts.ChatHostURL,
+		chatRender:         opts.ChatHostRender,
+		anthropicBaseURL:   opts.AnthropicBaseURL,
+		notifiers:          opts.Notifiers,
+		notifyAwayAfter:    cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
+		publicURL:          opts.PublicURL,
+		chatSlots:          make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
+		chatPerUser:        cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
 		replicaID:          cmp.Or(opts.ReplicaID, newReplicaID()),
 		leaseTTL:           cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
 		heldLeases:         map[string]bool{},
@@ -344,6 +393,13 @@ func (c *Conductor) Run(ctx context.Context) error {
 		defer c.wg.Done()
 		c.renewLeases(ctx)
 	}()
+	if c.chatHost != nil {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.reapChats(ctx)
+		}()
+	}
 
 	for _, src := range c.sourceList() {
 		c.wg.Add(1)
@@ -453,6 +509,21 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		}
 		// Its inbox closed as it exited. The message is in the transcript; it becomes the
 		// next turn once the one exiting has finished.
+		c.mu.Lock()
+		st = c.sessions[sess.ID]
+		if st == nil {
+			st = &sessionState{}
+			c.sessions[sess.ID] = st
+		}
+	}
+	if st.running && c.chatHost != nil {
+		// A chat-host turn is answering this conversation: the message goes into it, and is
+		// answered as part of that turn rather than after it.
+		c.mu.Unlock()
+		if c.chatSteer(ctx, sess.ID, ev.Text) {
+			c.logger.InfoContext(ctx, "steered a message into a running chat-host turn", "session_id", sess.ID)
+			return
+		}
 		c.mu.Lock()
 		st = c.sessions[sess.ID]
 		if st == nil {
@@ -860,7 +931,10 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// placeholder and before anything expensive: a queued conversation shows 👀 working…
 	// for longer, which is the honest thing for it to show, and spends no Slack reads and
 	// no model tokens while it waits.
-	if j.onHost {
+	//
+	// A chat-host turn is not a process, and is bounded by the chat host's own slots
+	// (chathost.go) rather than these.
+	if j.onHost && c.chatHost == nil {
 		release, ok := c.acquireHostSlot(ctx)
 		if !ok {
 			c.logger.InfoContext(ctx, "the conductor stopped while a turn was queued",
@@ -877,6 +951,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.logger.WarnContext(ctx, "reading the conversation failed; running the turn without history",
 			"ref", ev.Ref, "error", err)
 	}
+	entries = c.withSummary(ctx, sess.ID, entries)
 
 	// Resolved before the turn is recorded so the row says what actually ran, and handed to
 	// the brief and the task spec so all three agree on one answer.
@@ -1030,6 +1105,21 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 				host.token = token
 			}
 		}
+		if c.chatHost != nil {
+			host.model, host.effort, host.instruction = brief.Profile.Model, brief.Profile.Effort, brief.Instruction
+			// Who the per-person limit counts this turn against: the person when there is
+			// one, and the conversation itself when nobody signed in.
+			host.who = cmp.Or(speaker, login, "session:"+sess.ID)
+			host.login = cmp.Or(login, speaker)
+			if brief.Memory != nil {
+				host.memoryURL = brief.Memory.MCPURL
+			}
+			for _, s := range brief.Playbook.MCPServers {
+				host.pullRequest = host.pullRequest || s.Name == PullRequestMCPName
+			}
+			chatRun{h: host}.run(ctx)
+			return
+		}
 		host.run(ctx)
 		return
 	}
@@ -1046,7 +1136,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	taskSpec := c.taskSpec(src, c.placed(ctx, j.playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
-	applyWorkspace(taskSpec, sess.ID, j.playbook)
+	applyWorkspace(taskSpec, sess, j.playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// The turn never started, so nothing will reach finish to clean this up.

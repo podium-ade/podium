@@ -8,6 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { markChatSeen } from "../../lib/chatSeen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
@@ -123,6 +124,13 @@ export function ChatPanel() {
     queryFn: () => agent.listPlaybooks({}),
     staleTime: 5 * 60_000,
   });
+
+  // The open chat's latest message has been seen, so the inbox does not announce it.
+  useEffect(() => {
+    const chat = chats.data?.chats.find((c) => c.id === active);
+    if (!chat?.lastMessageAt) return;
+    markChatSeen(chat.id, Number(chat.lastMessageAt.seconds) * 1000 + Math.floor(chat.lastMessageAt.nanos / 1e6));
+  }, [active, chats.data]);
 
   const personalities = voices.data?.personalities ?? [];
   // A failed or still-loading list is not "gone". Only a successful list that lacks the id is.

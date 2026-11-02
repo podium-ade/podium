@@ -18,6 +18,8 @@ import (
 type mem struct {
 	sessions  map[string]store.WorkspaceSnapshot
 	bases     map[string]store.WorkspaceSnapshot
+	origins   map[string]string
+	retired   map[string]bool
 	retention store.SnapshotRetention
 	audits    []string
 	failNext  bool
@@ -27,6 +29,8 @@ func newMem() *mem {
 	return &mem{
 		sessions: map[string]store.WorkspaceSnapshot{},
 		bases:    map[string]store.WorkspaceSnapshot{},
+		origins:  map[string]string{},
+		retired:  map[string]bool{},
 	}
 }
 
@@ -97,6 +101,51 @@ func (m *mem) GetSnapshotRetention(context.Context) (store.SnapshotRetention, er
 func (m *mem) SetSnapshotRetention(_ context.Context, in store.SnapshotRetention) (store.SnapshotRetention, error) {
 	m.retention = in
 	return in, nil
+}
+
+func (m *mem) SetSessionOrigin(_ context.Context, sessionID, baseKey string) error {
+	m.origins[sessionID] = baseKey
+	return nil
+}
+
+func (m *mem) GetSessionOrigin(_ context.Context, sessionID string) (string, error) {
+	key, ok := m.origins[sessionID]
+	if !ok {
+		return "", store.ErrNotFound
+	}
+	return key, nil
+}
+
+func (m *mem) DeleteSessionOrigin(_ context.Context, sessionID string) error {
+	delete(m.origins, sessionID)
+	return nil
+}
+
+func (m *mem) RetireWorkspaceBase(_ context.Context, key string) error {
+	m.retired[key] = true
+	return nil
+}
+
+func (m *mem) UnreferencedRetiredBases(context.Context) ([]string, error) {
+	var out []string
+	for key := range m.retired {
+		used := false
+		for _, row := range m.sessions {
+			used = used || row.BaseKey == key
+		}
+		for _, origin := range m.origins {
+			used = used || origin == key
+		}
+		if !used {
+			out = append(out, key)
+		}
+	}
+	return out, nil
+}
+
+func (m *mem) DeleteRetiredBase(_ context.Context, key string) error {
+	delete(m.retired, key)
+	return nil
 }
 
 func (m *mem) Audit(_ context.Context, _, action, _ string, _ map[string]any) error {
