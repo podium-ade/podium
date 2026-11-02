@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -23,6 +22,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/netlisten"
 )
 
 // Kind is the source kind GitHub sessions are recorded under.
@@ -241,7 +241,7 @@ func (s *Source) Run(ctx context.Context) error {
 		return err
 	}
 
-	ln, err := net.Listen("tcp", s.listen)
+	ln, err := netlisten.Listen("tcp", s.listen)
 	if err != nil {
 		return fmt.Errorf("github: listen on %s: %w", s.listen, err)
 	}

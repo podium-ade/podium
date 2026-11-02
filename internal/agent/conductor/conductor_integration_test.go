@@ -1694,6 +1694,43 @@ func TestAReadOnlyDelegationStoresNothing(t *testing.T) {
 	assert.True(t, dlgs[0].ReadOnly)
 }
 
+// TestAConversationsPlaybooksKeepAWorkspaceEach: outside a pull request a writer keeps the
+// workspace of its conversation AND playbook, so two playbooks never restore or overwrite each
+// other's; a read-only task reads the latest writer's, which is the code as it now is.
+func TestAConversationsPlaybooksKeepAWorkspaceEach(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, nil)
+
+	ctx := context.Background()
+	ev := inbound("C1/41.1", "hello")
+	sess, err := st.UpsertSession(ctx, store.Session{SourceKind: ev.SourceKind, SourceKey: ev.SourceKey, Playbook: "general"})
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	require.NoError(t, err)
+
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "dogfood", "change it", conductor.DelegateOptions{})
+	require.NoError(t, err)
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "general", "change something else", conductor.DelegateOptions{})
+	require.NoError(t, err, "another playbook's writer is not in the way")
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "coder", "read it", conductor.DelegateOptions{ReadOnly: true})
+	require.NoError(t, err)
+
+	waitFor(t, 30*time.Second, "three tasks", func() bool { return len(fake.Specs()) == 3 })
+	specs := fake.Specs()
+	assert.Equal(t, sess.ID+".dogfood", specs[0].GetWorkspaceSession())
+	assert.Equal(t, sess.ID+".general", specs[1].GetWorkspaceSession())
+	assert.Equal(t, sess.ID+".general", specs[2].GetWorkspaceSession(), "a reader reads the latest writer's workspace")
+	assert.True(t, specs[2].GetWorkspaceReadonly())
+
+	_, err = r.cond.DelegateForTest(ctx, src, sess.ID, turn.ID, ev.Ref, "dogfood", "and again", conductor.DelegateOptions{})
+	require.ErrorIs(t, err, conductor.ErrWorkspaceBusy, "a second writer of one workspace waits for the first")
+}
+
 // TestAReviewIsFixedAndReviewedAgainOnOneWorkspace is the whole loop on a pull request: the
 // review answers and waits, a fix is delegated and takes the workspace from it, and the review
 // of the pushed commits queues behind the fix and takes the workspace from it in turn. Every

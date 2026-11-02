@@ -69,7 +69,7 @@ type Executor struct {
 	tasks map[string]*task
 
 	// pool is nil when no pool is configured.
-	pool *pool
+	pools []*pool
 }
 
 // record is what the node keeps on disk about a task's sandbox, so a restarted daemon
@@ -109,7 +109,7 @@ func New(o Options) (*Executor, error) {
 	e := &Executor{p: o.Provider, dir: o.DataDir, agent: o.Agent, log: o.Logger,
 		client: &http.Client{Timeout: 0}, tasks: map[string]*task{}}
 	e.SetTemplate(o.Template)
-	e.pool = e.startPool(o.Pool)
+	e.pools = e.startPools(o.Pool)
 	return e, nil
 }
 
@@ -127,12 +127,20 @@ func (e *Executor) ServerVersion() string { return "sandbox/" + e.p.Name() }
 func (e *Executor) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	e.pool.close(ctx)
+	for _, p := range e.pools {
+		p.close(ctx)
+	}
 	return nil
 }
 
-// PoolReady is how many pooled sandboxes are ready right now.
-func (e *Executor) PoolReady() int { return e.pool.size() }
+// PoolReady is how many pooled sandboxes are ready right now, in every pool.
+func (e *Executor) PoolReady() int {
+	n := 0
+	for _, p := range e.pools {
+		n += p.size()
+	}
+	return n
+}
 
 // PruneImages implements the node's executor.
 func (e *Executor) PruneImages(context.Context, docker.PruneRequest) ([]docker.ImageRecord, error) {
@@ -297,7 +305,7 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 func (e *Executor) sandboxFor(
 	ctx context.Context, t *task, em *emitter, strategy string, caps sandbox.Capabilities, creq sandbox.CreateRequest,
 ) (string, error) {
-	if sb, ok := e.pool.take(strategy, creq); ok {
+	if sb, ok := e.takePooled(strategy, creq); ok {
 		t.mu.Lock()
 		t.rec.SandboxID, t.rec.Token = sb.ID, sb.Token
 		t.rec.URL, t.rec.Header, t.rec.Cookies = sb.URL, sb.Header, sb.Cookies
@@ -497,10 +505,10 @@ func (e *Executor) AccountLimit() int32 {
 		}()
 	}
 	limit := e.limit.Load()
-	if limit > 0 && e.pool != nil {
-		// The pool's sandboxes count against the account and run no task, so the
+	if limit > 0 && len(e.pools) > 0 {
+		// The pools' sandboxes count against the account and run no task, so the
 		// scheduler's room for tasks is what is left after them.
-		limit = max(limit-int32(e.pool.opts.Size), 0)
+		limit = max(limit-int32(e.pools[0].opts.Size*len(e.pools)), 0)
 	}
 	return limit
 }
@@ -643,4 +651,14 @@ func registryFor(image string, creds []docker.RegistryCredential) *sandbox.Regis
 		}
 	}
 	return nil
+}
+
+// takePooled is a ready sandbox from the pool whose shape the task's is, if any is ready.
+func (e *Executor) takePooled(strategy string, req sandbox.CreateRequest) (pooled, bool) {
+	for _, p := range e.pools {
+		if sb, ok := p.take(strategy, req); ok {
+			return sb, true
+		}
+	}
+	return pooled{}, false
 }

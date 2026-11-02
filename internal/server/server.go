@@ -448,6 +448,15 @@ func (s *Server) mux() http.Handler {
 		} else {
 			root.Handle("/"+agentv1connect.AgentServiceName+"/", withAuth(agent))
 		}
+		// The turn surface, for tasks in cloud sandboxes: not behind withAuth, because a
+		// task holds no sign-in of this server's — its turn credential is checked by the
+		// conductor, and the proxy adds no credential of its own.
+		surface, err := api.NewTurnSurfaceProxy(s.cfg.AgentURL, s.logger)
+		if err != nil {
+			s.logger.Error("the turn surface proxy could not be built; sandboxes cannot reach the conductor through this server", "error", err)
+		} else {
+			root.Handle(api.TurnSurfacePrefix+"/", surface)
+		}
 	}
 	// The artifact proxy is a plain HTTP route rather than a Connect procedure because a
 	// 512 MB artifact has to stream. It sits behind the same identity middleware.

@@ -83,7 +83,7 @@ describe("SandboxesPage", () => {
     await screen.findByTestId("provider-modal");
     await userEvent.click(screen.getByRole("button", { name: "Set up Modal" }));
     expect(screen.getByLabelText("Ready sandboxes")).toBeInTheDocument();
-    expect(screen.getByLabelText("Ready sandbox image")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ready sandbox images")).toBeInTheDocument();
   });
 
   it("needs a key to set a provider up", async () => {

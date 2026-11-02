@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
@@ -35,4 +36,19 @@ func (c *Conductor) DelegateForTest(
 	return c.delegate(ctx, turnGrant{
 		turnID: turnID, sessionID: sessionID, ref: ref, src: src, playbooks: []string{playbook},
 	}, playbook, instruction, opts)
+}
+
+// SummariseNowForTest runs the summary job as if every conversation had been quiet long enough.
+func (c *Conductor) SummariseNowForTest(ctx context.Context) {
+	c.chat.mu.Lock()
+	for _, cv := range c.chat.byID {
+		cv.lastUsed = cv.lastUsed.Add(-summaryIdle - time.Minute)
+	}
+	c.chat.mu.Unlock()
+	c.summarise(ctx)
+}
+
+// WithSummaryForTest is what a turn of sessionID would be handed for entries.
+func (c *Conductor) WithSummaryForTest(ctx context.Context, sessionID string, entries []BriefEntry) []BriefEntry {
+	return c.withSummary(ctx, sessionID, entries)
 }

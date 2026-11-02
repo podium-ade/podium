@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { ProviderSettingsSchema } from "../gen/podium/agent/v1/agent_pb";
+import { ChatSchema, ProviderSettingsSchema, type Chat } from "../gen/podium/agent/v1/agent_pb";
 import {
   RESOLVED_KEEP,
+  alertsFromChats,
   alertsFromProviders,
+  chatSeenBaseline,
   mergeNotifications,
   type AppNotification,
 } from "./notifications";
@@ -78,5 +80,37 @@ describe("mergeNotifications", () => {
     const next = mergeNotifications([open, ...resolved], [], now);
     expect(next.some((item) => item.id === "open")).toBe(true);
     expect(next.filter((item) => item.resolvedAt != null)).toHaveLength(RESOLVED_KEEP);
+  });
+});
+
+function chat(id: string, lastMs: number | null, extra: { turnRunning?: boolean } = {}): Chat {
+  return create(ChatSchema, {
+    id,
+    title: `Chat ${id}`,
+    preview: `last words of ${id}`,
+    lastMessageAt:
+      lastMs == null ? undefined : { seconds: BigInt(Math.floor(lastMs / 1000)), nanos: (lastMs % 1000) * 1e6 },
+    ...extra,
+  });
+}
+
+describe("alertsFromChats", () => {
+  it("announces a reply that arrived after the chat was last seen, once per reply", () => {
+    const seen = { a: 1_000, b: 5_000 };
+    const drafts = alertsFromChats([chat("a", 2_000), chat("b", 5_000)], seen, "");
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({ key: "chat-reply:a:2000", href: "/agent/chat/a", body: "last words of a" });
+  });
+
+  it("leaves out the chat on screen, one still answering, and one never seen", () => {
+    const seen = { a: 1_000, b: 1_000 };
+    expect(alertsFromChats([chat("a", 2_000)], seen, "a")).toEqual([]);
+    expect(alertsFromChats([chat("b", 2_000, { turnRunning: true })], seen, "")).toEqual([]);
+    expect(alertsFromChats([chat("c", 2_000)], seen, "")).toEqual([]);
+  });
+
+  it("counts a chat this browser has never seen as seen, so nothing old is announced", () => {
+    const seen = chatSeenBaseline([chat("a", 3_000), chat("b", null)], { c: 9 });
+    expect(seen).toEqual({ a: 3_000, b: 0, c: 9 });
   });
 });

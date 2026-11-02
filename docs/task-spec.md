@@ -117,6 +117,20 @@ upload leaves the previous snapshot in place.
 Leave `workspace_session` empty for a one-shot task. Nothing is restored and nothing is
 uploaded, and `keepWorkspace` stays false, so the volume is removed with the task.
 
+The conductor names a workspace per conversation **and playbook** (`<session>.<playbook>`):
+a conversation's playbooks run on different images and would otherwise restore each other's
+dependency trees and store over each other's work. A pull request is the exception and keeps
+one workspace for every playbook, since they all work on its one branch. A read-only task
+restores the workspace of the conversation's latest writing task. A `<session>.<playbook>`
+workspace with no snapshot yet restores the conversation's `<session>` snapshot, from before
+each playbook kept its own, and only then the repository base.
+
+`PODIUM_WORKSPACE_EXCLUDE` in a task's environment names directories its snapshot leaves out,
+comma-separated, matched against every path component. The conductor sets it on a playbook's
+tasks to `node_modules,.cache,__pycache__,.venv,target` unless the playbook sets it itself — to
+another list, or to nothing to keep everything. What is left out is rebuilt by the next task,
+and is most of what a snapshot weighs.
+
 `workspace_publish_base: true` also stores the tar as the shared base for `workspace_repo`.
 It requires `workspace_repo`. A base is not a session snapshot and a session snapshot is
 not published as a base unless this is set. The conductor sets it when the playbook env

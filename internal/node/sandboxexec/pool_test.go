@@ -142,7 +142,7 @@ func TestATaskOfAnotherShapeMakesItsOwn(t *testing.T) {
 		sp.ApplyDefaults()
 		strategy, _, creq, err := e.plan(sp)
 		require.NoError(t, err, name)
-		_, took := e.pool.take(strategy, creq)
+		_, took := e.takePooled(strategy, creq)
 		assert.False(t, took, name)
 	}
 	assert.Equal(t, 1, e.PoolReady())
@@ -168,4 +168,27 @@ func TestAPoolIsDeletedWhenTheNodeStopsAndAfterItDies(t *testing.T) {
 	t.Cleanup(func() { _ = e3.Close() })
 	assert.Contains(t, again.deleted, "sb-old-1")
 	assert.Contains(t, again.deleted, "sb-old-2")
+}
+
+// TestEachPooledImageHasAPoolOfItsOwn: a pool per image, each of the size asked for, and a task
+// takes from the one whose image is its own.
+func TestEachPooledImageHasAPoolOfItsOwn(t *testing.T) {
+	e, err := New(Options{
+		Provider: &poolProvider{}, DataDir: t.TempDir(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Agent: func() ([]byte, error) { return []byte("agent"), nil },
+		Pool:  PoolOptions{Size: 1, Images: []string{"runtime:1", "runtime-dev:1", "runtime:1"}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.Close() })
+	require.Len(t, e.pools, 2, "one per image, however often it is named")
+	waitReady(t, e, 2)
+
+	sp := spec.TaskSpec{Image: "runtime-dev:1"}
+	sp.ApplyDefaults()
+	strategy, _, creq, err := e.plan(sp)
+	require.NoError(t, err)
+	_, took := e.takePooled(strategy, creq)
+	assert.True(t, took)
+	_, took = e.takePooled(strategy, creq)
+	assert.False(t, took, "that image's pool is empty until it refills; the other image's is not taken")
 }

@@ -48,8 +48,8 @@ const POOL_FIELDS: ProviderField[] = [
   },
   {
     key: "pool_image",
-    label: "Ready sandbox image",
-    help: "The image they are made from: the one the tasks you want sped up run in, such as the agent runtime's. On Modal, modal:<name> is an image published with Modal's SDK.",
+    label: "Ready sandbox images",
+    help: "The images they are made from, comma-separated: the ones the tasks you want sped up run in, such as your playbooks' images. Each gets Ready sandboxes of its own. On Modal, modal:<name> is an image published with Modal's SDK.",
     placeholder: "ghcr.io/podium-ade/podium-agent-runtime",
   },
 ];

@@ -17,11 +17,9 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Service is the conductor's minting service, as Connect addresses it. */
-export const Service = "podium.agent.v1.GitCredentialService";
-
-/** TurnTokenHeader must match internal/agent/api.TurnTokenHeader. */
-export const TurnTokenHeader = "X-Podium-Turn";
+/** Resource is where a capability is redeemed, under the turn surface's URL: POST it with the
+ * capability as `Authorization: Bearer` and a token comes back (internal/agent/api.NewTurnREST). */
+export const Resource = "/v1/git-tokens";
 
 /** HelperName is the script git runs. The extension matters: node needs it to load as ESM. */
 export const HelperName = "podium-git-credential.mjs";
@@ -76,11 +74,10 @@ export async function mint(
   capability: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Minted> {
-  const endpoint = `${url.replace(/\/+$/, "")}/${Service}/MintToken`;
+  const endpoint = `${url.replace(/\/+$/, "")}${Resource}`;
   const res = await fetchImpl(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json", [TurnTokenHeader]: capability },
-    body: "{}",
+    headers: { Authorization: `Bearer ${capability}` },
     signal: AbortSignal.timeout(mintTimeoutMs),
   });
   const body: unknown = await res.json().catch(() => ({}));
@@ -120,8 +117,7 @@ export function helperScript(url: string, tokenEnv: string): string {
 // to erase.
 const Url = ${JSON.stringify(url)};
 const Env = ${JSON.stringify(tokenEnv)};
-const Service = ${JSON.stringify(Service)};
-const Header = ${JSON.stringify(TurnTokenHeader)};
+const Resource = ${JSON.stringify(Resource)};
 
 async function main() {
   // Drain stdin whatever the operation is: git writes the request there and closing the
@@ -137,10 +133,9 @@ async function main() {
   if (capability === undefined || capability === "") {
     throw new Error(Env + " is not set: this turn was given no capability to mint with");
   }
-  const res = await fetch(Url.replace(/\\/+$/, "") + "/" + Service + "/MintToken", {
+  const res = await fetch(Url.replace(/\\/+$/, "") + Resource, {
     method: "POST",
-    headers: { "Content-Type": "application/json", [Header]: capability },
-    body: "{}",
+    headers: { Authorization: "Bearer " + capability },
     signal: AbortSignal.timeout(${mintTimeoutMs}),
   });
   const body = await res.json().catch(() => ({}));

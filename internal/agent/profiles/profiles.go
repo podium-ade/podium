@@ -699,6 +699,10 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
 				"repositories that turn's playbook listed", field, ref.Name))
 		}
+		if spec.IsPersonalModelKeySecret(ref.Name) {
+			errs = append(errs, fmt.Errorf("%s may not name %s: a person's model key is spent by "+
+				"the conductor on that person's conversations, never handed to a task", field, ref.Name))
+		}
 		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) ||
 			spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			errs = append(errs, fmt.Errorf("%s may not name %s: an MCP server's token "+

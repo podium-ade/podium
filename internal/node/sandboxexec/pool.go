@@ -20,6 +20,7 @@ package sandboxexec
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -40,6 +41,9 @@ type PoolOptions struct {
 	// Image is the image the pooled sandboxes boot, on a provider that boots images. Empty
 	// with a provider that cannot is the node's template.
 	Image string
+	// Images keeps a pool of Size for each image instead, in this order. A conversation's
+	// playbooks run on a handful of images, and each that is pooled starts at once.
+	Images []string
 	// TTL is how long an unclaimed sandbox lives before the provider stops it; a taken one
 	// gets its task's own. Zero is poolTTL.
 	TTL time.Duration
@@ -63,8 +67,10 @@ type pooled struct {
 
 // pool keeps Size sandboxes of one shape ready.
 type pool struct {
-	e        *Executor
-	opts     PoolOptions
+	e    *Executor
+	opts PoolOptions
+	// file is where its ready sandboxes are recorded, one per image.
+	file     string
 	strategy string
 	caps     sandbox.Capabilities
 	shape    sandbox.CreateRequest
@@ -78,16 +84,45 @@ type pool struct {
 	done    chan struct{}
 }
 
-// startPool begins filling a pool, after deleting whatever a previous run of this node left in
-// one. It returns nil when the pool is off or its shape cannot be planned.
-func (e *Executor) startPool(o PoolOptions) *pool {
+// startPools begins filling a pool for each image the options name, after deleting whatever a
+// previous run of this node left in any.
+func (e *Executor) startPools(o PoolOptions) []*pool {
 	if o.Size <= 0 {
 		return nil
 	}
+	// A previous run's single pool kept its ids in poolFile; the per-image ones do not.
+	e.deleteRecorded(filepath.Join(e.dir, poolFile))
+	images := o.Images
+	if len(images) == 0 {
+		images = []string{o.Image}
+	}
+	var out []*pool
+	seen := map[string]bool{}
+	for _, img := range images {
+		if seen[img] {
+			continue
+		}
+		seen[img] = true
+		one := o
+		one.Image, one.Images = img, nil
+		out = append(out, e.startPool(one, poolFileFor(img)))
+	}
+	return out
+}
+
+// poolFileFor is where the pool of image records its sandboxes.
+func poolFileFor(image string) string {
+	sum := sha256.Sum256([]byte(image))
+	return "pool-" + hex.EncodeToString(sum[:6]) + ".json"
+}
+
+// startPool begins filling one pool, after deleting whatever a previous run of this node left in
+// it.
+func (e *Executor) startPool(o PoolOptions, file string) *pool {
 	if o.TTL <= 0 {
 		o.TTL = poolTTL
 	}
-	p := &pool{e: e, opts: o, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	p := &pool{e: e, opts: o, file: filepath.Join(e.dir, file), wake: make(chan struct{}, 1), done: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.stop = cancel
 	p.deleteLeftovers(ctx)
@@ -264,7 +299,7 @@ func (p *pool) persistLocked() {
 		ids = append(ids, sb.ID)
 	}
 	raw, _ := json.Marshal(ids)
-	path := filepath.Join(p.e.dir, poolFile)
+	path := p.file
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o600); err == nil {
 		_ = os.Rename(tmp, path)
@@ -273,21 +308,28 @@ func (p *pool) persistLocked() {
 
 // deleteLeftovers deletes the pool a previous run of this node left behind. Their agents' tokens
 // died with that run, so they are of no use to anybody.
-func (p *pool) deleteLeftovers(ctx context.Context) {
-	raw, err := os.ReadFile(filepath.Join(p.e.dir, poolFile))
+func (p *pool) deleteLeftovers(context.Context) {
+	p.e.deleteRecorded(p.file)
+	p.persistLocked()
+}
+
+// deleteRecorded deletes the sandboxes a pool file names and the file.
+func (e *Executor) deleteRecorded(path string) {
+	raw, err := os.ReadFile(path) //nolint:gosec // our own data directory
 	if err != nil {
 		return
 	}
 	var ids []string
-	if json.Unmarshal(raw, &ids) != nil {
-		return
-	}
-	for _, id := range ids {
-		if err := p.e.p.Delete(ctx, id); err != nil {
-			p.e.log.Warn("deleting a pooled sandbox a previous run left failed", "sandbox", id, "error", err)
+	if json.Unmarshal(raw, &ids) == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		for _, id := range ids {
+			if err := e.p.Delete(ctx, id); err != nil {
+				e.log.Warn("deleting a pooled sandbox a previous run left failed", "sandbox", id, "error", err)
+			}
 		}
 	}
-	p.persistLocked()
+	_ = os.Remove(path)
 }
 
 // poolSpec is the task a pooled sandbox is made for: the pool's image, at the provider's

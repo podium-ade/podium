@@ -294,11 +294,13 @@ func (c *Conductor) delegate(
 
 	// The claim and the row are one step: a second delegation that looked before this row
 	// existed would find the workspace free as well.
-	guarded := !opts.ReadOnly && sess.SourceKind == SourceGitHub
+	// Every writer is queued, not only a pull request's: two writers of one workspace each
+	// store over what the other did. A read-only task restores and stores nothing.
+	guarded := !opts.ReadOnly
 	c.workspaceMu.Lock()
 	ahead := 0
 	if guarded {
-		writers, err := c.writersAhead(ctx, sess.ID, "")
+		writers, err := c.writersAhead(ctx, sess, playbookName, "")
 		if err != nil {
 			c.workspaceMu.Unlock()
 			return store.Delegation{}, err
@@ -334,7 +336,7 @@ func (c *Conductor) delegate(
 	if ahead == 0 {
 		return c.launch(ctx, g, sess, playbook, dlg, choice, opts)
 	}
-	c.logger.InfoContext(ctx, "a delegation waits for the pull request's workspace",
+	c.logger.InfoContext(ctx, "a delegation waits for its workspace",
 		"delegation_id", dlg.ID, "session_id", sess.ID, "playbook", playbookName, "ahead", ahead)
 	c.wg.Add(1)
 	go func() {
@@ -344,7 +346,7 @@ func (c *Conductor) delegate(
 		if opts.Wait {
 			limit = queueWait
 		}
-		if err := c.awaitWorkspace(bg, sess.ID, dlg.ID, limit); err != nil {
+		if err := c.awaitWorkspace(bg, sess, playbookName, dlg.ID, limit); err != nil {
 			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
 				"delegation_id", dlg.ID, "error", err)
 			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
@@ -352,7 +354,7 @@ func (c *Conductor) delegate(
 					"delegation_id", dlg.ID, "error", ferr)
 			}
 			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
-				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of this pull request's workspace.", playbookName)})
+				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of its workspace.", playbookName)})
 			return
 		}
 		if _, err := c.launch(bg, g, sess, playbook, dlg, choice, opts); err != nil {
@@ -422,24 +424,55 @@ func (c *Conductor) launch(
 	return dlg, nil
 }
 
-// writersAhead is the pull request's running delegations that write its workspace and were
-// recorded before self — all of them when self is "". A delegation waits only for the ones
-// ahead of it, so two waiting delegations queue rather than wait for each other.
-func (c *Conductor) writersAhead(ctx context.Context, sessionID, self string) ([]store.Delegation, error) {
-	rows, err := c.store.RunningDelegationsForSession(ctx, sessionID)
+// writersAhead is the conversation's running delegations that write the workspace playbook
+// writes, recorded before self — all of them when self is "". A delegation waits only for the
+// ones ahead of it, so two waiting delegations queue rather than wait for each other.
+//
+// A workspace is a conversation's and a playbook's, so writers of other playbooks are not in
+// the way — except on a pull request, where every writer pushes to the same branch and one
+// at a time changes it.
+func (c *Conductor) writersAhead(ctx context.Context, sess store.Session, playbook, self string) ([]store.Delegation, error) {
+	rows, err := c.store.RunningDelegationsForSession(ctx, sess.ID)
 	if err != nil {
-		return nil, fmt.Errorf("conductor: reading what is running in this pull request: %w", err)
+		return nil, fmt.Errorf("conductor: reading what is running in this conversation: %w", err)
 	}
+	everyWriter := sess.SourceKind == SourceGitHub
 	var out []store.Delegation
 	for _, d := range rows {
 		if d.ID == self {
 			break
 		}
-		if !d.ReadOnly {
+		if !d.ReadOnly && (everyWriter || d.Playbook == playbook) {
 			out = append(out, d)
 		}
 	}
 	return out, nil
+}
+
+// readWorkspace is the workspace a read-only task of the conversation restores: the one its
+// latest writer works in, which is what "read the code as it now is" means — a reviewer reads
+// the fixer's work, not a workspace of its own nothing ever wrote. With no writer yet it is
+// the playbook's own.
+func (c *Conductor) readWorkspace(ctx context.Context, sess store.Session, playbook string) string {
+	sessionID := sess.ID
+	var latest *store.Delegation
+	consider := func(rows []store.Delegation) {
+		for i, d := range rows {
+			if !d.ReadOnly && (latest == nil || d.CreatedAt.After(latest.CreatedAt)) {
+				latest = &rows[i]
+			}
+		}
+	}
+	if rows, err := c.store.RunningDelegationsForSession(ctx, sessionID); err == nil {
+		consider(rows)
+	}
+	if rows, err := c.store.FinishedDelegationsForSession(ctx, sessionID, time.Time{}, 50); err == nil {
+		consider(rows)
+	}
+	if latest == nil {
+		return workspaceKey(sess, playbook)
+	}
+	return workspaceKey(sess, latest.Playbook)
 }
 
 // stillWorking is the first writer that has not answered: a task working, or one not
@@ -485,10 +518,10 @@ var endWaitGrace = 5 * time.Minute
 // awaitWorkspace waits until no writer ahead of self is running. A writer that has answered
 // is released; one still working is waited for until it answers. The node stores a task's
 // snapshot before it reports the task exited, so a free workspace is a stored one.
-func (c *Conductor) awaitWorkspace(ctx context.Context, sessionID, self string, limit time.Duration) error {
+func (c *Conductor) awaitWorkspace(ctx context.Context, sess store.Session, playbook, self string, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for {
-		writers, err := c.writersAhead(ctx, sessionID, self)
+		writers, err := c.writersAhead(ctx, sess, playbook, self)
 		if err != nil {
 			return err
 		}
@@ -654,6 +687,7 @@ func (c *Conductor) startDelegatedTask(
 		c.logger.WarnContext(ctx, "reading the conversation for a delegated task failed; running it without history",
 			"delegation_id", dlg.ID, "ref", g.ref, "error", err)
 	}
+	entries = c.withSummary(ctx, sess.ID, entries)
 	j := playbookJob(playbook)
 	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
@@ -706,10 +740,11 @@ func (c *Conductor) startDelegatedTask(
 		return nil, err
 	}
 	taskSpec := c.taskSpec(g.src, c.placed(ctx, playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
-	applyWorkspace(taskSpec, sess.ID, playbook)
+	applyWorkspace(taskSpec, sess, playbook)
 	if opts.ReadOnly {
 		taskSpec.WorkspaceReadOnly = true
 		taskSpec.WorkspacePublishBase = false
+		taskSpec.WorkspaceSession = c.readWorkspace(ctx, sess, playbook.Name)
 	}
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
@@ -1077,6 +1112,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	r.c.linkPullRequests(ctx, r.src, r.ref, answer,
 		"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID)
 	r.c.metrics.Delegations.WithLabelValues(r.dlg.Playbook, status).Inc()
+	r.c.notifyAway(ctx, r.src, r.ref, r.dlg, status, answer)
 	r.c.logger.InfoContext(ctx, "a delegated task finished", "delegation_id", r.dlg.ID,
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)
 }
