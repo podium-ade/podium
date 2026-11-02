@@ -119,6 +119,11 @@ func TestPersonalSecretNamesReservedForTheConductorAreRefused(t *testing.T) {
 	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: mcp.PersonalTokenSecret("linear")}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), mcp.PersonalTokenSecret("linear"))
+
+	// A person's own model credential is attached by the conductor, never by a playbook.
+	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: profiles.PersonalSecretFor(profiles.ProviderAnthropic)}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), profiles.PersonalSecretFor(profiles.ProviderAnthropic))
 }
 
 // Two people who register the same server share a secret name. The owner on the secret

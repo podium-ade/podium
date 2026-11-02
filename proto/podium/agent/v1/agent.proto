@@ -443,14 +443,22 @@ message ProviderSettings {
   // refreshable is true when a refresh token was issued, which is what makes an OAuth
   // credential survive its first hour without a human.
   bool refreshable = 10;
+  // global is true for the company credential an admin set, which every turn without a
+  // credential of its person's own spends, and false for one person's own.
+  bool global = 11;
 }
 
 message GetSettingsResponse {
   // provider is the Anthropic row, kept for the clients that only ever knew about one.
   ProviderSettings provider = 1;
   // providers is every provider this conductor knows, Anthropic included, in a stable
-  // order. New clients read this and ignore the field above.
+  // order. New clients read this and ignore the field above. These are the global
+  // credentials: the ones an admin set for everyone.
   repeated ProviderSettings providers = 2;
+  // personal is the caller's own credential for every provider, in the same order. A turn
+  // the caller asks for spends theirs when it is set and the global one when it is not.
+  // Empty for a caller who is not a signed-in person, such as the dev token.
+  repeated ProviderSettings personal = 3;
 }
 
 message GetConnectionsRequest {}
@@ -642,6 +650,10 @@ message SetProviderKeyRequest {
   // SENSITIVE: never log this field. The handler wraps the request in a redacting
   // slog.LogValuer so no log site has to remember.
   string key = 2;
+  // global sets the company key every turn falls back to. Only an admin or owner may, and
+  // only an API key: a subscription belongs to the person who signed in. False saves the
+  // caller's own key.
+  bool global = 3;
 }
 
 message SetProviderKeyResponse {
@@ -669,13 +681,17 @@ message ProviderKeyError {
 
 message ClearProviderKeyRequest {
   string provider = 1;
+  // global removes the company credential, which only an admin or owner may. False
+  // removes the caller's own.
+  bool global = 2;
 }
 
 message ClearProviderKeyResponse {}
 
 message StartProviderOAuthRequest {
   // provider is "xai" or "openai". Anthropic and Google take an API key on this control plane and answer
-  // invalid_argument here.
+  // invalid_argument here. A sign-in is always the caller's own: a subscription is one
+  // person's, so there is no global one.
   string provider = 1;
 }
 
@@ -749,10 +765,14 @@ message AgentBackend {
   string note = 4;
   string default_model = 5;
   repeated AgentModel models = 6;
-  // ready is true when this control plane holds a credential for the backend. A playbook may
-  // still be saved against a backend that is not ready — the operator may be setting it up
-  // in either order — and the UI says so rather than refusing.
+  // ready is true when a turn the caller asks for would find a credential for the backend:
+  // their own, or the global one. A playbook may still be saved against a backend that is
+  // not ready — the operator may be setting it up in either order — and the UI says so
+  // rather than refusing.
   bool ready = 7;
+  // credential_source is whose credential that turn would spend: "personal" for the
+  // caller's own, "global" for the company one, and "" when neither is set.
+  string credential_source = 8;
 }
 
 message ListAgentsRequest {}

@@ -54,7 +54,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const seen = chatSeenBaseline(list, readChatSeen());
     writeChatSeen(seen);
     const open = openChatId(window.location.pathname);
-    const current = [...alertsFromProviders(settings.data.providers), ...alertsFromChats(list, seen, open)];
+    const now = Date.now();
+    const current = [
+      ...alertsFromProviders(settings.data.providers, now, "global"),
+      ...alertsFromProviders(settings.data.personal, now, "personal"),
+      ...alertsFromChats(list, seen, open),
+    ];
     const stored = readNotifications();
     const merged = mergeNotifications(stored, current, Date.now());
     if (!sameNotifications(merged, stored)) writeNotifications(merged);

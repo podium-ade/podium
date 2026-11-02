@@ -32,7 +32,8 @@ func newGoogleService(t *testing.T) (*AgentService, *fakeSecrets, *bytes.Buffer)
 
 func TestSetProviderKeyStoresTheGoogleKeyUnderItsOwnSecret(t *testing.T) {
 	svc, secrets, log := newGoogleService(t)
-	res, err := svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	res, err := svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderGoogle, Key: fakeGoogleKey,
 	}))
 	require.NoError(t, err)
@@ -47,7 +48,8 @@ func TestSetProviderKeyStoresTheGoogleKeyUnderItsOwnSecret(t *testing.T) {
 
 func TestSetProviderKeyRefusesABadGoogleKeyAndStoresNothing(t *testing.T) {
 	svc, secrets, _ := newGoogleService(t)
-	_, err := svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderGoogle, Key: "AIzaWrong00000000",
 	}))
 	require.Error(t, err)
@@ -68,12 +70,13 @@ func TestGoogleOffersNoSubscriptionSignIn(t *testing.T) {
 
 func TestListAgentsMarksGeminiReadyOnceAKeyIsStored(t *testing.T) {
 	svc, _, _ := newGoogleService(t)
-	_, err := svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderGoogle, Key: fakeGoogleKey,
 	}))
 	require.NoError(t, err)
 
-	res, err := svc.ListAgents(loginCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
+	res, err := svc.ListAgents(adminCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
 	require.NoError(t, err)
 	var seen bool
 	for _, a := range res.Msg.GetAgents() {

@@ -28,6 +28,14 @@ func TestTheConductorStoresAPersonalMCPCredentialForThatPerson(t *testing.T) {
 	_, _, err = s.authorizeWrite(agent, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, "podium.agent.mcp.linear_token", "ada@acme.com")
 	require.Error(t, err)
 
+	// A person's own model credential and its refresh token, likewise.
+	for _, name := range []string{"model.anthropic.api_key", "model.openai.refresh_token"} {
+		scope, owner, err = s.authorizeWrite(agent, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, name, "ada@acme.com")
+		require.NoError(t, err, name)
+		assert.Equal(t, store.SecretScopePersonal, scope)
+		assert.Equal(t, "ada@acme.com", owner)
+	}
+
 	dev := transport.NewContext(context.Background(), transport.Identity{Kind: transport.KindLocalToken, Login: "local"})
 	_, _, err = s.authorizeWrite(dev, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, "mcp.linear_token", "ada@acme.com")
 	require.Error(t, err)

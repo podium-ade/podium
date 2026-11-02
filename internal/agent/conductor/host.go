@@ -169,7 +169,8 @@ type HostRuntime struct {
 	Credential func(ctx context.Context, provider string) (string, error)
 	// PersonalCredential is one person's own key for a provider, when they set one (a personal
 	// secret, spec.PersonalModelKeySecretName); empty when they did not. The chat host's gateway
-	// spends it on that person's turns before the company's. Nil is nobody's.
+	// spends it on that person's turns before the company's, and so does a host turn the
+	// conductor decided spends it (profiles.Choice.CredentialOwner). Nil is nobody's.
 	PersonalCredential func(ctx context.Context, login, provider string) (string, error)
 	// TurnURL is the conductor's own address as a host turn reaches it — loopback, the same
 	// listener the operator API is on, with TurnService mounted beside it. Empty means this
@@ -293,6 +294,8 @@ type hostRun struct {
 	servers []mcp.Server
 	// provider is where this turn's requests go and which variable its credential lands in.
 	provider *BriefProvider
+	// credOwner is whose credential the turn spends (profiles.Choice.CredentialOwner).
+	credOwner string
 	// memoryKeyEnv is the variable the memory server's bearer has to land in, taken from
 	// the brief this turn actually carries rather than from the constant it was built from:
 	// a brief that names one variable and an environment that sets another is a failed turn.
@@ -607,7 +610,14 @@ func (h *hostRun) giveUp(ctx context.Context, say string) {
 // here for a stated reason.
 func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 	c := h.r.c
-	key, err := c.host.Credential(ctx, h.provider.ID)
+	// The credential the turn was decided to spend: its person's own, or the global one.
+	var key string
+	var err error
+	if h.credOwner != "" && c.host.PersonalCredential != nil {
+		key, err = c.host.PersonalCredential(ctx, h.credOwner, h.provider.ID)
+	} else {
+		key, err = c.host.Credential(ctx, h.provider.ID)
+	}
 	if err != nil {
 		return nil, err
 	}

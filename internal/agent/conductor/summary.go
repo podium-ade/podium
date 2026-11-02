@@ -135,7 +135,7 @@ func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
 // assistant's own backend. It is for the conductor's own housekeeping, never a person's turn.
 func (c *Conductor) chatComplete(ctx context.Context, system, prompt string) (string, error) {
 	choice := c.profiles.Current().ResolveAssistant(profiles.Override{})
-	provider := c.providerFor(choice.Agent)
+	provider := c.providerFor(choice.Agent, "")
 	cv, err := c.chatConvFor(summaryLocation)
 	if err != nil {
 		return "", err

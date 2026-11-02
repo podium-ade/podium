@@ -570,7 +570,7 @@ describe("AgentPage", () => {
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
     await waitFor(() =>
-      expect(setProviderKey).toHaveBeenCalledWith({ provider: "anthropic", key: KEY }),
+      expect(setProviderKey).toHaveBeenCalledWith({ provider: "anthropic", key: KEY, global: true }),
     );
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Connected"),
@@ -588,12 +588,59 @@ describe("AgentPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() =>
-      expect(clearProviderKey).toHaveBeenCalledWith({ provider: "anthropic" }),
+      expect(clearProviderKey).toHaveBeenCalledWith({ provider: "anthropic", global: true }),
     );
     expect(clearProviderKey).toHaveBeenCalledTimes(1);
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
     ).toBeInTheDocument();
+  });
+
+  it("gives a signed-in member their own keys and shows the global ones read-only", async () => {
+    const member: Viewer = {
+      ...viewer,
+      login: "bob@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleMember],
+      claimed: true,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    };
+    getSettings.mockResolvedValue({
+      ...connected,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+    });
+    setProviderKey.mockResolvedValue({
+      provider: { ...anthropicConnected, global: false },
+      models: ["claude-opus-5"],
+      status: "",
+    });
+    mount("/agent/settings/models", member);
+
+    // Yours is where a person lands, with the same Yours / Global tabs as Secrets and MCP.
+    const yours = await screen.findByTestId("models-yours");
+    expect(screen.getByRole("tab", { name: /Yours/ })).toHaveAttribute("aria-selected", "true");
+    const card = within(yours).getByTestId("provider-card-anthropic");
+    expect(await within(card).findByText("Not set")).toBeInTheDocument();
+    // The company key is what their chats run on until they save their own.
+    expect(within(card).getByTestId("provider-fallback-anthropic")).toHaveTextContent(
+      "Using the global key",
+    );
+
+    await userEvent.click(within(card).getByRole("button", { name: "Connect" }));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
+    await waitFor(() =>
+      expect(setProviderKey).toHaveBeenCalledWith({ provider: "anthropic", key: KEY, global: false }),
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: /Global/ }));
+    const global = await screen.findByTestId("models-global");
+    expect(screen.getByText(/Only an admin or owner can change them/)).toBeInTheDocument();
+    const globalCard = within(global).getByTestId("provider-card-anthropic");
+    expect(within(globalCard).getByText("Connected")).toBeInTheDocument();
+    expect(within(globalCard).queryByRole("button", { name: "Rotate key" })).toBeNull();
+    expect(within(globalCard).queryByTestId("provider-key-remove-anthropic")).toBeNull();
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

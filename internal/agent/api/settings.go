@@ -36,6 +36,12 @@ const (
 	AuthOAuth  = "oauth"
 )
 
+// Whose credential a turn spends, as ListAgents reports it.
+const (
+	CredentialPersonal = "personal"
+	CredentialGlobal   = "global"
+)
+
 // validateTimeout bounds the call to the provider. An operator is waiting on a button.
 const validateTimeout = 10 * time.Second
 
@@ -142,8 +148,76 @@ func findProvider(name string) (providerSpec, error) {
 			name, strings.Join(known, ", ")))
 }
 
-// providerSettingKey is the settings row one provider's metadata lives in.
-func providerSettingKey(provider string) string { return "provider." + provider }
+// credTarget is one stored credential: a provider's, and whose. An empty owner is the
+// global credential an admin set, which every turn without one of its person's own spends;
+// a login is that person's own, kept on their personal secret list.
+type credTarget struct {
+	p     providerSpec
+	owner string
+}
+
+func globalTarget(p providerSpec) credTarget { return credTarget{p: p} }
+
+// secret is the Podium secret the bearer lives in.
+func (t credTarget) secret() string { return profiles.CredentialSecretFor(t.p.name, t.owner) }
+
+// refreshName is where a sign-in's refresh token lives.
+func (t credTarget) refreshName() string {
+	if t.owner == "" {
+		return refreshSecret(t.p)
+	}
+	return spec.PersonalModelRefreshSecretName(t.p.name)
+}
+
+// settingKey is the settings row this credential's metadata lives in.
+func (t credTarget) settingKey() string { return profiles.ProviderSettingKey(t.p.name, t.owner) }
+
+// The four secret operations, each routed to the global list or the owner's personal one.
+func (s *AgentService) setCredSecret(ctx context.Context, t credTarget, name string, value []byte) (int32, error) {
+	if t.owner == "" {
+		return s.secrets.SetSecret(ctx, name, value)
+	}
+	return s.secrets.SetPersonalSecret(ctx, t.owner, name, value)
+}
+
+func (s *AgentService) deleteCredSecret(ctx context.Context, t credTarget, name string) error {
+	var err error
+	if t.owner == "" {
+		err = s.secrets.DeleteSecret(ctx, name)
+	} else {
+		err = s.secrets.DeletePersonalSecret(ctx, t.owner, name)
+	}
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return nil
+	}
+	return err
+}
+
+func (s *AgentService) credSecretVersion(ctx context.Context, t credTarget) (int32, error) {
+	if t.owner == "" {
+		return s.secretVersion(ctx, t.secret())
+	}
+	return s.personalSecretVersion(ctx, t.owner, t.secret())
+}
+
+// providerOwner is whose credential a provider mutation touches. A signed-in person writes
+// their own unless they ask for the global one, which only an admin or owner may. A caller
+// that is not a person — the dev token, the local transport — has nobody to own a
+// credential, so it writes the global one, which is what this control plane always did.
+func providerOwner(ctx context.Context, global bool) (string, error) {
+	person := mcpPersonalOwner(Login(ctx))
+	if person == "" {
+		return "", nil
+	}
+	if global {
+		if !Infra(ctx) {
+			return "", connect.NewError(connect.CodePermissionDenied,
+				errors.New("only an admin or owner can set the global key; save your own key instead"))
+		}
+		return "", nil
+	}
+	return person, nil
+}
 
 // providerRow is the jsonb of the settings row.
 //
@@ -200,6 +274,9 @@ type oauthFlow struct {
 	interval   time.Duration
 	expiresAt  time.Time
 	startedBy  string
+	// owner is whose credential the sign-in stores: the person who started it, or empty for
+	// a caller that is not a person.
+	owner string
 }
 
 // GetSettings reports what the conductor is configured with.
@@ -213,8 +290,9 @@ func (s *AgentService) GetSettings(
 	ctx context.Context, _ *connect.Request[agentv1.GetSettingsRequest],
 ) (*connect.Response[agentv1.GetSettingsResponse], error) {
 	out := &agentv1.GetSettingsResponse{}
+	person := mcpPersonalOwner(Login(ctx))
 	for _, p := range providerSpecs {
-		ps, err := s.providerState(ctx, p)
+		ps, err := s.providerState(ctx, globalTarget(p))
 		if err != nil {
 			return nil, err
 		}
@@ -223,24 +301,35 @@ func (s *AgentService) GetSettings(
 			// The field the clients that only ever knew about one provider read.
 			out.Provider = ps
 		}
+		if person != "" {
+			mine, err := s.providerState(ctx, credTarget{p: p, owner: person})
+			if err != nil {
+				return nil, err
+			}
+			out.Personal = append(out.Personal, mine)
+		}
 	}
 	return connect.NewResponse(out), nil
 }
 
 // providerState is one provider's row as the UI sees it.
-func (s *AgentService) providerState(ctx context.Context, p providerSpec) (*agentv1.ProviderSettings, error) {
-	row, hasRow, err := s.providerRow(ctx, p)
+func (s *AgentService) providerState(ctx context.Context, t credTarget) (*agentv1.ProviderSettings, error) {
+	p := t.p
+	row, hasRow, err := s.providerRow(ctx, t)
 	if err != nil {
 		return nil, err
 	}
-	out := &agentv1.ProviderSettings{Provider: p.name, Model: s.currentModel()}
-	version, verr := s.secretVersion(ctx, p.secret)
+	out := &agentv1.ProviderSettings{Provider: p.name, Model: s.currentModel(), Global: t.owner == ""}
+	if s.secrets == nil {
+		return out, nil
+	}
+	version, verr := s.credSecretVersion(ctx, t)
 	switch {
 	case verr != nil:
 		// The control plane could not be asked. Reporting the last thing we knew beats a
 		// broken page, and the log says the answer may be stale.
 		s.logger.WarnContext(ctx, "could not confirm a provider credential with the control "+
-			"plane; reporting the last known state", "provider", p.name, "error", verr)
+			"plane; reporting the last known state", "provider", p.name, "owner", t.owner, "error", verr)
 		out.KeySet = hasRow
 	case version == 0:
 		// No secret. A row here is stale — somebody removed the credential with the CLI —
@@ -296,6 +385,11 @@ func (s *AgentService) SetProviderKey(
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("this conductor has no Podium API client, so it cannot store a key"))
 	}
+	owner, err := providerOwner(ctx, req.Msg.GetGlobal())
+	if err != nil {
+		return nil, err
+	}
+	t := credTarget{p: p, owner: owner}
 
 	// One []byte, zeroed on the way out. The proto's string still exists in this process's
 	// memory until the request is collected — that is what a proto string costs — but
@@ -335,7 +429,7 @@ func (s *AgentService) SetProviderKey(
 			fmt.Errorf("could not validate the key with %s; nothing was saved", p.label), said)
 	}
 
-	row, err := s.storeCredential(ctx, p, key, providerRow{
+	row, err := s.storeCredential(ctx, t, key, providerRow{
 		KeyHint:  keyHint(key),
 		SetBy:    login,
 		SetAt:    time.Now().UTC(),
@@ -345,11 +439,11 @@ func (s *AgentService) SetProviderKey(
 		return nil, err
 	}
 	s.logger.InfoContext(ctx, "a provider key was validated and stored",
-		"provider", p.name, "login", login, "key_hint", row.KeyHint,
+		"provider", p.name, "login", login, "global", owner == "", "key_hint", row.KeyHint,
 		"secret_version", row.SecretVersion, "models", len(models))
 
 	return connect.NewResponse(&agentv1.SetProviderKeyResponse{
-		Provider: providerSettings(p.name, row, s.currentModel()),
+		Provider: providerSettings(t, row, s.currentModel()),
 		Models:   models,
 		Status:   p.unusual(key),
 	}), nil
@@ -362,9 +456,9 @@ func (s *AgentService) SetProviderKey(
 // leave a refresh token behind that the background pass would keep using — it would
 // overwrite the key the operator just pasted.
 func (s *AgentService) storeCredential(
-	ctx context.Context, p providerSpec, key []byte, row providerRow,
+	ctx context.Context, t credTarget, key []byte, row providerRow,
 ) (providerRow, error) {
-	version, err := s.secrets.SetSecret(ctx, p.secret, key)
+	version, err := s.setCredSecret(ctx, t, t.secret(), key)
 	if err != nil {
 		// Verbatim: the control plane's own words are what an operator needs here — a
 		// missing master key reads very differently from a network failure.
@@ -372,16 +466,17 @@ func (s *AgentService) storeCredential(
 			fmt.Errorf("the credential is valid but storing it failed: %w", err))
 	}
 	row.SecretVersion = version
-	return s.putProviderRow(ctx, p, row)
+	return s.putProviderRow(ctx, t, row)
 }
 
 // putProviderRow stores a sign-in's refresh token in the secret store, or removes it when
 // the row no longer has one, and then writes the row without any credential.
-func (s *AgentService) putProviderRow(ctx context.Context, p providerSpec, row providerRow) (providerRow, error) {
+func (s *AgentService) putProviderRow(ctx context.Context, t credTarget, row providerRow) (providerRow, error) {
+	p := t.p
 	switch {
 	case row.RefreshToken != "":
 		refresh := []byte(row.RefreshToken)
-		_, err := s.secrets.SetSecret(ctx, refreshSecret(p), refresh)
+		_, err := s.setCredSecret(ctx, t, t.refreshName(), refresh)
 		zero(refresh)
 		if err != nil {
 			return providerRow{}, connect.NewError(connect.CodeOf(err),
@@ -389,14 +484,13 @@ func (s *AgentService) putProviderRow(ctx context.Context, p providerSpec, row p
 		}
 		row.Refreshable = true
 	case !row.Refreshable && p.oauth:
-		if err := s.secrets.DeleteSecret(ctx, refreshSecret(p)); err != nil &&
-			connect.CodeOf(err) != connect.CodeNotFound {
+		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return providerRow{}, connect.NewError(connect.CodeOf(err),
 				fmt.Errorf("removing the refresh token failed: %w", err))
 		}
 	}
 	row.RefreshToken, row.Credential = "", ""
-	if err := s.store.PutSetting(ctx, providerSettingKey(p.name), row); err != nil {
+	if err := s.store.PutSetting(ctx, t.settingKey(), row); err != nil {
 		return providerRow{}, storeError(err)
 	}
 	return row, nil
@@ -417,23 +511,27 @@ func (s *AgentService) ClearProviderKey(
 			errors.New("this conductor has no Podium API client, so it cannot remove a key"))
 	}
 	login := Login(ctx)
-	if err := s.secrets.DeleteSecret(ctx, p.secret); err != nil &&
-		connect.CodeOf(err) != connect.CodeNotFound {
+	owner, err := providerOwner(ctx, req.Msg.GetGlobal())
+	if err != nil {
+		return nil, err
+	}
+	t := credTarget{p: p, owner: owner}
+	if err := s.deleteCredSecret(ctx, t, t.secret()); err != nil {
 		return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the key failed: %w", err))
 	}
 	// The refresh token goes too, and that is what actually signs out: leaving it would let
 	// the background pass mint a new access token for a provider the operator has just
 	// disconnected.
 	if p.oauth {
-		if err := s.secrets.DeleteSecret(ctx, refreshSecret(p)); err != nil &&
-			connect.CodeOf(err) != connect.CodeNotFound {
+		if err := s.deleteCredSecret(ctx, t, t.refreshName()); err != nil {
 			return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the refresh token failed: %w", err))
 		}
 	}
-	if err := s.store.DeleteSetting(ctx, providerSettingKey(p.name)); err != nil {
+	if err := s.store.DeleteSetting(ctx, t.settingKey()); err != nil {
 		return nil, storeError(err)
 	}
-	s.logger.InfoContext(ctx, "a provider credential was removed", "provider", p.name, "login", login)
+	s.logger.InfoContext(ctx, "a provider credential was removed", "provider", p.name, "login", login,
+		"global", owner == "")
 	return connect.NewResponse(&agentv1.ClearProviderKeyResponse{}), nil
 }
 
@@ -448,6 +546,16 @@ func (s *AgentService) StartProviderOAuth(
 		return nil, err
 	}
 	client, err := s.oauthFor(p)
+	if err != nil {
+		return nil, err
+	}
+	if s.secrets == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("this conductor has no Podium API client, so it cannot store a sign-in"))
+	}
+	// A subscription is the person's who signed in, so a sign-in is always stored as theirs.
+	// There is no global one to start: the global credential is an API key an admin pastes.
+	owner, err := providerOwner(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -484,6 +592,7 @@ func (s *AgentService) StartProviderOAuth(
 		interval:   interval,
 		expiresAt:  expires,
 		startedBy:  Login(ctx),
+		owner:      owner,
 	})
 	s.logger.InfoContext(ctx, "a subscription sign-in was started",
 		"provider", p.name, "login", Login(ctx), "expires_at", expires)
@@ -517,7 +626,9 @@ func (s *AgentService) PollProviderOAuth(
 		return nil, err
 	}
 	flow, ok := s.flow(req.Msg.GetFlowId())
-	if !ok || flow.provider != p.name {
+	// A flow is finished only by the person who started it: it stores a credential on their
+	// list, and a flow id seen by somebody else must not let them finish it.
+	if !ok || flow.provider != p.name || flow.startedBy != Login(ctx) {
 		// An unknown flow is one that expired, one that already finished, or one from
 		// before a restart. All three mean the same thing to a human: start again.
 		return connect.NewResponse(&agentv1.PollProviderOAuthResponse{State: OAuthExpired}), nil
@@ -589,15 +700,16 @@ func (s *AgentService) PollProviderOAuth(
 		ExpiresAt:    expiryOf(tok),
 		RefreshToken: tok.RefreshToken,
 	}
-	stored, err := s.storeCredential(ctx, p, token, row)
+	t := credTarget{p: p, owner: flow.owner}
+	stored, err := s.storeCredential(ctx, t, token, row)
 	if err != nil {
 		return nil, err
 	}
 	s.logger.InfoContext(ctx, "a subscription sign-in was stored", "provider", p.name,
-		"login", flow.startedBy, "account", stored.Account, "expires_at", stored.ExpiresAt,
-		"refreshable", stored.Refreshable, "models", len(models))
+		"login", flow.startedBy, "global", flow.owner == "", "account", stored.Account,
+		"expires_at", stored.ExpiresAt, "refreshable", stored.Refreshable, "models", len(models))
 
-	out.Provider = providerSettings(p.name, stored, s.currentModel())
+	out.Provider = providerSettings(t, stored, s.currentModel())
 	return connect.NewResponse(out), nil
 }
 
@@ -606,10 +718,23 @@ func (s *AgentService) PollProviderOAuth(
 func (s *AgentService) ListAgents(
 	ctx context.Context, _ *connect.Request[agentv1.ListAgentsRequest],
 ) (*connect.Response[agentv1.ListAgentsResponse], error) {
-	ready := map[string]bool{}
+	// source is whose credential a turn this caller asks for would spend, per provider: the
+	// same choice the conductor makes when the turn starts.
+	source := map[string]string{}
+	person := mcpPersonalOwner(Login(ctx))
 	for _, p := range providerSpecs {
 		if s.secrets == nil {
 			continue
+		}
+		if person != "" {
+			v, err := s.credSecretVersion(ctx, credTarget{p: p, owner: person})
+			if err != nil {
+				s.logger.DebugContext(ctx, "could not check a personal provider credential for the picker",
+					"provider", p.name, "error", err)
+			} else if v > 0 {
+				source[p.name] = CredentialPersonal
+				continue
+			}
 		}
 		v, err := s.secretVersion(ctx, p.secret)
 		if err != nil {
@@ -619,18 +744,21 @@ func (s *AgentService) ListAgents(
 				"provider", p.name, "error", err)
 			continue
 		}
-		ready[p.name] = v > 0
+		if v > 0 {
+			source[p.name] = CredentialGlobal
+		}
 	}
 
 	out := &agentv1.ListAgentsResponse{DefaultAgent: profiles.DefaultAgent}
 	for _, b := range profiles.Backends {
 		ab := &agentv1.AgentBackend{
-			Id:           b.ID,
-			DisplayName:  b.DisplayName,
-			Provider:     b.Provider,
-			Note:         b.Note,
-			DefaultModel: b.DefaultModel,
-			Ready:        ready[b.Provider],
+			Id:               b.ID,
+			DisplayName:      b.DisplayName,
+			Provider:         b.Provider,
+			Note:             b.Note,
+			DefaultModel:     b.DefaultModel,
+			Ready:            source[b.Provider] != "",
+			CredentialSource: source[b.Provider],
 		}
 		for _, m := range b.Models {
 			ab.Models = append(ab.Models, &agentv1.AgentModel{
@@ -655,7 +783,7 @@ func (s *AgentService) MoveCredentialsIntoStore(ctx context.Context) {
 		return
 	}
 	for _, p := range providerSpecs {
-		if _, _, err := s.providerRow(ctx, p); err != nil {
+		if _, _, err := s.providerRow(ctx, globalTarget(p)); err != nil {
 			s.logger.WarnContext(ctx, "reading a provider row to move its credential failed",
 				"provider", p.name, "error", err)
 		}
@@ -711,65 +839,98 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 	// working an hour later and the first anybody hears of it is a turn failing" is the
 	// same problem — see refreshMcpOnce.
 	s.refreshMcpOnce(ctx)
-	for _, p := range providerSpecs {
-		if !p.oauth || s.secrets == nil || s.store == nil {
-			continue
-		}
-		client, err := s.oauthFor(p)
+	if s.secrets == nil || s.store == nil {
+		return
+	}
+	for _, t := range s.signedInTargets(ctx) {
+		client, err := s.oauthFor(t.p)
 		if err != nil {
 			continue
 		}
-		row, ok, err := s.providerRow(ctx, p)
+		row, ok, err := s.providerRow(ctx, t)
 		if err != nil || !ok || row.authKind() != AuthOAuth || !row.refreshable() {
 			continue
 		}
 		if !row.ExpiresAt.IsZero() && time.Until(row.ExpiresAt) > refreshLead {
 			continue
 		}
-		refresh := row.RefreshToken
-		if refresh == "" {
-			raw, err := s.secrets.ReadSecret(ctx, "", refreshSecret(p))
-			if err != nil {
-				s.logger.WarnContext(ctx, "reading a subscription's refresh token failed; this "+
-					"will be tried again", "provider", p.name, "error", err)
-				continue
-			}
-			refresh = string(raw)
-			zero(raw)
-		}
+		s.refreshProvider(ctx, client, t, row)
+	}
+}
 
-		callCtx, cancel := context.WithTimeout(ctx, validateTimeout)
-		tok, err := client.refresh(callCtx, refresh)
-		cancel()
-		if err != nil {
-			s.logger.WarnContext(ctx, "refreshing a subscription token failed; the stored one "+
-				"is kept and this will be tried again. Sign in again if turns start failing",
-				"provider", p.name, "expires_at", row.ExpiresAt, "error", err)
+// signedInTargets is every stored credential a refresh pass looks at: each subscription
+// provider's global row — a sign-in stored before sign-ins became personal, still kept
+// alive — and every person's own row for it.
+func (s *AgentService) signedInTargets(ctx context.Context) []credTarget {
+	var out []credTarget
+	for _, p := range providerSpecs {
+		if !p.oauth {
 			continue
 		}
-
-		token := []byte(tok.AccessToken)
-		next := row
-		next.RefreshToken = refresh
-		next.ExpiresAt = expiryOf(tok)
-		if tok.RefreshToken != "" {
-			// A provider that rotates refresh tokens invalidates the old one, so keeping
-			// the old one would mean the next refresh fails.
-			next.RefreshToken = tok.RefreshToken
+		out = append(out, globalTarget(p))
+		prefix := profiles.ProviderSettingKey(p.name, "") + "@"
+		rows, err := s.store.SettingsWithPrefix(ctx, prefix)
+		if err != nil {
+			s.logger.WarnContext(ctx, "listing personal sign-ins to refresh failed; this will be "+
+				"tried again", "provider", p.name, "error", err)
+			continue
 		}
-		if a := account(tok); a != "" {
-			next.Account = a
+		for key := range rows {
+			if owner := strings.TrimPrefix(key, prefix); owner != "" {
+				out = append(out, credTarget{p: p, owner: owner})
+			}
 		}
-		if _, err := s.storeCredential(ctx, p, token, next); err != nil {
-			s.logger.ErrorContext(ctx, "a subscription token was refreshed but could not be "+
-				"stored; turns will keep using the previous one until it expires",
-				"provider", p.name, "error", err)
-		} else {
-			s.logger.InfoContext(ctx, "a subscription token was refreshed",
-				"provider", p.name, "expires_at", next.ExpiresAt)
-		}
-		zero(token)
 	}
+	return out
+}
+
+// refreshProvider trades one stored sign-in's refresh token for a new access token and
+// stores both.
+func (s *AgentService) refreshProvider(ctx context.Context, client oauthSession, t credTarget, row providerRow) {
+	p := t.p
+	refresh := row.RefreshToken
+	if refresh == "" {
+		raw, err := s.secrets.ReadSecret(ctx, t.owner, t.refreshName())
+		if err != nil {
+			s.logger.WarnContext(ctx, "reading a subscription's refresh token failed; this "+
+				"will be tried again", "provider", p.name, "owner", t.owner, "error", err)
+			return
+		}
+		refresh = string(raw)
+		zero(raw)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, validateTimeout)
+	tok, err := client.refresh(callCtx, refresh)
+	cancel()
+	if err != nil {
+		s.logger.WarnContext(ctx, "refreshing a subscription token failed; the stored one "+
+			"is kept and this will be tried again. Sign in again if turns start failing",
+			"provider", p.name, "owner", t.owner, "expires_at", row.ExpiresAt, "error", err)
+		return
+	}
+
+	token := []byte(tok.AccessToken)
+	defer zero(token)
+	next := row
+	next.RefreshToken = refresh
+	next.ExpiresAt = expiryOf(tok)
+	if tok.RefreshToken != "" {
+		// A provider that rotates refresh tokens invalidates the old one, so keeping
+		// the old one would mean the next refresh fails.
+		next.RefreshToken = tok.RefreshToken
+	}
+	if a := account(tok); a != "" {
+		next.Account = a
+	}
+	if _, err := s.storeCredential(ctx, t, token, next); err != nil {
+		s.logger.ErrorContext(ctx, "a subscription token was refreshed but could not be "+
+			"stored; turns will keep using the previous one until it expires",
+			"provider", p.name, "owner", t.owner, "error", err)
+		return
+	}
+	s.logger.InfoContext(ctx, "a subscription token was refreshed",
+		"provider", p.name, "owner", t.owner, "expires_at", next.ExpiresAt)
 }
 
 // oauthFor is the provider's OAuth client, or the reason there is not one.
@@ -799,9 +960,10 @@ func (s *AgentService) oauthFor(p providerSpec) (oauthSession, error) {
 // A row that still carries a credential in clear is moved: the refresh token into the secret
 // store, and the bearer copy dropped, since the provider's secret already holds it. If the
 // move fails the row is returned as it was and the move is tried on the next read.
-func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (providerRow, bool, error) {
+func (s *AgentService) providerRow(ctx context.Context, t credTarget) (providerRow, bool, error) {
+	p := t.p
 	var row providerRow
-	err := s.store.GetSetting(ctx, providerSettingKey(p.name), &row)
+	err := s.store.GetSetting(ctx, t.settingKey(), &row)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return providerRow{}, false, nil
@@ -809,7 +971,7 @@ func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (provide
 		return providerRow{}, false, storeError(err)
 	}
 	if (row.RefreshToken != "" || row.Credential != "") && s.secrets != nil {
-		moved, err := s.putProviderRow(ctx, p, row)
+		moved, err := s.putProviderRow(ctx, t, row)
 		if err != nil {
 			s.logger.WarnContext(ctx, "moving a provider's stored credential into the secret store "+
 				"failed; it is tried again on the next read", "provider", p.name, "error", err)
@@ -821,7 +983,8 @@ func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (provide
 }
 
 // HostCredential is the bearer a host turn spends for one provider, read back from the
-// provider's Podium secret: the same one a container turn is given.
+// provider's global Podium secret: the same one a container turn is given. A person's own is
+// PersonalHostCredential.
 func (s *AgentService) HostCredential(ctx context.Context, provider string) (string, error) {
 	p, err := findProvider(provider)
 	if err != nil {
@@ -937,9 +1100,10 @@ func providerKeyError(code connect.Code, err error, detail string) *connect.Erro
 // providerSettings is the row as the UI sees it, for the callers that have just written it
 // and therefore know it is current. The refresh token is not in ProviderSettings and must
 // never be added to it.
-func providerSettings(provider string, row providerRow, model string) *agentv1.ProviderSettings {
+func providerSettings(t credTarget, row providerRow, model string) *agentv1.ProviderSettings {
 	out := &agentv1.ProviderSettings{
-		Provider:    provider,
+		Provider:    t.p.name,
+		Global:      t.owner == "",
 		KeySet:      true,
 		KeyHint:     row.KeyHint,
 		Model:       model,
