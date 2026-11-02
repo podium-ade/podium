@@ -874,3 +874,33 @@ func TestATurnTakesTheSavedRunsOnUnlessItsPlaybookSays(t *testing.T) {
 	assert.Equal(t, "modal", conductor.PlacedForTest(ctx, st, profiles.Playbook{}).RunsOn)
 	assert.Equal(t, profiles.RunsOnNodes, conductor.PlacedForTest(ctx, st, profiles.Playbook{RunsOn: profiles.RunsOnNodes}).RunsOn)
 }
+
+// TestStartupRecoveryLeavesThisProcesssDelegationsAlone: the turn surface serves before Run's
+// recovery finishes, and a delegation's row is written before its task. A row this process
+// recorded after it started is in flight, not left behind by a dead one, and the startup pass
+// must not fail it as "its task never was" — which let a second writer into a busy workspace.
+func TestStartupRecoveryLeavesThisProcesssDelegationsAlone(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, nil)
+
+	ctx := context.Background()
+	sess, err := st.UpsertSession(ctx, store.Session{SourceKind: conductor.KindDev, SourceKey: "C1/77.1", Playbook: "dogfood"})
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, "C1/77.1", store.Backend{})
+	require.NoError(t, err)
+	// Recorded, its task not created yet: the moment between the row and CreateTask.
+	dlg, err := st.CreateDelegation(ctx, store.NewDelegation{
+		SessionID: sess.ID, TurnID: turn.ID, TriggerRef: "C1/77.1", Playbook: "dogfood", Instruction: "change it",
+	})
+	require.NoError(t, err)
+
+	r.cond.RecoverAtStartupForTest(ctx)
+
+	running, err := st.RunningDelegationsForSession(ctx, sess.ID)
+	require.NoError(t, err)
+	require.Len(t, running, 1, "a delegation this process just recorded is still running")
+	assert.Equal(t, dlg.ID, running[0].ID)
+}

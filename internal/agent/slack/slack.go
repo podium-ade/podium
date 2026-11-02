@@ -1008,3 +1008,21 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 	}
 	return sourceKey(channel, thread), true
 }
+
+// DirectMessage writes text to one person, found by their email, in a direct message from
+// the bot. It needs users:read.email, which the bot already asks for to know who is speaking.
+func (s *Source) DirectMessage(ctx context.Context, email, text string) error {
+	user, err := s.readUser(ctx, func() (*slack.User, error) { return s.api.GetUserByEmailContext(ctx, email) })
+	if err != nil {
+		return fmt.Errorf("slack: find %s: %w", email, err)
+	}
+	for _, part := range Split(toMrkdwn(text), MaxMessageChars) {
+		if _, err := s.write(ctx, func() (string, error) {
+			_, ts, err := s.api.PostMessageContext(ctx, user.ID, slack.MsgOptionText(part, false))
+			return ts, err
+		}); err != nil {
+			return fmt.Errorf("slack: message %s: %w", email, err)
+		}
+	}
+	return nil
+}

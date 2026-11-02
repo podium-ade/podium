@@ -13,6 +13,7 @@ type executor interface {
 	Adopt(ctx context.Context, req docker.AdoptRequest, events chan<- docker.Event) (docker.Result, error)
 	Cancel(taskID string)
 	Inject(taskID, text string) error
+	EndWait(taskID string) error
 	Teardown(ctx context.Context, taskID string, keepWorkspace bool) error
 	ListOwned(ctx context.Context) ([]docker.OwnedContainer, error)
 	HeldExit(taskID string) (int, bool)

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/podium-ade/podium/internal/sandbox"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 const (
@@ -66,10 +67,18 @@ type Config struct {
 	// CPU and MemoryMB are the request when a task asks for no resources.
 	CPU      float64 `json:"cpu"`
 	MemoryMB int     `json:"memory_mb"`
+	// CPULimit and MemoryLimitMB are the most any sandbox may use: Modal throttles CPU past
+	// the limit and kills the sandbox past the memory limit. Zero is no limit. A limit needs a
+	// default request beside it, because Modal takes no limit without a request, and a task
+	// that asks for more than a limit is refused rather than given less than it asked for.
+	CPULimit      float64 `json:"cpu_limit"`
+	MemoryLimitMB int     `json:"memory_limit_mb"`
 	// Runtime is "gvisor" (the default) or "vm". Only vm sandboxes can mount a tmpfs or run
 	// Docker; when one's image has dockerd, the sandbox starts it.
 	Runtime string `json:"runtime"`
-	Image   string `json:"image"`
+	// Image is the base of a sandbox whose task names neither an image nor a snapshot.
+	// Empty is DefaultImage, or DefaultVMImage under the vm runtime.
+	Image string `json:"image"`
 }
 
 // Provider talks to Modal.
@@ -94,8 +103,14 @@ func New(c Config) (*Provider, error) {
 	default:
 		return nil, fmt.Errorf("modal: runtime %q is not gvisor or vm", c.Runtime)
 	}
-	if c.CPU < 0 || c.MemoryMB < 0 {
-		return nil, errors.New("modal: cpu and memory_mb must not be negative")
+	if c.CPU < 0 || c.MemoryMB < 0 || c.CPULimit < 0 || c.MemoryLimitMB < 0 {
+		return nil, errors.New("modal: cpu, memory_mb and their limits must not be negative")
+	}
+	if err := checkLimit("cpu", "cpu_limit", c.CPU, c.CPULimit); err != nil {
+		return nil, err
+	}
+	if err := checkLimit("memory_mb", "memory_limit_mb", float64(c.MemoryMB), float64(c.MemoryLimitMB)); err != nil {
+		return nil, err
 	}
 	if c.App == "" {
 		c.App = DefaultApp
@@ -128,6 +143,20 @@ func New(c Config) (*Provider, error) {
 		return nil, fmt.Errorf("modal: %w", err)
 	}
 	return &Provider{c: client, cfg: c, apps: map[string]*sdk.App{}, sbs: map[string]*sdk.Sandbox{}, vm: map[string]bool{}}, nil
+}
+
+// checkLimit is whether a default request and its limit go together: Modal takes no limit
+// without a request, and no request above its limit.
+func checkLimit(key, limitKey string, request, limit float64) error {
+	switch {
+	case limit == 0:
+		return nil
+	case request == 0:
+		return fmt.Errorf("modal: %s needs a default %s beside it", limitKey, key)
+	case request > limit:
+		return fmt.Errorf("modal: the default %s (%g) is above %s (%g)", key, request, limitKey, limit)
+	}
+	return nil
 }
 
 func (c Config) vm() bool { return c.Runtime == string(sdk.SandboxRuntimeVM) }
@@ -185,6 +214,16 @@ func sandboxName(key string) string {
 	return "podium-" + hex.EncodeToString(sum[:10])
 }
 
+// withoutEntrypoint clears an image's ENTRYPOINT. Modal runs a sandbox's command as the image's
+// entrypoint ARGUMENTS, so on an image that has one — the agent runtime's is `node main.js` —
+// the entrypoint ran instead of the keep-alive, with the keep-alive as its arguments: the
+// runtime started with no brief, said so, and exited, and the sandbox with it. A task's own
+// command is run by the agent, never by the entrypoint, so nothing is lost. Modal builds the
+// layer once per image and caches it.
+func withoutEntrypoint(img *sdk.Image) *sdk.Image {
+	return img.DockerfileCommands([]string{"ENTRYPOINT []"}, nil)
+}
+
 // dockerd starts the image's Docker engine, if it has one.
 const dockerd = "command -v dockerd >/dev/null && { dockerd >/var/log/podium-dockerd.log 2>&1 & }\n"
 
@@ -213,14 +252,24 @@ func (p *Provider) createParams(req sandbox.CreateRequest, cfg Config) (*sdk.San
 	if mem <= 0 {
 		mem = cfg.MemoryMB
 	}
+	if cfg.CPULimit > 0 && cpu > cfg.CPULimit {
+		return nil, &sandbox.Error{Op: "create", Code: "invalid",
+			Err: fmt.Errorf("the task asks for %g CPU, above this provider's limit of %g", cpu, cfg.CPULimit)}
+	}
+	if cfg.MemoryLimitMB > 0 && mem > cfg.MemoryLimitMB {
+		return nil, &sandbox.Error{Op: "create", Code: "invalid",
+			Err: fmt.Errorf("the task asks for %d MB of memory, above this provider's limit of %d MB", mem, cfg.MemoryLimitMB)}
+	}
 	return &sdk.SandboxCreateParams{
-		CPU:       cpu,
-		MemoryMiB: mem,
-		Runtime:   sdk.SandboxRuntime(cfg.Runtime),
-		Timeout:   MaxTTL,
-		Command:   entrypoint(ttlFile, ttl.Truncate(time.Second), cfg.vm()),
-		Name:      sandboxName(req.Key),
-		Tags:      map[string]string{"podium.key": req.Key},
+		CPU:            cpu,
+		CPULimit:       cfg.CPULimit,
+		MemoryMiB:      mem,
+		MemoryLimitMiB: cfg.MemoryLimitMB,
+		Runtime:        sdk.SandboxRuntime(cfg.Runtime),
+		Timeout:        MaxTTL,
+		Command:        entrypoint(ttlFile, ttl.Truncate(time.Second), cfg.vm()),
+		Name:           sandboxName(req.Key),
+		Tags:           map[string]string{"podium.key": req.Key},
 	}, nil
 }
 
@@ -239,8 +288,9 @@ func (p *Provider) getApp(ctx context.Context, env string) (*sdk.App, error) {
 	return app, nil
 }
 
-// Create makes the sandbox from req.Image, or from req.Snapshot, the image ID ("im-...") that
-// Sandbox.SnapshotFilesystem returned.
+// Create makes the sandbox from req.Image — a registry image, or `modal:<name>` for one Modal
+// holds — or from req.Snapshot, the image ID ("im-...") that Sandbox.SnapshotFilesystem
+// returned.
 func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (string, error) {
 	if req.Key == "" {
 		return "", &sandbox.Error{Op: "create", Code: "invalid", Err: errors.New("no key")}
@@ -277,6 +327,10 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		if img, err = p.c.Images.FromID(ctx, req.Snapshot, nil); err != nil {
 			return "", toError("create", err)
 		}
+	case isModalImage(req.Image):
+		if img, err = p.modalImage(ctx, req.Image, cfg.Environment); err != nil {
+			return "", toError("create", err)
+		}
 	case req.Image != "" && req.Registry != nil:
 		// Modal pulls the image before anything runs in the sandbox, so a private one needs
 		// the login here: an ephemeral secret, in the form Modal's registry pull reads.
@@ -293,6 +347,9 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 	default:
 		img = p.c.Images.FromRegistry(cfg.Image, nil)
 	}
+	if req.Snapshot == "" {
+		img = withoutEntrypoint(img)
+	}
 	sb, err := p.c.Sandboxes.Create(ctx, app, img, params)
 	var exists sdk.AlreadyExistsError
 	if errors.As(err, &exists) {
@@ -303,6 +360,22 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 	}
 	p.remember(sb)
 	return sb.SandboxID, nil
+}
+
+func isModalImage(image string) bool {
+	_, ok := spec.ModalImage(image)
+	return ok
+}
+
+// modalImage is an image Modal already holds: one published by name with Modal's SDK
+// (Image.publish), looked up in the sandbox's environment, or one by its ID. Modal builds and
+// keeps it, so starting a sandbox pulls nothing from a registry.
+func (p *Provider) modalImage(ctx context.Context, image, env string) (*sdk.Image, error) {
+	name, _ := spec.ModalImage(image)
+	if strings.HasPrefix(name, "im-") {
+		return p.c.Images.FromID(ctx, name, nil)
+	}
+	return p.c.Images.FromName(ctx, name, &sdk.ImageFromNameParams{Environment: env})
 }
 
 // byName is the running sandbox called name, or "" when there is none.

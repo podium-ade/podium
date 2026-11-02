@@ -412,3 +412,34 @@ func TestLoggingAConfigLeaksNoAppKey(t *testing.T) {
 	assert.Contains(t, out, "github_app_key_set=true")
 	assert.Contains(t, out, "github_app_id=123456")
 }
+
+// The turn surface's own settings: a sandbox's address to it, and the listener that serves it
+// without the operator API.
+func TestTurnSurfaceValidation(t *testing.T) {
+	surfaced := func(t *testing.T) Config {
+		cfg := valid(t)
+		cfg.SurfaceListen = "0.0.0.0:8091"
+		cfg.SandboxURL = "https://surface.example.ts.net"
+		return cfg
+	}
+	require.NoError(t, surfaced(t).Validate(), "a loopback operator API is fine beside a surface listener")
+
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		{"relative sandbox url", func(c *Config) { c.SandboxURL = "surface:8091" }, "PODIUM_AGENT_SANDBOX_URL"},
+		{"surface that is not host:port", func(c *Config) { c.SurfaceListen = "8091" }, "PODIUM_AGENT_SURFACE_LISTEN"},
+		{"surface on the api's own address", func(c *Config) { c.SurfaceListen = c.Listen }, "must differ"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := surfaced(t)
+			tc.mut(&cfg)
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}

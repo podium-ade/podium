@@ -160,6 +160,14 @@ var (
 	ModalRuntimes = []string{"gvisor", "vm"}
 )
 
+// ProviderName is the provider this sandbox is pinned to, empty for none — or for no sandbox.
+func (s *Sandbox) ProviderName() string {
+	if s == nil {
+		return ""
+	}
+	return s.Provider
+}
+
 // Settings is what the task overrides of provider's settings, under the keys the provider's
 // adapter reads. Empty when it overrides nothing there.
 func (s *Sandbox) Settings(provider string) map[string]string {
@@ -212,6 +220,19 @@ func (s *Sandbox) validate() []error {
 	return errs
 }
 
+// ModalImagePrefix marks an image Modal holds rather than a registry: `modal:<name>` is one
+// published with Modal's own SDK (Image.publish), `modal:im-…` one by its ID. Modal builds and
+// stores it, so nothing is pulled from a registry when a sandbox starts — which is also how a
+// task uses an image that lives in a registry Modal cannot reach. Such an image runs only in
+// a Modal sandbox, so a task that names one is placed there.
+const ModalImagePrefix = "modal:"
+
+// ModalImage is the Modal image name or ID an image reference names, if it names one.
+func ModalImage(image string) (string, bool) {
+	name, ok := strings.CutPrefix(strings.TrimSpace(image), ModalImagePrefix)
+	return name, ok
+}
+
 // LabelSandbox is the label every sandbox node carries, and every task that needs one gets.
 // A sandbox node takes no task without it.
 const LabelSandbox = "backend=sandbox"
@@ -255,6 +276,36 @@ func (x *Expose) Publishes() bool { return x != nil && len(x.Ports) > 0 }
 type ExposedPort struct {
 	Port int    `yaml:"port" json:"port"`
 	From string `yaml:"from,omitempty" json:"from,omitempty"`
+}
+
+// WorkspaceExcludeEnv names, in a task's environment, the directories its workspace snapshot
+// leaves out: a comma-separated list of names, matched against every path component. What is
+// in them is rebuilt by the next task — node_modules, build caches — and is most of what a
+// snapshot weighs, stored again for every conversation.
+const WorkspaceExcludeEnv = "PODIUM_WORKSPACE_EXCLUDE"
+
+// workspacePlaybookSep joins a conversation and a playbook into one workspace's key. Session
+// IDs never contain it (they are a prefix, "_" and a ULID).
+const workspacePlaybookSep = "."
+
+// WorkspacePlaybookKey is the WorkspaceSession of a playbook's own workspace in a
+// conversation: each playbook of a conversation keeps one.
+func WorkspacePlaybookKey(session, playbook string) string {
+	if playbook == "" {
+		return session
+	}
+	return session + workspacePlaybookSep + playbook
+}
+
+// WorkspaceConversation is the conversation a playbook's workspace key belongs to, when key is
+// one. A conversation's workspace was keyed by the conversation alone before each playbook kept
+// its own, so a playbook workspace with no snapshot yet continues from that one.
+func WorkspaceConversation(key string) (string, bool) {
+	session, playbook, ok := strings.Cut(key, workspacePlaybookSep)
+	if !ok || session == "" || playbook == "" {
+		return "", false
+	}
+	return session, true
 }
 
 // URLEnv is the variable a task reads a port's URL from: PODIUM_URL_ and the name,
@@ -379,6 +430,14 @@ func (s *TaskSpec) ApplyDefaults() {
 		}
 	}
 	s.Resources.applyDefaults()
+	if _, ok := ModalImage(s.Image); ok {
+		if s.Sandbox == nil {
+			s.Sandbox = &Sandbox{}
+		}
+		if s.Sandbox.Provider == "" {
+			s.Sandbox.Provider = "modal"
+		}
+	}
 	if s.UsesSandbox() && !slices.Contains(s.Labels, LabelSandbox) {
 		s.Labels = append(s.Labels, LabelSandbox)
 	}
@@ -445,8 +504,30 @@ func (s *TaskSpec) Validate() error {
 	}
 	errs = append(errs, s.validateExpose()...)
 	errs = append(errs, s.Sandbox.validate()...)
+	errs = append(errs, s.validateModalImages()...)
 	errs = append(errs, s.validateMounts()...)
 	return errors.Join(errs...)
+}
+
+// validateModalImages: a Modal image runs only in a Modal sandbox, and only as the task's own
+// image — a sidecar is pulled by Docker, which has never heard of it.
+func (s *TaskSpec) validateModalImages() []error {
+	var errs []error
+	if name, ok := ModalImage(s.Image); ok {
+		if name == "" {
+			errs = append(errs, fmt.Errorf("image %q names no Modal image", s.Image))
+		}
+		if p := s.Sandbox.ProviderName(); p != "" && p != "modal" {
+			errs = append(errs, fmt.Errorf("image %q is a Modal image, but sandbox.provider is %s", s.Image, p))
+		}
+	}
+	for _, name := range sortedKeys(s.Sidecars) {
+		if _, ok := ModalImage(s.Sidecars[name].Image); ok {
+			errs = append(errs, fmt.Errorf("sidecar %s: image %q is a Modal image; a sidecar runs under Docker, from a registry",
+				name, s.Sidecars[name].Image))
+		}
+	}
+	return errs
 }
 
 func (s *TaskSpec) validateMounts() []error {
@@ -607,15 +688,36 @@ const ConductorReservedPrefix = "podium.agent."
 
 // ConductorMayRead reports whether the conductor may read a value back: a global in its own
 // namespace, or a credential it keeps on a person's list — their connected GitHub account,
-// and their MCP servers' tokens and sign-ins. No person may read any value.
+// their MCP servers' tokens and sign-ins, and their own model provider credential. No person
+// may read any value.
 func ConductorMayRead(name, owner string) bool {
 	if owner != "" {
-		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name)
+		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name) ||
+			IsPersonalModelKeySecret(name)
 	}
 	return strings.HasPrefix(name, ConductorReservedPrefix)
 }
 
 var personalMCPOAuthSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}\.oauth$`)
+
+var personalModelKeySecretRE = regexp.MustCompile(`^model\.[a-z][a-z0-9-]{0,31}\.(api_key|refresh_token)$`)
+
+// PersonalModelKeySecretName is where one person keeps their own credential for a model
+// provider — anthropic, openai, xai, google: an API key, or the access token of their own
+// subscription sign-in. A person sets it under Settings → Models (Yours), or by hand on the
+// Secrets page as a personal secret; the conductor writes it for them from Models, and spends
+// it rather than the company's key on the turns that person asks for. A playbook may not name it.
+func PersonalModelKeySecretName(provider string) string { return "model." + provider + ".api_key" }
+
+// PersonalModelRefreshSecretName is where one person's subscription sign-in keeps its refresh
+// token. The conductor writes and reads it; it never reaches a turn.
+func PersonalModelRefreshSecretName(provider string) string {
+	return "model." + provider + ".refresh_token"
+}
+
+// IsPersonalModelKeySecret reports whether name is a person's model provider credential or
+// its refresh token. The conductor may write one of these for a person.
+func IsPersonalModelKeySecret(name string) bool { return personalModelKeySecretRE.MatchString(name) }
 
 // PersonalMCPOAuthSecretName is where one person's MCP sign-in keeps its client secret and
 // refresh token. The conductor writes and reads it. A playbook may not name it.

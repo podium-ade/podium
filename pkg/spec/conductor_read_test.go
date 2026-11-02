@@ -15,8 +15,15 @@ func TestConductorMayReadOnlyItsOwnNames(t *testing.T) {
 		{"github.token", "ada@acme.com", true},
 		{"mcp.linear_token", "ada@acme.com", true},
 		{"mcp.linear.oauth", "ada@acme.com", true},
+		{"model.anthropic.api_key", "ada@acme.com", true},
+		{"model.openai.refresh_token", "ada@acme.com", true},
+		{"model.anthropic.api_key", "", false},
+		{"model.anthropic.secret", "ada@acme.com", false},
 		{"ADA_NOTE", "ada@acme.com", false},
 		{"podium.agent.anthropic_api_key", "ada@acme.com", false},
+		{"model.anthropic.api_key", "ada@acme.com", true},
+		{"model.anthropic.api_key", "", false},
+		{"model.anthropic.token", "ada@acme.com", false},
 	} {
 		if got := ConductorMayRead(tc.name, tc.owner); got != tc.want {
 			t.Errorf("ConductorMayRead(%q, %q) = %v, want %v", tc.name, tc.owner, got, tc.want)

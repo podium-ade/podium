@@ -53,7 +53,7 @@ func sandboxReaps(t *testing.T, h *harness, provider string) []store.SandboxReap
 func TestALostTasksSandboxIsDeletedByANodeOfItsProvider(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newHarness(t)
+	h := newHarness(t, withoutSandboxRunners)
 	a := enrollNode(t, h, "boat-a", boatLabels)
 	b := enrollNode(t, h, "boat-b", boatLabels)
 
@@ -96,7 +96,7 @@ func TestALostTasksSandboxIsDeletedByANodeOfItsProvider(t *testing.T) {
 func TestASandboxProvidersCapHoldsAcrossItsNodes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newHarness(t)
+	h := newHarness(t, withoutSandboxRunners)
 	providers := podiumv1connect.NewSandboxProviderServiceClient(h.http, h.url)
 	_, err := providers.SetSandboxProvider(ctx, connect.NewRequest(&podiumv1.SetSandboxProviderRequest{
 		Name: "boat", Secret: []byte("boat_key"), MaxConcurrent: 1,

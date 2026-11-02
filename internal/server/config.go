@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,14 @@ const (
 
 // Config is the whole of podium-server's configuration. The names are the canonical ones.
 type Config struct {
+	// ServerIDOverride is PODIUM_SERVER_ID. Empty means ServerID's default.
+	ServerIDOverride string
+	// SandboxDir is PODIUM_SANDBOX_DIR: where the server records the cloud sandboxes it runs,
+	// so a restart adopts them. Empty means SandboxStateDir's default.
+	SandboxDir string
+	// NoSandboxRunners leaves configured sandbox providers without the server's runner. It is
+	// not configuration — no variable sets it — but a test that drives sandbox nodes of its own.
+	NoSandboxRunners bool
 	// DatabaseURL is PODIUM_DATABASE_URL. Required.
 	DatabaseURL string
 	// Transport is PODIUM_TRANSPORT: dev (default), tailnet or host.
@@ -133,7 +142,27 @@ func ConfigFromEnv() Config {
 		GoogleClientSecret:     os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_SECRET"),
 		PublicURL:              os.Getenv("PODIUM_PUBLIC_URL"),
 		PreviewMaxTTL:          envDuration("PODIUM_PREVIEW_MAX_TTL"),
+		ServerIDOverride:       strings.TrimSpace(os.Getenv("PODIUM_SERVER_ID")),
+		SandboxDir:             strings.TrimSpace(os.Getenv("PODIUM_SANDBOX_DIR")),
 	}
+}
+
+// ServerID is this server's name among the podium-servers sharing its database:
+// PODIUM_SERVER_ID, or this host's name and the address it listens on. It must differ between
+// servers and stay the same across one server's restarts.
+func (c Config) ServerID() string {
+	if c.ServerIDOverride != "" {
+		return c.ServerIDOverride
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "localhost"
+	}
+	listen := c.LocalListen
+	if c.Transport != TransportLocal {
+		listen = c.TSHostname
+	}
+	return host + "/" + listen
 }
 
 // envDuration is a Go duration, or zero when the variable is unset or unparseable.
@@ -276,4 +305,24 @@ func envOr(key, fallback string) string {
 func envBool(key string) bool {
 	v, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && v
+}
+
+// SandboxStateDir is where the server records the cloud sandboxes it runs: PODIUM_SANDBOX_DIR,
+// or sandboxes/ beside the master key — the directory a deployment already keeps — or, with
+// no key file, under the user's state directory.
+func (c Config) SandboxStateDir() string {
+	if c.SandboxDir != "" {
+		return c.SandboxDir
+	}
+	if c.MasterKeyFile != "" {
+		return filepath.Join(filepath.Dir(c.MasterKeyFile), "sandboxes")
+	}
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return filepath.Join(dir, "podium", "sandboxes")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "podium-sandboxes")
+	}
+	return filepath.Join(home, ".local", "state", "podium", "sandboxes")
 }

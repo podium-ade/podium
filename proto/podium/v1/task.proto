@@ -15,6 +15,7 @@ service TaskService {
   // InjectTask delivers one human message into a running task's inbox. It does not
   // cancel, finish, or otherwise move the task: the container stays up, and whatever
   // is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+  // With end_wait, it ends a finished task's wait for a follow-up instead.
   // Refused if the task is not running or has no node.
   rpc InjectTask(InjectTaskRequest) returns (InjectTaskResponse);
   // StreamTaskEvents replays stored events from from_seq and then follows live ones.
@@ -131,7 +132,12 @@ message CancelTaskResponse {
 
 message InjectTaskRequest {
   string task_id = 1;
+  // text is required unless end_wait is set.
   string text = 2;
+  // end_wait tells a task that has answered and is waiting for a follow-up to stop
+  // waiting. It exits as it would when that wait runs out, so it finishes succeeded and
+  // stores its workspace, rather than being cancelled. A task still working ignores it.
+  bool end_wait = 3;
 }
 
 message InjectTaskResponse {}

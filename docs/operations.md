@@ -563,9 +563,37 @@ MCP tool list the SDK saw is in it.
 
 ### Two servers on one database
 
-Don't, yet. Node sessions are in memory, so only the server holding a node's stream can assign
-to it, cancel on it or drain it — and the second replica's watchdog would see every node as
-sessionless and start expiring leases. A leader lock is needed first.
+Supported. A node streams to one server at a time, and its row says which
+(`nodes.session_server`):
+
+- **Scheduling** stays per server: each places queued work on the nodes it holds, claiming from
+  the shared queue, and the assignment's state transition makes two servers racing for one
+  task harmless. A sandbox provider's cap is counted across every server's nodes.
+- **Everything else a node is sent** — a cancel, an inject, an end of wait, a preview release, a
+  drain, a slot count — is relayed when it lands on a server that does not hold the node: queued
+  in `node_commands`, announced with `pg_notify`, and taken by the server that does. A command
+  nobody takes within two seconds is withdrawn and reported as "no session", exactly as one
+  server reports it.
+- **Health** is the stored heartbeat, which the holding server writes: a node held elsewhere is
+  never marked unreachable, and a node that moves servers is not marked gone when its old stream
+  finally closes.
+- **Log roll-up and snapshot retention** run on one server at a time, under a Postgres advisory
+  lock; another takes over within ten seconds of losing it.
+
+Give each server its own `PODIUM_SERVER_ID` if two would share a host name and listen address;
+the default is `<hostname>/<listen>`. Put them behind one address for the CLI, the UI and the
+conductor, and let nodes dial whichever they reach.
+
+### Two conductors on one database
+
+Supported. Each conductor leases the work it does — a session's turns, a delegated task, polling
+Linear — and a conductor that stops renewing has its work adopted by another within about a
+minute. Give each its own `PODIUM_AGENT_REPLICA_ID` if two would share a host name and a listen
+address; the default is `<hostname>/<listen>`. See [agent.md](agent.md#more-than-one-conductor).
+
+A conversation's turn runs on the host of the conductor that holds its session. A message that
+reaches another conductor is handed over to that one, so every conversation is reachable from
+every conductor.
 
 ---
 

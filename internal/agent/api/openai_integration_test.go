@@ -47,7 +47,8 @@ func newOpenAIFixture(t *testing.T, idp *fakeCodex) openaiFixture {
 
 func TestSetProviderKeyStoresTheOpenAIKeyUnderItsOwnSecret(t *testing.T) {
 	f := newOpenAIFixture(t, nil)
-	res, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	res, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderOpenAI, Key: fakeOpenAIKey,
 	}))
 	require.NoError(t, err)
@@ -62,12 +63,13 @@ func TestSetProviderKeyStoresTheOpenAIKeyUnderItsOwnSecret(t *testing.T) {
 
 func TestGetSettingsReportsOpenAIAlongsideTheOthers(t *testing.T) {
 	f := newOpenAIFixture(t, nil)
-	_, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderOpenAI, Key: fakeOpenAIKey,
 	}))
 	require.NoError(t, err)
 
-	res, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	res, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, res.Msg.GetProviders(), len(providerSpecs))
 	byName := map[string]*agentv1.ProviderSettings{}
@@ -95,7 +97,10 @@ func TestOpenAISubscriptionSignInStoresTheAccessToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, OAuthDone, poll.Msg.GetState())
 	assert.Equal(t, AuthOAuth, poll.Msg.GetProvider().GetAuthKind())
-	assert.Equal(t, "access-1", string(f.secrets.set[profiles.OpenAIKeySecret]))
+	// A sign-in is alice's own, on her list.
+	assert.Equal(t, "access-1", string(f.secrets.set[profiles.PersonalSecretFor(ProviderOpenAI)]))
+	assert.Equal(t, "alice", f.secrets.owners[profiles.PersonalSecretFor(ProviderOpenAI)])
+	assert.NotContains(t, f.secrets.set, profiles.OpenAIKeySecret)
 }
 
 func TestOpenAISignInIsRefusedWithNoOAuthClientConfigured(t *testing.T) {
@@ -109,12 +114,13 @@ func TestOpenAISignInIsRefusedWithNoOAuthClientConfigured(t *testing.T) {
 
 func TestListAgentsMarksOpenAIReadyOnceAKeyIsStored(t *testing.T) {
 	f := newOpenAIFixture(t, nil)
-	_, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderOpenAI, Key: fakeOpenAIKey,
 	}))
 	require.NoError(t, err)
 
-	res, err := f.svc.ListAgents(loginCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
+	res, err := f.svc.ListAgents(adminCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
 	require.NoError(t, err)
 	for _, a := range res.Msg.GetAgents() {
 		assert.Equal(t, a.GetProvider() == ProviderOpenAI, a.GetReady(),

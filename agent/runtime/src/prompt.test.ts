@@ -34,6 +34,15 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(brief)).not.toContain("# Repositories");
   });
 
+  it("says relative tool paths start at the workspace, not the repository", () => {
+    const brief = golden();
+    const name = brief.repos?.[0]?.name ?? "";
+    expect(name).not.toBe("");
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("Your working directory is /workspace, not a repository.");
+    expect(prompt).toContain(`/workspace/${name}/src`);
+  });
+
   it("marks a truncated transcript and not a whole one", () => {
     const brief = golden();
     expect(buildSystemPrompt(brief)).toContain("(earlier messages omitted)");

@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -278,13 +277,19 @@ func writeHoldExit(path string, code int, signame string) {
 	_ = os.WriteFile(path, line, 0o644) //nolint:gosec // an exit code, read by the node
 }
 
-// childEnv is the runner's environment minus the socket path, which is the runner's
-// business and not the task's.
+// childEnv is the runner's environment minus the socket path when that path is the default,
+// which is the runner's business and not the task's.
+//
+// A path that is NOT the default is kept, because the task needs it: `podium-runner message`
+// and `artifact add`, run by the task itself, find the node by that variable or fall back to
+// the default. In a container the default is where the node mounts the socket, so dropping it
+// changes nothing. A process task in a sandbox has its socket elsewhere (/podium/run/<task>.sock),
+// and dropping it there left every message the task sent with nowhere to go.
 func childEnv() []string {
 	env := os.Environ()
 	out := env[:0]
 	for _, kv := range env {
-		if strings.HasPrefix(kv, EnvEventsSock+"=") {
+		if kv == EnvEventsSock+"="+DefaultEventsSock {
 			continue
 		}
 		out = append(out, kv)

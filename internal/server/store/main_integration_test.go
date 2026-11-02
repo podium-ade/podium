@@ -26,6 +26,12 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// PODIUM_TEST_POSTGRES_URL is a server somebody already runs, for a machine with no
+	// Docker engine. Every test still gets a database of its own inside it.
+	if url := os.Getenv("PODIUM_TEST_POSTGRES_URL"); url != "" {
+		adminURL = url
+		os.Exit(m.Run())
+	}
 	ctx := context.Background()
 	ctr, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("podium"),
@@ -54,7 +60,7 @@ func TestMain(m *testing.M) {
 func newDatabase(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	name := fmt.Sprintf("podium_test_%d", dbSeq.Add(1))
+	name := fmt.Sprintf("podium_test_%d_%d", os.Getpid(), dbSeq.Add(1))
 
 	conn, err := pgx.Connect(ctx, adminURL)
 	require.NoError(t, err)

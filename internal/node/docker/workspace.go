@@ -68,8 +68,7 @@ func (e *Executor) saveWorkspace(ctx context.Context, req Request) error {
 			return cerr
 		}
 		defer func() { _ = rc.Close() }()
-		_, cerr = io.Copy(f, rc)
-		return cerr
+		return filterTar(f, rc, excludedNames(req.Spec.Env))
 	})
 	if err != nil {
 		_ = f.Close()

@@ -117,6 +117,20 @@ upload leaves the previous snapshot in place.
 Leave `workspace_session` empty for a one-shot task. Nothing is restored and nothing is
 uploaded, and `keepWorkspace` stays false, so the volume is removed with the task.
 
+The conductor names a workspace per conversation **and playbook** (`<session>.<playbook>`):
+a conversation's playbooks run on different images and would otherwise restore each other's
+dependency trees and store over each other's work. A pull request is the exception and keeps
+one workspace for every playbook, since they all work on its one branch. A read-only task
+restores the workspace of the conversation's latest writing task. A `<session>.<playbook>`
+workspace with no snapshot yet restores the conversation's `<session>` snapshot, from before
+each playbook kept its own, and only then the repository base.
+
+`PODIUM_WORKSPACE_EXCLUDE` in a task's environment names directories its snapshot leaves out,
+comma-separated, matched against every path component. The conductor sets it on a playbook's
+tasks to `node_modules,.cache,__pycache__,.venv,target` unless the playbook sets it itself — to
+another list, or to nothing to keep everything. What is left out is rebuilt by the next task,
+and is most of what a snapshot weighs.
+
 `workspace_publish_base: true` also stores the tar as the shared base for `workspace_repo`.
 It requires `workspace_repo`. A base is not a session snapshot and a session snapshot is
 not published as a base unless this is set. The conductor sets it when the playbook env
@@ -529,11 +543,11 @@ Where the address comes from is the node's configuration, not the spec's
   `100.x` address. Viewers must be people on the tailnet: tagged devices are refused.
 - **`lan`** — one of the node's own addresses, from a pool the operator set aside. Anything
   that can reach the address can use the preview; there is no login on this path.
-- **`sandbox`** — the cloud sandbox provider's own URL for each port, on a
-  [sandbox node](sandboxes.md). Every port gets a URL of its own, so `PODIUM_URL_<NAME>` is
+- **`sandbox`** — the cloud sandbox provider's own URL for each port, of a
+  [cloud sandbox](sandboxes.md). Every port gets a URL of its own, so `PODIUM_URL_<NAME>` is
   the one to use and `PODIUM_EXPOSE_HOST` is empty. **These URLs are on the internet**, gated
   only by the token in them (boat) or a cookie (Modal): anyone holding one can use the
-  preview. It has to be asked for by name, and a task that does runs only on a sandbox node.
+  preview. It has to be asked for by name, and a task that does runs only in a cloud sandbox.
 
 **With no `ports`, `expose` only holds.** The containers stay up for the ttl and are released
 the same way, but nothing is published, and the task takes no address from the node, so any
@@ -574,8 +588,9 @@ Things to know:
 ## Sandbox
 
 A task can run in a cloud sandbox of its own instead of a container on a node. Any task that
-names `sandbox:`, or exposes `via: sandbox`, gets the label `backend=sandbox` and runs only on
-a [sandbox node](sandboxes.md).
+names `sandbox:`, or exposes `via: sandbox`, gets the label `backend=sandbox` and runs only in a
+[cloud sandbox](sandboxes.md), which podium-server runs for each provider set up on the
+Sandboxes screen.
 
 ```yaml
 sandbox:
@@ -584,8 +599,8 @@ sandbox:
 command: ["make", "test"]    # required: a snapshot has no image to take a command from
 ```
 
-A sandbox node takes no task that does not ask for a sandbox, so a task meant for the fleet's
-own machines is never billed to a provider.
+A task that does not ask for a sandbox never runs in one, so a task meant for the fleet's own
+machines is never billed to a provider.
 
 A task may also override some of its provider's settings for its own sandbox. A block applies
 only on its own provider, and naming a provider with another provider's block is refused:
@@ -604,7 +619,10 @@ privileges to drop — and a spec that sets it is refused. File secrets go under
 `/podium/secrets` only, and a `working_dir` other than `/workspace` is created as the task's
 user: neither can name a path the task could not have written itself.
 
-Without `snapshot`, an `image` task on a sandbox node runs that image: inside the sandbox's
+An `image` written `modal:<name>` is one Modal holds, published with Modal's SDK, and places the
+task in a Modal sandbox: see [sandboxes.md](sandboxes.md#modal-images).
+
+Without `snapshot`, an `image` task in a cloud sandbox runs that image: inside the sandbox's
 Docker on boat, as the sandbox itself on Modal. `resources` choose the sandbox's size.
 
 ## Egress

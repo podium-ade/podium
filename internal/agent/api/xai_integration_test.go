@@ -53,7 +53,8 @@ func newXAIFixture(t *testing.T, idp *fakeIDP) xaiFixture {
 
 func TestSetProviderKeyStoresTheXAIKeyUnderItsOwnSecret(t *testing.T) {
 	f := newXAIFixture(t, nil)
-	res, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	res, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderXAI, Key: fakeXAIKey,
 	}))
 	require.NoError(t, err)
@@ -70,12 +71,13 @@ func TestSetProviderKeyStoresTheXAIKeyUnderItsOwnSecret(t *testing.T) {
 
 func TestGetSettingsReportsEveryProvider(t *testing.T) {
 	f := newXAIFixture(t, nil)
-	_, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderXAI, Key: fakeXAIKey,
 	}))
 	require.NoError(t, err)
 
-	res, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	res, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, res.Msg.GetProviders(), len(providerSpecs))
 
@@ -92,7 +94,8 @@ func TestGetSettingsReportsEveryProvider(t *testing.T) {
 
 func TestAnUnknownProviderIsRefusedByName(t *testing.T) {
 	f := newXAIFixture(t, nil)
-	_, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err := f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: "mistral", Key: "sk-whatever",
 	}))
 	require.Error(t, err)
@@ -105,7 +108,7 @@ func TestAnUnknownProviderIsRefusedByName(t *testing.T) {
 
 func TestListAgentsSaysWhichBackendsHaveACredential(t *testing.T) {
 	f := newXAIFixture(t, nil)
-	res, err := f.svc.ListAgents(loginCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
+	res, err := f.svc.ListAgents(adminCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, res.Msg.GetAgents(), len(profiles.Backends))
 	for _, a := range res.Msg.GetAgents() {
@@ -113,18 +116,23 @@ func TestListAgentsSaysWhichBackendsHaveACredential(t *testing.T) {
 		assert.NotEmpty(t, a.GetModels())
 	}
 
-	_, err = f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+	_, err = f.svc.SetProviderKey(adminCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Global:   true,
 		Provider: ProviderXAI, Key: fakeXAIKey,
 	}))
 	require.NoError(t, err)
 
-	res, err = f.svc.ListAgents(loginCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
+	res, err = f.svc.ListAgents(adminCtx("alice"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
 	require.NoError(t, err)
 	for _, a := range res.Msg.GetAgents() {
 		assert.Equal(t, a.GetProvider() == ProviderXAI, a.GetReady(),
 			"only the backend whose credential was stored is ready")
 	}
 }
+
+// aliceXAI is where alice's own xAI sign-in lives. A subscription is the person's who signed
+// in, so a sign-in is always stored on their list and never as the global credential.
+var aliceXAI = credTarget{p: providerSpecs[1], owner: "alice"}
 
 // The subscription sign-in, end to end: a code, a poll that is still waiting, and the one
 // poll that stores a credential.
@@ -164,8 +172,12 @@ func TestTheSubscriptionSignInStoresACredential(t *testing.T) {
 	assert.Empty(t, done.GetProvider().GetKeyHint(), "an access token has no hint worth showing")
 
 	// The access token is the credential a turn gets, under the same secret an API key
-	// would use: from here on the two auth kinds are one bearer token.
-	assert.Equal(t, "access-1", string(f.secrets.set[profiles.XAIKeySecret]))
+	// would use: from here on the two auth kinds are one bearer token. It is alice's own,
+	// on her list, and the global credential is untouched.
+	assert.Equal(t, "access-1", string(f.secrets.set[aliceXAI.secret()]))
+	assert.Equal(t, "alice", f.secrets.owners[aliceXAI.secret()])
+	assert.False(t, done.GetProvider().GetGlobal())
+	assert.NotContains(t, f.secrets.set, profiles.XAIKeySecret)
 	// The refresh token is NOT a Podium secret and is never handed to a turn.
 	assert.NotContains(t, f.secrets.set, profiles.XAIRefreshSecret)
 
@@ -237,33 +249,33 @@ func TestRefreshReplacesAnExpiringToken(t *testing.T) {
 		Provider: ProviderXAI, FlowId: start.Msg.GetFlowId(),
 	}))
 	require.NoError(t, err)
-	require.Equal(t, "access-1", string(f.secrets.set[profiles.XAIKeySecret]))
+	require.Equal(t, "access-1", string(f.secrets.set[aliceXAI.secret()]))
 
 	// An hour of life left is more than the lead, so nothing is due.
 	f.svc.refreshOnce(ctx)
 	assert.Zero(t, idp.refreshes.Load())
-	assert.Equal(t, "access-1", string(f.secrets.set[profiles.XAIKeySecret]))
+	assert.Equal(t, "access-1", string(f.secrets.set[aliceXAI.secret()]))
 
 	// Bring the expiry inside the lead, the way the clock would.
 	spec := providerSpecs[1]
 	require.Equal(t, ProviderXAI, spec.name)
-	row, ok, err := f.svc.providerRow(ctx, spec)
+	row, ok, err := f.svc.providerRow(ctx, aliceXAI)
 	require.NoError(t, err)
 	require.True(t, ok)
 	row.ExpiresAt = time.Now().UTC().Add(time.Minute)
-	require.NoError(t, f.svc.store.PutSetting(ctx, providerSettingKey(ProviderXAI), row))
+	require.NoError(t, f.svc.store.PutSetting(ctx, aliceXAI.settingKey(), row))
 
 	f.svc.refreshOnce(ctx)
 	assert.Equal(t, int32(1), idp.refreshes.Load())
 	assert.Equal(t, "refresh-1", idp.lastRefresh.Load(), "the stored refresh token is what is spent")
-	assert.Equal(t, "access-2", string(f.secrets.set[profiles.XAIKeySecret]),
+	assert.Equal(t, "access-2", string(f.secrets.set[aliceXAI.secret()]),
 		"the new access token is what the next turn is handed")
 
-	next, ok, err := f.svc.providerRow(ctx, spec)
+	next, ok, err := f.svc.providerRow(ctx, aliceXAI)
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Empty(t, next.RefreshToken, "the row holds no credential")
-	assert.Equal(t, "refresh-2", string(f.secrets.set[refreshSecret(spec)]),
+	assert.Equal(t, "refresh-2", string(f.secrets.set[aliceXAI.refreshName()]),
 		"a provider that rotates refresh tokens invalidates the old one, so it has to be replaced")
 	assert.True(t, next.ExpiresAt.After(time.Now().Add(30*time.Minute)))
 	assert.NotContains(t, f.log.String(), "refresh-1")
@@ -292,15 +304,15 @@ func TestSigningOutRemovesTheRefreshTokenToo(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	_, ok, err := f.svc.providerRow(ctx, providerSpecs[1])
+	_, ok, err := f.svc.providerRow(ctx, aliceXAI)
 	require.NoError(t, err)
 	assert.False(t, ok)
-	assert.NotContains(t, f.secrets.set, refreshSecret(providerSpecs[1]), "signing out deletes the refresh token")
+	assert.NotContains(t, f.secrets.set, aliceXAI.refreshName(), "signing out deletes the refresh token")
 
 	before := idp.refreshes.Load()
 	f.svc.refreshOnce(ctx)
 	assert.Equal(t, before, idp.refreshes.Load(), "nothing is refreshed for a disconnected provider")
-	assert.NotContains(t, f.secrets.set, profiles.XAIKeySecret)
+	assert.NotContains(t, f.secrets.set, aliceXAI.secret())
 }
 
 // Pasting a key over a sign-in has to leave no refresh token behind: the background pass
@@ -325,17 +337,17 @@ func TestAPastedKeyReplacesASignInCompletely(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, ok, err := f.svc.providerRow(ctx, providerSpecs[1])
+	row, ok, err := f.svc.providerRow(ctx, aliceXAI)
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, AuthAPIKey, row.authKind())
 	assert.False(t, row.refreshable())
-	assert.NotContains(t, f.secrets.set, refreshSecret(providerSpecs[1]))
+	assert.NotContains(t, f.secrets.set, aliceXAI.refreshName())
 
 	before := idp.refreshes.Load()
 	f.svc.refreshOnce(ctx)
 	assert.Equal(t, before, idp.refreshes.Load())
-	assert.Equal(t, fakeXAIKey, string(f.secrets.set[profiles.XAIKeySecret]))
+	assert.Equal(t, fakeXAIKey, string(f.secrets.set[aliceXAI.secret()]))
 }
 
 // A sign-in can succeed and still produce a token the API will not accept — xAI's OAuth
@@ -403,19 +415,116 @@ func TestHostCredentialIsReadFromTheSecretStore(t *testing.T) {
 func TestAProviderRowInClearIsMovedIntoTheSecretStore(t *testing.T) {
 	f := newXAIFixture(t, nil)
 	ctx := loginCtx("alice")
-	require.NoError(t, f.svc.store.PutSetting(ctx, providerSettingKey(ProviderXAI), map[string]any{
+	require.NoError(t, f.svc.store.PutSetting(ctx, globalTarget(providerSpecs[1]).settingKey(), map[string]any{
 		"auth_kind": AuthOAuth, "secret_version": 1, "refresh_token": "refresh-old", "credential": "access-old",
 	}))
 
-	row, ok, err := f.svc.providerRow(ctx, providerSpecs[1])
+	row, ok, err := f.svc.providerRow(ctx, globalTarget(providerSpecs[1]))
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.True(t, row.refreshable())
 	assert.Equal(t, "refresh-old", string(f.secrets.set[refreshSecret(providerSpecs[1])]))
 
 	var raw map[string]any
-	require.NoError(t, f.svc.store.GetSetting(ctx, providerSettingKey(ProviderXAI), &raw))
+	require.NoError(t, f.svc.store.GetSetting(ctx, globalTarget(providerSpecs[1]).settingKey(), &raw))
 	assert.NotContains(t, raw, "refresh_token")
 	assert.NotContains(t, raw, "credential")
 	assert.Equal(t, true, raw["refreshable"])
+}
+
+// Only an admin or owner writes the global credential. A member asking for it is refused and
+// nothing is stored; the same member saving their own is fine.
+func TestAMemberCannotSetTheGlobalKey(t *testing.T) {
+	f := newXAIFixture(t, nil)
+	_, err := f.svc.SetProviderKey(loginCtx("bob"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Provider: ProviderXAI, Key: fakeXAIKey, Global: true,
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	assert.Empty(t, f.secrets.set)
+
+	_, err = f.svc.ClearProviderKey(loginCtx("bob"), connect.NewRequest(&agentv1.ClearProviderKeyRequest{
+		Provider: ProviderXAI, Global: true,
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	res, err := f.svc.SetProviderKey(loginCtx("bob"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Provider: ProviderXAI, Key: fakeXAIKey,
+	}))
+	require.NoError(t, err)
+	assert.False(t, res.Msg.GetProvider().GetGlobal())
+	assert.Equal(t, "bob", f.secrets.owners[profiles.PersonalSecretFor(ProviderXAI)])
+	assert.NotContains(t, f.secrets.set, profiles.XAIKeySecret)
+}
+
+// A person's own key and the global key live side by side. Each person sees their own, and
+// the picker says whose a turn would spend.
+func TestAPersonalKeyAndTheGlobalKeyCoexist(t *testing.T) {
+	f := newXAIFixture(t, nil)
+	_, err := f.svc.SetProviderKey(adminCtx("admin"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Provider: ProviderXAI, Key: fakeXAIKey, Global: true,
+	}))
+	require.NoError(t, err)
+	_, err = f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Provider: ProviderXAI, Key: fakeXAIKey,
+	}))
+	require.NoError(t, err)
+
+	find := func(rows []*agentv1.ProviderSettings) *agentv1.ProviderSettings {
+		for _, r := range rows {
+			if r.GetProvider() == ProviderXAI {
+				return r
+			}
+		}
+		return nil
+	}
+	mine, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	require.NoError(t, err)
+	assert.True(t, find(mine.Msg.GetProviders()).GetKeySet(), "the global key is set")
+	assert.True(t, find(mine.Msg.GetProviders()).GetGlobal())
+	assert.True(t, find(mine.Msg.GetPersonal()).GetKeySet(), "and so is alice's own")
+	assert.False(t, find(mine.Msg.GetPersonal()).GetGlobal())
+
+	theirs, err := f.svc.GetSettings(loginCtx("bob"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	require.NoError(t, err)
+	assert.False(t, find(theirs.Msg.GetPersonal()).GetKeySet(), "bob does not see alice's key")
+
+	source := func(login string) string {
+		res, err := f.svc.ListAgents(loginCtx(login), connect.NewRequest(&agentv1.ListAgentsRequest{}))
+		require.NoError(t, err)
+		for _, a := range res.Msg.GetAgents() {
+			if a.GetProvider() == ProviderXAI {
+				assert.True(t, a.GetReady())
+				return a.GetCredentialSource()
+			}
+		}
+		return ""
+	}
+	assert.Equal(t, CredentialPersonal, source("alice"))
+	assert.Equal(t, CredentialGlobal, source("bob"))
+
+	// Removing her own sends alice back to the global key; the global key stays.
+	_, err = f.svc.ClearProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.ClearProviderKeyRequest{
+		Provider: ProviderXAI,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, CredentialGlobal, source("alice"))
+	assert.Contains(t, f.secrets.set, profiles.XAIKeySecret)
+}
+
+// A sign-in stores a credential on its starter's list, so only its starter may finish it.
+func TestOnlyTheStarterCanFinishASignIn(t *testing.T) {
+	idp := newFakeIDP(t)
+	idp.approved.Store(true)
+	f := newXAIFixture(t, idp)
+	start, err := f.svc.StartProviderOAuth(loginCtx("alice"), connect.NewRequest(
+		&agentv1.StartProviderOAuthRequest{Provider: ProviderXAI}))
+	require.NoError(t, err)
+
+	res, err := f.svc.PollProviderOAuth(loginCtx("bob"), connect.NewRequest(&agentv1.PollProviderOAuthRequest{
+		Provider: ProviderXAI, FlowId: start.Msg.GetFlowId(),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, OAuthExpired, res.Msg.GetState())
+	assert.Empty(t, f.secrets.set)
 }

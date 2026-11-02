@@ -140,6 +140,17 @@ copy of the named volume `podium-ws-<task_id>` mounted at `/workspace`, taken af
 exit and restored after the next task creates its volume. It still never talks to S3. With
 no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
 
+**A session that started from a base is stored as a difference from it.** A base is stored
+with a manifest of its files (`<key>.manifest.json`: every path and its content's SHA-256), and
+the first time a session restores a base, which base is recorded (`workspace_session_origins`).
+That session's uploads then keep only what is new or changed, plus a marker naming what it
+deleted — most of a workspace is its repository and dependencies as the base had them, and
+they are not stored again for every conversation. Opening it streams the base less what the
+difference replaced, then the difference: the node is sent the same whole tar as ever and
+cannot tell. `workspace_snapshots.base_key` is the base a snapshot is a difference from. A
+base that is replaced is not deleted while a snapshot or a session still refers to it; it waits
+in `workspace_bases_retired` and the sweep deletes it, with its manifest, once nothing does.
+
 Nothing ties a snapshot to the node that took it. The row records `node_id` and `task_id`
 for the record only; the scheduler does not read them, and the next task of the session
 restores the tar through the control plane on whichever node it lands on.
@@ -150,7 +161,8 @@ snapshots not replaced for N days, and keep the newest whose sizes fit under X G
 off until set. podium-server applies them every 10 minutes and once more when the policy is
 saved. A snapshot whose session has a queued or running task is never deleted, though it
 still counts towards the total. Deleting removes the row first and the object second, so
-nothing restores from an object that is about to go. Repository bases are not swept.
+nothing restores from an object that is about to go. A repository's current base is not swept;
+a replaced one is, as above, once no snapshot is a difference from it.
 
 ### Running without one
 

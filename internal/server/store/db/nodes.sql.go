@@ -9,10 +9,65 @@ import (
 	"context"
 )
 
+const activeSandboxTasks = `-- name: ActiveSandboxTasks :many
+select l.provider::text as provider, count(*)::int as active
+from tasks t
+join nodes n on n.id = t.node_id
+cross join lateral (
+  select substr(v, length('sandbox.provider=') + 1) as provider
+  from jsonb_array_elements_text(n.labels) v
+  where v like 'sandbox.provider=%'
+) l
+where t.status in ('scheduled', 'provisioning', 'running')
+group by l.provider
+`
+
+type ActiveSandboxTasksRow struct {
+	Provider string
+	Active   int32
+}
+
+// ActiveSandboxTasks is how many tasks each sandbox provider's nodes are working on, across
+// every server: a provider's cap is the provider's, whichever server its nodes stream to.
+func (q *Queries) ActiveSandboxTasks(ctx context.Context) ([]ActiveSandboxTasksRow, error) {
+	rows, err := q.db.Query(ctx, activeSandboxTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActiveSandboxTasksRow{}
+	for rows.Next() {
+		var i ActiveSandboxTasksRow
+		if err := rows.Scan(&i.Provider, &i.Active); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const claimNodeSession = `-- name: ClaimNodeSession :exec
+update nodes set session_server = $1 where id = $2
+`
+
+type ClaimNodeSessionParams struct {
+	Server string
+	ID     string
+}
+
+// ClaimNodeSession records that server holds node's stream.
+func (q *Queries) ClaimNodeSession(ctx context.Context, arg ClaimNodeSessionParams) error {
+	_, err := q.db.Exec(ctx, claimNodeSession, arg.Server, arg.ID)
+	return err
+}
+
 const createNode = `-- name: CreateNode :one
 insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version, ts_stable_id)
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9::text)
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server
 `
 
 type CreateNodeParams struct {
@@ -54,6 +109,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.TsStableID,
 		&i.Draining,
 		&i.MaxTasksOverride,
+		&i.SessionServer,
 	)
 	return i, err
 }
@@ -70,8 +126,56 @@ func (q *Queries) DeleteNode(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const dropNodeCommand = `-- name: DropNodeCommand :execrows
+delete from node_commands where id = $1
+`
+
+func (q *Queries) DropNodeCommand(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, dropNodeCommand, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const endNodeSession = `-- name: EndNodeSession :execrows
+update nodes set status = 'unreachable', session_server = ''
+where id = $1 and session_server = $2
+`
+
+type EndNodeSessionParams struct {
+	ID     string
+	Server string
+}
+
+// EndNodeSession marks a node unreachable as its stream ends, unless another server has its
+// stream by now: a node that reconnected elsewhere is not unreachable.
+func (q *Queries) EndNodeSession(ctx context.Context, arg EndNodeSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, endNodeSession, arg.ID, arg.Server)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const enqueueNodeCommand = `-- name: EnqueueNodeCommand :one
+insert into node_commands (node_id, payload) values ($1, $2) returning id
+`
+
+type EnqueueNodeCommandParams struct {
+	NodeID  string
+	Payload []byte
+}
+
+func (q *Queries) EnqueueNodeCommand(ctx context.Context, arg EnqueueNodeCommandParams) (int64, error) {
+	row := q.db.QueryRow(ctx, enqueueNodeCommand, arg.NodeID, arg.Payload)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getNode = `-- name: GetNode :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes where id = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server from nodes where id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -91,12 +195,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.TsStableID,
 		&i.Draining,
 		&i.MaxTasksOverride,
+		&i.SessionServer,
 	)
 	return i, err
 }
 
 const getNodeByKeyHash = `-- name: GetNodeByKeyHash :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes where node_key_hash = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server from nodes where node_key_hash = $1
 `
 
 func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Node, error) {
@@ -116,12 +221,13 @@ func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Nod
 		&i.TsStableID,
 		&i.Draining,
 		&i.MaxTasksOverride,
+		&i.SessionServer,
 	)
 	return i, err
 }
 
 const listNodes = `-- name: ListNodes :many
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes order by created_at, id
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server from nodes order by created_at, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -147,6 +253,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.TsStableID,
 			&i.Draining,
 			&i.MaxTasksOverride,
+			&i.SessionServer,
 		); err != nil {
 			return nil, err
 		}
@@ -156,6 +263,45 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const nodeCommandWaiting = `-- name: NodeCommandWaiting :one
+select exists(select 1 from node_commands where id = $1)
+`
+
+func (q *Queries) NodeCommandWaiting(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, nodeCommandWaiting, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const nodesHeldElsewhere = `-- name: NodesHeldElsewhere :one
+select count(*)::int from nodes
+where session_server <> '' and session_server <> $1
+  and last_heartbeat_at > now() - make_interval(secs => $2::int)
+`
+
+type NodesHeldElsewhereParams struct {
+	Server       string
+	FreshSeconds int32
+}
+
+// NodesHeldElsewhere is how many nodes another server holds and has heard from recently.
+func (q *Queries) NodesHeldElsewhere(ctx context.Context, arg NodesHeldElsewhereParams) (int32, error) {
+	row := q.db.QueryRow(ctx, nodesHeldElsewhere, arg.Server, arg.FreshSeconds)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const pruneNodeCommands = `-- name: PruneNodeCommands :exec
+delete from node_commands where created_at < now() - interval '1 minute'
+`
+
+func (q *Queries) PruneNodeCommands(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, pruneNodeCommands)
+	return err
 }
 
 const setNodeDraining = `-- name: SetNodeDraining :execrows
@@ -177,7 +323,7 @@ func (q *Queries) SetNodeDraining(ctx context.Context, arg SetNodeDrainingParams
 
 const setNodeLabels = `-- name: SetNodeLabels :one
 update nodes set labels = $1 where id = $2
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server
 `
 
 type SetNodeLabelsParams struct {
@@ -202,6 +348,7 @@ func (q *Queries) SetNodeLabels(ctx context.Context, arg SetNodeLabelsParams) (N
 		&i.TsStableID,
 		&i.Draining,
 		&i.MaxTasksOverride,
+		&i.SessionServer,
 	)
 	return i, err
 }
@@ -257,6 +404,24 @@ func (q *Queries) SetNodeTSStableID(ctx context.Context, arg SetNodeTSStableIDPa
 	return result.RowsAffected(), nil
 }
 
+const takeNodeCommand = `-- name: TakeNodeCommand :one
+delete from node_commands where id = $1 and node_id = any($2::text[])
+returning payload
+`
+
+type TakeNodeCommandParams struct {
+	ID      int64
+	NodeIds []string
+}
+
+// TakeNodeCommand is the holder's claim on a command: whoever deletes it sends it.
+func (q *Queries) TakeNodeCommand(ctx context.Context, arg TakeNodeCommandParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, takeNodeCommand, arg.ID, arg.NodeIds)
+	var payload []byte
+	err := row.Scan(&payload)
+	return payload, err
+}
+
 const updateNodeHeartbeat = `-- name: UpdateNodeHeartbeat :one
 update nodes
 set status            = $1,
@@ -264,7 +429,7 @@ set status            = $1,
     version           = coalesce($3::text, version),
     last_heartbeat_at = now()
 where id = $4
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override, session_server
 `
 
 type UpdateNodeHeartbeatParams struct {
@@ -296,6 +461,7 @@ func (q *Queries) UpdateNodeHeartbeat(ctx context.Context, arg UpdateNodeHeartbe
 		&i.TsStableID,
 		&i.Draining,
 		&i.MaxTasksOverride,
+		&i.SessionServer,
 	)
 	return i, err
 }
