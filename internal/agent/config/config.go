@@ -248,7 +248,8 @@ type Config struct {
 	MemoryTaskURL string
 	// MemorySandboxURL is PODIUM_AGENT_MEMORY_SANDBOX_URL: Hindsight's base URL as a cloud
 	// sandbox reaches it. Empty means MemoryTaskURL, which a sandbox outside this network
-	// cannot reach: its turns then run with a memory that does not answer.
+	// cannot reach: its turns then run with a memory that does not answer. It may carry a
+	// path, for Hindsight behind a public address shared with other things.
 	MemorySandboxURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
 	// turn: there is no per-user or per-playbook scoping in this track.
@@ -809,7 +810,7 @@ func (c Config) validateMemory() error {
 		return err
 	}
 	if c.MemorySandboxURL != "" {
-		if err := absoluteURL("PODIUM_AGENT_MEMORY_SANDBOX_URL", c.MemorySandboxURL); err != nil {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_MEMORY_SANDBOX_URL", c.MemorySandboxURL); err != nil {
 			return err
 		}
 	}

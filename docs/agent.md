@@ -463,6 +463,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_GOOGLE_BASE_URL` | no | `https://generativelanguage.googleapis.com` | where a Gemini API key is validated **and** where a Gemini turn sends the harness (with `/v1beta` appended) |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
+| `PODIUM_AGENT_MEMORY_SANDBOX_URL` | for memory on a provider | `PODIUM_AGENT_MEMORY_TASK_URL` | the same service as a cloud **sandbox** reaches it. It may carry a path, for Hindsight under one of its own beside the turn surface |
 | `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |
 | `PODIUM_AGENT_MEMORY_API_KEY` | with the URL | — | the bearer the memory service requires. It has **no authentication** without one |
 | `PODIUM_AGENT_DEV_SOURCE` | no | false | **TEST ONLY**, see below |
