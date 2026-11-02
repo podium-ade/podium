@@ -256,6 +256,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// Shared memory. Optional: with no URL the briefs carry no memory block, nothing is
 	// retained, readyz does not probe it and the Memory tab says it is not configured.
 	var briefMemory *conductor.BriefMemory
+	var memorySandboxMCPURL string
 	if cfg.MemoryEnabled() {
 		a.memory, err = memory.New(memory.Options{
 			BaseURL: cfg.MemoryURL,
@@ -271,6 +272,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			// reaches the memory service from there.
 			MCPURL:    memory.MCPURL(cfg.MemoryTaskURL, cfg.MemoryBank),
 			APIKeyEnv: profiles.MemoryKeyEnv,
+		}
+		if cfg.MemorySandboxURL != "" {
+			// The same memory as a cloud sandbox reaches it; the conductor briefs a turn
+			// placed on a provider with it. See conductor.Options.MemorySandboxMCPURL.
+			memorySandboxMCPURL = memory.MCPURL(cfg.MemorySandboxURL, cfg.MemoryBank)
 		}
 		logger.Info("memory: enabled", "bank", cfg.MemoryBank,
 			"mcp_url", briefMemory.MCPURL, "api_key_env", briefMemory.APIKeyEnv)
@@ -368,24 +374,25 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 
 	a.conductor, err = conductor.New(conductor.Options{
-		Store:              st,
-		Podium:             a.podium,
-		Profiles:           live,
-		Sources:            sources,
-		Metrics:            conductor.NewMetrics(registry),
-		Logger:             logger,
-		Memory:             briefMemory,
-		MemoryClient:       a.memory,
-		XAIBaseURL:         a.cfg.XAIBaseURL,
-		OpenAIBaseURL:      a.cfg.OpenAIBaseURL,
-		OpenAICodexBaseURL: a.cfg.OpenAICodexBaseURL,
-		GoogleBaseURL:      a.cfg.GoogleBaseURL,
-		SkillsDir:          a.cfg.SkillsDir,
-		Host:               host,
-		HostMaxTurns:       a.cfg.HostMaxTurns,
-		Mirror:             a.chat,
-		GitHub:             gh,
-		GitTaskURL:         a.cfg.TaskURL,
+		Store:               st,
+		Podium:              a.podium,
+		Profiles:            live,
+		Sources:             sources,
+		Metrics:             conductor.NewMetrics(registry),
+		Logger:              logger,
+		Memory:              briefMemory,
+		MemorySandboxMCPURL: memorySandboxMCPURL,
+		MemoryClient:        a.memory,
+		XAIBaseURL:          a.cfg.XAIBaseURL,
+		OpenAIBaseURL:       a.cfg.OpenAIBaseURL,
+		OpenAICodexBaseURL:  a.cfg.OpenAICodexBaseURL,
+		GoogleBaseURL:       a.cfg.GoogleBaseURL,
+		SkillsDir:           a.cfg.SkillsDir,
+		Host:                host,
+		HostMaxTurns:        a.cfg.HostMaxTurns,
+		Mirror:              a.chat,
+		GitHub:              gh,
+		GitTaskURL:          a.cfg.TaskURL,
 		// The conductor's own bearer, as the seed for the key a turn's capability is
 		// signed with. Derived and not generated so a capability survives a restart, as
 		// the turn holding it does. See conductor/gitcred.go.

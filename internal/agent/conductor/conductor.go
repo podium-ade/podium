@@ -90,6 +90,9 @@ type Options struct {
 	// the memory secret to every task spec. Nil means this host has no shared memory:
 	// briefs carry no memory block and nothing is retained.
 	Memory *BriefMemory
+	// MemorySandboxMCPURL is Memory's MCP URL as a cloud sandbox reaches it, for a turn
+	// placed on a provider. Empty briefs such a turn with Memory as it is.
+	MemorySandboxMCPURL string
 	// MemoryClient is what the end-of-turn retain writes through. Nil disables retaining
 	// while leaving the briefs alone, which is what a test that only cares about the brief
 	// wants; in production the two are set together.
@@ -188,6 +191,8 @@ type Conductor struct {
 	metrics *Metrics
 	logger  *slog.Logger
 	memory  *BriefMemory
+	// memorySandboxMCPURL is Options.MemorySandboxMCPURL.
+	memorySandboxMCPURL string
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
 	// pending is the delegation announcements not said yet, oldest first. Guarded by mu;
@@ -337,44 +342,45 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:              opts.Store,
-		podium:             opts.Podium,
-		profiles:           opts.Profiles,
-		sources:            opts.Sources,
-		metrics:            metrics,
-		logger:             logger,
-		memory:             opts.Memory,
-		memories:           opts.MemoryClient,
-		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
-		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
-		googleBaseURL:      cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
-		skillsDir:          opts.SkillsDir,
-		host:               opts.Host,
-		mirror:             opts.Mirror,
-		hostSlots:          make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
-		github:             opts.GitHub,
-		gitTaskURL:         opts.GitTaskURL,
-		mintSecret:         opts.MintSecret,
-		sandboxTaskURL:     opts.SandboxTaskURL,
-		chatHost:           opts.ChatHost,
-		chatHostURL:        opts.ChatHostURL,
-		chatRender:         opts.ChatHostRender,
-		anthropicBaseURL:   opts.AnthropicBaseURL,
-		notifiers:          opts.Notifiers,
-		notifyAwayAfter:    cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
-		publicURL:          opts.PublicURL,
-		chatSlots:          make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
-		chatPerUser:        cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
-		replicaID:          cmp.Or(opts.ReplicaID, newReplicaID()),
-		leaseTTL:           cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
-		heldLeases:         map[string]bool{},
-		githubAPIURL:       opts.GitHubAPIURL,
-		githubURL:          opts.GitHubURL,
-		sessions:           map[string]*sessionState{},
-		hostRuns:           map[string]func(){},
-		turnTokens:         map[string]turnGrant{},
-		liveDelegations:    map[string]*delegationRun{},
+		store:               opts.Store,
+		podium:              opts.Podium,
+		profiles:            opts.Profiles,
+		sources:             opts.Sources,
+		metrics:             metrics,
+		logger:              logger,
+		memory:              opts.Memory,
+		memorySandboxMCPURL: opts.MemorySandboxMCPURL,
+		memories:            opts.MemoryClient,
+		xaiBaseURL:          cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		openaiBaseURL:       cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
+		openaiCodexBaseURL:  cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		googleBaseURL:       cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
+		skillsDir:           opts.SkillsDir,
+		host:                opts.Host,
+		mirror:              opts.Mirror,
+		hostSlots:           make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:              opts.GitHub,
+		gitTaskURL:          opts.GitTaskURL,
+		mintSecret:          opts.MintSecret,
+		sandboxTaskURL:      opts.SandboxTaskURL,
+		chatHost:            opts.ChatHost,
+		chatHostURL:         opts.ChatHostURL,
+		chatRender:          opts.ChatHostRender,
+		anthropicBaseURL:    opts.AnthropicBaseURL,
+		notifiers:           opts.Notifiers,
+		notifyAwayAfter:     cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
+		publicURL:           opts.PublicURL,
+		chatSlots:           make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
+		chatPerUser:         cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
+		replicaID:           cmp.Or(opts.ReplicaID, newReplicaID()),
+		leaseTTL:            cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
+		heldLeases:          map[string]bool{},
+		githubAPIURL:        opts.GitHubAPIURL,
+		githubURL:           opts.GitHubURL,
+		sessions:            map[string]*sessionState{},
+		hostRuns:            map[string]func(){},
+		turnTokens:          map[string]turnGrant{},
+		liveDelegations:     map[string]*delegationRun{},
 	}, nil
 }
 
@@ -1276,7 +1282,7 @@ func (c *Conductor) brief(
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
-		Memory:      c.memory,
+		Memory:      c.memoryFor(c.placedRunsOn(ctx, j)),
 	}
 	b.Provider = c.providerFor(choice.Agent, choice.CredentialOwner)
 	// Where this turn redeems its capability. The capability itself is a secret and is
