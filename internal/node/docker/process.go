@@ -159,6 +159,16 @@ func (p *ProcessExecutor) Cancel(taskID string) {
 	}
 }
 
+// sweep ends whatever the task's account still runs once its command has exited, which is
+// what the end of a container does. A task run as the agent's own user has no account to
+// sweep; the runner has already ended its process group.
+func (p *ProcessExecutor) sweep() {
+	if p.o.User == "" {
+		return
+	}
+	_ = p.privileged("pkill", "-KILL", "-U", p.o.User)
+}
+
 func (p *ProcessExecutor) kill(rs *runState, pid int) {
 	rs.once.Do(func() {
 		go func() {
@@ -202,11 +212,6 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	}
 	if len(sp.Sidecars) > 0 && p.o.Sidecars == nil {
 		return Result{}, fmt.Errorf("%w: sidecars need Docker, which this sandbox does not have", errSpec)
-	}
-	for name, sc := range sp.Sidecars {
-		if sc.ShareWorkspace {
-			return Result{}, fmt.Errorf("%w: sidecar %s: share_workspace is not supported for a task run as a process", errSpec, name)
-		}
 	}
 	workdir := sp.WorkingDir
 	if workdir == "" {
@@ -314,6 +319,9 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	argv = append(argv, sp.Command...)
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // the task's own command
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A process the command left behind in a session of its own still holds the output
+	// pipes; past this, Wait stops waiting for them and sweep ends it.
+	cmd.WaitDelay = logDrainTimeout
 	stdout := &logWriter{em: em, stream: StreamStdout}
 	stderr := &logWriter{em: em, stream: StreamStderr}
 	outR, outW := io.Pipe()
@@ -352,7 +360,11 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	case exitCode = <-heldCh:
 		held = true
 	case werr := <-waitCh:
+		if errors.Is(werr, exec.ErrWaitDelay) {
+			werr = nil // the command exited 0; only its pipes outlived it
+		}
 		exitCode = exitCodeOf(werr)
+		p.sweep()
 	}
 	link.stopAccepting()
 	if held {

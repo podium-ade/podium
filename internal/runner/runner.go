@@ -233,6 +233,9 @@ func Run(ctx context.Context, cfg Config, argv []string) int {
 			}
 			events.exited(code, signame, holding)
 			if !holding {
+				// What the command left running ends with it, as it does in a container,
+				// where this process is PID 1. A task run as a process has no such end.
+				kill(syscall.SIGKILL)
 				return code
 			}
 			warn("command exited %d; holding the environment up until it is released", code)

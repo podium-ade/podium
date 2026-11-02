@@ -107,3 +107,27 @@ func waitForFile(t *testing.T, path string) []byte {
 	t.Fatalf("%s never appeared", path)
 	return nil
 }
+
+// A command that is not held takes what it left in the background with it, as the end of
+// a container would: a task run as a process has no container to end.
+func TestRunEndsWhatTheCommandLeftBehind(t *testing.T) {
+	dir := shortDir(t)
+	node := newFakeNode(t, dir)
+	cfg, _, _ := baseConfig(t, dir)
+	cfg.EventsSock = node.path
+	pidFile := filepath.Join(dir, "bg.pid")
+
+	code := Run(context.Background(), cfg, []string{"sh", "-c", "sleep 60 & echo $! > " + pidFile + "; exit 3"})
+	if code != 3 {
+		t.Fatalf("Run = %d, want the command's own 3", code)
+	}
+	bg, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, pidFile))))
+	if err != nil {
+		t.Fatalf("background pid: %v", err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); syscall.Kill(bg, 0) == nil; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the background process outlived the command")
+		}
+	}
+}
