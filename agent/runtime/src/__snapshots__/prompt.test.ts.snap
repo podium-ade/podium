@@ -46,7 +46,7 @@ You have a memory that outlives this container, through the tools mcp__memory__r
 
 - podium is checked out at /workspace/podium on branch main (https://github.com/podium-ade/podium)
 
-Your working directory is /workspace, not a repository. A path that is not absolute is resolved from /workspace, so give grep, glob, list, read and edit absolute paths (\`/workspace/podium/src\`, not \`src\`), and run bash with its workdir set to the repository.
+Your working directory is /workspace, not a repository. A path that is not absolute is resolved from /workspace, so give grep, glob, read and edit absolute paths (\`/workspace/podium/src\`, not \`src\`), and run shell with its workdir set to the repository.
 
 # The conversation so far
 

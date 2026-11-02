@@ -235,13 +235,32 @@ var Backends = []Backend{{
 // through, because a silent remap would quietly work for the tools whose names happen to
 // match and quietly drop the ones that do not. A playbook that names a tool nobody has is
 // refused when it is loaded or saved, which is the cheapest place to find out.
+//
+// It changed again with opencode 2, which renamed bash to shell and task to subagent and
+// folded list, patch and todoread into other tools. Those old names are LegacyTools: a
+// playbook saved with them still loads, and the runtime turns each into the tool it became
+// (LegacyTools in agent/runtime/src/opencode.ts). That map is explicit, so it is not the
+// silent remap the paragraph above refuses.
 var Tools = []string{
-	"bash", "edit", "glob", "grep", "list", "patch",
-	"read", "task", "todoread", "todowrite", "webfetch", "write",
+	"shell", "edit", "write", "read", "glob", "grep",
+	"webfetch", "websearch", "subagent", "todowrite",
 }
 
-// validTool reports whether the harness has a tool by this name.
-func validTool(name string) bool { return slices.Contains(Tools, name) }
+// LegacyTools are opencode 1's tool names, still accepted in a playbook, and what each became.
+var LegacyTools = map[string]string{
+	"bash":     "shell",
+	"task":     "subagent",
+	"list":     "glob",
+	"patch":    "edit",
+	"todoread": "todowrite",
+}
+
+// validTool reports whether the harness has a tool by this name, under its own name or an
+// opencode 1 one.
+func validTool(name string) bool {
+	_, legacy := LegacyTools[name]
+	return legacy || slices.Contains(Tools, name)
+}
 
 // SecretFor is the reserved Podium secret a provider's credential is stored as, and
 // KeyEnvFor is where that credential lands in a task container.

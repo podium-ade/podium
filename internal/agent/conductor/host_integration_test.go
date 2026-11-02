@@ -270,7 +270,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	assert.Equal(t, "why does it 500?", report.Instruction)
 
 	// The assistant: the short tool list, and no repository to point a tool at.
-	assert.Equal(t, []string{"webfetch", "todoread", "todowrite"}, report.Tools)
+	assert.Equal(t, []string{"webfetch", "todowrite"}, report.Tools)
 	assert.Zero(t, report.Repos)
 
 	// The jail: a HOME of its own, not the operator's, and a working directory beside it.

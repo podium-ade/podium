@@ -196,7 +196,7 @@ SAML is not implemented.
   files. Everything in *3. A task container* above buys nothing there: no capability set, no
   seccomp profile, no read-only root, no private network, no memory limit. What stands in its
   place is a much shorter list, and it is the whole of it:
-  `webfetch`/`todoread`/`todowrite` and no others — no shell, no filesystem tools and no
+  `webfetch`/`todowrite` and no others — no shell, no filesystem tools and no
   repository to point one at; a `HOME` of its own so the runtime cannot write into the
   operator's harness configuration; and an environment built up from empty, so the Podium API
   token and the agent database URL are not in a model's reach. The assistant's job is to talk

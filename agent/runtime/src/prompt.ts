@@ -363,7 +363,7 @@ function reposBlock(brief: TurnBrief): string {
 
 ${lines.join("\n")}
 
-Your working directory is ${WorkspaceDir}, not a repository. A path that is not absolute is resolved from ${WorkspaceDir}, so give grep, glob, list, read and edit absolute paths (\`${example}\`, not \`src\`), and run bash with its workdir set to the repository.`;
+Your working directory is ${WorkspaceDir}, not a repository. A path that is not absolute is resolved from ${WorkspaceDir}, so give grep, glob, read and edit absolute paths (\`${example}\`, not \`src\`), and run shell with its workdir set to the repository.`;
 }
 
 function channelBlock(brief: TurnBrief): string {
