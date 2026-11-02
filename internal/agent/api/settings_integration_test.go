@@ -129,7 +129,7 @@ func newSettingsFixture(t *testing.T, baseURL string, client *http.Client) setti
 
 func TestGetSettingsBeforeAnyKeyIsSet(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", http.DefaultClient)
-	res, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	res, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	p := res.Msg.GetProvider()
 	assert.Equal(t, ProviderAnthropic, p.GetProvider())
@@ -145,8 +145,8 @@ func TestSetProviderKeyStoresTheSecretAndTheMetadata(t *testing.T) {
 	f := newSettingsFixture(t, srv.URL, srv.Client())
 	before := time.Now().Add(-time.Second)
 
-	res, err := f.svc.SetProviderKey(loginCtx("alice@example.com"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Provider: ProviderAnthropic, Key: fakeKey}))
+	res, err := f.svc.SetProviderKey(adminCtx("alice@example.com"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Provider: ProviderAnthropic, Key: fakeKey}))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-opus-5", "claude-sonnet-5"}, res.Msg.GetModels())
 	assert.Empty(t, res.Msg.GetStatus(), "sk-ant- is the familiar prefix")
@@ -162,7 +162,7 @@ func TestSetProviderKeyStoresTheSecretAndTheMetadata(t *testing.T) {
 
 	// And GetSettings reports the same thing: the control plane confirms the secret at that
 	// version, so the row's hint is about the key that is actually there.
-	got, err := f.svc.GetSettings(loginCtx("bob"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("bob"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.True(t, got.Msg.GetProvider().GetKeySet())
 	assert.Equal(t, "abcd", got.Msg.GetProvider().GetKeyHint())
@@ -174,8 +174,8 @@ func TestSetProviderKeyStoresTheSecretAndTheMetadata(t *testing.T) {
 func TestSetProviderKeyLogsNoByteOfTheKey(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.NoError(t, err)
 
 	out := f.log.String()
@@ -194,8 +194,8 @@ func TestSetProviderKeyAcceptsAnUnfamiliarPrefixAndSaysSo(t *testing.T) {
 	srv := fakeAnthropic(t, odd)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
 
-	res, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: odd}))
+	res, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: odd}))
 	require.NoError(t, err)
 	assert.Contains(t, res.Msg.GetStatus(), "looks unusual")
 	assert.Equal(t, "wxyz", res.Msg.GetProvider().GetKeyHint())
@@ -204,8 +204,8 @@ func TestSetProviderKeyAcceptsAnUnfamiliarPrefixAndSaysSo(t *testing.T) {
 func TestSetProviderKeyTrimsWhatWasPasted(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: "  \"" + fakeKey + "\"\n"}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: "  \"" + fakeKey + "\"\n"}))
 	require.NoError(t, err, "a key pasted out of a .env file must still work")
 	assert.Equal(t, []byte(fakeKey), f.secrets.set[profiles.AnthropicKeySecret])
 }
@@ -217,12 +217,12 @@ func TestSetProviderKeyWritesNothingWhenTheProviderIsUnreachable(t *testing.T) {
 	defer srv.Close()
 	f := newSettingsFixture(t, srv.URL, srv.Client())
 
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
 	assert.Empty(t, f.secrets.set)
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.False(t, got.Msg.GetProvider().GetKeySet(), "nothing was saved")
 }
@@ -231,12 +231,12 @@ func TestSetProviderKeyWritesNothingWhenTheProviderRefuses(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
 
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: "sk-ant-someone-elses-key"}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: "sk-ant-someone-elses-key"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	assert.Empty(t, f.secrets.set)
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.False(t, got.Msg.GetProvider().GetKeySet())
 }
@@ -249,13 +249,13 @@ func TestSetProviderKeyLeavesNoRowWhenTheControlPlaneRefusesTheSecret(t *testing
 	f.secrets.setErr = connect.NewError(connect.CodeFailedPrecondition,
 		fmt.Errorf("no master key configured"))
 
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	assert.Contains(t, err.Error(), "no master key configured", "the server's own words reach the operator")
 
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.False(t, got.Msg.GetProvider().GetKeySet())
 }
@@ -267,13 +267,13 @@ func TestSetProviderKeyLeavesNoRowWhenTheControlPlaneRefusesTheSecret(t *testing
 func TestGetSettingsFollowsTheControlPlaneNotItsOwnRow(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.NoError(t, err)
 
 	f.secrets.removeBehindTheUI(profiles.AnthropicKeySecret)
 
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.False(t, got.Msg.GetProvider().GetKeySet(),
 		"the secret is gone, so no key is set, whatever the row says")
@@ -286,13 +286,13 @@ func TestGetSettingsFollowsTheControlPlaneNotItsOwnRow(t *testing.T) {
 func TestGetSettingsWithholdsAHintForAKeyItDidNotSet(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.NoError(t, err)
 
 	f.secrets.setBehindTheUI(profiles.AnthropicKeySecret, "sk-ant-a-different-fake-wxyz")
 
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	p := got.Msg.GetProvider()
 	assert.True(t, p.GetKeySet(), "a key is set; a turn will find one")
@@ -306,7 +306,7 @@ func TestGetSettingsReportsAKeyItHasNoRowFor(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", http.DefaultClient)
 	f.secrets.setBehindTheUI(profiles.AnthropicKeySecret, fakeKey)
 
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.True(t, got.Msg.GetProvider().GetKeySet())
 	assert.Empty(t, got.Msg.GetProvider().GetKeyHint())
@@ -317,12 +317,12 @@ func TestGetSettingsReportsAKeyItHasNoRowFor(t *testing.T) {
 func TestGetSettingsFallsBackToTheRowWhenTheControlPlaneIsUnreachable(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.NoError(t, err)
 
 	f.secrets.listErr = connect.NewError(connect.CodeUnavailable, fmt.Errorf("control plane down"))
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.True(t, got.Msg.GetProvider().GetKeySet())
 	assert.Equal(t, "abcd", got.Msg.GetProvider().GetKeyHint())
@@ -335,7 +335,7 @@ func TestGetSettingsTreatsNoMasterKeyAsNoKey(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", http.DefaultClient)
 	f.secrets.listErr = connect.NewError(connect.CodeFailedPrecondition,
 		fmt.Errorf("no master key configured"))
-	got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
 	assert.False(t, got.Msg.GetProvider().GetKeySet())
 }
@@ -343,15 +343,15 @@ func TestGetSettingsTreatsNoMasterKeyAsNoKey(t *testing.T) {
 func TestClearProviderKeyIsIdempotent(t *testing.T) {
 	srv := fakeAnthropic(t, fakeKey)
 	f := newSettingsFixture(t, srv.URL, srv.Client())
-	_, err := f.svc.SetProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	_, err := f.svc.SetProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Global: true, Key: fakeKey}))
 	require.NoError(t, err)
 
 	for i := range 2 {
-		_, err := f.svc.ClearProviderKey(loginCtx("alice"),
-			connect.NewRequest(&agentv1.ClearProviderKeyRequest{}))
+		_, err := f.svc.ClearProviderKey(adminCtx("alice"),
+			connect.NewRequest(&agentv1.ClearProviderKeyRequest{Global: true}))
 		require.NoError(t, err, "call %d", i+1)
-		got, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+		got, err := f.svc.GetSettings(adminCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 		require.NoError(t, err)
 		assert.False(t, got.Msg.GetProvider().GetKeySet())
 		assert.Empty(t, got.Msg.GetProvider().GetKeyHint())
@@ -363,8 +363,8 @@ func TestClearProviderKeyIsIdempotent(t *testing.T) {
 func TestClearProviderKeyTreatsAMissingSecretAsSuccess(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", http.DefaultClient)
 	f.secrets.delErr = connect.NewError(connect.CodeNotFound, fmt.Errorf("no such secret"))
-	_, err := f.svc.ClearProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.ClearProviderKeyRequest{}))
+	_, err := f.svc.ClearProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.ClearProviderKeyRequest{Global: true}))
 	require.NoError(t, err)
 }
 
@@ -372,8 +372,14 @@ func TestClearProviderKeyTreatsAMissingSecretAsSuccess(t *testing.T) {
 func TestClearProviderKeySurfacesARealFailure(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", http.DefaultClient)
 	f.secrets.delErr = connect.NewError(connect.CodeUnavailable, fmt.Errorf("control plane down"))
-	_, err := f.svc.ClearProviderKey(loginCtx("alice"),
-		connect.NewRequest(&agentv1.ClearProviderKeyRequest{}))
+	_, err := f.svc.ClearProviderKey(adminCtx("alice"),
+		connect.NewRequest(&agentv1.ClearProviderKeyRequest{Global: true}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+}
+
+// adminCtx is a signed-in admin or owner: the proxy marked the request as infra, which is
+// what lets it write the global credential rather than its own.
+func adminCtx(login string) context.Context {
+	return context.WithValue(loginCtx(login), infraKey{}, true)
 }

@@ -31,17 +31,25 @@ export type AppNotification = {
 
 export type AlertDraft = Omit<AppNotification, "id" | "createdAt" | "readAt" | "resolvedAt">;
 
-/** alertsFromProviders is the live set. History is everything this browser has already recorded. */
+/**
+ * alertsFromProviders is the live set. History is everything this browser has already recorded.
+ * scope says whose credentials these are: the global ones keep the key they always had, and the
+ * viewer's own get a key of their own so the two never resolve each other.
+ */
 export function alertsFromProviders(
   providers: readonly ProviderSettings[] | undefined,
   now = Date.now(),
+  scope: "global" | "personal" = "global",
 ): AlertDraft[] {
   const drafts: AlertDraft[] = [];
   for (const provider of PROVIDERS) {
     const row = providers?.find((p) => p.provider === provider.id);
     if (!oauthExpired(row, now)) continue;
     drafts.push({
-      key: `provider-oauth-expired:${provider.id}`,
+      key:
+        scope === "personal"
+          ? `provider-oauth-expired:personal:${provider.id}`
+          : `provider-oauth-expired:${provider.id}`,
       level: "alert",
       title: `Sign in to ${provider.models} again`,
       body:

@@ -62,6 +62,13 @@ export type ProviderCardProps = {
   loading?: boolean;
   /** A member can see the row and cannot change the credential. */
   readOnly?: boolean;
+  /**
+   * Whose credential the row is: the viewer's own, or the global one an admin set. It only
+   * changes the words — what a removal means, and what an unset row falls back to.
+   */
+  scope?: "personal" | "global";
+  /** On a personal row: a global key is set, so chats run on it while this row is unset. */
+  fallbackSet?: boolean;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
@@ -90,6 +97,8 @@ export function ProviderCard({
   settings,
   loading,
   readOnly,
+  scope = "global",
+  fallbackSet,
   onSave,
   onClear,
   onStartOAuth,
@@ -279,7 +288,11 @@ export function ProviderCard({
               data-testid={tid("provider-key-meta")}
               className="font-mono text-sm break-words text-soft"
             >
-              <Connected settings={settings} />
+              <Connected settings={settings} personal={scope === "personal"} />
+            </span>
+          ) : !loading && fallbackSet ? (
+            <span data-testid={tid("provider-fallback")} className="text-sm text-muted">
+              Using the global key
             </span>
           ) : (
             <span className="text-muted">—</span>
@@ -502,9 +515,13 @@ export function ProviderCard({
               {subscriptionStored ? "Sign out?" : "Remove key?"}
             </DialogTitle>
             <DialogDescription className="text-base text-soft">
-              {provider.models} turns will fail until a credential is set again. Podium deletes
-              the secret; nothing already running is stopped, and every session that has already
-              answered keeps its history.
+              {scope === "personal"
+                ? fallbackSet
+                  ? `Your ${provider.models} chats go back to the global key.`
+                  : `${provider.models} chats you start will fail until a credential is set again.`
+                : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`}{" "}
+              Podium deletes the secret; nothing already running is stopped, and every session
+              that has already answered keeps its history.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -670,7 +687,7 @@ function SubscriptionPanel({
 }
 
 /** Connected is the one line that says what is actually stored. */
-function Connected({ settings }: { settings?: ProviderSettings }) {
+function Connected({ settings, personal }: { settings?: ProviderSettings; personal?: boolean }) {
   if (settings?.authKind === "oauth") {
     return (
       <>
@@ -689,7 +706,7 @@ function Connected({ settings }: { settings?: ProviderSettings }) {
     return (
       <>
         ••••{settings.keyHint}
-        {settings.setBy ? ` · set by ${settings.setBy}` : ""}
+        {settings.setBy && !personal ? ` · set by ${settings.setBy}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
       </>
     );
