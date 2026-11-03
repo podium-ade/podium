@@ -14,6 +14,7 @@
 import { BriefError, ExitBriefInvalid, decodeBrief } from "./brief.js";
 import { MemoryTools, PullRequestServer, buildSystemPrompt } from "./prompt.js";
 import { DelegateServer, TitleServer } from "./opencode.js";
+import { isEntrypoint } from "./entry.js";
 
 /** CodeModeServers are the servers a chat host's location registers, by the name the prompt uses. */
 export const CodeModeServers = [DelegateServer, TitleServer];
@@ -74,6 +75,6 @@ function main(): number {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = main();
 }
