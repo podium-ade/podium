@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { ChatTitleName } from "./artifacts.js";
 import type { TurnBrief } from "./brief.js";
 import { RPCError, serve, type Handler } from "./mcp.js";
+import { isEntrypoint } from "./entry.js";
 
 /** TitleServer prefixes the tool the harness shows the model (`title_set`). */
 export const TitleServer = "title";
@@ -179,6 +180,6 @@ async function main(): Promise<number> {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url)) {
   process.exit(await main());
 }
