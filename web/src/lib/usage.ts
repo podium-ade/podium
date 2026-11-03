@@ -43,6 +43,11 @@ export function dayLabel(d: Date): string {
 
 /** parseDayKey turns a YYYY-MM-DD back into local midnight. `new Date(key)` would read it
  *  as UTC and land on the day before for anyone west of Greenwich. */
+/** lastDay is the last day a half-open range covers: the day before its exclusive end. */
+export function lastDay(r: { to: Date }): Date {
+  return addDays(r.to, -1);
+}
+
 export function parseDayKey(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -132,11 +137,13 @@ export function previousRange(r: Range): Range {
   if (r.id === "last-month") {
     return { id: "last-month", from: addMonths(r.from, -1), to: r.from, label: "the month before" };
   }
-  const span = r.to.getTime() - r.from.getTime();
-  return { id: r.id, from: new Date(r.from.getTime() - span), to: r.from, label: "the window before" };
+  // In days, not milliseconds: a window across a clock change is an hour longer or shorter
+  // than its days, and the one before it would start an hour off midnight.
+  return { id: r.id, from: addDays(r.from, -spanDays(r)), to: r.from, label: "the window before" };
 }
 
-/** spanDays is how many whole days a range covers. Used to size the daily trend. */
+/** spanDays is how many whole days a range covers. Rounded, because a day across a clock
+ *  change is 23 or 25 hours. */
 export function spanDays(r: Range): number {
   return Math.max(1, Math.round((r.to.getTime() - r.from.getTime()) / 86_400_000));
 }
