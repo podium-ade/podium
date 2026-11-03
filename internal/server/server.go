@@ -19,12 +19,14 @@ import (
 
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/sandbox"
 	"github.com/podium-ade/podium/internal/server/api"
 	"github.com/podium-ade/podium/internal/server/artifacts"
 	"github.com/podium-ade/podium/internal/server/auth"
 	"github.com/podium-ade/podium/internal/server/logs"
 	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/internal/server/sandboxes"
+	"github.com/podium-ade/podium/internal/server/sandboxsnaps"
 	"github.com/podium-ade/podium/internal/server/scheduler"
 	"github.com/podium-ade/podium/internal/server/secrets"
 	"github.com/podium-ade/podium/internal/server/snapshots"
@@ -61,7 +63,9 @@ type Server struct {
 	secrets   *secrets.Service
 	artifacts *artifacts.Service
 	snapshots *snapshots.Service
-	scheduler *scheduler.Service
+	// sandboxSnaps is the workspaces sandbox providers keep as images of their own.
+	sandboxSnaps *sandboxsnaps.Service
+	scheduler    *scheduler.Service
 	// sandboxes runs every configured cloud sandbox provider. See internal/server/sandboxes.
 	sandboxes *sandboxes.Manager
 	http      *http.Server
@@ -143,6 +147,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, err
 	}
 	nodeSvc.SetSnapshots(snapSvc)
+	sandboxSnapSvc := sandboxsnaps.New(st, snapshotProviders{store: st, secrets: secretSvc}, logger.With("component", "sandbox-snapshots"))
+	nodeSvc.SetSandboxSnapshots(sandboxSnapSvc)
 	logSvc.SetArchive(artifactSvc, cfg.Rollup)
 	warnAboutPlaintextTransport(ctx, cfg, st, logger)
 	if timing != scheduler.DefaultTiming() {
@@ -154,17 +160,18 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	// and a terminal status when a node reports an error that ended a run.
 	logSvc.SetRetries(sched)
 	s := &Server{
-		cfg:       cfg,
-		logger:    logger,
-		store:     st,
-		transport: listener,
-		nodes:     nodeSvc,
-		logs:      logSvc,
-		secrets:   secretSvc,
-		artifacts: artifactSvc,
-		snapshots: snapSvc,
-		scheduler: sched,
-		serveErr:  make(chan error, 1),
+		cfg:          cfg,
+		logger:       logger,
+		store:        st,
+		transport:    listener,
+		nodes:        nodeSvc,
+		logs:         logSvc,
+		secrets:      secretSvc,
+		artifacts:    artifactSvc,
+		snapshots:    snapSvc,
+		sandboxSnaps: sandboxSnapSvc,
+		scheduler:    sched,
+		serveErr:     make(chan error, 1),
 	}
 	// Cloud sandboxes are the server's to run: one runner per provider configured on the
 	// Sandboxes screen, talking to this server's own node service in memory.
@@ -386,7 +393,7 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSnapshotServiceHandler(
-		api.NewSnapshotService(s.snapshots, s.logger), opts...))
+		api.NewSnapshotService(s.snapshots, s.sandboxSnaps, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -566,6 +573,11 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 	go func() {
+		if err := s.store.RunAsLeader(baseCtx, "podium.sandbox_snapshot_retention", s.sandboxSnaps.Run); err != nil && baseCtx.Err() == nil {
+			s.logger.ErrorContext(baseCtx, "sandbox snapshot retention stopped", "error", err)
+		}
+	}()
+	go func() {
 		if err := s.store.RunAsLeader(baseCtx, "podium.snapshot_retention", s.snapshots.Run); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "workspace snapshot retention stopped", "error", err)
 		}
@@ -656,6 +668,55 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()
 	return s.Shutdown(shutdownCtx)
+}
+
+// snapshotProviders is how the sandbox snapshot sweep reaches the providers that keep
+// workspaces as images: from the configuration an admin saved, the same the runners use.
+type snapshotProviders struct {
+	store   *store.Store
+	secrets *secrets.Service
+}
+
+// Snapshotters implements sandboxsnaps.Providers.
+func (p snapshotProviders) Snapshotters(ctx context.Context) ([]string, error) {
+	rows, err := p.store.ListSandboxProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range rows {
+		if sandbox.IsSnapshotter(r.Name) {
+			out = append(out, r.Name)
+		}
+	}
+	return out, nil
+}
+
+// Deleter implements sandboxsnaps.Providers with a provider of its own, built for the call.
+func (p snapshotProviders) Deleter(ctx context.Context, provider string) (sandboxsnaps.Deleter, error) {
+	cfg, found, err := p.secrets.ResolveSandboxProvider(ctx, "server", provider)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("sandbox provider %s is not configured", provider)
+	}
+	settings := make(map[string]string, len(cfg.Settings))
+	for k, v := range cfg.Settings {
+		if k != sandboxes.SettingPoolSize && k != sandboxes.SettingPoolImage && k != "template" {
+			settings[k] = v
+		}
+	}
+	built, err := sandbox.New(provider, sandbox.ConfigOf(settings, cfg.Secret))
+	clear(cfg.Secret)
+	if err != nil {
+		return nil, err
+	}
+	d, ok := built.(sandboxsnaps.Deleter)
+	if !ok {
+		return nil, fmt.Errorf("sandbox provider %s keeps no snapshots of its own", provider)
+	}
+	return d, nil
 }
 
 // sandboxPusher is what a provider's change reaches: the nodes that run it, and the server's

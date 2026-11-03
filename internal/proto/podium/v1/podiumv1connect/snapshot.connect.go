@@ -42,6 +42,15 @@ const (
 	// SnapshotServiceSetSnapshotRetentionProcedure is the fully-qualified name of the SnapshotService's
 	// SetSnapshotRetention RPC.
 	SnapshotServiceSetSnapshotRetentionProcedure = "/podium.v1.SnapshotService/SetSnapshotRetention"
+	// SnapshotServiceListSandboxSnapshotsProcedure is the fully-qualified name of the SnapshotService's
+	// ListSandboxSnapshots RPC.
+	SnapshotServiceListSandboxSnapshotsProcedure = "/podium.v1.SnapshotService/ListSandboxSnapshots"
+	// SnapshotServiceDeleteSandboxSnapshotsProcedure is the fully-qualified name of the
+	// SnapshotService's DeleteSandboxSnapshots RPC.
+	SnapshotServiceDeleteSandboxSnapshotsProcedure = "/podium.v1.SnapshotService/DeleteSandboxSnapshots"
+	// SnapshotServiceSetSandboxSnapshotRetentionProcedure is the fully-qualified name of the
+	// SnapshotService's SetSandboxSnapshotRetention RPC.
+	SnapshotServiceSetSandboxSnapshotRetentionProcedure = "/podium.v1.SnapshotService/SetSandboxSnapshotRetention"
 )
 
 // SnapshotServiceClient is a client for the podium.v1.SnapshotService service.
@@ -53,6 +62,14 @@ type SnapshotServiceClient interface {
 	DeleteSnapshot(context.Context, *connect.Request[v1.DeleteSnapshotRequest]) (*connect.Response[v1.DeleteSnapshotResponse], error)
 	// SetSnapshotRetention replaces the policy and applies it before returning.
 	SetSnapshotRetention(context.Context, *connect.Request[v1.SetSnapshotRetentionRequest]) (*connect.Response[v1.SetSnapshotRetentionResponse], error)
+	// ListSandboxSnapshots returns every session workspace a sandbox provider keeps as an
+	// image of its own (a Modal directory snapshot), newest first, and their retention policy.
+	ListSandboxSnapshots(context.Context, *connect.Request[v1.ListSandboxSnapshotsRequest]) (*connect.Response[v1.ListSandboxSnapshotsResponse], error)
+	// DeleteSandboxSnapshots deletes the images of the sessions named. Each one's next task
+	// starts from the repository base, or from an empty workspace.
+	DeleteSandboxSnapshots(context.Context, *connect.Request[v1.DeleteSandboxSnapshotsRequest]) (*connect.Response[v1.DeleteSandboxSnapshotsResponse], error)
+	// SetSandboxSnapshotRetention replaces the policy and applies it before returning.
+	SetSandboxSnapshotRetention(context.Context, *connect.Request[v1.SetSandboxSnapshotRetentionRequest]) (*connect.Response[v1.SetSandboxSnapshotRetentionResponse], error)
 }
 
 // NewSnapshotServiceClient constructs a client for the podium.v1.SnapshotService service. By
@@ -84,14 +101,35 @@ func NewSnapshotServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(snapshotServiceMethods.ByName("SetSnapshotRetention")),
 			connect.WithClientOptions(opts...),
 		),
+		listSandboxSnapshots: connect.NewClient[v1.ListSandboxSnapshotsRequest, v1.ListSandboxSnapshotsResponse](
+			httpClient,
+			baseURL+SnapshotServiceListSandboxSnapshotsProcedure,
+			connect.WithSchema(snapshotServiceMethods.ByName("ListSandboxSnapshots")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSandboxSnapshots: connect.NewClient[v1.DeleteSandboxSnapshotsRequest, v1.DeleteSandboxSnapshotsResponse](
+			httpClient,
+			baseURL+SnapshotServiceDeleteSandboxSnapshotsProcedure,
+			connect.WithSchema(snapshotServiceMethods.ByName("DeleteSandboxSnapshots")),
+			connect.WithClientOptions(opts...),
+		),
+		setSandboxSnapshotRetention: connect.NewClient[v1.SetSandboxSnapshotRetentionRequest, v1.SetSandboxSnapshotRetentionResponse](
+			httpClient,
+			baseURL+SnapshotServiceSetSandboxSnapshotRetentionProcedure,
+			connect.WithSchema(snapshotServiceMethods.ByName("SetSandboxSnapshotRetention")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // snapshotServiceClient implements SnapshotServiceClient.
 type snapshotServiceClient struct {
-	listSnapshots        *connect.Client[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse]
-	deleteSnapshot       *connect.Client[v1.DeleteSnapshotRequest, v1.DeleteSnapshotResponse]
-	setSnapshotRetention *connect.Client[v1.SetSnapshotRetentionRequest, v1.SetSnapshotRetentionResponse]
+	listSnapshots               *connect.Client[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse]
+	deleteSnapshot              *connect.Client[v1.DeleteSnapshotRequest, v1.DeleteSnapshotResponse]
+	setSnapshotRetention        *connect.Client[v1.SetSnapshotRetentionRequest, v1.SetSnapshotRetentionResponse]
+	listSandboxSnapshots        *connect.Client[v1.ListSandboxSnapshotsRequest, v1.ListSandboxSnapshotsResponse]
+	deleteSandboxSnapshots      *connect.Client[v1.DeleteSandboxSnapshotsRequest, v1.DeleteSandboxSnapshotsResponse]
+	setSandboxSnapshotRetention *connect.Client[v1.SetSandboxSnapshotRetentionRequest, v1.SetSandboxSnapshotRetentionResponse]
 }
 
 // ListSnapshots calls podium.v1.SnapshotService.ListSnapshots.
@@ -109,6 +147,21 @@ func (c *snapshotServiceClient) SetSnapshotRetention(ctx context.Context, req *c
 	return c.setSnapshotRetention.CallUnary(ctx, req)
 }
 
+// ListSandboxSnapshots calls podium.v1.SnapshotService.ListSandboxSnapshots.
+func (c *snapshotServiceClient) ListSandboxSnapshots(ctx context.Context, req *connect.Request[v1.ListSandboxSnapshotsRequest]) (*connect.Response[v1.ListSandboxSnapshotsResponse], error) {
+	return c.listSandboxSnapshots.CallUnary(ctx, req)
+}
+
+// DeleteSandboxSnapshots calls podium.v1.SnapshotService.DeleteSandboxSnapshots.
+func (c *snapshotServiceClient) DeleteSandboxSnapshots(ctx context.Context, req *connect.Request[v1.DeleteSandboxSnapshotsRequest]) (*connect.Response[v1.DeleteSandboxSnapshotsResponse], error) {
+	return c.deleteSandboxSnapshots.CallUnary(ctx, req)
+}
+
+// SetSandboxSnapshotRetention calls podium.v1.SnapshotService.SetSandboxSnapshotRetention.
+func (c *snapshotServiceClient) SetSandboxSnapshotRetention(ctx context.Context, req *connect.Request[v1.SetSandboxSnapshotRetentionRequest]) (*connect.Response[v1.SetSandboxSnapshotRetentionResponse], error) {
+	return c.setSandboxSnapshotRetention.CallUnary(ctx, req)
+}
+
 // SnapshotServiceHandler is an implementation of the podium.v1.SnapshotService service.
 type SnapshotServiceHandler interface {
 	// ListSnapshots returns every session snapshot, newest first, and the retention policy.
@@ -118,6 +171,14 @@ type SnapshotServiceHandler interface {
 	DeleteSnapshot(context.Context, *connect.Request[v1.DeleteSnapshotRequest]) (*connect.Response[v1.DeleteSnapshotResponse], error)
 	// SetSnapshotRetention replaces the policy and applies it before returning.
 	SetSnapshotRetention(context.Context, *connect.Request[v1.SetSnapshotRetentionRequest]) (*connect.Response[v1.SetSnapshotRetentionResponse], error)
+	// ListSandboxSnapshots returns every session workspace a sandbox provider keeps as an
+	// image of its own (a Modal directory snapshot), newest first, and their retention policy.
+	ListSandboxSnapshots(context.Context, *connect.Request[v1.ListSandboxSnapshotsRequest]) (*connect.Response[v1.ListSandboxSnapshotsResponse], error)
+	// DeleteSandboxSnapshots deletes the images of the sessions named. Each one's next task
+	// starts from the repository base, or from an empty workspace.
+	DeleteSandboxSnapshots(context.Context, *connect.Request[v1.DeleteSandboxSnapshotsRequest]) (*connect.Response[v1.DeleteSandboxSnapshotsResponse], error)
+	// SetSandboxSnapshotRetention replaces the policy and applies it before returning.
+	SetSandboxSnapshotRetention(context.Context, *connect.Request[v1.SetSandboxSnapshotRetentionRequest]) (*connect.Response[v1.SetSandboxSnapshotRetentionResponse], error)
 }
 
 // NewSnapshotServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -145,6 +206,24 @@ func NewSnapshotServiceHandler(svc SnapshotServiceHandler, opts ...connect.Handl
 		connect.WithSchema(snapshotServiceMethods.ByName("SetSnapshotRetention")),
 		connect.WithHandlerOptions(opts...),
 	)
+	snapshotServiceListSandboxSnapshotsHandler := connect.NewUnaryHandler(
+		SnapshotServiceListSandboxSnapshotsProcedure,
+		svc.ListSandboxSnapshots,
+		connect.WithSchema(snapshotServiceMethods.ByName("ListSandboxSnapshots")),
+		connect.WithHandlerOptions(opts...),
+	)
+	snapshotServiceDeleteSandboxSnapshotsHandler := connect.NewUnaryHandler(
+		SnapshotServiceDeleteSandboxSnapshotsProcedure,
+		svc.DeleteSandboxSnapshots,
+		connect.WithSchema(snapshotServiceMethods.ByName("DeleteSandboxSnapshots")),
+		connect.WithHandlerOptions(opts...),
+	)
+	snapshotServiceSetSandboxSnapshotRetentionHandler := connect.NewUnaryHandler(
+		SnapshotServiceSetSandboxSnapshotRetentionProcedure,
+		svc.SetSandboxSnapshotRetention,
+		connect.WithSchema(snapshotServiceMethods.ByName("SetSandboxSnapshotRetention")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.SnapshotService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SnapshotServiceListSnapshotsProcedure:
@@ -153,6 +232,12 @@ func NewSnapshotServiceHandler(svc SnapshotServiceHandler, opts ...connect.Handl
 			snapshotServiceDeleteSnapshotHandler.ServeHTTP(w, r)
 		case SnapshotServiceSetSnapshotRetentionProcedure:
 			snapshotServiceSetSnapshotRetentionHandler.ServeHTTP(w, r)
+		case SnapshotServiceListSandboxSnapshotsProcedure:
+			snapshotServiceListSandboxSnapshotsHandler.ServeHTTP(w, r)
+		case SnapshotServiceDeleteSandboxSnapshotsProcedure:
+			snapshotServiceDeleteSandboxSnapshotsHandler.ServeHTTP(w, r)
+		case SnapshotServiceSetSandboxSnapshotRetentionProcedure:
+			snapshotServiceSetSandboxSnapshotRetentionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -172,4 +257,16 @@ func (UnimplementedSnapshotServiceHandler) DeleteSnapshot(context.Context, *conn
 
 func (UnimplementedSnapshotServiceHandler) SetSnapshotRetention(context.Context, *connect.Request[v1.SetSnapshotRetentionRequest]) (*connect.Response[v1.SetSnapshotRetentionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SnapshotService.SetSnapshotRetention is not implemented"))
+}
+
+func (UnimplementedSnapshotServiceHandler) ListSandboxSnapshots(context.Context, *connect.Request[v1.ListSandboxSnapshotsRequest]) (*connect.Response[v1.ListSandboxSnapshotsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SnapshotService.ListSandboxSnapshots is not implemented"))
+}
+
+func (UnimplementedSnapshotServiceHandler) DeleteSandboxSnapshots(context.Context, *connect.Request[v1.DeleteSandboxSnapshotsRequest]) (*connect.Response[v1.DeleteSandboxSnapshotsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SnapshotService.DeleteSandboxSnapshots is not implemented"))
+}
+
+func (UnimplementedSnapshotServiceHandler) SetSandboxSnapshotRetention(context.Context, *connect.Request[v1.SetSandboxSnapshotRetentionRequest]) (*connect.Response[v1.SetSandboxSnapshotRetentionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SnapshotService.SetSandboxSnapshotRetention is not implemented"))
 }

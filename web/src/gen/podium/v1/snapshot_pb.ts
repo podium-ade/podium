@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/snapshot.proto.
  */
 export const file_podium_v1_snapshot: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvc25hcHNob3QucHJvdG8SCXBvZGl1bS52MSKkAQoIU25hcHNob3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpzaXplX2J5dGVzGAIgASgDEg4KBnNoYTI1NhgDIAEoCRIPCgdub2RlX2lkGAQgASgJEg8KB3Rhc2tfaWQYBSABKAkSLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGaW5fdXNlGAcgASgIIokBChFTbmFwc2hvdFJldGVudGlvbhIXCg9tYXhfYWdlX3NlY29uZHMYASABKAMSFwoPbWF4X3RvdGFsX2J5dGVzGAIgASgDEhIKCnVwZGF0ZWRfYnkYAyABKAkSLgoKdXBkYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QigQEKFUxpc3RTbmFwc2hvdHNSZXNwb25zZRImCglzbmFwc2hvdHMYASADKAsyEy5wb2RpdW0udjEuU25hcHNob3QSLwoJcmV0ZW50aW9uGAIgASgLMhwucG9kaXVtLnYxLlNuYXBzaG90UmV0ZW50aW9uEg8KB2VuYWJsZWQYAyABKAgiKwoVRGVsZXRlU25hcHNob3RSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiGAoWRGVsZXRlU25hcHNob3RSZXNwb25zZSJPChtTZXRTbmFwc2hvdFJldGVudGlvblJlcXVlc3QSFwoPbWF4X2FnZV9zZWNvbmRzGAEgASgDEhcKD21heF90b3RhbF9ieXRlcxgCIAEoAyJ1ChxTZXRTbmFwc2hvdFJldGVudGlvblJlc3BvbnNlEi8KCXJldGVudGlvbhgBIAEoCzIcLnBvZGl1bS52MS5TbmFwc2hvdFJldGVudGlvbhIPCgdyZW1vdmVkGAIgASgFEhMKC2ZyZWVkX2J5dGVzGAMgASgDMqUCCg9TbmFwc2hvdFNlcnZpY2USUgoNTGlzdFNuYXBzaG90cxIfLnBvZGl1bS52MS5MaXN0U25hcHNob3RzUmVxdWVzdBogLnBvZGl1bS52MS5MaXN0U25hcHNob3RzUmVzcG9uc2USVQoORGVsZXRlU25hcHNob3QSIC5wb2RpdW0udjEuRGVsZXRlU25hcHNob3RSZXF1ZXN0GiEucG9kaXVtLnYxLkRlbGV0ZVNuYXBzaG90UmVzcG9uc2USZwoUU2V0U25hcHNob3RSZXRlbnRpb24SJi5wb2RpdW0udjEuU2V0U25hcHNob3RSZXRlbnRpb25SZXF1ZXN0GicucG9kaXVtLnYxLlNldFNuYXBzaG90UmV0ZW50aW9uUmVzcG9uc2VCowEKDWNvbS5wb2RpdW0udjFCDVNuYXBzaG90UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chhwb2RpdW0vdjEvc25hcHNob3QucHJvdG8SCXBvZGl1bS52MSKkAQoIU25hcHNob3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpzaXplX2J5dGVzGAIgASgDEg4KBnNoYTI1NhgDIAEoCRIPCgdub2RlX2lkGAQgASgJEg8KB3Rhc2tfaWQYBSABKAkSLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGaW5fdXNlGAcgASgIIokBChFTbmFwc2hvdFJldGVudGlvbhIXCg9tYXhfYWdlX3NlY29uZHMYASABKAMSFwoPbWF4X3RvdGFsX2J5dGVzGAIgASgDEhIKCnVwZGF0ZWRfYnkYAyABKAkSLgoKdXBkYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QigQEKFUxpc3RTbmFwc2hvdHNSZXNwb25zZRImCglzbmFwc2hvdHMYASADKAsyEy5wb2RpdW0udjEuU25hcHNob3QSLwoJcmV0ZW50aW9uGAIgASgLMhwucG9kaXVtLnYxLlNuYXBzaG90UmV0ZW50aW9uEg8KB2VuYWJsZWQYAyABKAgiKwoVRGVsZXRlU25hcHNob3RSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiGAoWRGVsZXRlU25hcHNob3RSZXNwb25zZSJPChtTZXRTbmFwc2hvdFJldGVudGlvblJlcXVlc3QSFwoPbWF4X2FnZV9zZWNvbmRzGAEgASgDEhcKD21heF90b3RhbF9ieXRlcxgCIAEoAyJ1ChxTZXRTbmFwc2hvdFJldGVudGlvblJlc3BvbnNlEi8KCXJldGVudGlvbhgBIAEoCzIcLnBvZGl1bS52MS5TbmFwc2hvdFJldGVudGlvbhIPCgdyZW1vdmVkGAIgASgFEhMKC2ZyZWVkX2J5dGVzGAMgASgDIqsBCg9TYW5kYm94U25hcHNob3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIQCghpbWFnZV9pZBgDIAEoCRIPCgdub2RlX2lkGAQgASgJEg8KB3Rhc2tfaWQYBSABKAkSLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGaW5fdXNlGAcgASgIIooBChhTYW5kYm94U25hcHNob3RSZXRlbnRpb24SFwoPbWF4X2FnZV9zZWNvbmRzGAEgASgDEhEKCW1heF9jb3VudBgCIAEoAxISCgp1cGRhdGVkX2J5GAMgASgJEi4KCnVwZGF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIh0KG0xpc3RTYW5kYm94U25hcHNob3RzUmVxdWVzdCKYAQocTGlzdFNhbmRib3hTbmFwc2hvdHNSZXNwb25zZRItCglzbmFwc2hvdHMYASADKAsyGi5wb2RpdW0udjEuU2FuZGJveFNuYXBzaG90EjYKCXJldGVudGlvbhgCIAEoCzIjLnBvZGl1bS52MS5TYW5kYm94U25hcHNob3RSZXRlbnRpb24SEQoJcHJvdmlkZXJzGAMgAygJIjQKHURlbGV0ZVNhbmRib3hTbmFwc2hvdHNSZXF1ZXN0EhMKC3Nlc3Npb25faWRzGAEgAygJIqcBCh5EZWxldGVTYW5kYm94U25hcHNob3RzUmVzcG9uc2USDwoHcmVtb3ZlZBgBIAEoBRJFCgZmYWlsZWQYAiADKAsyNS5wb2RpdW0udjEuRGVsZXRlU2FuZGJveFNuYXBzaG90c1Jlc3BvbnNlLkZhaWxlZEVudHJ5Gi0KC0ZhaWxlZEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiUAoiU2V0U2FuZGJveFNuYXBzaG90UmV0ZW50aW9uUmVxdWVzdBIXCg9tYXhfYWdlX3NlY29uZHMYASABKAMSEQoJbWF4X2NvdW50GAIgASgDIm4KI1NldFNhbmRib3hTbmFwc2hvdFJldGVudGlvblJlc3BvbnNlEjYKCXJldGVudGlvbhgBIAEoCzIjLnBvZGl1bS52MS5TYW5kYm94U25hcHNob3RSZXRlbnRpb24SDwoHcmVtb3ZlZBgCIAEoBTL7BAoPU25hcHNob3RTZXJ2aWNlElIKDUxpc3RTbmFwc2hvdHMSHy5wb2RpdW0udjEuTGlzdFNuYXBzaG90c1JlcXVlc3QaIC5wb2RpdW0udjEuTGlzdFNuYXBzaG90c1Jlc3BvbnNlElUKDkRlbGV0ZVNuYXBzaG90EiAucG9kaXVtLnYxLkRlbGV0ZVNuYXBzaG90UmVxdWVzdBohLnBvZGl1bS52MS5EZWxldGVTbmFwc2hvdFJlc3BvbnNlEmcKFFNldFNuYXBzaG90UmV0ZW50aW9uEiYucG9kaXVtLnYxLlNldFNuYXBzaG90UmV0ZW50aW9uUmVxdWVzdBonLnBvZGl1bS52MS5TZXRTbmFwc2hvdFJldGVudGlvblJlc3BvbnNlEmcKFExpc3RTYW5kYm94U25hcHNob3RzEiYucG9kaXVtLnYxLkxpc3RTYW5kYm94U25hcHNob3RzUmVxdWVzdBonLnBvZGl1bS52MS5MaXN0U2FuZGJveFNuYXBzaG90c1Jlc3BvbnNlEm0KFkRlbGV0ZVNhbmRib3hTbmFwc2hvdHMSKC5wb2RpdW0udjEuRGVsZXRlU2FuZGJveFNuYXBzaG90c1JlcXVlc3QaKS5wb2RpdW0udjEuRGVsZXRlU2FuZGJveFNuYXBzaG90c1Jlc3BvbnNlEnwKG1NldFNhbmRib3hTbmFwc2hvdFJldGVudGlvbhItLnBvZGl1bS52MS5TZXRTYW5kYm94U25hcHNob3RSZXRlbnRpb25SZXF1ZXN0Gi4ucG9kaXVtLnYxLlNldFNhbmRib3hTbmFwc2hvdFJldGVudGlvblJlc3BvbnNlQqMBCg1jb20ucG9kaXVtLnYxQg1TbmFwc2hvdFByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Snapshot is one conversation's latest workspace tar. A session has at most one.
@@ -230,6 +230,227 @@ export const SetSnapshotRetentionResponseSchema: GenMessage<SetSnapshotRetention
   messageDesc(file_podium_v1_snapshot, 7);
 
 /**
+ * SandboxSnapshot is one conversation's workspace kept by a sandbox provider as an image of
+ * its own. Podium never holds its bytes, so it has no size.
+ *
+ * @generated from message podium.v1.SandboxSnapshot
+ */
+export type SandboxSnapshot = Message<"podium.v1.SandboxSnapshot"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string provider = 2;
+   */
+  provider: string;
+
+  /**
+   * image_id is the provider's own ID for it, "im-..." on Modal.
+   *
+   * @generated from field: string image_id = 3;
+   */
+  imageId: string;
+
+  /**
+   * @generated from field: string node_id = 4;
+   */
+  nodeId: string;
+
+  /**
+   * @generated from field: string task_id = 5;
+   */
+  taskId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   */
+  updatedAt?: Timestamp | undefined;
+
+  /**
+   * in_use is a task of the session that has not finished. Retention never deletes it.
+   *
+   * @generated from field: bool in_use = 7;
+   */
+  inUse: boolean;
+};
+
+/**
+ * Describes the message podium.v1.SandboxSnapshot.
+ * Use `create(SandboxSnapshotSchema)` to create a new message.
+ */
+export const SandboxSnapshotSchema: GenMessage<SandboxSnapshot> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 8);
+
+/**
+ * SandboxSnapshotRetention is when provider images are deleted. Zero turns a rule off.
+ *
+ * @generated from message podium.v1.SandboxSnapshotRetention
+ */
+export type SandboxSnapshotRetention = Message<"podium.v1.SandboxSnapshotRetention"> & {
+  /**
+   * max_age_seconds deletes an image not replaced for this long. The provider is also told
+   * to drop each image a day after it, should the server not get there first.
+   *
+   * @generated from field: int64 max_age_seconds = 1;
+   */
+  maxAgeSeconds: bigint;
+
+  /**
+   * max_count keeps this many of the newest images and deletes the rest.
+   *
+   * @generated from field: int64 max_count = 2;
+   */
+  maxCount: bigint;
+
+  /**
+   * @generated from field: string updated_by = 3;
+   */
+  updatedBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 4;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.v1.SandboxSnapshotRetention.
+ * Use `create(SandboxSnapshotRetentionSchema)` to create a new message.
+ */
+export const SandboxSnapshotRetentionSchema: GenMessage<SandboxSnapshotRetention> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 9);
+
+/**
+ * @generated from message podium.v1.ListSandboxSnapshotsRequest
+ */
+export type ListSandboxSnapshotsRequest = Message<"podium.v1.ListSandboxSnapshotsRequest"> & {
+};
+
+/**
+ * Describes the message podium.v1.ListSandboxSnapshotsRequest.
+ * Use `create(ListSandboxSnapshotsRequestSchema)` to create a new message.
+ */
+export const ListSandboxSnapshotsRequestSchema: GenMessage<ListSandboxSnapshotsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 10);
+
+/**
+ * @generated from message podium.v1.ListSandboxSnapshotsResponse
+ */
+export type ListSandboxSnapshotsResponse = Message<"podium.v1.ListSandboxSnapshotsResponse"> & {
+  /**
+   * @generated from field: repeated podium.v1.SandboxSnapshot snapshots = 1;
+   */
+  snapshots: SandboxSnapshot[];
+
+  /**
+   * @generated from field: podium.v1.SandboxSnapshotRetention retention = 2;
+   */
+  retention?: SandboxSnapshotRetention | undefined;
+
+  /**
+   * providers are the configured sandbox providers that keep workspaces as images. Empty
+   * means none is, and nothing new is stored.
+   *
+   * @generated from field: repeated string providers = 3;
+   */
+  providers: string[];
+};
+
+/**
+ * Describes the message podium.v1.ListSandboxSnapshotsResponse.
+ * Use `create(ListSandboxSnapshotsResponseSchema)` to create a new message.
+ */
+export const ListSandboxSnapshotsResponseSchema: GenMessage<ListSandboxSnapshotsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 11);
+
+/**
+ * @generated from message podium.v1.DeleteSandboxSnapshotsRequest
+ */
+export type DeleteSandboxSnapshotsRequest = Message<"podium.v1.DeleteSandboxSnapshotsRequest"> & {
+  /**
+   * @generated from field: repeated string session_ids = 1;
+   */
+  sessionIds: string[];
+};
+
+/**
+ * Describes the message podium.v1.DeleteSandboxSnapshotsRequest.
+ * Use `create(DeleteSandboxSnapshotsRequestSchema)` to create a new message.
+ */
+export const DeleteSandboxSnapshotsRequestSchema: GenMessage<DeleteSandboxSnapshotsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 12);
+
+/**
+ * @generated from message podium.v1.DeleteSandboxSnapshotsResponse
+ */
+export type DeleteSandboxSnapshotsResponse = Message<"podium.v1.DeleteSandboxSnapshotsResponse"> & {
+  /**
+   * @generated from field: int32 removed = 1;
+   */
+  removed: number;
+
+  /**
+   * failed are the sessions whose image could not be deleted, with why.
+   *
+   * @generated from field: map<string, string> failed = 2;
+   */
+  failed: { [key: string]: string };
+};
+
+/**
+ * Describes the message podium.v1.DeleteSandboxSnapshotsResponse.
+ * Use `create(DeleteSandboxSnapshotsResponseSchema)` to create a new message.
+ */
+export const DeleteSandboxSnapshotsResponseSchema: GenMessage<DeleteSandboxSnapshotsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 13);
+
+/**
+ * @generated from message podium.v1.SetSandboxSnapshotRetentionRequest
+ */
+export type SetSandboxSnapshotRetentionRequest = Message<"podium.v1.SetSandboxSnapshotRetentionRequest"> & {
+  /**
+   * @generated from field: int64 max_age_seconds = 1;
+   */
+  maxAgeSeconds: bigint;
+
+  /**
+   * @generated from field: int64 max_count = 2;
+   */
+  maxCount: bigint;
+};
+
+/**
+ * Describes the message podium.v1.SetSandboxSnapshotRetentionRequest.
+ * Use `create(SetSandboxSnapshotRetentionRequestSchema)` to create a new message.
+ */
+export const SetSandboxSnapshotRetentionRequestSchema: GenMessage<SetSandboxSnapshotRetentionRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 14);
+
+/**
+ * @generated from message podium.v1.SetSandboxSnapshotRetentionResponse
+ */
+export type SetSandboxSnapshotRetentionResponse = Message<"podium.v1.SetSandboxSnapshotRetentionResponse"> & {
+  /**
+   * @generated from field: podium.v1.SandboxSnapshotRetention retention = 1;
+   */
+  retention?: SandboxSnapshotRetention | undefined;
+
+  /**
+   * @generated from field: int32 removed = 2;
+   */
+  removed: number;
+};
+
+/**
+ * Describes the message podium.v1.SetSandboxSnapshotRetentionResponse.
+ * Use `create(SetSandboxSnapshotRetentionResponseSchema)` to create a new message.
+ */
+export const SetSandboxSnapshotRetentionResponseSchema: GenMessage<SetSandboxSnapshotRetentionResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_snapshot, 15);
+
+/**
  * SnapshotService is the operator's view of the conversation workspaces stored in the
  * object store, and the policy that deletes old ones. Repository bases are not listed here.
  *
@@ -266,6 +487,38 @@ export const SnapshotService: GenService<{
     methodKind: "unary";
     input: typeof SetSnapshotRetentionRequestSchema;
     output: typeof SetSnapshotRetentionResponseSchema;
+  },
+  /**
+   * ListSandboxSnapshots returns every session workspace a sandbox provider keeps as an
+   * image of its own (a Modal directory snapshot), newest first, and their retention policy.
+   *
+   * @generated from rpc podium.v1.SnapshotService.ListSandboxSnapshots
+   */
+  listSandboxSnapshots: {
+    methodKind: "unary";
+    input: typeof ListSandboxSnapshotsRequestSchema;
+    output: typeof ListSandboxSnapshotsResponseSchema;
+  },
+  /**
+   * DeleteSandboxSnapshots deletes the images of the sessions named. Each one's next task
+   * starts from the repository base, or from an empty workspace.
+   *
+   * @generated from rpc podium.v1.SnapshotService.DeleteSandboxSnapshots
+   */
+  deleteSandboxSnapshots: {
+    methodKind: "unary";
+    input: typeof DeleteSandboxSnapshotsRequestSchema;
+    output: typeof DeleteSandboxSnapshotsResponseSchema;
+  },
+  /**
+   * SetSandboxSnapshotRetention replaces the policy and applies it before returning.
+   *
+   * @generated from rpc podium.v1.SnapshotService.SetSandboxSnapshotRetention
+   */
+  setSandboxSnapshotRetention: {
+    methodKind: "unary";
+    input: typeof SetSandboxSnapshotRetentionRequestSchema;
+    output: typeof SetSandboxSnapshotRetentionResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_snapshot, 0);

@@ -214,3 +214,22 @@ func TestPrivilegedSidecarsAreTheOperatorsAndOnlyUnderVM(t *testing.T) {
 		t.Errorf("a task asking for vm gets the operator's allowance: %+v, %v", caps, err)
 	}
 }
+
+// A policy with no age keeps an image until Podium deletes it: Modal's own default of 30 days
+// is never what anyone chose.
+func TestSnapshotTTL(t *testing.T) {
+	cases := map[time.Duration]time.Duration{
+		-1:                                     sdk.NoExpiryTTL,
+		0:                                      sdk.NoExpiryTTL,
+		500 * time.Millisecond:                 time.Second,
+		8*24*time.Hour + 1500*time.Millisecond: 8*24*time.Hour + time.Second,
+	}
+	for in, want := range cases {
+		if got := snapshotTTL(in); got != want {
+			t.Errorf("snapshotTTL(%v) = %v, want %v", in, got, want)
+		}
+	}
+	if !capabilities(Config{}).DirSnapshot || !sandbox.IsSnapshotter("modal") {
+		t.Fatal("modal keeps workspaces as directory snapshots")
+	}
+}

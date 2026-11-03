@@ -479,6 +479,473 @@ func (x *SetSnapshotRetentionResponse) GetFreedBytes() int64 {
 	return 0
 }
 
+// SandboxSnapshot is one conversation's workspace kept by a sandbox provider as an image of
+// its own. Podium never holds its bytes, so it has no size.
+type SandboxSnapshot struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Provider  string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	// image_id is the provider's own ID for it, "im-..." on Modal.
+	ImageId   string                 `protobuf:"bytes,3,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	NodeId    string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	TaskId    string                 `protobuf:"bytes,5,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// in_use is a task of the session that has not finished. Retention never deletes it.
+	InUse         bool `protobuf:"varint,7,opt,name=in_use,json=inUse,proto3" json:"in_use,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SandboxSnapshot) Reset() {
+	*x = SandboxSnapshot{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxSnapshot) ProtoMessage() {}
+
+func (x *SandboxSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxSnapshot.ProtoReflect.Descriptor instead.
+func (*SandboxSnapshot) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SandboxSnapshot) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SandboxSnapshot) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SandboxSnapshot) GetImageId() string {
+	if x != nil {
+		return x.ImageId
+	}
+	return ""
+}
+
+func (x *SandboxSnapshot) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SandboxSnapshot) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *SandboxSnapshot) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *SandboxSnapshot) GetInUse() bool {
+	if x != nil {
+		return x.InUse
+	}
+	return false
+}
+
+// SandboxSnapshotRetention is when provider images are deleted. Zero turns a rule off.
+type SandboxSnapshotRetention struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// max_age_seconds deletes an image not replaced for this long. The provider is also told
+	// to drop each image a day after it, should the server not get there first.
+	MaxAgeSeconds int64 `protobuf:"varint,1,opt,name=max_age_seconds,json=maxAgeSeconds,proto3" json:"max_age_seconds,omitempty"`
+	// max_count keeps this many of the newest images and deletes the rest.
+	MaxCount      int64                  `protobuf:"varint,2,opt,name=max_count,json=maxCount,proto3" json:"max_count,omitempty"`
+	UpdatedBy     string                 `protobuf:"bytes,3,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SandboxSnapshotRetention) Reset() {
+	*x = SandboxSnapshotRetention{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxSnapshotRetention) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxSnapshotRetention) ProtoMessage() {}
+
+func (x *SandboxSnapshotRetention) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxSnapshotRetention.ProtoReflect.Descriptor instead.
+func (*SandboxSnapshotRetention) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SandboxSnapshotRetention) GetMaxAgeSeconds() int64 {
+	if x != nil {
+		return x.MaxAgeSeconds
+	}
+	return 0
+}
+
+func (x *SandboxSnapshotRetention) GetMaxCount() int64 {
+	if x != nil {
+		return x.MaxCount
+	}
+	return 0
+}
+
+func (x *SandboxSnapshotRetention) GetUpdatedBy() string {
+	if x != nil {
+		return x.UpdatedBy
+	}
+	return ""
+}
+
+func (x *SandboxSnapshotRetention) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type ListSandboxSnapshotsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSandboxSnapshotsRequest) Reset() {
+	*x = ListSandboxSnapshotsRequest{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSandboxSnapshotsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSandboxSnapshotsRequest) ProtoMessage() {}
+
+func (x *ListSandboxSnapshotsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSandboxSnapshotsRequest.ProtoReflect.Descriptor instead.
+func (*ListSandboxSnapshotsRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{10}
+}
+
+type ListSandboxSnapshotsResponse struct {
+	state     protoimpl.MessageState    `protogen:"open.v1"`
+	Snapshots []*SandboxSnapshot        `protobuf:"bytes,1,rep,name=snapshots,proto3" json:"snapshots,omitempty"`
+	Retention *SandboxSnapshotRetention `protobuf:"bytes,2,opt,name=retention,proto3" json:"retention,omitempty"`
+	// providers are the configured sandbox providers that keep workspaces as images. Empty
+	// means none is, and nothing new is stored.
+	Providers     []string `protobuf:"bytes,3,rep,name=providers,proto3" json:"providers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSandboxSnapshotsResponse) Reset() {
+	*x = ListSandboxSnapshotsResponse{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSandboxSnapshotsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSandboxSnapshotsResponse) ProtoMessage() {}
+
+func (x *ListSandboxSnapshotsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSandboxSnapshotsResponse.ProtoReflect.Descriptor instead.
+func (*ListSandboxSnapshotsResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ListSandboxSnapshotsResponse) GetSnapshots() []*SandboxSnapshot {
+	if x != nil {
+		return x.Snapshots
+	}
+	return nil
+}
+
+func (x *ListSandboxSnapshotsResponse) GetRetention() *SandboxSnapshotRetention {
+	if x != nil {
+		return x.Retention
+	}
+	return nil
+}
+
+func (x *ListSandboxSnapshotsResponse) GetProviders() []string {
+	if x != nil {
+		return x.Providers
+	}
+	return nil
+}
+
+type DeleteSandboxSnapshotsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionIds    []string               `protobuf:"bytes,1,rep,name=session_ids,json=sessionIds,proto3" json:"session_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSandboxSnapshotsRequest) Reset() {
+	*x = DeleteSandboxSnapshotsRequest{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSandboxSnapshotsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSandboxSnapshotsRequest) ProtoMessage() {}
+
+func (x *DeleteSandboxSnapshotsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSandboxSnapshotsRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSandboxSnapshotsRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *DeleteSandboxSnapshotsRequest) GetSessionIds() []string {
+	if x != nil {
+		return x.SessionIds
+	}
+	return nil
+}
+
+type DeleteSandboxSnapshotsResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Removed int32                  `protobuf:"varint,1,opt,name=removed,proto3" json:"removed,omitempty"`
+	// failed are the sessions whose image could not be deleted, with why.
+	Failed        map[string]string `protobuf:"bytes,2,rep,name=failed,proto3" json:"failed,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSandboxSnapshotsResponse) Reset() {
+	*x = DeleteSandboxSnapshotsResponse{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSandboxSnapshotsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSandboxSnapshotsResponse) ProtoMessage() {}
+
+func (x *DeleteSandboxSnapshotsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSandboxSnapshotsResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSandboxSnapshotsResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DeleteSandboxSnapshotsResponse) GetRemoved() int32 {
+	if x != nil {
+		return x.Removed
+	}
+	return 0
+}
+
+func (x *DeleteSandboxSnapshotsResponse) GetFailed() map[string]string {
+	if x != nil {
+		return x.Failed
+	}
+	return nil
+}
+
+type SetSandboxSnapshotRetentionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MaxAgeSeconds int64                  `protobuf:"varint,1,opt,name=max_age_seconds,json=maxAgeSeconds,proto3" json:"max_age_seconds,omitempty"`
+	MaxCount      int64                  `protobuf:"varint,2,opt,name=max_count,json=maxCount,proto3" json:"max_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSandboxSnapshotRetentionRequest) Reset() {
+	*x = SetSandboxSnapshotRetentionRequest{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSandboxSnapshotRetentionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSandboxSnapshotRetentionRequest) ProtoMessage() {}
+
+func (x *SetSandboxSnapshotRetentionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSandboxSnapshotRetentionRequest.ProtoReflect.Descriptor instead.
+func (*SetSandboxSnapshotRetentionRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SetSandboxSnapshotRetentionRequest) GetMaxAgeSeconds() int64 {
+	if x != nil {
+		return x.MaxAgeSeconds
+	}
+	return 0
+}
+
+func (x *SetSandboxSnapshotRetentionRequest) GetMaxCount() int64 {
+	if x != nil {
+		return x.MaxCount
+	}
+	return 0
+}
+
+type SetSandboxSnapshotRetentionResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Retention     *SandboxSnapshotRetention `protobuf:"bytes,1,opt,name=retention,proto3" json:"retention,omitempty"`
+	Removed       int32                     `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSandboxSnapshotRetentionResponse) Reset() {
+	*x = SetSandboxSnapshotRetentionResponse{}
+	mi := &file_podium_v1_snapshot_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSandboxSnapshotRetentionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSandboxSnapshotRetentionResponse) ProtoMessage() {}
+
+func (x *SetSandboxSnapshotRetentionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_snapshot_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSandboxSnapshotRetentionResponse.ProtoReflect.Descriptor instead.
+func (*SetSandboxSnapshotRetentionResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_snapshot_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SetSandboxSnapshotRetentionResponse) GetRetention() *SandboxSnapshotRetention {
+	if x != nil {
+		return x.Retention
+	}
+	return nil
+}
+
+func (x *SetSandboxSnapshotRetentionResponse) GetRemoved() int32 {
+	if x != nil {
+		return x.Removed
+	}
+	return 0
+}
+
 var File_podium_v1_snapshot_proto protoreflect.FileDescriptor
 
 const file_podium_v1_snapshot_proto_rawDesc = "" +
@@ -518,11 +985,51 @@ const file_podium_v1_snapshot_proto_rawDesc = "" +
 	"\tretention\x18\x01 \x01(\v2\x1c.podium.v1.SnapshotRetentionR\tretention\x12\x18\n" +
 	"\aremoved\x18\x02 \x01(\x05R\aremoved\x12\x1f\n" +
 	"\vfreed_bytes\x18\x03 \x01(\x03R\n" +
-	"freedBytes2\xa5\x02\n" +
+	"freedBytes\"\xeb\x01\n" +
+	"\x0fSandboxSnapshot\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x19\n" +
+	"\bimage_id\x18\x03 \x01(\tR\aimageId\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
+	"\atask_id\x18\x05 \x01(\tR\x06taskId\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x15\n" +
+	"\x06in_use\x18\a \x01(\bR\x05inUse\"\xb9\x01\n" +
+	"\x18SandboxSnapshotRetention\x12&\n" +
+	"\x0fmax_age_seconds\x18\x01 \x01(\x03R\rmaxAgeSeconds\x12\x1b\n" +
+	"\tmax_count\x18\x02 \x01(\x03R\bmaxCount\x12\x1d\n" +
+	"\n" +
+	"updated_by\x18\x03 \x01(\tR\tupdatedBy\x129\n" +
+	"\n" +
+	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x1d\n" +
+	"\x1bListSandboxSnapshotsRequest\"\xb9\x01\n" +
+	"\x1cListSandboxSnapshotsResponse\x128\n" +
+	"\tsnapshots\x18\x01 \x03(\v2\x1a.podium.v1.SandboxSnapshotR\tsnapshots\x12A\n" +
+	"\tretention\x18\x02 \x01(\v2#.podium.v1.SandboxSnapshotRetentionR\tretention\x12\x1c\n" +
+	"\tproviders\x18\x03 \x03(\tR\tproviders\"@\n" +
+	"\x1dDeleteSandboxSnapshotsRequest\x12\x1f\n" +
+	"\vsession_ids\x18\x01 \x03(\tR\n" +
+	"sessionIds\"\xc4\x01\n" +
+	"\x1eDeleteSandboxSnapshotsResponse\x12\x18\n" +
+	"\aremoved\x18\x01 \x01(\x05R\aremoved\x12M\n" +
+	"\x06failed\x18\x02 \x03(\v25.podium.v1.DeleteSandboxSnapshotsResponse.FailedEntryR\x06failed\x1a9\n" +
+	"\vFailedEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"i\n" +
+	"\"SetSandboxSnapshotRetentionRequest\x12&\n" +
+	"\x0fmax_age_seconds\x18\x01 \x01(\x03R\rmaxAgeSeconds\x12\x1b\n" +
+	"\tmax_count\x18\x02 \x01(\x03R\bmaxCount\"\x82\x01\n" +
+	"#SetSandboxSnapshotRetentionResponse\x12A\n" +
+	"\tretention\x18\x01 \x01(\v2#.podium.v1.SandboxSnapshotRetentionR\tretention\x12\x18\n" +
+	"\aremoved\x18\x02 \x01(\x05R\aremoved2\xfb\x04\n" +
 	"\x0fSnapshotService\x12R\n" +
 	"\rListSnapshots\x12\x1f.podium.v1.ListSnapshotsRequest\x1a .podium.v1.ListSnapshotsResponse\x12U\n" +
 	"\x0eDeleteSnapshot\x12 .podium.v1.DeleteSnapshotRequest\x1a!.podium.v1.DeleteSnapshotResponse\x12g\n" +
-	"\x14SetSnapshotRetention\x12&.podium.v1.SetSnapshotRetentionRequest\x1a'.podium.v1.SetSnapshotRetentionResponseB\xa3\x01\n" +
+	"\x14SetSnapshotRetention\x12&.podium.v1.SetSnapshotRetentionRequest\x1a'.podium.v1.SetSnapshotRetentionResponse\x12g\n" +
+	"\x14ListSandboxSnapshots\x12&.podium.v1.ListSandboxSnapshotsRequest\x1a'.podium.v1.ListSandboxSnapshotsResponse\x12m\n" +
+	"\x16DeleteSandboxSnapshots\x12(.podium.v1.DeleteSandboxSnapshotsRequest\x1a).podium.v1.DeleteSandboxSnapshotsResponse\x12|\n" +
+	"\x1bSetSandboxSnapshotRetention\x12-.podium.v1.SetSandboxSnapshotRetentionRequest\x1a..podium.v1.SetSandboxSnapshotRetentionResponseB\xa3\x01\n" +
 	"\rcom.podium.v1B\rSnapshotProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
@@ -538,35 +1045,56 @@ func file_podium_v1_snapshot_proto_rawDescGZIP() []byte {
 	return file_podium_v1_snapshot_proto_rawDescData
 }
 
-var file_podium_v1_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_podium_v1_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_podium_v1_snapshot_proto_goTypes = []any{
-	(*Snapshot)(nil),                     // 0: podium.v1.Snapshot
-	(*SnapshotRetention)(nil),            // 1: podium.v1.SnapshotRetention
-	(*ListSnapshotsRequest)(nil),         // 2: podium.v1.ListSnapshotsRequest
-	(*ListSnapshotsResponse)(nil),        // 3: podium.v1.ListSnapshotsResponse
-	(*DeleteSnapshotRequest)(nil),        // 4: podium.v1.DeleteSnapshotRequest
-	(*DeleteSnapshotResponse)(nil),       // 5: podium.v1.DeleteSnapshotResponse
-	(*SetSnapshotRetentionRequest)(nil),  // 6: podium.v1.SetSnapshotRetentionRequest
-	(*SetSnapshotRetentionResponse)(nil), // 7: podium.v1.SetSnapshotRetentionResponse
-	(*timestamppb.Timestamp)(nil),        // 8: google.protobuf.Timestamp
+	(*Snapshot)(nil),                            // 0: podium.v1.Snapshot
+	(*SnapshotRetention)(nil),                   // 1: podium.v1.SnapshotRetention
+	(*ListSnapshotsRequest)(nil),                // 2: podium.v1.ListSnapshotsRequest
+	(*ListSnapshotsResponse)(nil),               // 3: podium.v1.ListSnapshotsResponse
+	(*DeleteSnapshotRequest)(nil),               // 4: podium.v1.DeleteSnapshotRequest
+	(*DeleteSnapshotResponse)(nil),              // 5: podium.v1.DeleteSnapshotResponse
+	(*SetSnapshotRetentionRequest)(nil),         // 6: podium.v1.SetSnapshotRetentionRequest
+	(*SetSnapshotRetentionResponse)(nil),        // 7: podium.v1.SetSnapshotRetentionResponse
+	(*SandboxSnapshot)(nil),                     // 8: podium.v1.SandboxSnapshot
+	(*SandboxSnapshotRetention)(nil),            // 9: podium.v1.SandboxSnapshotRetention
+	(*ListSandboxSnapshotsRequest)(nil),         // 10: podium.v1.ListSandboxSnapshotsRequest
+	(*ListSandboxSnapshotsResponse)(nil),        // 11: podium.v1.ListSandboxSnapshotsResponse
+	(*DeleteSandboxSnapshotsRequest)(nil),       // 12: podium.v1.DeleteSandboxSnapshotsRequest
+	(*DeleteSandboxSnapshotsResponse)(nil),      // 13: podium.v1.DeleteSandboxSnapshotsResponse
+	(*SetSandboxSnapshotRetentionRequest)(nil),  // 14: podium.v1.SetSandboxSnapshotRetentionRequest
+	(*SetSandboxSnapshotRetentionResponse)(nil), // 15: podium.v1.SetSandboxSnapshotRetentionResponse
+	nil,                           // 16: podium.v1.DeleteSandboxSnapshotsResponse.FailedEntry
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
 }
 var file_podium_v1_snapshot_proto_depIdxs = []int32{
-	8, // 0: podium.v1.Snapshot.updated_at:type_name -> google.protobuf.Timestamp
-	8, // 1: podium.v1.SnapshotRetention.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: podium.v1.ListSnapshotsResponse.snapshots:type_name -> podium.v1.Snapshot
-	1, // 3: podium.v1.ListSnapshotsResponse.retention:type_name -> podium.v1.SnapshotRetention
-	1, // 4: podium.v1.SetSnapshotRetentionResponse.retention:type_name -> podium.v1.SnapshotRetention
-	2, // 5: podium.v1.SnapshotService.ListSnapshots:input_type -> podium.v1.ListSnapshotsRequest
-	4, // 6: podium.v1.SnapshotService.DeleteSnapshot:input_type -> podium.v1.DeleteSnapshotRequest
-	6, // 7: podium.v1.SnapshotService.SetSnapshotRetention:input_type -> podium.v1.SetSnapshotRetentionRequest
-	3, // 8: podium.v1.SnapshotService.ListSnapshots:output_type -> podium.v1.ListSnapshotsResponse
-	5, // 9: podium.v1.SnapshotService.DeleteSnapshot:output_type -> podium.v1.DeleteSnapshotResponse
-	7, // 10: podium.v1.SnapshotService.SetSnapshotRetention:output_type -> podium.v1.SetSnapshotRetentionResponse
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	17, // 0: podium.v1.Snapshot.updated_at:type_name -> google.protobuf.Timestamp
+	17, // 1: podium.v1.SnapshotRetention.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: podium.v1.ListSnapshotsResponse.snapshots:type_name -> podium.v1.Snapshot
+	1,  // 3: podium.v1.ListSnapshotsResponse.retention:type_name -> podium.v1.SnapshotRetention
+	1,  // 4: podium.v1.SetSnapshotRetentionResponse.retention:type_name -> podium.v1.SnapshotRetention
+	17, // 5: podium.v1.SandboxSnapshot.updated_at:type_name -> google.protobuf.Timestamp
+	17, // 6: podium.v1.SandboxSnapshotRetention.updated_at:type_name -> google.protobuf.Timestamp
+	8,  // 7: podium.v1.ListSandboxSnapshotsResponse.snapshots:type_name -> podium.v1.SandboxSnapshot
+	9,  // 8: podium.v1.ListSandboxSnapshotsResponse.retention:type_name -> podium.v1.SandboxSnapshotRetention
+	16, // 9: podium.v1.DeleteSandboxSnapshotsResponse.failed:type_name -> podium.v1.DeleteSandboxSnapshotsResponse.FailedEntry
+	9,  // 10: podium.v1.SetSandboxSnapshotRetentionResponse.retention:type_name -> podium.v1.SandboxSnapshotRetention
+	2,  // 11: podium.v1.SnapshotService.ListSnapshots:input_type -> podium.v1.ListSnapshotsRequest
+	4,  // 12: podium.v1.SnapshotService.DeleteSnapshot:input_type -> podium.v1.DeleteSnapshotRequest
+	6,  // 13: podium.v1.SnapshotService.SetSnapshotRetention:input_type -> podium.v1.SetSnapshotRetentionRequest
+	10, // 14: podium.v1.SnapshotService.ListSandboxSnapshots:input_type -> podium.v1.ListSandboxSnapshotsRequest
+	12, // 15: podium.v1.SnapshotService.DeleteSandboxSnapshots:input_type -> podium.v1.DeleteSandboxSnapshotsRequest
+	14, // 16: podium.v1.SnapshotService.SetSandboxSnapshotRetention:input_type -> podium.v1.SetSandboxSnapshotRetentionRequest
+	3,  // 17: podium.v1.SnapshotService.ListSnapshots:output_type -> podium.v1.ListSnapshotsResponse
+	5,  // 18: podium.v1.SnapshotService.DeleteSnapshot:output_type -> podium.v1.DeleteSnapshotResponse
+	7,  // 19: podium.v1.SnapshotService.SetSnapshotRetention:output_type -> podium.v1.SetSnapshotRetentionResponse
+	11, // 20: podium.v1.SnapshotService.ListSandboxSnapshots:output_type -> podium.v1.ListSandboxSnapshotsResponse
+	13, // 21: podium.v1.SnapshotService.DeleteSandboxSnapshots:output_type -> podium.v1.DeleteSandboxSnapshotsResponse
+	15, // 22: podium.v1.SnapshotService.SetSandboxSnapshotRetention:output_type -> podium.v1.SetSandboxSnapshotRetentionResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_snapshot_proto_init() }
@@ -580,7 +1108,7 @@ func file_podium_v1_snapshot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_snapshot_proto_rawDesc), len(file_podium_v1_snapshot_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

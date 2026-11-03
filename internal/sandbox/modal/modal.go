@@ -52,6 +52,7 @@ func init() {
 		}
 		return New(c)
 	})
+	sandbox.RegisterSnapshotter("modal")
 }
 
 // Config is the node's `sandbox.modal` block.
@@ -210,7 +211,7 @@ func capabilities(c Config) sandbox.Capabilities {
 	vm := c.vm()
 	return sandbox.Capabilities{
 		NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL,
-		PrivilegedSidecars: vm && c.PrivilegedSidecars,
+		PrivilegedSidecars: vm && c.PrivilegedSidecars, DirSnapshot: true,
 	}
 }
 
@@ -568,6 +569,65 @@ func (p *Provider) Delete(ctx context.Context, id string) error {
 	_ = sb.Detach()
 	return nil
 }
+
+// snapshotTimeout bounds one directory snapshot. Modal's default of 55s is too short for a
+// workspace with its dependencies installed.
+const snapshotTimeout = 10 * time.Minute
+
+// SnapshotDir implements sandbox.Snapshotter with a Modal directory snapshot: only path is
+// kept, never the agent's token or the task's secrets, which live outside it.
+func (p *Provider) SnapshotDir(ctx context.Context, id, path string, ttl time.Duration) (string, error) {
+	sb, err := p.sandbox(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	params := &sdk.SandboxSnapshotDirectoryParams{Timeout: snapshotTimeout, TTL: snapshotTTL(ttl)}
+	img, err := sb.SnapshotDirectory(ctx, path, params)
+	if err != nil {
+		return "", toError("snapshot", err)
+	}
+	return img.ImageID, nil
+}
+
+// snapshotTTL is ttl as Modal takes it: whole seconds, NoExpiryTTL for never. Zero would be
+// Modal's own 30 days, which no policy asked for, so it is never.
+func snapshotTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return sdk.NoExpiryTTL
+	}
+	return max(ttl.Truncate(time.Second), time.Second)
+}
+
+// MountSnapshot implements sandbox.Snapshotter.
+func (p *Provider) MountSnapshot(ctx context.Context, id, path, image string) error {
+	sb, err := p.sandbox(ctx, id)
+	if err != nil {
+		return err
+	}
+	img, err := p.c.Images.FromID(ctx, image, nil)
+	if err != nil {
+		return toError("mount", err)
+	}
+	if err := sb.MountImage(ctx, path, img, nil); err != nil {
+		return toError("mount", err)
+	}
+	return nil
+}
+
+// DeleteSnapshot implements sandbox.Snapshotter.
+func (p *Provider) DeleteSnapshot(ctx context.Context, image string) error {
+	err := toError("delete snapshot", p.c.Images.Delete(ctx, image, nil))
+	var pe *sandbox.Error
+	if errors.As(err, &pe) && pe.Code == "not_found" {
+		return nil
+	}
+	return err
+}
+
+// Close drops the connection to Modal. Sandboxes and images are untouched.
+func (p *Provider) Close() { p.c.Close() }
+
+var _ sandbox.Snapshotter = (*Provider)(nil)
 
 // Limits is unknown: Modal has no API for the account's remaining room.
 func (p *Provider) Limits(context.Context) (sandbox.Limits, error) {
