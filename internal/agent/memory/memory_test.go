@@ -106,6 +106,8 @@ func TestMCPURLPutsTheBankInThePath(t *testing.T) {
 		MCPURL("http://host.docker.internal:8888", "podium"))
 	assert.Equal(t, "http://host.docker.internal:8888/mcp/podium/",
 		MCPURL("http://host.docker.internal:8888/", "podium"))
+	assert.Equal(t, "https://podium.example.com/memory/mcp/podium/",
+		MCPURL("https://podium.example.com/memory", "podium"))
 }
 
 // ---------------------------------------------------------------------------
