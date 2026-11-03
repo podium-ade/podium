@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Cpu, MessageSquare, MessageSquarePlus, Plus, Trash2, UserRound } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { Personality } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import {
@@ -25,7 +26,6 @@ import {
   type PersonalityDraft,
 } from "../../lib/personality";
 import { canManageInfra } from "../../lib/rbac";
-import { cn } from "../../lib/utils";
 import { AgentPicker } from "./AgentPicker";
 import { ModelLine, PodiumEditor } from "./AssistantProfile";
 import {
@@ -33,7 +33,6 @@ import {
   AssistantTile,
   Issue,
   PanelBody,
-  PanelHeader,
   Row,
   SaveBar,
   ScopeBar,
@@ -44,17 +43,12 @@ import { ConductorDown } from "./ConductorDown";
 import { Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
-import { Skeleton } from "../Skeleton";
+import { Skeleton, TableSkeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { absolute, relative } from "../../lib/format";
+import { AssistantRowActions, DeleteAssistantDialog } from "./AssistantRowActions";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 
@@ -84,6 +78,7 @@ const PERSONAL: { id: PersonalSection; label: string; icon: LucideIcon; sentence
 ];
 
 type AssistantsRoute =
+  | { kind: "list" }
   | { kind: "podium"; section: AssistantSection }
   | { kind: "new"; section: PersonalSection }
   | { kind: "one"; id: string; section: PersonalSection }
@@ -106,10 +101,13 @@ function personalSectionHref(base: string, id: string): string {
   return id === "identity" ? base : `${base}/${id}`;
 }
 
-/** The address after /agent/assistants. `podium` is the built-in assistant's sections, not an id. */
+/**
+ * The address after /agent/assistants. Bare is the list. `podium` is the built-in assistant's
+ * page, `new` is the form for a new voice, and anything else is a personal assistant's id.
+ */
 function parseAssistantsPath(splat: string): AssistantsRoute {
   const parts = splat.split("/").filter(Boolean);
-  if (parts.length === 0) return { kind: "podium", section: "identity" };
+  if (parts.length === 0) return { kind: "list" };
   if (parts[0] === "podium") {
     if (parts.length > 2) return { kind: "redirect", to: "/agent/assistants" };
     const section = assistantSection(`/agent/assistants/podium/${parts[1] ?? ""}`);
@@ -120,12 +118,15 @@ function parseAssistantsPath(splat: string): AssistantsRoute {
   return personalRoute("one", parts[0], parts[1]);
 }
 
+const LIST = "/agent/assistants";
+const BACK = { to: LIST, label: "Assistants" };
+
 /**
  * Assistants is where a person defines a voice, and where an owner maintains Podium.
  * Chat is where they talk. This screen does not start a turn.
  *
- * The roster is on the left and the open assistant is one panel on the right, drawn in the
- * same parts as MCP, Secrets and Models.
+ * The list is a table, the way Tasks and Playbooks are, and a row opens that assistant on
+ * its own page with the list one click back.
  */
 export function Assistants() {
   const viewer = useViewer();
@@ -142,185 +143,236 @@ export function Assistants() {
   if (!viewer) return null;
 
   const personalities = voices.data?.personalities ?? [];
-  const down = isAgentUnreachable(voices.error);
   const readOnly = !canManageInfra(viewer);
 
-  return (
-    <PageFrame
-      title="Assistants"
-      lead="The assistants people can talk to, and the personality and job each one has."
-      actions={
-        // With none of your own yet, the roster's own New card is the way in.
-        route.kind === "new" || voices.isPending || personalities.length === 0 ? null : (
-          <Button size="sm" asChild data-testid="assistant-new">
-            <Link to="/agent/assistants/new" aria-label="New assistant">
-              <Plus />
-              <span className="hidden sm:inline">New assistant</span>
-            </Link>
-          </Button>
-        )
-      }
-    >
-      <div className="grid gap-5 lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start">
-        <Roster route={route} personalities={personalities} loading={voices.isPending} />
-        <div className="min-w-0">
-          {route.kind === "podium" ? (
-            <PodiumEditor section={route.section} readOnly={readOnly} />
-          ) : down ? (
-            <ConductorDown
-              what="Your assistants could not be read"
-              onRetry={() => void voices.refetch()}
-              retrying={voices.isFetching}
-            />
-          ) : voices.isPending ? (
-            <EditorSkeleton />
-          ) : voices.isError ? (
-            <Empty title="Could not read your assistants" hint={errorMessage(voices.error)} />
-          ) : route.kind === "new" ? (
-            <PersonalityEditor personality={null} section={route.section} />
-          ) : (
-            <OpenPersonality personalities={personalities} id={route.id} section={route.section} />
-          )}
-        </div>
-      </div>
-    </PageFrame>
-  );
+  if (route.kind === "list") return <AssistantList voices={voices} />;
+  if (route.kind === "podium") return <PodiumEditor section={route.section} readOnly={readOnly} />;
+
+  const title = route.kind === "new" ? "New assistant" : "Assistant";
+  if (isAgentUnreachable(voices.error)) {
+    return (
+      <PageFrame title={title} back={BACK}>
+        <ConductorDown
+          what="Your assistants could not be read"
+          onRetry={() => void voices.refetch()}
+          retrying={voices.isFetching}
+        />
+      </PageFrame>
+    );
+  }
+  if (voices.isPending) {
+    return (
+      <PageFrame title={title} back={BACK}>
+        <EditorSkeleton />
+      </PageFrame>
+    );
+  }
+  if (voices.isError) {
+    return (
+      <PageFrame title={title} back={BACK}>
+        <Empty title="Could not read your assistants" hint={errorMessage(voices.error)} />
+      </PageFrame>
+    );
+  }
+  if (route.kind === "new") return <PersonalityEditor personality={null} section={route.section} />;
+  return <OpenPersonality personalities={personalities} id={route.id} section={route.section} />;
 }
 
 /**
- * Roster is every assistant this person can open: Podium first, then their own voices. Each
- * card says what it runs on and how it starts, so the list answers "which one was that"
- * without opening each. A narrow window scrolls the cards sideways above the panel.
+ * AssistantList is every assistant this person can open: Podium first, then their own voices
+ * in name order. Each row says what it runs on, what it may reach, and when it last changed,
+ * so the table answers "which one was that" without opening each.
  */
-function Roster({
-  route,
-  personalities,
-  loading,
-}: {
-  route: AssistantsRoute;
-  personalities: Personality[];
-  loading: boolean;
-}) {
+function AssistantList({ voices }: { voices: UseQueryResult<{ personalities: Personality[] }> }) {
+  const navigate = useNavigate();
   const profile = useQuery({
     queryKey: ["agent", "profile"],
     queryFn: () => agent.getProfile({}),
     staleTime: 30_000,
   });
   const podium = profile.data?.profile;
-  const sorted = [...personalities].sort(comparePersonalities);
-  // The draft card shows while one is being written, and as the way in when there are none.
-  const showNew = route.kind === "new" || (!loading && sorted.length === 0);
+  const personalities = [...(voices.data?.personalities ?? [])].sort(comparePersonalities);
+  const down = isAgentUnreachable(voices.error) || isAgentUnreachable(profile.error);
+
+  const openRow = (e: MouseEvent<HTMLTableRowElement>, href: string) => {
+    // The name cell holds the real link; anything that is already a control keeps its click.
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    void navigate(href);
+  };
 
   return (
-    <nav aria-label="Assistants" className="min-w-0 lg:sticky lg:top-0">
-      <ul className="-mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 sm:scroll-px-6 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
-        <li className="w-72 shrink-0 snap-start lg:w-auto">
-          <RosterCard
-            to="/agent/assistants"
-            open={route.kind === "podium"}
-            tile={<AssistantTile kind="podium" />}
-            name={podium?.displayName || "Podium"}
-            badge={<Chip className="px-2 py-0.5">Built-in</Chip>}
-            model={<ModelLine agentId={podium?.agent ?? ""} model={podium?.model ?? ""} fallback="Reading…" />}
-            hint={firstLine(podium?.systemPrompt ?? "")}
-          />
-        </li>
-        {loading
-          ? Array.from({ length: 2 }, (_, i) => (
-              <li key={i} className="w-72 shrink-0 lg:w-auto" aria-hidden>
-                <div className="flex items-start gap-3 rounded-lg border border-border bg-panel p-3">
-                  <Skeleton className="size-10 rounded-sm" />
-                  <div className="flex-1 space-y-2 pt-1">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-3 w-40" />
-                  </div>
-                </div>
-              </li>
-            ))
-          : sorted.map((p) => (
-              <li key={p.id} className="w-72 shrink-0 snap-start lg:w-auto">
-                <RosterCard
-                  to={`/agent/assistants/${p.id}`}
-                  open={route.kind === "one" && route.id === p.id}
-                  tile={<AssistantTile kind="personal" name={p.displayName || p.name} seed={p.id} />}
-                  name={p.displayName || p.name}
-                  model={<ModelLine agentId={p.agent} model={p.model} fallback="Follows Podium's model" />}
-                  hint={firstLine(p.instructions)}
-                />
-              </li>
+    <PageFrame
+      title="Assistants"
+      lead="The assistants people can talk to, and the personality and job each one has."
+      actions={
+        <Button size="sm" asChild data-testid="assistant-new">
+          <Link to={`${LIST}/new`} aria-label="New assistant">
+            <Plus />
+            <span className="hidden sm:inline">New assistant</span>
+          </Link>
+        </Button>
+      }
+    >
+      {down ? (
+        <ConductorDown
+          what="Your assistants could not be read"
+          onRetry={() => {
+            void voices.refetch();
+            void profile.refetch();
+          }}
+          retrying={voices.isFetching || profile.isFetching}
+        />
+      ) : null}
+      {voices.isError && !down ? <Empty title="Could not read your assistants" hint={errorMessage(voices.error)} /> : null}
+
+      {profile.isPending || voices.isPending ? (
+        <TableSkeleton rows={3} cols={5} />
+      ) : (
+        <Table>
+          <caption className="sr-only">Assistants</caption>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Assistant</TableHead>
+              <TableHead>Model</TableHead>
+              <TableHead>Reaches</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead pinned>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {podium || !profile.isError ? (
+              <AssistantRow
+                href={`${LIST}/podium`}
+                chatHref="/agent/chat"
+                onOpen={openRow}
+                tile={<AssistantTile kind="podium" />}
+                name={podium?.displayName || "Podium"}
+                badge={<Chip className="px-2 py-0.5">Built-in</Chip>}
+                hint={firstLine(podium?.systemPrompt ?? "")}
+                model={<ModelLine agentId={podium?.agent ?? ""} model={podium?.model ?? ""} />}
+                reaches={<Reaches skills={podium?.skills?.length ?? 0} servers={podium?.mcpServers?.length ?? 0} />}
+                updatedAt={podium?.updatedAt}
+                updatedBy={podium?.updatedBy}
+              />
+            ) : null}
+            {personalities.map((p) => (
+              <AssistantRow
+                key={p.id}
+                href={`${LIST}/${p.id}`}
+                chatHref={`/agent/chat/a/${p.id}`}
+                personalId={p.id}
+                onOpen={openRow}
+                tile={<AssistantTile kind="personal" name={p.displayName || p.name} seed={p.id} />}
+                name={p.displayName || p.name}
+                badge={<Chip className="px-2 py-0.5">Personal</Chip>}
+                hint={firstLine(p.instructions)}
+                model={<ModelLine agentId={p.agent} model={p.model} fallback="Follows Podium's model" />}
+                reaches={<span className="text-muted">Podium&rsquo;s skills and tools</span>}
+                updatedAt={p.updatedAt}
+              />
             ))}
-        {showNew ? (
-          <li className="w-72 shrink-0 snap-start lg:w-auto">
-            <RosterCard
-              to="/agent/assistants/new"
-              open={route.kind === "new"}
-              dashed
-              tile={<AssistantTile kind="new" />}
-              name="New assistant"
-              model={<span>A voice of your own on top of Podium</span>}
-            />
-          </li>
-        ) : null}
-      </ul>
-    </nav>
+          </TableBody>
+        </Table>
+      )}
+
+      {!voices.isPending && !voices.isError && personalities.length === 0 ? (
+        <div className="flex flex-col gap-4 rounded-lg border border-dashed border-line-strong px-6 py-5 sm:flex-row sm:items-center">
+          <AssistantTile kind="new" />
+          <div className="min-w-0 flex-1">
+            <p className="m-0 font-bold text-fg">No assistants of your own yet</p>
+            <p className="m-0 text-sm text-muted">
+              Give Podium another voice: a name, a few lines on how it talks, and a model if it should differ.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" asChild className="shrink-0 self-start sm:self-center">
+            <Link to={`${LIST}/new`}>
+              <Plus />
+              Add one
+            </Link>
+          </Button>
+        </div>
+      ) : null}
+    </PageFrame>
   );
 }
 
-function RosterCard({
-  to,
-  open,
+function AssistantRow({
+  href,
+  chatHref,
+  personalId,
+  onOpen,
   tile,
   name,
   badge,
-  model,
   hint,
-  dashed = false,
+  model,
+  reaches,
+  updatedAt,
+  updatedBy,
 }: {
-  to: string;
-  open: boolean;
+  href: string;
+  chatHref: string;
+  personalId?: string;
+  onOpen: (e: MouseEvent<HTMLTableRowElement>, href: string) => void;
   tile: ReactNode;
   name: string;
-  badge?: ReactNode;
+  badge: ReactNode;
+  hint: string;
   model: ReactNode;
-  hint?: string;
-  dashed?: boolean;
+  reaches: ReactNode;
+  updatedAt?: Timestamp;
+  updatedBy?: string;
 }) {
-  const nameId = useId();
-  const detailId = useId();
   return (
-    <Link
-      to={to}
-      aria-current={open ? "page" : undefined}
-      aria-labelledby={nameId}
-      aria-describedby={detailId}
-      className={cn(
-        "group flex h-full items-start gap-3 rounded-lg border p-3 transition-[background-color,border-color,box-shadow] duration-150 ease-out",
-        "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
-        open
-          ? "border-accent bg-panel shadow-[inset_0_0_0_1px_var(--color-accent),0_1px_3px_rgb(25_35_45/0.08)]"
-          : dashed
-            ? "border-dashed border-line-strong bg-transparent hover:bg-panel"
-            : "border-border bg-panel hover:border-line-strong hover:bg-raised",
-      )}
-    >
-      {tile}
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-2">
-          <span id={nameId} className="min-w-0 truncate text-base font-bold text-fg" title={name}>
-            {name}
-          </span>
-          {badge}
-        </span>
-        <span id={detailId} className="block">
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">{model}</span>
-          {hint ? <span className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">{hint}</span> : null}
-        </span>
-      </span>
-    </Link>
+    <TableRow data-testid="assistant-row" onClick={(e) => onOpen(e, href)} className="cursor-pointer">
+      <TableCell className="max-w-[30rem] py-3">
+        <div className="flex items-center gap-3">
+          {tile}
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <Link
+                to={href}
+                className="min-w-0 truncate rounded-sm font-bold text-fg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {name}
+              </Link>
+              {badge}
+            </div>
+            {hint ? (
+              <p className="m-0 mt-0.5 truncate text-xs text-muted" title={hint}>
+                {hint}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="text-xs whitespace-nowrap">
+        <span className="flex items-center gap-1.5">{model}</span>
+      </TableCell>
+      <TableCell className="text-xs whitespace-nowrap">{reaches}</TableCell>
+      <TableCell className="text-xs whitespace-nowrap text-muted" title={updatedAt ? absolute(updatedAt) : undefined}>
+        {updatedAt ? relative(updatedAt) : "-"}
+        {updatedBy ? <div className="truncate text-2xs text-faint">{updatedBy}</div> : null}
+      </TableCell>
+      <TableCell pinned className="w-0 pr-2 text-right">
+        <AssistantRowActions name={name} href={href} chatHref={chatHref} personalId={personalId} />
+      </TableCell>
+    </TableRow>
   );
 }
 
-/** The first line of a prompt that is prose, for a card that has room for a sentence. */
+function Reaches({ skills, servers }: { skills: number; servers: number }) {
+  if (skills === 0 && servers === 0) return <span className="text-muted">Delegates to playbooks</span>;
+  const parts = [
+    skills ? `${skills} ${skills === 1 ? "skill" : "skills"}` : "",
+    servers ? `${servers} MCP ${servers === 1 ? "server" : "servers"}` : "",
+  ].filter(Boolean);
+  return <span className="text-fg">{parts.join(" · ")}</span>;
+}
+
+/** The first line of a prompt that is prose, for a row that has room for a sentence. */
 function firstLine(text: string): string {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
@@ -342,16 +394,18 @@ function OpenPersonality({
   const row = personalities.find((p) => p.id === id);
   if (!row) {
     return (
-      <Empty
-        icon={UserRound}
-        title="That assistant is not here"
-        hint="It belongs to someone else, or it was deleted."
-        action={
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/agent/assistants">Open Podium</Link>
-          </Button>
-        }
-      />
+      <PageFrame title="Assistant" back={BACK}>
+        <Empty
+          icon={UserRound}
+          title="That assistant is not here"
+          hint="It belongs to someone else, or it was deleted."
+          action={
+            <Button size="sm" variant="outline" asChild>
+              <Link to={LIST}>Back to assistants</Link>
+            </Button>
+          }
+        />
+      </PageFrame>
     );
   }
   return <PersonalityEditor personality={row} section={section} />;
@@ -434,20 +488,7 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
       remember(row);
       toast("Saved. The next turn uses it.", "ok");
       await qc.invalidateQueries({ queryKey: ["agent", "personalities"] });
-      if (!id) navigate(`/agent/assistants/${row.id}`);
-    },
-    onError: (err) => toast(errorMessage(err)),
-  });
-
-  const remove = useMutation({
-    mutationFn: () => agent.deletePersonality({ id }),
-    onSuccess: async () => {
-      setAskDelete(false);
-      qc.setQueryData(["agent", "personalities"], (current: { personalities: Personality[] } | undefined) => ({
-        personalities: (current?.personalities ?? []).filter((p) => p.id !== id),
-      }));
-      await qc.invalidateQueries({ queryKey: ["agent", "personalities"] });
-      navigate("/agent/assistants");
+      if (!id) void navigate(`${LIST}/${row.id}`, { replace: true });
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -465,124 +506,113 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
       ? `Unsaved changes in ${listSections(dirty)}`
       : "Saved. Chat uses it on the next turn.";
 
+  const savedName = cleanDisplay(saved.displayName) || saved.name;
+
   return (
-    <AssistantPanel label={title}>
-      <PanelHeader
-        tile={<AssistantTile kind={id ? "personal" : "new"} name={title === "New assistant" ? "" : title} seed={id} size="detail" />}
-        title={title}
-        chips={<Chip>{id ? "Personal" : "Draft"}</Chip>}
-        subtitle={<ModelLine agentId={draft.agent} model={draft.model} fallback="Follows Podium's model" />}
-        actions={
-          id ? (
-            <>
-              <Button variant="outline" size="sm" asChild>
-                <Link to={`/agent/chat/a/${id}`}>
-                  <MessageSquarePlus />
-                  Talk to it
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-err hover:bg-err-bg"
-                onClick={() => setAskDelete(true)}
-              >
-                <Trash2 />
-                Delete
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/agent/assistants">Cancel</Link>
-            </Button>
-          )
-        }
-      />
-      <SectionTabs tabs={tabs} current={section} href={(item) => personalSectionHref(base, item)} />
-      <form
-        id="personality-form"
-        className="min-w-0"
-        onSubmit={(e) => {
-          e.preventDefault();
-          commit();
-        }}
-      >
-        {sentence ? <ScopeBar>{sentence}</ScopeBar> : null}
-        <PanelBody hidden={section !== "identity"}>
-          <Row id="personality-display" label="Display name" hint="What it is called in its chats, and on its card here.">
-            <Input
-              id="personality-display"
-              value={draft.displayName}
-              onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
-              className="max-w-md"
-              autoComplete="off"
-              aria-invalid={issues.has("display-name") && cleanDisplay(draft.displayName) !== ""}
-            />
-            <FieldNote text={displayNote(draft)} />
-          </Row>
-        </PanelBody>
-        <PanelBody hidden={section !== "instructions"}>
-          <Row
-            id="personality-instructions"
-            label="Instructions"
-            hint={
-              <>
-                How this voice talks and what it cares about.{" "}
-                <span className="tabular-nums">{draft.instructions.trim().length.toLocaleString()} of 4,000 characters.</span>
-              </>
-            }
-          >
-            <Textarea
-              id="personality-instructions"
-              value={draft.instructions}
-              onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-              className="min-h-64 leading-relaxed"
-              spellCheck
-              aria-invalid={issues.has("instructions") && draft.instructions.trim() !== ""}
-            />
-            <FieldNote text={instructionsNote(draft)} />
-          </Row>
-        </PanelBody>
-        <PanelBody hidden={section !== "model"}>
-          <VoiceModel
-            value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
-            onChange={(next) => setDraft({ ...draft, ...next })}
-          />
-        </PanelBody>
-
-        <SaveBar dirty={dirty.length > 0 || !id} status={status}>
-          <Button type="submit" disabled={!ready || save.isPending}>
-            {save.isPending ? "Saving…" : "Save"}
-          </Button>
-        </SaveBar>
-      </form>
-
-      <Dialog open={askDelete} onOpenChange={setAskDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete {saved.displayName || saved.name}?</DialogTitle>
-            <DialogDescription>
-              Chats you already had stay readable under this name. A new message in one of them is refused.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={() => setAskDelete(false)}>
-              Keep
+    <PageFrame
+      title={id ? savedName : "New assistant"}
+      back={BACK}
+      meta={<Chip>{id ? "Personal" : "Draft"}</Chip>}
+      actions={
+        id ? (
+          <>
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/agent/chat/a/${id}`} aria-label="Talk to it">
+                <MessageSquarePlus />
+                <span className="hidden sm:inline">Talk to it</span>
+              </Link>
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="ghost"
               size="sm"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
+              aria-label="Delete"
+              className="text-err hover:bg-err-bg"
+              onClick={() => setAskDelete(true)}
             >
-              {remove.isPending ? "Deleting…" : "Delete assistant"}
+              <Trash2 />
+              <span className="hidden sm:inline">Delete</span>
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </AssistantPanel>
+          </>
+        ) : null
+      }
+    >
+      <AssistantPanel label={title}>
+        <SectionTabs tabs={tabs} current={section} href={(item) => personalSectionHref(base, item)} />
+        <form
+          id="personality-form"
+          className="min-w-0"
+          onSubmit={(e) => {
+            e.preventDefault();
+            commit();
+          }}
+        >
+          {sentence ? <ScopeBar>{sentence}</ScopeBar> : null}
+          <PanelBody hidden={section !== "identity"}>
+            <Row id="personality-display" label="Display name" hint="What it is called in its chats, and on the list of assistants.">
+              <Input
+                id="personality-display"
+                value={draft.displayName}
+                onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
+                className="max-w-md"
+                autoComplete="off"
+                aria-invalid={issues.has("display-name") && cleanDisplay(draft.displayName) !== ""}
+              />
+              <FieldNote text={displayNote(draft)} />
+            </Row>
+          </PanelBody>
+          <PanelBody hidden={section !== "instructions"}>
+            <Row
+              id="personality-instructions"
+              label="Instructions"
+              hint={
+                <>
+                  How this voice talks and what it cares about.{" "}
+                  <span className="tabular-nums">{draft.instructions.trim().length.toLocaleString()} of 4,000 characters.</span>
+                </>
+              }
+            >
+              <Textarea
+                id="personality-instructions"
+                value={draft.instructions}
+                onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
+                className="min-h-64 leading-relaxed"
+                spellCheck
+                aria-invalid={issues.has("instructions") && draft.instructions.trim() !== ""}
+              />
+              <FieldNote text={instructionsNote(draft)} />
+            </Row>
+          </PanelBody>
+          <PanelBody hidden={section !== "model"}>
+            <VoiceModel
+              value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
+              onChange={(next) => setDraft({ ...draft, ...next })}
+            />
+          </PanelBody>
+
+          <SaveBar dirty={dirty.length > 0 || !id} status={status}>
+            {id ? null : (
+              <Button variant="ghost" asChild>
+                <Link to={LIST}>Cancel</Link>
+              </Button>
+            )}
+            <Button type="submit" disabled={!ready || save.isPending}>
+              {save.isPending ? "Saving…" : "Save"}
+            </Button>
+          </SaveBar>
+        </form>
+      </AssistantPanel>
+
+      {id ? (
+        <DeleteAssistantDialog
+          id={id}
+          name={savedName}
+          open={askDelete}
+          onOpenChange={setAskDelete}
+          onDeleted={() => void navigate(LIST)}
+        />
+      ) : null}
+    </PageFrame>
   );
 }
 
@@ -650,13 +680,12 @@ function instructionsNote(draft: PersonalityDraft): string | null {
 function EditorSkeleton() {
   return (
     <div aria-busy="true" className="space-y-5 rounded-lg border border-border bg-panel p-6">
-      <div className="flex items-center gap-4">
-        <Skeleton className="size-14 rounded-sm" />
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3.5 w-28" />
-        </div>
+      <div className="flex gap-6">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-16" />
       </div>
+      <Skeleton className="h-4 w-96 max-w-full" />
       <Skeleton className="h-11 w-full max-w-md" />
     </div>
   );

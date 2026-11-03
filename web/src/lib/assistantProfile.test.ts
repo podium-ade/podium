@@ -94,7 +94,8 @@ describe("assistantProfile", () => {
     expect(assistantSection("/agent/profile/limits")).toBe("limits");
     expect(assistantSection("/agent/profile/source")).toBeNull();
     expect(assistantSection("/agent/profile/nope")).toBeNull();
-    expect(assistantSection("/agent/assistants")).toBe("identity");
+    expect(assistantSection("/agent/assistants")).toBeNull();
+    expect(assistantSection("/agent/assistants/podium")).toBe("identity");
     expect(assistantSection("/agent/assistants/podium/model")).toBe("model");
     expect(assistantSection("/agent/assistants/new")).toBeNull();
   });
