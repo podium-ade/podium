@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Plus, TriangleAlert } from "lucide-react";
-import { Badge, Chip } from "../components/Badge";
+import { Badge } from "../components/Badge";
 import { PageFrame } from "../components/PageHeader";
 import { DeleteSecretDialog } from "../components/secrets/DeleteSecretDialog";
 import { SecretDialog } from "../components/secrets/SecretDialog";
@@ -325,7 +325,6 @@ function SecretList({
               <TableHead className={headCell}>Version</TableHead>
               <TableHead className={headCell}>Last set</TableHead>
               <TableHead className={headCell}>Set by</TableHead>
-              <TableHead className={headCell}>Key</TableHead>
               <TableHead className={headCell}>
                 <span className="sr-only">Actions</span>
               </TableHead>
@@ -349,6 +348,15 @@ function SecretList({
                         <span className="text-fg">{cut > 0 ? s.name.slice(cut + 1) : s.name}</span>
                       </span>
                       <CopyName name={s.name} />
+                      {/* The key fingerprint is only worth showing when it differs: it marks
+                          the rows a stalled master-key rotation left on the old key. */}
+                      {mixedKeys && s.keyId !== commonKey ? (
+                        <Tooltip label={`Still encrypted under the old master key (${s.keyId || "unknown"}). Only that key can read it until the rotation finishes.`}>
+                          <Badge tone="warn" dot={false} className="ml-1 shrink-0">
+                            Old key
+                          </Badge>
+                        </Tooltip>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="px-4 py-4 text-sm whitespace-nowrap text-muted max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
@@ -375,16 +383,6 @@ function SecretList({
                   <TableCell className="px-4 py-4 text-sm text-muted max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
                     <MobileLabel>Set by</MobileLabel>
                     <span className="block truncate">{s.createdBy || "-"}</span>
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
-                    <MobileLabel>Key</MobileLabel>
-                    {mixedKeys && s.keyId !== commonKey ? (
-                      <Badge tone="warn" dot={false} className="font-mono">
-                        {s.keyId || "-"}
-                      </Badge>
-                    ) : (
-                      <Chip className="font-mono">{s.keyId || "-"}</Chip>
-                    )}
                   </TableCell>
                   <TableCell className="px-4 py-4 max-[600px]:col-span-2 max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
                     <MobileLabel>Actions</MobileLabel>

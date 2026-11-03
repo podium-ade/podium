@@ -172,10 +172,9 @@ describe("MemoryPanel", () => {
     expect(screen.queryByTestId("memory-search")).toBeNull();
     expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
     rejectList(new ConnectError("memory is not configured on this host", Code.FailedPrecondition));
-    expect(
-      await screen.findByText("Memory is not configured on this host"),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/PODIUM_AGENT_MEMORY_URL/)).toBeInTheDocument();
+    expect(await screen.findByText("Memory isn't set up yet")).toBeInTheDocument();
+    expect(screen.getByText(/Ask your administrator to turn it on/)).toBeInTheDocument();
+    expect(screen.queryByText(/PODIUM_AGENT_MEMORY/)).toBeNull();
     expect(screen.queryByTestId("memory-search")).toBeNull();
     expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
   });
