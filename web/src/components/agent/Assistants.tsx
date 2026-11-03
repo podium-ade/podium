@@ -61,7 +61,7 @@ const PERSONAL: { id: PersonalSection; label: string; icon: LucideIcon; sentence
     id: "identity",
     label: "Identity",
     icon: UserRound,
-    sentence: "A personal assistant is a voice on top of Podium. It reaches the same skills and MCP servers Podium does, set on Podium's Reach tab, and runs under Podium's limits.",
+    sentence: "A personal assistant is a voice on top of Podium.",
   },
   {
     id: "instructions",
