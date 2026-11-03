@@ -1,136 +1,91 @@
-import { useState } from "react";
-import { FileCode2, Pencil, Plus, Puzzle, Trash2 } from "lucide-react";
+import { useMemo, useState, type MouseEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { Plus, Puzzle, Search, SearchX } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentSkill } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { humanBytes } from "../../lib/format";
+import { absolute, humanBytes, relative } from "../../lib/format";
+import type { SkillBundle } from "../../lib/skillZip";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
-import { Skeleton } from "../Skeleton";
+import { TableSkeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
-import type { SkillBundle } from "../../lib/skillZip";
+import { RowActions } from "./RowActions";
 import { SkillEditor, type SkillFile } from "./SkillEditor";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 
+const LIST = "/agent/skills";
+
+function skillPath(name: string): string {
+  return `${LIST}/${encodeURIComponent(name)}`;
+}
+
+function useSkills() {
+  return useQuery({ queryKey: ["agent", "skills"], queryFn: () => agent.listSkills({}) });
+}
+
 /**
- * SkillsPanel is the Agent Skills on this conductor. A folder that contains SKILL.md
- * installs as one skill, other files included. A folder of markdown files and no
- * SKILL.md installs one skill per file.
+ * SkillsPanel is the Agent Skills on this conductor, one row each, the way Tasks lists tasks.
+ * A row opens the skill on its own page (SkillPage). A folder that contains SKILL.md installs
+ * as one skill, other files included; a folder of markdown files and no SKILL.md installs one
+ * skill per file.
  */
 export function SkillsPanel() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
+  const navigate = useNavigate();
   const qc = useQueryClient();
-  const toast = useToast();
-  const [editing, setEditing] = useState<AgentSkill | "new">();
-  const [saveError, setSaveError] = useState("");
+  const list = useSkills();
+  const [filter, setFilter] = useState("");
 
-  const list = useQuery({ queryKey: ["agent", "skills"], queryFn: () => agent.listSkills({}) });
-  const skills = list.data?.skills ?? [];
-  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "skills"] });
-
-  const upload = useMutation({
-    mutationFn: (v: { content: Uint8Array; filename: string; replace: boolean }) => agent.uploadSkill(v),
-  });
-  const remove = useMutation({
-    mutationFn: (name: string) => agent.deleteSkill({ name }),
-    onSuccess: async (_res, name) => {
-      toast(`${name} removed.`, "ok");
-      await reload();
-    },
-    onError: (err) => toast(errorMessage(err)),
-  });
-
-  async function saveOne(file: SkillFile, replace: boolean) {
-    await saveUpload(
-      { content: new TextEncoder().encode(file.markdown), filename: file.name, replace },
-      file.name,
+  const all = useMemo(() => list.data?.skills ?? [], [list.data]);
+  const rows = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((s) =>
+      [s.name, s.description, ...(s.playbooks ?? [])].some((v) => (v ?? "").toLowerCase().includes(q)),
     );
-  }
+  }, [all, filter]);
 
-  async function saveBundles(bundles: SkillBundle[], replace: boolean) {
-    await saveEach(
-      bundles.map((b) => ({ content: b.content, filename: b.filename, replace })),
-      replace,
-    );
-  }
-
-  async function createMany(files: SkillFile[]) {
-    await saveEach(
-      files.map((file) => ({
-        content: new TextEncoder().encode(file.markdown),
-        filename: file.name,
-        replace: false,
-      })),
-      false,
-    );
-  }
-
-  async function saveUpload(
-    v: { content: Uint8Array; filename: string; replace: boolean },
-    fallbackName: string,
-  ) {
-    await saveEach([v], v.replace, fallbackName);
-  }
-
-  async function saveEach(
-    items: { content: Uint8Array; filename: string; replace: boolean }[],
-    replace: boolean,
-    fallbackName?: string,
-  ) {
-    setSaveError("");
-    let ok = 0;
-    let lastName = fallbackName ?? "";
-    let lastErr = "";
-    for (const item of items) {
-      try {
-        const res = await upload.mutateAsync(item);
-        lastName = res.skill?.name ?? item.filename;
-        ok++;
-      } catch (err) {
-        lastErr = errorMessage(err);
-      }
-    }
-    if (ok > 0) {
-      const noun = ok === 1 ? lastName : `${ok} skills`;
-      toast(replace ? `${noun} saved.` : `${noun} added.`, "ok");
-      setEditing(undefined);
-      await reload();
-    }
-    if (lastErr) setSaveError(lastErr);
-  }
+  const deleteSkill = async (name: string) => {
+    await agent.deleteSkill({ name });
+    await qc.invalidateQueries({ queryKey: ["agent", "skills"] });
+  };
 
   if (list.isError && !isAgentUnreachable(list.error)) {
-    return <Empty icon={Puzzle} title="Could not read the skills" hint={errorMessage(list.error)} />;
+    return (
+      <PageFrame title="Skills">
+        <Empty icon={Puzzle} title="Could not read the skills" hint={errorMessage(list.error)} />
+      </PageFrame>
+    );
   }
+
+  const openRow = (e: MouseEvent<HTMLTableRowElement>, name: string) => {
+    // The name cell holds the real link; anything that is already a control keeps its click.
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    void navigate(skillPath(name));
+  };
 
   return (
     <PageFrame
-        title="Skills"
-        lead="Reusable know-how your assistants pick up when a job calls for it."
-        actions={
-          manage ? (
-          <Button
-            type="button"
-            size="sm"
-            data-testid="skill-new"
-            onClick={() => {
-              setSaveError("");
-              setEditing("new");
-            }}
-          >
+      title="Skills"
+      lead="Reusable know-how your assistants pick up when a job calls for it."
+      actions={
+        manage ? (
+          <Button type="button" size="sm" data-testid="skill-new" onClick={() => void navigate(`${LIST}/new`)}>
             <Plus />
             New skill
           </Button>
-          ) : null
-        }
-      >
-
+        ) : null
+      }
+    >
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
           what="The skills could not be read"
@@ -139,188 +94,314 @@ export function SkillsPanel() {
         />
       ) : null}
 
-      {editing ? (
-        <SkillEditor
-          key={editing === "new" ? "new" : editing.name}
-          existing={
-            editing === "new"
-              ? undefined
-              : {
-                  name: editing.name,
-                  markdown: editing.markdown,
-                  fileCount: editing.fileCount,
-                  files: editing.files,
-                }
-          }
-          saving={upload.isPending}
-          deleting={remove.isPending}
-          error={saveError}
-          onSubmit={(file) => void saveOne(file, editing !== "new")}
-          onSubmitMany={(files) => void createMany(files)}
-          onSubmitBundles={(bundles) => void saveBundles(bundles, editing !== "new")}
-          onDelete={
-            editing === "new"
-              ? undefined
-              : () => {
-                  remove.mutate(editing.name, {
-                    onSuccess: () => setEditing(undefined),
-                  });
-                }
-          }
-          onCancel={() => {
-            setEditing(undefined);
-            setSaveError("");
-          }}
-        />
-      ) : null}
+      {list.isPending ? <TableSkeleton rows={4} cols={4} /> : null}
 
-      {list.isPending && !editing ? <SkillsSkeleton /> : null}
-
-      {!list.isPending && !editing && skills.length === 0 ? (
+      {!list.isPending && !list.isError && all.length === 0 ? (
         <Empty
           icon={Puzzle}
           title="No skills"
           hint="Nothing for a turn to pick up yet."
           action={
             manage ? (
-            <Button type="button" size="sm" onClick={() => setEditing("new")}>
-              <Plus />
-              New skill
-            </Button>
+              <Button type="button" size="sm" onClick={() => void navigate(`${LIST}/new`)}>
+                <Plus />
+                New skill
+              </Button>
             ) : undefined
           }
         />
       ) : null}
 
-      {!editing && skills.length > 0 ? (
-        <ul className="space-y-2.5">
-          {skills.map((s) => (
-            <SkillRow
-              key={s.name}
-              skill={s}
-              deleting={remove.isPending}
-              onOpen={
-                manage
-                  ? () => {
-                      setSaveError("");
-                      setEditing(s);
-                    }
-                  : undefined
-              }
-              onDelete={manage ? () => remove.mutate(s.name) : undefined}
+      {all.length > 0 ? (
+        <>
+          <div className="relative max-w-sm">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
+            <Input
+              type="search"
+              aria-label="Filter skills"
+              placeholder="Filter by name, description or playbook"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="pl-9"
             />
-          ))}
-        </ul>
+          </div>
+
+          {rows.length === 0 ? (
+            <Empty
+              icon={SearchX}
+              title="No skill matches"
+              hint={`Nothing here mentions “${filter.trim()}”.`}
+              action={
+                <Button type="button" size="sm" variant="outline" onClick={() => setFilter("")}>
+                  Clear filter
+                </Button>
+              }
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Skill</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Used by</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead pinned />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((s) => (
+                  <TableRow
+                    key={`${s.name}:${s.origin}:${s.shadowed}`}
+                    data-testid="skill-row"
+                    onClick={manage ? (e) => openRow(e, s.name) : undefined}
+                    className={manage ? "cursor-pointer" : undefined}
+                  >
+                    <TableCell className="max-w-[32rem]">
+                      <div className="flex items-center gap-2">
+                        {manage ? (
+                          <Link
+                            to={skillPath(s.name)}
+                            aria-label={`Edit ${s.name}`}
+                            className="rounded-sm font-mono text-sm font-medium text-fg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                          >
+                            {s.name}
+                          </Link>
+                        ) : (
+                          <span className="font-mono text-sm font-medium text-fg">{s.name}</span>
+                        )}
+                        {s.problem ? (
+                          <Badge tone="err" dot={false}>
+                            Won&apos;t load
+                          </Badge>
+                        ) : null}
+                        {s.shadowed ? (
+                          <Badge tone="warn" dot={false}>
+                            Shadowed
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {s.description ? (
+                        <p className="mt-0.5 truncate text-xs text-muted" title={s.description}>
+                          {s.description}
+                        </p>
+                      ) : null}
+                      {s.problem ? <p className="mt-0.5 text-xs text-err">{s.problem}</p> : null}
+                    </TableCell>
+                    <TableCell className="tabular text-xs whitespace-nowrap text-muted">
+                      {s.fileCount} {s.fileCount === 1 ? "file" : "files"}
+                      <div className="text-2xs text-faint">{humanBytes(s.sizeBytes)}</div>
+                    </TableCell>
+                    <TableCell>
+                      <UsedBy playbooks={s.playbooks ?? []} />
+                    </TableCell>
+                    <TableCell
+                      className="text-xs whitespace-nowrap text-muted"
+                      title={s.uploadedAt ? absolute(s.uploadedAt) : undefined}
+                    >
+                      {s.uploadedAt ? relative(s.uploadedAt) : "-"}
+                      {s.uploadedBy ? <div className="truncate text-2xs text-faint">{s.uploadedBy}</div> : null}
+                    </TableCell>
+                    <TableCell pinned className="w-0 pr-2 text-right">
+                      <RowActions
+                        noun="skill"
+                        name={s.name}
+                        href={manage ? skillPath(s.name) : undefined}
+                        testId="skill"
+                        onDelete={manage ? () => deleteSkill(s.name) : undefined}
+                        deleteDescription={deleteText(s)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </>
       ) : null}
     </PageFrame>
   );
 }
 
-function SkillRow({
-  skill,
-  deleting,
-  onOpen,
-  onDelete,
-}: {
-  skill: AgentSkill
-  deleting: boolean
-  onOpen?: () => void
-  onDelete?: () => void
-}) {
-  return (
-    <li
-      data-testid="skill-row"
-      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs transition-colors hover:border-line-strong hover:bg-raised"
-    >
-      <div className="flex items-start gap-2">
-        <button
-          type="button"
-          data-testid="skill-open"
-          className="min-w-0 flex-1 cursor-pointer space-y-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised focus-visible:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-raised"
-          onClick={onOpen}
-          disabled={!onOpen}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-sm font-medium text-fg">{skill.name}</span>
-            <Badge tone="idle" dot={false}>
-              <FileCode2 className="size-3" />
-              host directory
-            </Badge>
-          </div>
-          {skill.description ? (
-            <p className="max-w-2xl text-xs leading-relaxed text-muted">{skill.description}</p>
-          ) : null}
-          {skill.problem ? (
-            <p className="max-w-2xl text-xs leading-relaxed text-err">{skill.problem}</p>
-          ) : null}
-        </button>
-        {onOpen || onDelete ? (
-          <div className="flex shrink-0 items-center gap-1 pt-1">
-            {onOpen ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid="skill-edit"
-                aria-label={`Edit ${skill.name}`}
-                onClick={onOpen}
-              >
-                <Pencil />
-                Edit
-              </Button>
-            ) : null}
-            {onDelete ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                data-testid="skill-delete"
-                aria-label={`Delete ${skill.name}`}
-                disabled={deleting}
-                onClick={onDelete}
-                className="hover:bg-err-bg hover:text-err"
-              >
-                <Trash2 />
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+/**
+ * SkillPage is one skill, or a new one at /agent/skills/new: the editor on its own page, with
+ * the list one click back.
+ */
+export function SkillPage() {
+  const { name: rawName } = useParams();
+  const creating = rawName === undefined;
+  const name = rawName ?? "";
+  const qc = useQueryClient();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const list = useSkills();
+  const [saveError, setSaveError] = useState("");
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-hairline pt-2.5">
-        <Chip className="tabular">{humanBytes(skill.sizeBytes)}</Chip>
-        <Chip className="tabular">
-          {skill.fileCount} {skill.fileCount === 1 ? "file" : "files"}
-        </Chip>
-        {skill.sha256 ? (
-          <Tooltip label={skill.sha256}>
-            <Chip className="font-mono">{skill.sha256.slice(0, 12)}…</Chip>
-          </Tooltip>
-        ) : null}
-        {skill.playbooks.length > 0 ? (
-          <Chip>{skill.playbooks.map((p) => `/${p}`).join(" ")}</Chip>
+  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "skills"] });
+  const back = () => void navigate(LIST);
+
+  const upload = useMutation({
+    mutationFn: (v: { content: Uint8Array; filename: string; replace: boolean }) => agent.uploadSkill(v),
+  });
+  const remove = useMutation({
+    mutationFn: (n: string) => agent.deleteSkill({ name: n }),
+    onSuccess: async (_res, n) => {
+      toast(`${n} removed.`, "ok");
+      await reload();
+      void navigate(LIST, { replace: true });
+    },
+    onError: (err) => setSaveError(errorMessage(err)),
+  });
+
+  async function saveEach(
+    items: { content: Uint8Array; filename: string; replace: boolean }[],
+    replace: boolean,
+  ) {
+    setSaveError("");
+    const saved: string[] = [];
+    let lastErr = "";
+    for (const item of items) {
+      try {
+        const res = await upload.mutateAsync(item);
+        saved.push(res.skill?.name ?? item.filename);
+      } catch (err) {
+        lastErr = errorMessage(err);
+      }
+    }
+    if (saved.length > 0) {
+      const noun = saved.length === 1 ? saved[0] : `${saved.length} skills`;
+      toast(replace ? `${noun} saved.` : `${noun} added.`, "ok");
+      await reload();
+      // One skill lands on its own page; several go back to the list that now shows them.
+      if (creating && !lastErr) {
+        void navigate(saved.length === 1 ? skillPath(saved[0]!) : LIST, { replace: true });
+      }
+    }
+    if (lastErr) setSaveError(lastErr);
+  }
+
+  const encode = (file: SkillFile, replace: boolean) => ({
+    content: new TextEncoder().encode(file.markdown),
+    filename: file.name,
+    replace,
+  });
+
+  const all = list.data?.skills ?? [];
+  const skill = creating
+    ? undefined
+    : all.find((s) => s.name === name && !s.shadowed) ?? all.find((s) => s.name === name);
+
+  const frame = {
+    title: creating ? "New skill" : name,
+    back: { to: LIST, label: "Skills" },
+    meta: skill ? <SkillMeta skill={skill} /> : undefined,
+  };
+
+  if (list.isError) {
+    return (
+      <PageFrame {...frame}>
+        {isAgentUnreachable(list.error) ? (
+          <ConductorDown
+            what="The skill could not be read"
+            onRetry={() => void list.refetch()}
+            retrying={list.isFetching}
+          />
         ) : (
-          <Chip>no playbook names it</Chip>
+          <Empty icon={Puzzle} title="Could not read the skills" hint={errorMessage(list.error)} />
         )}
-      </div>
-    </li>
+      </PageFrame>
+    );
+  }
+
+  if (list.isPending) {
+    return (
+      <PageFrame {...frame}>
+        <TableSkeleton rows={6} cols={2} />
+      </PageFrame>
+    );
+  }
+
+  if (!creating && !skill) {
+    return (
+      <PageFrame {...frame}>
+        <Empty
+          icon={Puzzle}
+          title="No such skill"
+          hint={`Nothing on this conductor is called ${name}. It may have been deleted or renamed.`}
+          action={
+            <Button type="button" size="sm" variant="outline" onClick={back}>
+              Back to skills
+            </Button>
+          }
+        />
+      </PageFrame>
+    );
+  }
+
+  const replace = !creating;
+  return (
+    <PageFrame {...frame}>
+      {skill?.problem ? <p className="text-sm text-err">{skill.problem}</p> : null}
+      <SkillEditor
+        key={creating ? "new" : name}
+        embedded
+        existing={
+          skill
+            ? { name: skill.name, markdown: skill.markdown, fileCount: skill.fileCount, files: skill.files }
+            : undefined
+        }
+        saving={upload.isPending}
+        deleting={remove.isPending}
+        error={saveError}
+        onSubmit={(file) => void saveEach([encode(file, replace)], replace)}
+        onSubmitMany={(files) => void saveEach(files.map((f) => encode(f, false)), false)}
+        onSubmitBundles={(bundles: SkillBundle[]) =>
+          void saveEach(
+            bundles.map((b) => ({ content: b.content, filename: b.filename, replace })),
+            replace,
+          )
+        }
+        onDelete={skill ? () => remove.mutate(skill.name) : undefined}
+        onCancel={back}
+      />
+    </PageFrame>
   );
 }
 
-function SkillsSkeleton() {
+function SkillMeta({ skill }: { skill: AgentSkill }) {
   return (
-    <ul aria-busy="true" aria-label="Loading" className="space-y-2.5">
-      {[0, 1, 2].map((i) => (
-        <li key={i} className="space-y-3 rounded-xl border border-border bg-card px-4 py-3.5">
-          <Skeleton className="h-3.5 w-1/3" />
-          <Skeleton className="h-3 w-3/5" />
-          <div className="flex gap-2">
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-4 w-14" />
-            <Skeleton className="h-4 w-28" />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      {skill.sha256 ? (
+        <Tooltip label={skill.sha256}>
+          <Chip className="hidden font-mono sm:inline-flex">{skill.sha256.slice(0, 12)}…</Chip>
+        </Tooltip>
+      ) : null}
+      {skill.shadowed ? (
+        <Badge tone="warn" dot={false}>
+          Shadowed
+        </Badge>
+      ) : null}
+    </>
   );
+}
+
+function UsedBy({ playbooks }: { playbooks: string[] }) {
+  if (playbooks.length === 0) return <span className="text-xs text-faint">No playbook</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {playbooks.map((p) => (
+        <Chip key={p} className="font-mono">
+          /{p}
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+function deleteText(s: AgentSkill): string {
+  const named = s.playbooks ?? [];
+  const who =
+    named.length === 0
+      ? "No playbook names it."
+      : `${named.map((p) => `/${p}`).join(", ")} ${named.length === 1 ? "names" : "name"} it and will fail ${named.length === 1 ? "its" : "their"} next turn until the name is removed.`;
+  return `Its directory and every file in it go. ${who} There is no undo.`;
 }

@@ -21,7 +21,7 @@ import { Input } from "../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { ConductorDown } from "./ConductorDown";
 import { PlaybookEditor, type PlaybookEditorProps } from "./PlaybookEditor";
-import { PlaybookRowActions } from "./PlaybookRowActions";
+import { RowActions } from "./RowActions";
 import { ReloadProfileDirButton } from "./ReloadProfileDirButton";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
@@ -50,6 +50,11 @@ export function PlaybooksPanel() {
   const navigate = useNavigate();
   const profile = useProfile();
   const [filter, setFilter] = useState("");
+  const qc = useQueryClient();
+  const deletePlaybook = async (name: string) => {
+    await agent.deletePlaybook({ name });
+    await qc.invalidateQueries({ queryKey: ["agent", "profile"] });
+  };
 
   const all = useMemo(() => profile.data?.playbooks ?? [], [profile.data]);
   const rows = useMemo(() => {
@@ -213,7 +218,15 @@ export function PlaybooksPanel() {
                       {p.updatedBy ? <div className="truncate text-2xs text-faint">{p.updatedBy}</div> : null}
                     </TableCell>
                     <TableCell pinned className="w-0 pr-2 text-right">
-                      <PlaybookRowActions name={p.name} href={playbookPath(p.name)} canDelete={manage} />
+                      <RowActions
+                        noun="playbook"
+                        name={p.name}
+                        title={`/${p.name}`}
+                        href={playbookPath(p.name)}
+                        testId="playbook"
+                        onDelete={manage ? () => deletePlaybook(p.name) : undefined}
+                        deleteDescription="The definition goes with it: prompt, tools, limits and the secrets it names. Anything that routes to this playbook stops working on the next turn. There is no undo."
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { ToastHost } from "../Toast";
-import { SkillsPanel } from "./SkillsPanel";
+import { SkillPage, SkillsPanel } from "./SkillsPanel";
 
 const listSkills = vi.fn();
+const deleteSkill = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -15,6 +16,7 @@ vi.mock("../../lib/client", async () => {
     ...actual,
     agent: {
       listSkills: (...a: unknown[]) => listSkills(...a),
+      deleteSkill: (...a: unknown[]) => deleteSkill(...a),
     },
   };
 });
@@ -32,13 +34,17 @@ function skill(over: Record<string, unknown> = {}) {
   };
 }
 
-function mount() {
+function mount(path = "/agent/skills") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ToastHost>
-        <MemoryRouter>
-          <SkillsPanel />
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/agent/skills" element={<SkillsPanel />} />
+            <Route path="/agent/skills/new" element={<SkillPage />} />
+            <Route path="/agent/skills/:name" element={<SkillPage />} />
+          </Routes>
         </MemoryRouter>
       </ToastHost>
     </QueryClientProvider>,
@@ -48,6 +54,7 @@ function mount() {
 describe("SkillsPanel", () => {
   beforeEach(() => {
     listSkills.mockReset();
+    deleteSkill.mockReset();
     listSkills.mockResolvedValue({
       skills: [],
       skillsDir: "",
@@ -69,14 +76,14 @@ describe("SkillsPanel", () => {
   it("opens a markdown editor from New skill, not a zip picker", async () => {
     mount();
     await userEvent.click(await screen.findByTestId("skill-new"));
-    expect(screen.getByTestId("skill-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("skill-editor")).toBeInTheDocument();
     expect(screen.getByLabelText("SKILL.md")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose a file" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose a folder" })).toBeInTheDocument();
     expect(screen.queryByText(/zip/i)).toBeNull();
   });
 
-  it("lists a skill with its size, digest and the playbooks that name it", async () => {
+  it("lists a skill in a table with its size and the playbooks that name it", async () => {
     listSkills.mockResolvedValue({
       skills: [skill()],
       skillsDir: "/etc/podium/skills",
@@ -90,13 +97,68 @@ describe("SkillsPanel", () => {
     expect(within(row).getByText("Use when reviewing a diff.")).toBeInTheDocument();
     expect(within(row).getByText("2.0 KB")).toBeInTheDocument();
     expect(within(row).getByText("2 files")).toBeInTheDocument();
-    expect(within(row).getByText("a313660c2de7…")).toBeInTheDocument();
     expect(within(row).getByText("/coder")).toBeInTheDocument();
-    expect(within(row).getByText("host directory")).toBeInTheDocument();
-    expect(within(row).getByTestId("skill-delete")).toBeInTheDocument();
-    expect(within(row).getByRole("button", { name: "Edit pr-review" })).toBeInTheDocument();
-    expect(within(row).getByTestId("skill-open").className).toContain("hover:bg-raised");
+    expect(within(row).getByRole("link", { name: "Edit pr-review" })).toBeInTheDocument();
     expect(within(row).queryByLabelText("pr-review is enabled")).toBeNull();
+
+    await userEvent.click(row);
+    expect(await screen.findByTestId("skill-editor")).toBeInTheDocument();
+    // The page bar names the skill and carries its digest; the editor does not repeat either.
+    expect(screen.getByRole("heading", { name: "pr-review" })).toBeInTheDocument();
+    expect(screen.getByText("a313660c2de7…")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Skills/ })).toBeInTheDocument();
+  });
+
+  it("has a row menu: view details, copy name, then delete after confirm", async () => {
+    listSkills.mockResolvedValue({ skills: [skill()], skillsDir: "", maxBytes: 131072n, maxFiles: 64 });
+    deleteSkill.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByTestId("skill-actions"));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "View details",
+      "Copy name",
+      "Delete skill",
+    ]);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete skill" }));
+    expect(screen.getByText(/\/coder names it and will fail its next turn/)).toBeInTheDocument();
+    expect(deleteSkill).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("skill-row-delete-confirm"));
+    expect(deleteSkill).toHaveBeenCalledWith({ name: "pr-review" });
+    expect(screen.queryByTestId("skill-editor")).toBeNull();
+  });
+
+  it("asks before deleting from the skill's page", async () => {
+    listSkills.mockResolvedValue({
+      skills: [skill({ fileCount: 1, markdown: "---\nname: pr-review\n---\n" })],
+      skillsDir: "",
+      maxBytes: 131072n,
+      maxFiles: 64,
+    });
+    deleteSkill.mockResolvedValue({});
+    mount("/agent/skills/pr-review");
+    await userEvent.click(await screen.findByTestId("skill-delete"));
+    expect(deleteSkill).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("skill-delete-confirm"));
+    expect(deleteSkill).toHaveBeenCalledWith({ name: "pr-review" });
+  });
+
+  it("filters the table", async () => {
+    listSkills.mockResolvedValue({
+      skills: [skill(), skill({ name: "sql-tuning", description: "Make queries fast.", playbooks: [] })],
+      skillsDir: "",
+      maxBytes: 131072n,
+      maxFiles: 64,
+    });
+    mount();
+    expect(await screen.findAllByTestId("skill-row")).toHaveLength(2);
+    await userEvent.type(screen.getByLabelText("Filter skills"), "queries");
+    expect(screen.getAllByTestId("skill-row")).toHaveLength(1);
+    expect(screen.getByText("sql-tuning")).toBeInTheDocument();
+  });
+
+  it("says so when the skill in the address does not exist", async () => {
+    mount("/agent/skills/gone");
+    expect(await screen.findByText("No such skill")).toBeInTheDocument();
   });
 
   it("opens a one-file skill in the markdown editor", async () => {
@@ -107,8 +169,8 @@ describe("SkillsPanel", () => {
       maxFiles: 64,
     });
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit pr-review" }));
-    expect(screen.getByTestId("skill-editor")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("link", { name: "Edit pr-review" }));
+    expect(await screen.findByTestId("skill-editor")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "pr-review" })).toBeInTheDocument();
     expect(screen.getByLabelText("SKILL.md")).toHaveValue("---\nname: pr-review\n---\n\nReview it.\n");
     expect(screen.getByRole("button", { name: "Save skill" })).toBeInTheDocument();
@@ -135,8 +197,8 @@ describe("SkillsPanel", () => {
       maxFiles: 64,
     });
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit pr-review" }));
-    expect(screen.getByTestId("skill-folder-note")).toHaveTextContent("folder of 3 files");
+    await userEvent.click(await screen.findByRole("link", { name: "Edit pr-review" }));
+    expect(await screen.findByTestId("skill-folder-note")).toHaveTextContent("folder of 3 files");
     expect(screen.getByLabelText("SKILL.md")).toHaveValue("---\nname: pr-review\n---\n\nReview it.\n");
     expect(screen.getByRole("button", { name: "Open reference/checklist.md" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open scripts/run.sh" })).toBeInTheDocument();
