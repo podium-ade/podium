@@ -54,6 +54,13 @@ func (c *Conductor) ChatHostGateway() http.Handler {
 				key, whose = k, "personal"
 			}
 		}
+		if key == "" && provider == claudeAgentProvider {
+			// No sign-in of the person's own: the global Claude subscription, when an admin
+			// signed one in. Without it Claude Code spends the global API key, which it can.
+			if k, err := c.host.Credential(r.Context(), claudeAgentProvider); err == nil && k != "" {
+				key = k
+			}
+		}
 		if key == "" {
 			k, err := c.host.Credential(r.Context(), creds)
 			if err != nil || k == "" {

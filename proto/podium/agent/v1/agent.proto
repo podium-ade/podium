@@ -459,6 +459,12 @@ message GetSettingsResponse {
   // the caller asks for spends theirs when it is set and the global one when it is not.
   // Empty for a caller who is not a signed-in person, such as the dev token.
   repeated ProviderSettings personal = 3;
+  // claude_subscription is the global Claude Pro/Max sign-in an admin connected. It sits
+  // beside the global Anthropic API key rather than replacing it: the assistant's chats on
+  // the chat host spend it, through Claude Code, when their person has no Anthropic
+  // credential of their own, and every other turn spends the key. Unset when this control
+  // plane cannot run Claude Code.
+  ProviderSettings claude_subscription = 4;
 }
 
 message GetConnectionsRequest {}
@@ -684,15 +690,23 @@ message ClearProviderKeyRequest {
   // global removes the company credential, which only an admin or owner may. False
   // removes the caller's own.
   bool global = 2;
+  // claude_subscription, with global and provider "anthropic", signs out the global Claude
+  // subscription (GetSettingsResponse.claude_subscription) and leaves the global API key.
+  bool claude_subscription = 3;
 }
 
 message ClearProviderKeyResponse {}
 
 message StartProviderOAuthRequest {
   // provider is "xai", "openai" or "anthropic". Google takes an API key on this control plane and
-  // answers invalid_argument here. A sign-in is always the caller's own: a subscription is one
-  // person's, so there is no global one.
+  // answers invalid_argument here.
   string provider = 1;
+  // global signs in the company credential, which only an admin or owner may. False signs in
+  // the caller's own. For xAI and OpenAI a global sign-in is the global credential, replacing
+  // any global key. For Anthropic it is kept beside the global API key, in a slot of its own:
+  // a Claude subscription is spent only by the assistant's chats on the chat host, through
+  // Claude Code, and every other turn keeps spending the key.
+  bool global = 2;
 }
 
 // StartProviderOAuthResponse is a device-authorisation grant (RFC 8628) in flight. It
