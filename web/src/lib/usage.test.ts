@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { TaskCost, UsageBackend, UsageDay } from "../gen/podium/agent/v1/agent_pb";
 import {
@@ -7,6 +7,7 @@ import {
   byTask,
   customRange,
   dayKey,
+  lastDay,
   eachDay,
   isUnrecorded,
   previousRange,
@@ -307,5 +308,39 @@ describe("backendSummary", () => {
 
   it("is singular for one model on one provider", () => {
     expect(backendSummary([backend({ costUsd: 2 })])).toBe("1 model across 1 provider, $2.00 attributed.");
+  });
+});
+
+// A week across a clock change is 169 or 167 hours. Pinned to a zone that has one, so the
+// test means the same wherever it runs.
+describe("across a daylight saving change", () => {
+  let tz: string | undefined;
+  beforeAll(() => {
+    tz = process.env.TZ;
+    process.env.TZ = "America/Toronto";
+  });
+  afterAll(() => {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  });
+
+  it("starts the window before at midnight when the clocks went back in it", () => {
+    // 2026-11-01 is 25 hours long in Toronto.
+    const r = rangeFor("7d", new Date(2026, 10, 3, 9));
+    const p = previousRange(r);
+    expect(p.to).toEqual(r.from);
+    expect(p.from).toEqual(new Date(2026, 9, 21));
+    expect(p.from.getHours()).toBe(0);
+  });
+
+  it("starts the window before at midnight when the clocks went forward in it", () => {
+    // 2026-03-08 is 23 hours long in Toronto.
+    const r = rangeFor("7d", new Date(2026, 2, 10, 9));
+    expect(previousRange(r).from).toEqual(new Date(2026, 1, 25));
+  });
+
+  it("names the last day of a range that ends after a 23-hour day", () => {
+    // to is 2026-03-09 00:00; 24 hours before it is 2026-03-07 23:00, the wrong day.
+    expect(dayKey(lastDay({ to: new Date(2026, 2, 9) }))).toBe("2026-03-08");
   });
 });
