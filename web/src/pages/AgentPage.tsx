@@ -147,14 +147,14 @@ export function AgentPage() {
   );
 }
 
-/** An old /agent/profile bookmark lands on Podium, on the same section when it still exists. */
+/** An old /agent/profile bookmark lands on Podium's page, on the same section when it still exists. */
 function ProfileRedirect() {
   const rest = useParams()["*"] ?? "";
   const section = rest.split("/").filter(Boolean)[0] ?? "";
   if (isAssistantSection(section)) {
-    return <Navigate to={`/agent/assistants/podium/${section}`} replace />;
+    return <Navigate to={section === "identity" ? "/agent/assistants/podium" : `/agent/assistants/podium/${section}`} replace />;
   }
-  return <Navigate to="/agent/assistants" replace />;
+  return <Navigate to="/agent/assistants/podium" replace />;
 }
 
 /**

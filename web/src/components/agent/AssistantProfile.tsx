@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Cpu, MessageSquare, Plug, Timer, UserRound } from "lucide-react";
+import { Cpu, Lock, MessageSquare, MessageSquarePlus, Plug, Timer, UserRound } from "lucide-react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentBackend } from "../../gen/podium/agent/v1/agent_pb";
@@ -18,13 +18,27 @@ import {
   type AssistantDraft,
   type AssistantSection,
   type ProfileUpdate,
+  MAX_PROMPT_BYTES,
+  listSections,
 } from "../../lib/assistantProfile";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { cn } from "../../lib/utils";
 import { ConductorDown } from "./ConductorDown";
 import { AgentPicker } from "./AgentPicker";
-import { FormActions, SectionLead } from "./FormActions";
-import { SettingsSectionNav, type SettingsSection } from "./SettingsSections";
+import {
+  AssistantPanel,
+  Issue,
+  PanelBody,
+  Row,
+  SaveBar,
+  ScopeBar,
+  SectionTabs,
+  type AssistantTab,
+} from "./AssistantPanel";
+import { BackendMark } from "./BackendMark";
+import { Chip } from "../Badge";
 import { Empty } from "../Empty";
+import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -57,7 +71,7 @@ const SECTIONS: { id: AssistantSection; label: string; icon: LucideIcon; sentenc
     label: "Reach",
     icon: Plug,
     sentence:
-      "Skills and MCP servers the assistant may call without starting a task. Leave a list empty and it delegates. A web chat uses the signed-in person's server of that name. Slack uses the company server.",
+      "What Podium can use itself while it answers a chat, without starting a task. Anything not ticked here is only reachable by starting a playbook that names it.",
   },
   {
     id: "limits",
@@ -115,6 +129,7 @@ export function AssistantForm({
   const issues = new Set(draftIssues(draft));
   const ready = canSave(draft, saved);
   const sentence = SECTIONS.find((s) => s.id === section)?.sentence;
+  const dirty = dirtySections(draft, saved);
   const commit = () => {
     if (!ready || saving) return;
     onSave(updateFromDraft(draft));
@@ -130,196 +145,231 @@ export function AssistantForm({
         commit();
       }}
     >
-      <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
-      {sentence ? <SectionLead>{sentence}</SectionLead> : null}
+      {sentence ? (
+        <ScopeBar
+          aside={
+            readOnly ? (
+              <Chip>
+                <Lock aria-hidden className="size-3" />
+                Owners set this assistant.
+              </Chip>
+            ) : undefined
+          }
+        >
+          {sentence}
+        </ScopeBar>
+      ) : null}
 
-      <div hidden={section !== "identity"}>
-        <Row id="assistant-display-name" label="Display name" hint="What it calls itself in a chat header and in Slack.">
-          <Input
-            id="assistant-display-name"
-            value={draft.displayName}
-            onChange={(e) => onChange({ ...draft, displayName: e.target.value })}
-            className="h-8 max-w-sm"
-            autoComplete="off"
-            disabled={readOnly}
-          />
-          {issues.has("display-name") ? <Issue>The assistant needs a display name.</Issue> : null}
-        </Row>
-        <Row label="Git" hint="Both a name and an email, or neither. GitHub matches the email to an account.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="assistant-git-name">Name</Label>
-              <Input
-                id="assistant-git-name"
-                value={draft.gitName}
-                onChange={(e) => onChange({ ...draft, gitName: e.target.value })}
-                className="h-8"
-                autoComplete="off"
+      <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
+        <PanelBody hidden={section !== "identity"}>
+          <Row id="assistant-display-name" label="Display name" hint="What it calls itself in a chat header and in Slack.">
+            <Input
+              id="assistant-display-name"
+              value={draft.displayName}
+              onChange={(e) => onChange({ ...draft, displayName: e.target.value })}
+              className="max-w-md"
+              autoComplete="off"
+              disabled={readOnly}
+            />
+            {issues.has("display-name") ? <Issue>The assistant needs a display name.</Issue> : null}
+          </Row>
+          <Row label="Git author" hint="Both a name and an email, or neither. GitHub matches the email to an account.">
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="assistant-git-name" className="text-sm font-semibold text-soft">
+                  Name
+                </Label>
+                <Input
+                  id="assistant-git-name"
+                  value={draft.gitName}
+                  onChange={(e) => onChange({ ...draft, gitName: e.target.value })}
+                  autoComplete="off"
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="assistant-git-email" className="text-sm font-semibold text-soft">
+                  Email
+                </Label>
+                <Input
+                  id="assistant-git-email"
+                  value={draft.gitEmail}
+                  onChange={(e) => onChange({ ...draft, gitEmail: e.target.value })}
+                  autoComplete="off"
+                  inputMode="email"
+                  spellCheck={false}
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+            {issues.has("git") ? <Issue>{gitIssue(draft) ?? ""}</Issue> : null}
+          </Row>
+        </PanelBody>
+
+        <PanelBody hidden={section !== "instructions"}>
+          <Row
+            id="assistant-prompt"
+            label="System prompt"
+            hint={<PromptSize text={draft.systemPrompt} limit={MAX_PROMPT_BYTES} />}
+          >
+            <Textarea
+              id="assistant-prompt"
+              value={draft.systemPrompt}
+              onChange={(e) => onChange({ ...draft, systemPrompt: e.target.value })}
+              className="min-h-96 font-mono text-sm leading-relaxed"
+              spellCheck
+              disabled={readOnly}
+            />
+            {issues.has("prompt") ? <Issue>The assistant needs a prompt.</Issue> : null}
+            {issues.has("prompt-size") ? <Issue>The prompt is over 32 KiB. A turn could not carry it.</Issue> : null}
+          </Row>
+        </PanelBody>
+
+        <PanelBody hidden={section !== "model"}>
+          <Row label="Model" hint="Chat can still pick another for one conversation.">
+            <div className="max-w-md">
+              <AgentPicker
+                label="Assistant"
+                agents={agents}
+                value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
+                onChange={(next) => onChange({ ...draft, agent: next.agent, model: next.model, effort: next.effort })}
                 disabled={readOnly}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="assistant-git-email">Email</Label>
+            {issues.has("model") ? <Issue>Choose a model.</Issue> : null}
+          </Row>
+        </PanelBody>
+
+        <PanelBody hidden={section !== "reach"}>
+          <Checklist
+            idPrefix="skill"
+            label="Skills"
+            hint="Ticked skills load into every chat turn, so Podium can follow them in its own answer."
+            none="No skills load into a chat. Work that needs one goes to a playbook that names it."
+            some={(n, total) => `${n} of ${total} load into every chat turn.`}
+            items={skills}
+            selected={draft.skills}
+            note={skillsNote}
+            empty={
+              <>
+                No skills are installed. Add one on{" "}
+                <Link to="/agent/skills" className={textLink}>
+                  Skills
+                </Link>
+                , then name it here.
+              </>
+            }
+            onToggle={(item, on) => onChange({ ...draft, skills: toggleName(draft.skills, item, on) })}
+            disabled={readOnly}
+          />
+          <Checklist
+            idPrefix="mcp"
+            label="MCP servers"
+            hint="Ticked servers connect to every chat turn. A web chat uses the signed-in person's server of that name if they have one. Slack uses the company's."
+            none="No MCP servers connect to a chat. Work that needs one goes to a playbook that names it."
+            some={(n, total) => `${n} of ${total} connect to every chat turn.`}
+            items={servers}
+            selected={draft.mcpServers}
+            note={serversNote}
+            empty={
+              <>
+                No MCP servers are registered. Add one on{" "}
+                <Link to="/agent/mcp" className={textLink}>
+                  MCP
+                </Link>
+                , then name it here.
+              </>
+            }
+            onToggle={(item, on) => onChange({ ...draft, mcpServers: toggleName(draft.mcpServers, item, on) })}
+            disabled={readOnly}
+          />
+        </PanelBody>
+
+        <PanelBody hidden={section !== "limits"}>
+          <Row label="Step cap" hint="Off unless you set one.">
+            <div role="radiogroup" aria-label="Step cap" className="flex flex-wrap items-center gap-2.5">
+              <RadioCard
+                name="assistant-max-turns"
+                checked={draft.maxTurns === 0}
+                onChange={() => onChange({ ...draft, maxTurns: 0 })}
+              >
+                No cap
+              </RadioCard>
+              <RadioCard
+                name="assistant-max-turns"
+                checked={draft.maxTurns !== 0}
+                onChange={() => onChange({ ...draft, maxTurns: draft.maxTurns > 0 ? draft.maxTurns : 50 })}
+              >
+                Cap
+              </RadioCard>
+              {draft.maxTurns !== 0 ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    aria-label="Turn cap"
+                    className="w-24 tabular-nums"
+                    value={draft.maxTurns < 0 ? "" : draft.maxTurns}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      onChange({ ...draft, maxTurns: raw === "" ? -1 : Number(raw) });
+                    }}
+                  />
+                  <span className="text-sm text-muted">steps</span>
+                </div>
+              ) : null}
+            </div>
+            {issues.has("cap") ? <Issue>A cap is at least 1. Choose No cap to leave it off.</Issue> : null}
+          </Row>
+          <Row id="assistant-timeout" label="Timeout" hint="How long one turn may run. It cannot be turned off.">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Timeout presets">
+              {TIMEOUTS.map((t) => {
+                const on = durationsEqual(draft.timeout, t.id);
+                return (
+                  <Button
+                    key={t.id}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-pressed={on}
+                    disabled={readOnly}
+                    className={cn("tabular-nums", on && "border-accent bg-run-bg text-fg shadow-[inset_0_0_0_1px_var(--color-accent)] hover:bg-run-bg")}
+                    onClick={() => onChange({ ...draft, timeout: t.id })}
+                  >
+                    {t.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
               <Input
-                id="assistant-git-email"
-                value={draft.gitEmail}
-                onChange={(e) => onChange({ ...draft, gitEmail: e.target.value })}
-                className="h-8"
-                autoComplete="off"
-                inputMode="email"
+                id="assistant-timeout"
+                value={draft.timeout}
+                onChange={(e) => onChange({ ...draft, timeout: e.target.value })}
+                className="max-w-40 font-mono"
                 spellCheck={false}
                 disabled={readOnly}
               />
+              <span className="text-sm text-muted">or type your own, such as 45m or 1h30m</span>
             </div>
-          </div>
-          {issues.has("git") ? <Issue>{gitIssue(draft) ?? ""}</Issue> : null}
-        </Row>
-      </div>
-
-      <div hidden={section !== "instructions"}>
-        <Row id="assistant-prompt" label="System prompt">
-          <Textarea
-            id="assistant-prompt"
-            value={draft.systemPrompt}
-            onChange={(e) => onChange({ ...draft, systemPrompt: e.target.value })}
-            className="min-h-72"
-            spellCheck
-            disabled={readOnly}
-          />
-          {issues.has("prompt") ? <Issue>The assistant needs a prompt.</Issue> : null}
-          {issues.has("prompt-size") ? <Issue>The prompt is over 32 KiB. A turn could not carry it.</Issue> : null}
-        </Row>
-      </div>
-
-      <div hidden={section !== "model"}>
-        <Row label="Model">
-          <AgentPicker
-            label="Assistant"
-            agents={agents}
-            value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
-            onChange={(next) => onChange({ ...draft, agent: next.agent, model: next.model, effort: next.effort })}
-            disabled={readOnly}
-          />
-          {issues.has("model") ? <Issue>Choose a model.</Issue> : null}
-        </Row>
-      </div>
-
-      <div hidden={section !== "reach"} className="space-y-8">
-        <Checklist
-          idPrefix="skill"
-          label="Skills"
-          items={skills}
-          selected={draft.skills}
-          note={skillsNote}
-          empty={
-            <>
-              No skills are installed. Add one on{" "}
-              <Link to="/agent/skills" className={textLink}>
-                Skills
-              </Link>
-              , then name it here.
-            </>
-          }
-          onToggle={(item, on) => onChange({ ...draft, skills: toggleName(draft.skills, item, on) })}
-          disabled={readOnly}
-        />
-        <Checklist
-          idPrefix="mcp"
-          label="MCP servers"
-          items={servers}
-          selected={draft.mcpServers}
-          note={serversNote}
-          empty={
-            <>
-              No MCP servers are registered. Add one on{" "}
-              <Link to="/agent/mcp" className={textLink}>
-                MCP
-              </Link>
-              , then name it here.
-            </>
-          }
-          onToggle={(item, on) => onChange({ ...draft, mcpServers: toggleName(draft.mcpServers, item, on) })}
-          disabled={readOnly}
-        />
-      </div>
-
-      <div hidden={section !== "limits"}>
-        <Row label="Step cap" hint="Off unless you set one.">
-          <div role="radiogroup" aria-label="Step cap" className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <label className="flex items-center gap-2 text-sm text-fg">
-              <input
-                type="radio"
-                name="assistant-max-turns"
-                className="accent-accent"
-                checked={draft.maxTurns === 0}
-                onChange={() => onChange({ ...draft, maxTurns: 0 })}
-              />
-              No cap
-            </label>
-            <label className="flex items-center gap-2 text-sm text-fg">
-              <input
-                type="radio"
-                name="assistant-max-turns"
-                className="accent-accent"
-                checked={draft.maxTurns !== 0}
-                onChange={() => onChange({ ...draft, maxTurns: draft.maxTurns > 0 ? draft.maxTurns : 50 })}
-              />
-              Cap
-            </label>
-            {draft.maxTurns !== 0 ? (
-              <Input
-                type="number"
-                min={1}
-                aria-label="Turn cap"
-                className="h-8 w-24 tabular-nums"
-                value={draft.maxTurns < 0 ? "" : draft.maxTurns}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  onChange({ ...draft, maxTurns: raw === "" ? -1 : Number(raw) });
-                }}
-              />
-            ) : null}
-          </div>
-          {issues.has("cap") ? <Issue>A cap is at least 1. Choose No cap to leave it off.</Issue> : null}
-        </Row>
-        <Row id="assistant-timeout" label="Timeout" hint="How long one turn may run. It cannot be turned off.">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Timeout presets">
-            {TIMEOUTS.map((t) => {
-              const on = durationsEqual(draft.timeout, t.id);
-              return (
-                <Button
-                  key={t.id}
-                  type="button"
-                  size="sm"
-                  variant={on ? "subtle" : "outline"}
-                  aria-pressed={on}
-                  disabled={readOnly}
-                  onClick={() => onChange({ ...draft, timeout: t.id })}
-                >
-                  {t.label}
-                </Button>
-              );
-            })}
-          </div>
-          <Input
-            id="assistant-timeout"
-            value={draft.timeout}
-            onChange={(e) => onChange({ ...draft, timeout: e.target.value })}
-            className="h-8 max-w-xs font-mono"
-            spellCheck={false}
-            disabled={readOnly}
-          />
-          {issues.has("timeout") ? <Issue>Use a duration such as 15m. The clock stays on.</Issue> : null}
-        </Row>
-      </div>
+            {issues.has("timeout") ? <Issue>Use minutes or hours, such as 15m or 1h30m. The clock stays on.</Issue> : null}
+          </Row>
+        </PanelBody>
       </fieldset>
 
       {readOnly ? null : (
-        <FormActions>
-          <Button type="submit" size="sm" disabled={!ready || saving}>
+        <SaveBar
+          dirty={dirty.length > 0}
+          status={
+            dirty.length > 0
+              ? `Unsaved changes in ${listSections(dirty.map((id) => SECTIONS.find((s) => s.id === id)?.label ?? id))}`
+              : "Saved. Every section is in use on the next turn."
+          }
+        >
+          <Button type="submit" disabled={!ready || saving}>
             {saving ? "Saving…" : "Save"}
           </Button>
-        </FormActions>
+        </SaveBar>
       )}
     </form>
   );
@@ -366,36 +416,48 @@ export function PodiumEditor({ section, readOnly }: { section: AssistantSection;
   const initial = view ? draftFromProfile(view, defaultAgent) : null;
   const down = isAgentUnreachable(profile.error);
   const failed = profile.isError && !down;
-  const nav: SettingsSection[] = SECTIONS.map((s) => ({
+  const tabs: AssistantTab[] = SECTIONS.map((s) => ({
     id: s.id,
     label: s.label,
     icon: s.icon,
     unsaved: readOnly ? false : dirty.includes(s.id),
   }));
 
+  const frame = {
+    title: initial?.displayName || "Podium",
+    back: { to: "/agent/assistants", label: "Assistants" },
+    meta: <Chip>Built-in</Chip>,
+    actions: (
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/agent/chat" aria-label="Talk to it">
+          <MessageSquarePlus />
+          <span className="hidden sm:inline">Talk to it</span>
+        </Link>
+      </Button>
+    ),
+  };
+
   if (down) {
     return (
-      <ConductorDown
-        what="The assistant could not be read"
-        onRetry={() => void profile.refetch()}
-        retrying={profile.isFetching}
-      />
+      <PageFrame {...frame}>
+        <ConductorDown
+          what="The assistant could not be read"
+          onRetry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+        />
+      </PageFrame>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-      <SettingsSectionNav
-        label="Assistant"
-        sections={nav}
-        current={section}
-        href={(id) => assistantSectionHref(id as AssistantSection)}
-      />
-      <div className="min-w-0 max-w-3xl flex-1">
-        {readOnly ? (
-          <p className="mb-4 text-sm leading-relaxed text-muted">Owners set this assistant.</p>
+    <PageFrame {...frame}>
+      <AssistantPanel label={frame.title}>
+        <SectionTabs tabs={tabs} current={section} href={(id) => assistantSectionHref(id as AssistantSection)} />
+        {failed ? (
+          <div className="p-6">
+            <Empty title="Could not read the assistant" hint={errorMessage(profile.error)} />
+          </div>
         ) : null}
-        {failed ? <Empty title="Could not read the assistant" hint={errorMessage(profile.error)} /> : null}
         {!failed && !initial ? <ProfileSkeleton /> : null}
         {initial && view ? (
           <DraftEditor
@@ -413,8 +475,60 @@ export function PodiumEditor({ section, readOnly }: { section: AssistantSection;
             onDirty={onDirty}
           />
         ) : null}
-      </div>
-    </div>
+      </AssistantPanel>
+    </PageFrame>
+  );
+}
+
+/** ModelLine is what an assistant answers on: the backend's mark and the model, as data. */
+export function ModelLine({ agentId, model, fallback }: { agentId: string; model: string; fallback?: string }) {
+  if (!model && !agentId) {
+    return <span className="truncate">{fallback ?? "No model chosen"}</span>;
+  }
+  return (
+    <>
+      <BackendMark id={agentId || "claude"} className="size-3.5 text-soft" />
+      <span className="truncate font-mono text-[13px] text-soft">{model || agentId}</span>
+    </>
+  );
+}
+
+/** PromptSize is how much of the 32 KiB a turn can carry this prompt already uses. */
+function PromptSize({ text, limit }: { text: string; limit: number }) {
+  const bytes = new TextEncoder().encode(text.trim()).length;
+  const over = bytes > limit;
+  return (
+    <>
+      The text every conversation starts from.{" "}
+      <span className={cn("tabular-nums", over ? "font-semibold text-err" : undefined)}>
+        {(bytes / 1024).toFixed(1)} of {limit / 1024} KiB.
+      </span>
+    </>
+  );
+}
+
+function RadioCard({
+  name,
+  checked,
+  onChange,
+  children,
+}: {
+  name: string;
+  checked: boolean;
+  onChange: () => void;
+  children: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex min-h-9 cursor-pointer items-center gap-2.5 rounded-md border px-3.5 text-sm font-semibold transition-colors duration-150",
+        "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60",
+        checked ? "border-accent bg-run-bg text-fg shadow-[inset_0_0_0_1px_var(--color-accent)]" : "border-line-strong bg-panel text-soft hover:bg-raised",
+      )}
+    >
+      <input type="radio" name={name} className="size-4 accent-accent" checked={checked} onChange={onChange} />
+      {children}
+    </label>
   );
 }
 
@@ -450,37 +564,20 @@ function serverChoice(server: { name: string; enabled: boolean; owner: string })
 
 function ProfileSkeleton() {
   return (
-    <div aria-busy="true" className="space-y-4 pt-2">
-      <Skeleton className="h-4 w-72" />
-      <Skeleton className="h-9 w-full max-w-sm" />
-      <Skeleton className="h-9 w-full max-w-sm" />
+    <div aria-busy="true" className="space-y-4 p-6">
+      <Skeleton className="h-4 w-96 max-w-full" />
+      <Skeleton className="h-11 w-full max-w-md" />
+      <Skeleton className="h-11 w-full max-w-md" />
     </div>
   );
-}
-
-function Row({ id, label, hint, children }: { id?: string; label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-x-8 gap-y-2 border-t border-border py-5 sm:grid-cols-[12rem_minmax(0,1fr)]">
-      <div className="space-y-1">
-        {id ? (
-          <Label htmlFor={id}>{label}</Label>
-        ) : (
-          <p className="text-xs font-medium text-muted">{label}</p>
-        )}
-        {hint ? <p className="text-xs leading-relaxed text-muted">{hint}</p> : null}
-      </div>
-      <div className="min-w-0 space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function Issue({ children }: { children: string }) {
-  return <p className="text-xs text-err">{children}</p>;
 }
 
 function Checklist({
   idPrefix,
   label,
+  hint,
+  none,
+  some,
   items,
   selected,
   note,
@@ -490,6 +587,10 @@ function Checklist({
 }: {
   idPrefix: string;
   label: string;
+  hint: string;
+  /** What a turn does when nothing is ticked, said plainly. */
+  none: string;
+  some: (n: number, total: number) => string;
   items: ReachChoice[];
   selected: string[];
   note?: string;
@@ -499,13 +600,18 @@ function Checklist({
 }) {
   const known = new Set(items.map((item) => item.name));
   const unknown = selected.filter((name) => !known.has(name));
+  const total = items.length + unknown.length;
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium text-fg">{label}</h2>
-      {note ? <p className="text-xs text-err">{note}</p> : null}
-      {!note && items.length === 0 && unknown.length === 0 ? <p className="text-sm leading-relaxed text-muted">{empty}</p> : null}
-      {items.length > 0 || unknown.length > 0 ? (
-        <ul className="divide-y divide-border border-y border-border">
+    <Row
+      label={label}
+      hint={hint}
+    >
+      {note ? <Issue>{note}</Issue> : null}
+      {!note && total === 0 ? (
+        <p className="m-0 rounded-md border border-dashed border-line-strong px-4 py-5 text-sm leading-relaxed text-soft">{empty}</p>
+      ) : null}
+      {total > 0 ? (
+        <ul className="max-w-2xl divide-y divide-border overflow-hidden rounded-md border border-border">
           {items.map((item) => (
             <li key={item.name}>
               <CheckRow
@@ -525,6 +631,7 @@ function Checklist({
                 name={name}
                 checked
                 detail="Not installed. A turn that names it fails."
+                warn
                 onToggle={onToggle}
                 disabled={disabled}
               />
@@ -532,7 +639,18 @@ function Checklist({
           ))}
         </ul>
       ) : null}
-    </section>
+      {total > 0 ? (
+        <p
+          aria-live="polite"
+          className={cn(
+            "m-0 max-w-2xl text-sm tabular-nums",
+            selected.length === 0 ? "text-muted" : "font-semibold text-fg",
+          )}
+        >
+          {selected.length === 0 ? none : some(selected.length, total)}
+        </p>
+      ) : null}
+    </Row>
   );
 }
 
@@ -541,6 +659,7 @@ function CheckRow({
   name,
   checked,
   detail,
+  warn = false,
   onToggle,
   disabled = false,
 }: {
@@ -548,12 +667,20 @@ function CheckRow({
   name: string;
   checked: boolean;
   detail?: string;
+  warn?: boolean;
   onToggle: (name: string, on: boolean) => void;
   disabled?: boolean;
 }) {
   const id = `assistant-${idPrefix}-${name}`;
   return (
-    <label htmlFor={id} className="flex cursor-pointer items-start gap-3 py-2.5">
+    <label
+      htmlFor={id}
+      className={cn(
+        "flex items-start gap-3 px-4 py-3 transition-colors duration-150",
+        disabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-raised",
+        checked && "bg-run-bg/40",
+      )}
+    >
       <Checkbox
         id={id}
         checked={checked}
@@ -562,8 +689,10 @@ function CheckRow({
         className="mt-0.5"
       />
       <span className="min-w-0">
-        <span className="block font-mono text-sm text-fg">{name}</span>
-        {detail ? <span className="block text-xs leading-relaxed text-muted">{detail}</span> : null}
+        <span className="block font-mono text-sm font-semibold text-fg">{name}</span>
+        {detail ? (
+          <span className={cn("block text-sm leading-relaxed", warn ? "font-semibold text-warn" : "text-muted")}>{detail}</span>
+        ) : null}
       </span>
     </label>
   );
