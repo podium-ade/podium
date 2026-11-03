@@ -640,18 +640,28 @@ describe("ChatPanel", () => {
     unmount();
   });
 
-  it("renders an untrusted answer as text, never as markup", async () => {
+  it("renders an answer's HTML through the sanitizer only", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
 
     stream.push(
-      message(1, "assistant", "<img src=x onerror=alert(1)> and [x](javascript:alert(1))"),
+      message(
+        1,
+        "assistant",
+        "<img src=x onerror=alert(1)> <script>alert(1)</script> [x](javascript:alert(1)) " +
+          '<a href="javascript:alert(1)" onclick="alert(1)">y</a>\n\n' +
+          "<table><tr><td onmouseover=\"alert(1)\">cell</td></tr></table>",
+      ),
     );
     const bubble = await waitFor(() => screen.getByTestId("chat-message"));
-    // Raw HTML is never markup, and a script link is never a live link.
-    expect(bubble.querySelectorAll("img")).toHaveLength(0);
+    // Structural HTML renders; scripts, images, handlers and script links never do.
+    await waitFor(() => expect(bubble.querySelector("td")?.textContent).toBe("cell"));
+    expect(bubble.querySelectorAll("img, script")).toHaveLength(0);
+    for (const el of bubble.querySelectorAll("*")) {
+      for (const attr of el.getAttributeNames()) expect(attr).not.toMatch(/^on/i);
+    }
     for (const a of bubble.querySelectorAll("a")) {
       expect(a.getAttribute("href") ?? "").not.toMatch(/javascript:/i);
     }
