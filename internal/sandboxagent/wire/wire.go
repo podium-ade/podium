@@ -35,6 +35,14 @@ type RunRequest struct {
 	// workspace session, so the agent knows to offer them.
 	Artifacts bool `json:"artifacts,omitempty"`
 	Workspace bool `json:"workspace,omitempty"`
+	// The three below are set, in place of Workspace, when the node keeps the session's
+	// workspace as a provider image of /workspace. WorkspaceSnapshot: offer a
+	// workspace-snapshot transfer where a tar would be saved. WorkspaceRestore and
+	// WorkspaceSave: the tar halves still wanted — a session with no image yet, a
+	// repository base. When any is set, Workspace is not read.
+	WorkspaceSnapshot bool `json:"workspace_snapshot,omitempty"`
+	WorkspaceRestore  bool `json:"workspace_restore,omitempty"`
+	WorkspaceSave     bool `json:"workspace_save,omitempty"`
 }
 
 // Transfer kinds: bytes that have to cross between the agent and the node mid-run.
@@ -45,6 +53,9 @@ const (
 	TransferWorkspaceRestore = "workspace-restore"
 	// TransferWorkspaceSave: the node GETs the tar and saves it as the session snapshot.
 	TransferWorkspaceSave = "workspace-save"
+	// TransferWorkspaceSnapshot: no bytes. The task has exited; the node has the provider
+	// keep /workspace as an image, and records it as the session's.
+	TransferWorkspaceSnapshot = "workspace-snapshot"
 )
 
 // Transfer asks the node to move bytes. The run waits until the node posts a Result.

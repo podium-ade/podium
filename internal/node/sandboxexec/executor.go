@@ -283,6 +283,11 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 		}
 		run.Preview = p
 	}
+	if strategy == wire.StrategyProcess {
+		if req, err = e.workspaceImage(ctx, id, req, &run); err != nil {
+			return docker.Result{}, err
+		}
+	}
 	c := e.agentClient(t)
 	if err := c.waitHealthy(ctx); err != nil {
 		return docker.Result{}, err
@@ -303,6 +308,64 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 		}
 	}
 	return res, err
+}
+
+// workspaceDir is where a task run as a process keeps its workspace in the sandbox.
+const workspaceDir = "/workspace"
+
+// KeepsWorkspaceImages reports whether this executor keeps a session's workspace as an image
+// of its provider's own, and which provider that is.
+func (e *Executor) KeepsWorkspaceImages() (string, bool) {
+	_, ok := e.p.(sandbox.Snapshotter)
+	return e.p.Name(), ok && e.p.Capabilities().DirSnapshot
+}
+
+// workspaceImage readies a session whose workspace is a provider image: the image it last
+// kept is mounted at /workspace, and the agent is told to ask for a new one where it would
+// save a tar. A session with no image yet — or one the provider has since dropped — is
+// restored the old way, from a tar or the repository's base. The request returned is the
+// one the relay serves the run's transfers with.
+func (e *Executor) workspaceImage(ctx context.Context, id string, req docker.Request, run *wire.RunRequest) (docker.Request, error) {
+	if req.Workspace == nil || req.Workspace.Image == nil {
+		return req, nil
+	}
+	snap, ok := e.p.(sandbox.Snapshotter)
+	if !ok || !e.p.Capabilities().DirSnapshot {
+		return req, nil
+	}
+	img := req.Workspace.Image
+	image, _, found, err := img.Get(ctx)
+	if err != nil {
+		return req, fmt.Errorf("look up the workspace snapshot: %w", err)
+	}
+	ws := &docker.Workspace{Restore: req.Workspace.Restore, Save: img.Base, Image: img}
+	if found {
+		err := snap.MountSnapshot(ctx, id, workspaceDir, image)
+		var pe *sandbox.Error
+		switch {
+		case err == nil:
+			ws.Restore = nil
+			e.log.Info("workspace mounted from a provider snapshot", "task", req.TaskID, "image", image)
+		case errors.As(err, &pe) && pe.Code == "not_found":
+			// Expired or deleted at the provider: the session starts over, and stops
+			// pointing at an image nothing can mount.
+			e.log.Warn("the session's workspace snapshot is gone from the provider; starting without it",
+				"task", req.TaskID, "image", image)
+			if img.Put != nil {
+				if perr := img.Put(ctx, ""); perr != nil {
+					e.log.Warn("forgetting a gone workspace snapshot failed", "task", req.TaskID, "error", perr)
+				}
+			}
+		default:
+			return req, fmt.Errorf("mount the workspace snapshot %s: %w", image, err)
+		}
+	}
+	req.Workspace = ws
+	run.Workspace = false
+	run.WorkspaceSnapshot = img.Put != nil
+	run.WorkspaceRestore = ws.Restore != nil
+	run.WorkspaceSave = ws.Save != nil
+	return req, nil
 }
 
 // sandboxFor is the task's sandbox with its agent running and reachable: one from the pool

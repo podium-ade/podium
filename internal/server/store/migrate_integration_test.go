@@ -53,6 +53,7 @@ var migrationFiles = []string{
 	"0017_log_index.sql",
 	"0018_node_sessions.sql",
 	"0019_snapshot_deltas.sql",
+	"0020_sandbox_snapshots.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

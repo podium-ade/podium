@@ -135,8 +135,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if req.Artifacts {
 		dreq.Artifacts = s.transfers
 	}
-	if req.Workspace {
-		dreq.Workspace = s.transfers.workspace()
+	switch {
+	case req.WorkspaceSnapshot || req.WorkspaceRestore || req.WorkspaceSave:
+		dreq.Workspace = s.transfers.workspace(req.WorkspaceRestore, req.WorkspaceSave, req.WorkspaceSnapshot)
+	case req.Workspace:
+		dreq.Workspace = s.transfers.workspace(true, true, false)
 	}
 	go s.run(st, dreq)
 	w.WriteHeader(http.StatusAccepted)
