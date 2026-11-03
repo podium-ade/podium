@@ -46,6 +46,12 @@ const (
 	// NodeServiceDownloadWorkspaceSnapshotProcedure is the fully-qualified name of the NodeService's
 	// DownloadWorkspaceSnapshot RPC.
 	NodeServiceDownloadWorkspaceSnapshotProcedure = "/podium.v1.NodeService/DownloadWorkspaceSnapshot"
+	// NodeServiceGetSandboxSnapshotProcedure is the fully-qualified name of the NodeService's
+	// GetSandboxSnapshot RPC.
+	NodeServiceGetSandboxSnapshotProcedure = "/podium.v1.NodeService/GetSandboxSnapshot"
+	// NodeServicePutSandboxSnapshotProcedure is the fully-qualified name of the NodeService's
+	// PutSandboxSnapshot RPC.
+	NodeServicePutSandboxSnapshotProcedure = "/podium.v1.NodeService/PutSandboxSnapshot"
 )
 
 // NodeServiceClient is a client for the podium.v1.NodeService service.
@@ -69,6 +75,14 @@ type NodeServiceClient interface {
 	// session has never been snapshotted, the repository's base snapshot is sent instead.
 	// found is false when neither exists; that is not an error.
 	DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest]) (*connect.ServerStreamForClient[v1.DownloadWorkspaceSnapshotResponse], error)
+	// GetSandboxSnapshot is the provider image a session's workspace was last kept as, on a
+	// sandbox provider that snapshots a directory itself (Modal), and how long a new one
+	// should live. found is false when the session has none; that is not an error.
+	GetSandboxSnapshot(context.Context, *connect.Request[v1.GetSandboxSnapshotRequest]) (*connect.Response[v1.GetSandboxSnapshotResponse], error)
+	// PutSandboxSnapshot records the image a session's workspace is now kept as. The server
+	// deletes the image it replaces, and the session's tar, if it had one. An empty image_id
+	// forgets the session's image: the provider no longer has it.
+	PutSandboxSnapshot(context.Context, *connect.Request[v1.PutSandboxSnapshotRequest]) (*connect.Response[v1.PutSandboxSnapshotResponse], error)
 }
 
 // NewNodeServiceClient constructs a client for the podium.v1.NodeService service. By default, it
@@ -112,6 +126,18 @@ func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nodeServiceMethods.ByName("DownloadWorkspaceSnapshot")),
 			connect.WithClientOptions(opts...),
 		),
+		getSandboxSnapshot: connect.NewClient[v1.GetSandboxSnapshotRequest, v1.GetSandboxSnapshotResponse](
+			httpClient,
+			baseURL+NodeServiceGetSandboxSnapshotProcedure,
+			connect.WithSchema(nodeServiceMethods.ByName("GetSandboxSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
+		putSandboxSnapshot: connect.NewClient[v1.PutSandboxSnapshotRequest, v1.PutSandboxSnapshotResponse](
+			httpClient,
+			baseURL+NodeServicePutSandboxSnapshotProcedure,
+			connect.WithSchema(nodeServiceMethods.ByName("PutSandboxSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -122,6 +148,8 @@ type nodeServiceClient struct {
 	uploadArtifact            *connect.Client[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
 	uploadWorkspaceSnapshot   *connect.Client[v1.UploadWorkspaceSnapshotRequest, v1.UploadWorkspaceSnapshotResponse]
 	downloadWorkspaceSnapshot *connect.Client[v1.DownloadWorkspaceSnapshotRequest, v1.DownloadWorkspaceSnapshotResponse]
+	getSandboxSnapshot        *connect.Client[v1.GetSandboxSnapshotRequest, v1.GetSandboxSnapshotResponse]
+	putSandboxSnapshot        *connect.Client[v1.PutSandboxSnapshotRequest, v1.PutSandboxSnapshotResponse]
 }
 
 // Enroll calls podium.v1.NodeService.Enroll.
@@ -149,6 +177,16 @@ func (c *nodeServiceClient) DownloadWorkspaceSnapshot(ctx context.Context, req *
 	return c.downloadWorkspaceSnapshot.CallServerStream(ctx, req)
 }
 
+// GetSandboxSnapshot calls podium.v1.NodeService.GetSandboxSnapshot.
+func (c *nodeServiceClient) GetSandboxSnapshot(ctx context.Context, req *connect.Request[v1.GetSandboxSnapshotRequest]) (*connect.Response[v1.GetSandboxSnapshotResponse], error) {
+	return c.getSandboxSnapshot.CallUnary(ctx, req)
+}
+
+// PutSandboxSnapshot calls podium.v1.NodeService.PutSandboxSnapshot.
+func (c *nodeServiceClient) PutSandboxSnapshot(ctx context.Context, req *connect.Request[v1.PutSandboxSnapshotRequest]) (*connect.Response[v1.PutSandboxSnapshotResponse], error) {
+	return c.putSandboxSnapshot.CallUnary(ctx, req)
+}
+
 // NodeServiceHandler is an implementation of the podium.v1.NodeService service.
 type NodeServiceHandler interface {
 	// Enroll exchanges a single-use enrollment token for a durable node identity. Called once.
@@ -170,6 +208,14 @@ type NodeServiceHandler interface {
 	// session has never been snapshotted, the repository's base snapshot is sent instead.
 	// found is false when neither exists; that is not an error.
 	DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest], *connect.ServerStream[v1.DownloadWorkspaceSnapshotResponse]) error
+	// GetSandboxSnapshot is the provider image a session's workspace was last kept as, on a
+	// sandbox provider that snapshots a directory itself (Modal), and how long a new one
+	// should live. found is false when the session has none; that is not an error.
+	GetSandboxSnapshot(context.Context, *connect.Request[v1.GetSandboxSnapshotRequest]) (*connect.Response[v1.GetSandboxSnapshotResponse], error)
+	// PutSandboxSnapshot records the image a session's workspace is now kept as. The server
+	// deletes the image it replaces, and the session's tar, if it had one. An empty image_id
+	// forgets the session's image: the provider no longer has it.
+	PutSandboxSnapshot(context.Context, *connect.Request[v1.PutSandboxSnapshotRequest]) (*connect.Response[v1.PutSandboxSnapshotResponse], error)
 }
 
 // NewNodeServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -209,6 +255,18 @@ func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nodeServiceMethods.ByName("DownloadWorkspaceSnapshot")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeServiceGetSandboxSnapshotHandler := connect.NewUnaryHandler(
+		NodeServiceGetSandboxSnapshotProcedure,
+		svc.GetSandboxSnapshot,
+		connect.WithSchema(nodeServiceMethods.ByName("GetSandboxSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nodeServicePutSandboxSnapshotHandler := connect.NewUnaryHandler(
+		NodeServicePutSandboxSnapshotProcedure,
+		svc.PutSandboxSnapshot,
+		connect.WithSchema(nodeServiceMethods.ByName("PutSandboxSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.NodeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NodeServiceEnrollProcedure:
@@ -221,6 +279,10 @@ func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption
 			nodeServiceUploadWorkspaceSnapshotHandler.ServeHTTP(w, r)
 		case NodeServiceDownloadWorkspaceSnapshotProcedure:
 			nodeServiceDownloadWorkspaceSnapshotHandler.ServeHTTP(w, r)
+		case NodeServiceGetSandboxSnapshotProcedure:
+			nodeServiceGetSandboxSnapshotHandler.ServeHTTP(w, r)
+		case NodeServicePutSandboxSnapshotProcedure:
+			nodeServicePutSandboxSnapshotHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -248,4 +310,12 @@ func (UnimplementedNodeServiceHandler) UploadWorkspaceSnapshot(context.Context, 
 
 func (UnimplementedNodeServiceHandler) DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest], *connect.ServerStream[v1.DownloadWorkspaceSnapshotResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.DownloadWorkspaceSnapshot is not implemented"))
+}
+
+func (UnimplementedNodeServiceHandler) GetSandboxSnapshot(context.Context, *connect.Request[v1.GetSandboxSnapshotRequest]) (*connect.Response[v1.GetSandboxSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.GetSandboxSnapshot is not implemented"))
+}
+
+func (UnimplementedNodeServiceHandler) PutSandboxSnapshot(context.Context, *connect.Request[v1.PutSandboxSnapshotRequest]) (*connect.Response[v1.PutSandboxSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.PutSandboxSnapshot is not implemented"))
 }

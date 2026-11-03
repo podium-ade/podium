@@ -40,3 +40,35 @@ function updatedMs(s: Snapshot): number {
 export function totalBytes(rows: Snapshot[]): number {
   return rows.reduce((sum, r) => sum + Number(r.sizeBytes), 0);
 }
+
+/** A sandbox snapshot policy as the form edits it. Zero turns a rule off. */
+export type SandboxPolicy = { maxAgeSeconds: number; maxCount: number };
+
+/** What sandboxSweepPlan needs of a row: the generated SandboxSnapshot has these. */
+type SandboxRow = Pick<Snapshot, "sessionId" | "updatedAt" | "inUse">;
+
+/**
+ * sandboxSweepPlan is sandboxsnaps.Doomed, run in the browser: newest first, an image older
+ * than the age goes, and so does every one past the count. One in use is kept and counted.
+ */
+export function sandboxSweepPlan(rows: SandboxRow[], policy: SandboxPolicy, now = Date.now()): Set<string> {
+  const out = new Set<string>();
+  if (policy.maxAgeSeconds <= 0 && policy.maxCount <= 0) return out;
+  const sorted = [...rows].sort((a, b) => toMs(b) - toMs(a));
+  const cutoff = now - policy.maxAgeSeconds * 1000;
+  let kept = 0;
+  for (const row of sorted) {
+    const expired = policy.maxAgeSeconds > 0 && toMs(row) < cutoff;
+    const over = policy.maxCount > 0 && kept >= policy.maxCount;
+    if (row.inUse || (!expired && !over)) {
+      kept++;
+      continue;
+    }
+    out.add(row.sessionId);
+  }
+  return out;
+}
+
+function toMs(s: SandboxRow): number {
+  return toDate(s.updatedAt)?.getTime() ?? 0;
+}

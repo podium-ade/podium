@@ -68,6 +68,28 @@ func (s *Service) Delete(ctx context.Context, actor, sessionID string) error {
 	return nil
 }
 
+// Discard removes a session's tar, if it has one, because its workspace is now kept some
+// other way (a sandbox provider's image). A session with none is not an error.
+func (s *Service) Discard(ctx context.Context, sessionID string) error {
+	if !s.Enabled() {
+		return nil
+	}
+	row, err := s.store.GetWorkspaceSnapshot(ctx, sessionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := s.drop(ctx, row); err != nil {
+		return err
+	}
+	s.audit(ctx, "system", "snapshot.delete", sessionID, map[string]any{
+		"size_bytes": row.SizeBytes, "reason": "kept as a sandbox provider snapshot",
+	})
+	return nil
+}
+
 // Sweep deletes the snapshots the policy no longer keeps: older than MaxAge, and, walking
 // newest first, every one past the point where the running total exceeds MaxTotalBytes. A
 // snapshot whose session has an unfinished task is never deleted, but it still counts

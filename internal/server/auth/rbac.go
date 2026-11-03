@@ -55,6 +55,8 @@ var catalog = map[string]string{
 	podiumv1connect.NodeServiceUploadArtifactProcedure:            store.RoleAdmin,
 	podiumv1connect.NodeServiceUploadWorkspaceSnapshotProcedure:   store.RoleAdmin,
 	podiumv1connect.NodeServiceDownloadWorkspaceSnapshotProcedure: store.RoleAdmin,
+	podiumv1connect.NodeServiceGetSandboxSnapshotProcedure:        store.RoleAdmin,
+	podiumv1connect.NodeServicePutSandboxSnapshotProcedure:        store.RoleAdmin,
 
 	// Set and Delete are member so a person can write their own secret. The handler
 	// refuses a global write from anyone who is not an admin. KindAgent and the dev
@@ -69,9 +71,12 @@ var catalog = map[string]string{
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
 	podiumv1connect.RegistryServiceDeleteRegistryProcedure: store.RoleAdmin,
 
-	podiumv1connect.SnapshotServiceListSnapshotsProcedure:        store.RoleMember,
-	podiumv1connect.SnapshotServiceDeleteSnapshotProcedure:       store.RoleAdmin,
-	podiumv1connect.SnapshotServiceSetSnapshotRetentionProcedure: store.RoleAdmin,
+	podiumv1connect.SnapshotServiceListSnapshotsProcedure:               store.RoleMember,
+	podiumv1connect.SnapshotServiceDeleteSnapshotProcedure:              store.RoleAdmin,
+	podiumv1connect.SnapshotServiceSetSnapshotRetentionProcedure:        store.RoleAdmin,
+	podiumv1connect.SnapshotServiceListSandboxSnapshotsProcedure:        store.RoleMember,
+	podiumv1connect.SnapshotServiceDeleteSandboxSnapshotsProcedure:      store.RoleAdmin,
+	podiumv1connect.SnapshotServiceSetSandboxSnapshotRetentionProcedure: store.RoleAdmin,
 
 	podiumv1connect.SandboxProviderServiceListSandboxProvidersProcedure:  store.RoleMember,
 	podiumv1connect.SandboxProviderServiceSetSandboxProviderProcedure:    store.RoleAdmin,

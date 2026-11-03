@@ -24,6 +24,7 @@ Supported providers:
 | Secret files on tmpfs | yes | only with `runtime: vm`; otherwise a 0700 directory removed at the end |
 | Resource limits | `resources` picks the machine size; limits apply with systemd | `resources` is the sandbox's CPU and memory |
 | Longest task | no limit | 24 h |
+| A conversation's workspace | a tar in the object store, like a node's | a Modal directory snapshot of `/workspace`; see below |
 
 ## How a task runs
 
@@ -133,6 +134,36 @@ SDK, publish it by name, and name it `modal:<name>` (or `modal:im-…` by ID) as
 `image`. Nothing is pulled from a registry when the sandbox starts, which is also how a task uses
 an image from a registry Modal cannot reach, such as one on your own network. A task with a
 `modal:` image runs only on Modal. See [agent.md](agent.md#on-modal-an-image-modal-holds).
+
+### Conversation workspaces on Modal
+
+A conversation whose tasks run on Modal keeps its workspace on Modal, never in the object store.
+When a task exits, the server has Modal snapshot `/workspace` (`SnapshotDirectory`) and records
+the image ID. The next task of the conversation mounts that image at `/workspace` before it
+starts. Nothing passes through podium-server, so a large workspace costs no transfer, and the
+snapshot holds only `/workspace`: the agent's token and the task's secrets live elsewhere and are
+never in it. `PODIUM_WORKSPACE_EXCLUDE` does not apply. Dependency trees come back with the rest,
+which is the point.
+
+- A conversation with no image yet — its first task, or one that ran somewhere with a tar before
+  — restores the tar way, from its own tar or the repository's base. Once it has an image, its
+  tar is deleted.
+- A task that publishes a repository base still stores the base as a tar, since any node restores
+  it.
+- The task's account may have another uid in a new image. The agent gives it whatever in the
+  mounted workspace it does not own, before the task starts.
+- An image Modal no longer has makes the conversation start over: the task logs it, and the
+  conversation stops pointing at it.
+
+The **Modal** tab on the **Snapshots** page lists these images, deletes one or a selection, and
+holds their retention policy: delete images not replaced for N days, and keep at most N. Both are
+off until set. They are applied every 10 minutes and when saved, never to a conversation with a
+task still running. Modal is also told to drop each image a day after the age limit on its own,
+in case podium-server is down when it is due. With no age limit, an image never expires on
+Modal. A replaced or deleted image waits in `sandbox_snapshots_retired` until Modal confirms the
+delete, so one that fails is tried again on the next sweep. The server deletes them with the
+Modal credentials saved on the Sandboxes screen. A node configured with credentials only in its
+own file leaves them to Modal's expiry.
 
 ### Sidecars on Modal
 
