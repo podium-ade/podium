@@ -368,7 +368,19 @@ every one finishing within 4.7 s.
   as `ANTHROPIC_BASE_URL` and a placeholder bearer, and the gateway replaces that with the
   sign-in and adds the OAuth beta. A Claude sign-in is spent nowhere else: delegated tasks, host
   turns without a chat host, and opencode's own `anthropic` provider all spend the global key
-  instead. It is never the global credential either, since it belongs to one person.
+  instead.
+
+  An admin or owner can also sign one in **for everyone**, under Settings → Models (Global). It
+  does not replace the global API key: it is kept beside it, as
+  `podium.agent.oauth.anthropic.access_token`, because every turn but the assistant's chats still
+  needs a key. A conversation whose person has no Anthropic credential of their own then runs on
+  it through `claude-agent`; a person's own key or sign-in still comes first. Signing it out sends
+  those chats back to the global key.
+
+- **Global subscriptions for Grok and GPT.** An admin or owner can sign in an xAI or ChatGPT
+  subscription under Settings → Models (Global) as well as paste a key. Unlike Claude's, that
+  sign-in *is* the global credential: it replaces the global key, and every turn without a
+  credential of its own spends it, tasks included.
 
 opencode 2's API is young and moves between releases: the chat host is tested against 2.2.5.
 Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.

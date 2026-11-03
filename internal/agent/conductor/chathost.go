@@ -472,10 +472,18 @@ func (c *Conductor) chatClosing(turn *chatTurn) bool {
 // claudeAgentProvider is opencode 2's provider that runs Claude Code with a Claude login.
 const claudeAgentProvider = "claude-agent"
 
-// claudeAgentTurn is whether h spends a Claude subscription sign-in: an Anthropic turn whose
-// person signed in with Claude, on a chat host that can run Claude Code.
+// claudeAgentTurn is whether h spends a Claude subscription sign-in: an Anthropic turn on a
+// chat host that can run Claude Code, whose person signed in with Claude — or who has no
+// Anthropic credential of their own, when an admin signed one in for everyone. A person's
+// own API key still beats the global subscription.
 func (c *Conductor) claudeAgentTurn(h *hostRun) bool {
-	return c.chatHostClaude && h.provider != nil && h.provider.ID == "anthropic" && c.claudeSignIn(h.credOwner)
+	if !c.chatHostClaude || h.provider == nil || h.provider.ID != "anthropic" {
+		return false
+	}
+	if h.credOwner != "" {
+		return c.claudeSignIn(h.credOwner)
+	}
+	return c.globalClaudeSignIn()
 }
 
 // credentialProvider is whose credentials a gateway provider spends: claude-agent is

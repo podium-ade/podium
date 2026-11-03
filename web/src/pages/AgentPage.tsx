@@ -32,7 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import type { ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
-import { PROVIDERS } from "../lib/agents";
+import { CLAUDE_SUBSCRIPTION, PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer, type Viewer } from "../lib/identity";
 import { cn } from "../lib/utils";
@@ -287,7 +287,8 @@ function ModelsPanel() {
     onSuccess: reload,
   });
   const clear = useMutation({
-    mutationFn: (v: { provider: string; global: boolean }) => agent.clearProviderKey(v),
+    mutationFn: (v: { provider: string; global: boolean; claudeSubscription?: boolean }) =>
+      agent.clearProviderKey(v),
     onSuccess: reload,
   });
 
@@ -295,16 +296,20 @@ function ModelsPanel() {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
+  const claudeSub = settings.data?.claudeSubscription;
   const globalRows = settings.data?.providers ?? [];
   const yourRows = settings.data?.personal ?? [];
   const connected = (rows: ProviderSettings[]) => rows.filter((r) => r.keySet).length;
+  const globalConnected = connected(globalRows) + (claudeSub?.keySet ? 1 : 0);
 
   const renderTable = (scope: "yours" | "global") => {
     const mine = scope === "yours";
     const readOnly = mine ? !personal : !manage;
     return (
       <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
-        <caption className="sr-only">{mine ? "Your model credentials" : "Global model keys"}</caption>
+        <caption className="sr-only">
+          {mine ? "Your model credentials" : "Global model credentials"}
+        </caption>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className={cn(settingsHead, "w-[40%]")}>Model</TableHead>
@@ -318,20 +323,22 @@ function ModelsPanel() {
         <TableBody>
           {PROVIDERS.map((p) => {
             const globalRow = globalRows.find((s) => s.provider === p.id);
-            // A subscription belongs to the person who signed in, so it is offered on Yours.
-            // Global takes an API key — except for a caller with no list of its own, which
-            // keeps the sign-in it always had.
+            // Anyone may sign in their own subscription; an admin may sign one in for everyone.
+            // A global Claude sign-in is not the Anthropic row's: it has a row of its own below,
+            // beside the global key.
             const subscription =
-              p.subscription !== undefined &&
-              !readOnly &&
-              (mine || (!personal && !p.subscription.personalOnly));
-            return (
+              p.subscription !== undefined && !readOnly && (mine || !p.subscription.personalOnly);
+            // With no Anthropic credential of their own, a person's chats run on the global
+            // Claude subscription when there is one, and on the global key otherwise.
+            const onClaudeSub = mine && p.id === "anthropic" && Boolean(claudeSub?.keySet);
+            const row = (
               <ProviderCard
                 key={`${scope}-${p.id}`}
                 provider={p}
                 scope={mine ? "personal" : "global"}
                 settings={(mine ? yourRows : globalRows).find((s) => s.provider === p.id)}
-                fallbackSet={mine && Boolean(globalRow?.keySet)}
+                fallbackSet={mine && (Boolean(globalRow?.keySet) || onClaudeSub)}
+                fallbackLabel={onClaudeSub ? "Using the global subscription" : undefined}
                 loading={settings.isPending}
                 readOnly={readOnly}
                 onSave={(key) => save.mutateAsync({ provider: p.id, key, global: !mine })}
@@ -339,7 +346,9 @@ function ModelsPanel() {
                   await clear.mutateAsync({ provider: p.id, global: !mine });
                 }}
                 onStartOAuth={
-                  subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+                  subscription
+                    ? () => agent.startProviderOAuth({ provider: p.id, global: !mine })
+                    : undefined
                 }
                 onPollOAuth={
                   subscription
@@ -349,6 +358,42 @@ function ModelsPanel() {
                 onSignedIn={reload}
               />
             );
+            if (mine || p.id !== "anthropic" || !claudeSub) return row;
+            return [
+              row,
+              <ProviderCard
+                key={`${scope}-${CLAUDE_SUBSCRIPTION.id}`}
+                provider={CLAUDE_SUBSCRIPTION}
+                scope="global"
+                subscriptionOnly
+                settings={claudeSub}
+                loading={settings.isPending}
+                readOnly={readOnly}
+                clearNote="Chats with the assistant go back to the global API key. People who signed in their own keep using it."
+                onSave={() =>
+                  Promise.reject(new Error("a Claude subscription is signed in to, not keyed"))
+                }
+                onClear={async () => {
+                  await clear.mutateAsync({
+                    provider: "anthropic",
+                    global: true,
+                    claudeSubscription: true,
+                  });
+                }}
+                onStartOAuth={
+                  readOnly
+                    ? undefined
+                    : () => agent.startProviderOAuth({ provider: "anthropic", global: true })
+                }
+                onPollOAuth={
+                  readOnly
+                    ? undefined
+                    : (flowId, code) =>
+                        agent.pollProviderOAuth({ provider: "anthropic", flowId, code })
+                }
+                onSignedIn={reload}
+              />,
+            ];
           })}
         </TableBody>
       </Table>
@@ -381,10 +426,10 @@ function ModelsPanel() {
             <TabsTrigger
               value="global"
               className="gap-2 py-2.5 text-base leading-[1.55]"
-              aria-label={`Global, ${connected(globalRows)} connected`}
+              aria-label={`Global, ${globalConnected} connected`}
             >
               Global
-              <TabCount count={connected(globalRows)} />
+              <TabCount count={globalConnected} />
             </TabsTrigger>
           </TabsList>
           <ModelsScopeBar personal={tab === "yours"} manage={manage} />
@@ -412,8 +457,8 @@ function ModelsScopeBar({ personal, manage }: { personal: boolean; manage: boole
         {personal
           ? "Your own keys and subscriptions. Chats you start use them before the global key."
           : manage
-            ? "API keys for the workspace. Any chat without a credential of its own uses these."
-            : "API keys for the workspace, used by any chat without a credential of its own. Only an admin or owner can change them."}
+            ? "Keys and subscriptions for the workspace. Any chat without a credential of its own uses these."
+            : "Keys and subscriptions for the workspace, used by any chat without a credential of its own. Only an admin or owner can change them."}
       </p>
     </div>
   );
