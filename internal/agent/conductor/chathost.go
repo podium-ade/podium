@@ -213,10 +213,9 @@ func (cr chatRun) run(ctx context.Context) {
 	c.registerHost(r.ref, cancel)
 	defer c.unregisterHost(r.ref)
 
-	// A person spending their own credential needs no global one.
-	if _, err := c.host.Credential(runCtx, h.provider.ID); err != nil && h.credOwner == "" {
-		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
-			"turn_id", r.turn.ID, "provider", h.provider.ID, "error", err)
+	// A person spending their own credential needs no global one. A turn Claude Code answers
+	// on the global Claude subscription needs that, and not the global key.
+	if h.credOwner == "" && !c.hasGlobalCredential(runCtx, h) {
 		h.giveUp(ctx, hostNoCredential)
 		return
 	}
@@ -484,6 +483,23 @@ func (c *Conductor) claudeAgentTurn(h *hostRun) bool {
 		return c.claudeSignIn(h.credOwner)
 	}
 	return c.globalClaudeSignIn()
+}
+
+// hasGlobalCredential is whether a turn with no credential of its person's own has a global
+// one to spend: the global Claude subscription, for a claude-agent turn that has one, or the
+// provider's global key.
+func (c *Conductor) hasGlobalCredential(ctx context.Context, h *hostRun) bool {
+	if c.claudeAgentTurn(h) {
+		if k, err := c.host.Credential(ctx, claudeAgentProvider); err == nil && k != "" {
+			return true
+		}
+	}
+	if _, err := c.host.Credential(ctx, h.provider.ID); err != nil {
+		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
+			"provider", h.provider.ID, "error", err)
+		return false
+	}
+	return true
 }
 
 // credentialProvider is whose credentials a gateway provider spends: claude-agent is
