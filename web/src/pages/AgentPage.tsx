@@ -17,7 +17,7 @@ import { ProviderCard } from "../components/agent/ProviderCard";
 import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybookPage, PlaybooksPanel } from "../components/agent/PlaybooksPanel";
-import { SkillsPanel } from "../components/agent/SkillsPanel";
+import { SkillPage, SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
 import { PageFrame } from "../components/PageHeader";
@@ -77,6 +77,8 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "playbooks/new", element: <PlaybookPage /> },
   { path: "playbooks/:name", element: <PlaybookPage /> },
   { path: "skills", element: <SkillsPanel /> },
+  { path: "skills/new", element: <SkillPage /> },
+  { path: "skills/:name", element: <SkillPage /> },
   { path: "mcp", element: <McpPanel /> },
   { path: "channels", element: <ChannelsPanel /> },
   // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
