@@ -302,7 +302,7 @@ describe("AgentPage", () => {
         systemPrompt: "you are Podium",
         agent: "claude",
         model: "claude-opus-5",
-        timeout: "15m0s",
+        timeout: "15m",
         skills: [],
         mcpServers: [],
         maxTurns: 0,

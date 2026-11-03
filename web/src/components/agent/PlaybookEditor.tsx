@@ -496,7 +496,7 @@ export function PlaybookEditor({
                     className="tabular"
                   />
                 </Field>
-                <Field id={`${uid}-timeout`} label="Timeout" hint="A Go duration: 30m, 900s, 2h.">
+                <Field id={`${uid}-timeout`} label="Timeout" hint="Minutes or hours, such as 30m or 2h.">
                   <Input
                     id={`${uid}-timeout`}
                     value={timeoutText}

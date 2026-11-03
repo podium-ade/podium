@@ -350,9 +350,9 @@ export function AssistantForm({
                 spellCheck={false}
                 disabled={readOnly}
               />
-              <span className="text-sm text-muted">or any Go duration, such as 45m</span>
+              <span className="text-sm text-muted">or type your own, such as 45m or 1h30m</span>
             </div>
-            {issues.has("timeout") ? <Issue>Use a duration such as 15m. The clock stays on.</Issue> : null}
+            {issues.has("timeout") ? <Issue>Use minutes or hours, such as 15m or 1h30m. The clock stays on.</Issue> : null}
           </Row>
         </PanelBody>
       </fieldset>
