@@ -164,6 +164,11 @@ still counts towards the total. Deleting removes the row first and the object se
 nothing restores from an object that is about to go. A repository's current base is not swept;
 a replaced one is, as above, once no snapshot is a difference from it.
 
+A conversation on Modal is the exception: Modal keeps its workspace as a directory snapshot of
+its own. Only the image ID is stored here, in `sandbox_snapshots`, with its own retention policy
+(`sandbox_snapshot_retention`) on the page's **Modal** tab. See
+[sandboxes.md](sandboxes.md#conversation-workspaces-on-modal).
+
 ### Running without one
 
 Leaving `PODIUM_S3_ENDPOINT` empty is supported and does exactly what it says:

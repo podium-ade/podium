@@ -14,6 +14,15 @@ service SnapshotService {
   rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
   // SetSnapshotRetention replaces the policy and applies it before returning.
   rpc SetSnapshotRetention(SetSnapshotRetentionRequest) returns (SetSnapshotRetentionResponse);
+
+  // ListSandboxSnapshots returns every session workspace a sandbox provider keeps as an
+  // image of its own (a Modal directory snapshot), newest first, and their retention policy.
+  rpc ListSandboxSnapshots(ListSandboxSnapshotsRequest) returns (ListSandboxSnapshotsResponse);
+  // DeleteSandboxSnapshots deletes the images of the sessions named. Each one's next task
+  // starts from the repository base, or from an empty workspace.
+  rpc DeleteSandboxSnapshots(DeleteSandboxSnapshotsRequest) returns (DeleteSandboxSnapshotsResponse);
+  // SetSandboxSnapshotRetention replaces the policy and applies it before returning.
+  rpc SetSandboxSnapshotRetention(SetSandboxSnapshotRetentionRequest) returns (SetSandboxSnapshotRetentionResponse);
 }
 
 // Snapshot is one conversation's latest workspace tar. A session has at most one.
@@ -65,4 +74,59 @@ message SetSnapshotRetentionResponse {
   // removed and freed_bytes are what applying the new policy deleted.
   int32 removed = 2;
   int64 freed_bytes = 3;
+}
+
+// SandboxSnapshot is one conversation's workspace kept by a sandbox provider as an image of
+// its own. Podium never holds its bytes, so it has no size.
+message SandboxSnapshot {
+  string session_id = 1;
+  string provider = 2;
+  // image_id is the provider's own ID for it, "im-..." on Modal.
+  string image_id = 3;
+  string node_id = 4;
+  string task_id = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // in_use is a task of the session that has not finished. Retention never deletes it.
+  bool in_use = 7;
+}
+
+// SandboxSnapshotRetention is when provider images are deleted. Zero turns a rule off.
+message SandboxSnapshotRetention {
+  // max_age_seconds deletes an image not replaced for this long. The provider is also told
+  // to drop each image a day after it, should the server not get there first.
+  int64 max_age_seconds = 1;
+  // max_count keeps this many of the newest images and deletes the rest.
+  int64 max_count = 2;
+  string updated_by = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message ListSandboxSnapshotsRequest {}
+
+message ListSandboxSnapshotsResponse {
+  repeated SandboxSnapshot snapshots = 1;
+  SandboxSnapshotRetention retention = 2;
+  // providers are the configured sandbox providers that keep workspaces as images. Empty
+  // means none is, and nothing new is stored.
+  repeated string providers = 3;
+}
+
+message DeleteSandboxSnapshotsRequest {
+  repeated string session_ids = 1;
+}
+
+message DeleteSandboxSnapshotsResponse {
+  int32 removed = 1;
+  // failed are the sessions whose image could not be deleted, with why.
+  map<string, string> failed = 2;
+}
+
+message SetSandboxSnapshotRetentionRequest {
+  int64 max_age_seconds = 1;
+  int64 max_count = 2;
+}
+
+message SetSandboxSnapshotRetentionResponse {
+  SandboxSnapshotRetention retention = 1;
+  int32 removed = 2;
 }

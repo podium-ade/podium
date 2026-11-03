@@ -6,6 +6,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -63,6 +64,22 @@ type Capabilities struct {
 	PrivilegedSidecars bool
 	// MaxTTL is the longest a sandbox may live. Zero is no limit.
 	MaxTTL time.Duration
+	// DirSnapshot: the provider is a Snapshotter, so a session's workspace is kept as an
+	// image of the provider's own rather than streamed out as a tar.
+	DirSnapshot bool
+}
+
+// Snapshotter is a provider that keeps a directory of a sandbox as an image of its own, which
+// a later sandbox mounts: a workspace whose bytes never leave the provider.
+type Snapshotter interface {
+	// SnapshotDir keeps path as an image and returns its ID. The provider deletes it ttl
+	// after it is made, should nothing else first; a negative ttl is never.
+	SnapshotDir(ctx context.Context, id, path string, ttl time.Duration) (string, error)
+	// MountSnapshot puts an image SnapshotDir made at path. An image the provider no longer
+	// has is an *Error with Code "not_found".
+	MountSnapshot(ctx context.Context, id, path, image string) error
+	// DeleteSnapshot deletes an image. One that is already gone is not an error.
+	DeleteSnapshot(ctx context.Context, image string) error
 }
 
 // CreateRequest describes one sandbox. At most one of Image and Snapshot is set; neither
@@ -165,13 +182,49 @@ func IsRetryable(err error) (time.Duration, bool) {
 	return 0, false
 }
 
+// ConfigOf turns a provider's settings as the control plane stores them — every value a
+// string — and its secret into what the provider's Factory decodes: a number or a boolean
+// where the text is one, the text otherwise.
+func ConfigOf(settings map[string]string, secret []byte) map[string]any {
+	out := make(map[string]any, len(settings)+1)
+	for k, v := range settings {
+		var typed any
+		if err := json.Unmarshal([]byte(v), &typed); err == nil {
+			switch typed.(type) {
+			case float64, bool:
+				out[k] = typed
+				continue
+			}
+		}
+		out[k] = v
+	}
+	out["secret"] = string(secret)
+	return out
+}
+
 // Factory builds a provider from its block of the node's sandbox config.
 type Factory func(cfg map[string]any) (Provider, error)
 
 var (
-	mu        sync.Mutex
-	factories = map[string]Factory{}
+	mu          sync.Mutex
+	factories   = map[string]Factory{}
+	snapshotter = map[string]bool{}
 )
+
+// RegisterSnapshotter records that the named provider is a Snapshotter, so the control
+// plane knows which configured providers keep workspaces as images without building one.
+func RegisterSnapshotter(name string) {
+	mu.Lock()
+	defer mu.Unlock()
+	snapshotter[name] = true
+}
+
+// IsSnapshotter reports whether the named provider keeps workspaces as images.
+func IsSnapshotter(name string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return snapshotter[name]
+}
 
 // Register makes a provider available by name. It is called from an init function.
 func Register(name string, f Factory) {
