@@ -71,7 +71,9 @@ describe("Header", () => {
       .getAllByRole("button", { expanded: true })
       .map((button) => button.textContent);
     expect(toggles).toEqual(["Work", "Agents", "Access", "Compute", "Organization"]);
-    expect(groupLinks("Work")).toEqual(["Chat", "Tasks", "Sessions"]);
+    expect(groupLinks("Work")).toEqual(["Chat", "Tasks"]);
+    // Sessions is hidden for now, though its page still answers at its address.
+    expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
     expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
     expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Snapshots", "Registries"]);
@@ -276,7 +278,6 @@ describe("Header", () => {
     const pages: [string, NavIconName][] = [
       ["Chat", "chat"],
       ["Tasks", "tasks"],
-      ["Sessions", "sessions"],
       ["Assistants", "assistants"],
       ["Playbooks", "playbooks"],
       ["Skills", "skills"],

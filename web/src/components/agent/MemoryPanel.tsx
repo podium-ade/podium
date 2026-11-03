@@ -11,7 +11,6 @@ import { Empty } from "../Empty";
 
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
-import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -161,14 +160,6 @@ export function MemoryPanel() {
           retrying={searching ? search.isFetching : screen.isFetching}
         />
       ) : null}
-
-      {/* role="note" rather than the default status: this is standing copy, not something
-          that just happened, and a live region that never changes is noise to a reader. */}
-      <Alert variant="warn" role="note" title="Treat every line here as something an agent was told">
-        Anything an agent reads (a Slack message, a ticket, a repository) can try to plant a
-        false memory here. This list is where a human catches it: forget anything that looks
-        wrong.
-      </Alert>
 
       <div className="space-y-2">
         <div className="relative max-w-xl">
