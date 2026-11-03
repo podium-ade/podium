@@ -33,7 +33,9 @@ Supported providers:
    starts the agent, and exposes the agent's port through the provider.
 3. It posts the run — spec, resolved secrets, registry logins — to the agent, and streams the
    agent's events into the task exactly as a node streams its own. Artifacts and the workspace
-   tar go through the server, as they do for a node.
+   tar go through the server, as they do for a node. A transfer whose connection breaks
+   partway resumes from the last byte the other side received; it gives up after three
+   attempts in a row that get no further.
 4. When the task ends, the server deletes the sandbox. A held preview keeps it until released.
 
 The agent runs the task one of two ways:
