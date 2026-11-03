@@ -174,7 +174,7 @@ test("the agent tabs are real routes", async ({ page }) => {
   // must show is the sentence saying so — not an error, and not a blank panel.
   await page.getByRole("link", { name: "Memory" }).click();
   await expect(page).toHaveURL(/\/agent\/memory$/);
-  await expect(page.getByText("Memory is not configured on this host")).toBeVisible();
+  await expect(page.getByText("Memory isn't set up yet")).toBeVisible();
 
   // The Chat tab. It needs no configuration at all — the conductor serves it always — so
   // what must be here is the New chat button.

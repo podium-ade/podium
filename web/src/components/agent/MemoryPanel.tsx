@@ -133,13 +133,15 @@ export function MemoryPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
-  // An install with no memory service is not a broken page: the RPC says so by name.
+  // An install with no memory service is not a broken page: the RPC says so by name. Setting it
+  // up is a host change, not something done from this screen, so it says who to ask rather than
+  // listing environment variables.
   if (screen.data.kind === "unconfigured") {
     return (
       <Empty
         icon={Brain}
-        title="Memory is not configured on this host"
-        hint="Set PODIUM_AGENT_MEMORY_URL and PODIUM_AGENT_MEMORY_API_KEY on podium-agent and run the memory service beside it. See docs/agent.md#memory."
+        title="Memory isn't set up yet"
+        hint="Your assistants won't remember anything between conversations until it is. Ask your administrator to turn it on."
       />
     );
   }
