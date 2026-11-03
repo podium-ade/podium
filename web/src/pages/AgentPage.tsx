@@ -16,7 +16,7 @@ import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
-import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
+import { PlaybookPage, PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
@@ -74,6 +74,8 @@ const tabs: Tab[] = [
 /** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
 const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "playbooks", element: <PlaybooksPanel /> },
+  { path: "playbooks/new", element: <PlaybookPage /> },
+  { path: "playbooks/:name", element: <PlaybookPage /> },
   { path: "skills", element: <SkillsPanel /> },
   { path: "mcp", element: <McpPanel /> },
   { path: "channels", element: <ChannelsPanel /> },
