@@ -82,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /inject", s.handleInject)
 	mux.HandleFunc("GET /transfers/{id}", s.handleTransferGet)
 	mux.HandleFunc("PUT /transfers/{id}", s.handleTransferPut)
+	mux.HandleFunc("GET /transfers/{id}/offset", s.handleTransferOffset)
 	mux.HandleFunc("POST /transfers/{id}/result", s.handleTransferResult)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })
 	return s.auth(mux)
@@ -300,17 +301,32 @@ func (s *Server) handleTransferGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = f.Close() }()
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(p.Size, 10))
-	_, _ = io.Copy(w, f)
+	// ServeContent answers a Range, which is how the node resumes a broken download.
+	http.ServeContent(w, r, "", time.Time{}, f)
 }
 
+// handleTransferPut stages a restore. ?offset= resumes an attempt that broke, from the
+// byte count handleTransferOffset reported.
 func (s *Server) handleTransferPut(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.transfers.get(r.PathValue("id"))
 	if !ok || p.Kind != wire.TransferWorkspaceRestore {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.OpenFile(p.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	var offset int64
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			http.Error(w, "bad offset", http.StatusBadRequest)
+			return
+		}
+		offset = n
+	}
+	f, err := p.resume(offset)
+	if errors.Is(err, errBadOffset) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -325,6 +341,20 @@ func (s *Server) handleTransferPut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.transfers.resolve(p.ID, wire.TransferResult{})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleTransferOffset(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.transfers.get(r.PathValue("id"))
+	if !ok || p.Kind != wire.TransferWorkspaceRestore {
+		http.NotFound(w, r)
+		return
+	}
+	n, err := p.staged()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, wire.TransferOffset{Offset: n})
 }
 
 func (s *Server) handleTransferResult(w http.ResponseWriter, r *http.Request) {
