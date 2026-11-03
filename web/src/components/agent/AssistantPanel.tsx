@@ -98,39 +98,6 @@ export function AssistantTile({
   );
 }
 
-/** The top of the panel: who is open, what it runs on, and what can be done to it. */
-export function PanelHeader({
-  tile,
-  title,
-  chips,
-  subtitle,
-  actions,
-}: {
-  tile: ReactNode;
-  title: string;
-  chips?: ReactNode;
-  subtitle?: ReactNode;
-  actions?: ReactNode;
-}) {
-  return (
-    <header className="flex flex-col gap-4 px-6 pt-6 pb-5 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-4">
-        {tile}
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            <h2 className="min-w-0 truncate text-xl font-bold tracking-tight text-fg" title={title}>
-              {title}
-            </h2>
-            {chips}
-          </div>
-          {subtitle ? <div className="flex min-w-0 items-center gap-2 text-sm text-muted">{subtitle}</div> : null}
-        </div>
-      </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
-    </header>
-  );
-}
-
 /**
  * SectionTabs is the strip of an assistant's sections. They look like every other tab
  * strip in the product, but each is a link, so back and a deep link land on the section.

@@ -27,10 +27,8 @@ import { ConductorDown } from "./ConductorDown";
 import { AgentPicker } from "./AgentPicker";
 import {
   AssistantPanel,
-  AssistantTile,
   Issue,
   PanelBody,
-  PanelHeader,
   Row,
   SaveBar,
   ScopeBar,
@@ -40,6 +38,7 @@ import {
 import { BackendMark } from "./BackendMark";
 import { Chip } from "../Badge";
 import { Empty } from "../Empty";
+import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -420,56 +419,60 @@ export function PodiumEditor({ section, readOnly }: { section: AssistantSection;
     unsaved: readOnly ? false : dirty.includes(s.id),
   }));
 
+  const frame = {
+    title: initial?.displayName || "Podium",
+    back: { to: "/agent/assistants", label: "Assistants" },
+    meta: <Chip>Built-in</Chip>,
+    actions: (
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/agent/chat" aria-label="Talk to it">
+          <MessageSquarePlus />
+          <span className="hidden sm:inline">Talk to it</span>
+        </Link>
+      </Button>
+    ),
+  };
+
   if (down) {
     return (
-      <ConductorDown
-        what="The assistant could not be read"
-        onRetry={() => void profile.refetch()}
-        retrying={profile.isFetching}
-      />
+      <PageFrame {...frame}>
+        <ConductorDown
+          what="The assistant could not be read"
+          onRetry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+        />
+      </PageFrame>
     );
   }
 
   return (
-    <AssistantPanel label="Podium">
-      <PanelHeader
-        tile={<AssistantTile kind="podium" size="detail" />}
-        title={initial?.displayName || "Podium"}
-        chips={<Chip>Built-in</Chip>}
-        subtitle={initial ? <ModelLine agentId={initial.agent} model={initial.model} /> : <Skeleton className="h-4 w-40" />}
-        actions={
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/agent/chat">
-              <MessageSquarePlus />
-              Talk to it
-            </Link>
-          </Button>
-        }
-      />
-      <SectionTabs tabs={tabs} current={section} href={(id) => assistantSectionHref(id as AssistantSection)} />
-      {failed ? (
-        <div className="p-6">
-          <Empty title="Could not read the assistant" hint={errorMessage(profile.error)} />
-        </div>
-      ) : null}
-      {!failed && !initial ? <ProfileSkeleton /> : null}
-      {initial && view ? (
-        <DraftEditor
-          key={`${defaultAgent}:${JSON.stringify(initial)}`}
-          initial={initial}
-          section={section}
-          agents={agents}
-          skills={(skillsQ.data?.skills ?? []).map(skillChoice)}
-          servers={(mcpQ.data?.servers ?? []).map(serverChoice)}
-          skillsNote={skillsQ.isError ? errorMessage(skillsQ.error) : undefined}
-          serversNote={mcpQ.isError ? errorMessage(mcpQ.error) : undefined}
-          saving={save.isPending}
-          readOnly={readOnly}
-          onSave={(update) => save.mutate(update)}
-          onDirty={onDirty}
-        />
-      ) : null}
-    </AssistantPanel>
+    <PageFrame {...frame}>
+      <AssistantPanel label={frame.title}>
+        <SectionTabs tabs={tabs} current={section} href={(id) => assistantSectionHref(id as AssistantSection)} />
+        {failed ? (
+          <div className="p-6">
+            <Empty title="Could not read the assistant" hint={errorMessage(profile.error)} />
+          </div>
+        ) : null}
+        {!failed && !initial ? <ProfileSkeleton /> : null}
+        {initial && view ? (
+          <DraftEditor
+            key={`${defaultAgent}:${JSON.stringify(initial)}`}
+            initial={initial}
+            section={section}
+            agents={agents}
+            skills={(skillsQ.data?.skills ?? []).map(skillChoice)}
+            servers={(mcpQ.data?.servers ?? []).map(serverChoice)}
+            skillsNote={skillsQ.isError ? errorMessage(skillsQ.error) : undefined}
+            serversNote={mcpQ.isError ? errorMessage(mcpQ.error) : undefined}
+            saving={save.isPending}
+            readOnly={readOnly}
+            onSave={(update) => save.mutate(update)}
+            onDirty={onDirty}
+          />
+        ) : null}
+      </AssistantPanel>
+    </PageFrame>
   );
 }
 

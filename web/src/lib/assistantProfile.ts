@@ -262,9 +262,8 @@ export function isAssistantSection(id: string): id is AssistantSection {
   return (ASSISTANT_SECTIONS as readonly string[]).includes(id);
 }
 
-/** assistantSection reads the path. The bare Assistants address, and the old profile address, are Identity. */
+/** assistantSection reads Podium's path, or the old profile address. A bare one is Identity. */
 export function assistantSection(pathname: string): AssistantSection | null {
-  if (pathname === "/agent/assistants" || pathname === "/agent/assistants/") return "identity";
   if (pathname.startsWith("/agent/assistants/podium")) {
     const id = pathname.replace(/^\/agent\/assistants\/podium\/?/, "").split("/").filter(Boolean)[0] ?? "";
     return id ? (isAssistantSection(id) ? id : null) : "identity";
@@ -276,7 +275,7 @@ export function assistantSection(pathname: string): AssistantSection | null {
 }
 
 export function assistantSectionHref(id: AssistantSection): string {
-  return id === "identity" ? "/agent/assistants" : `/agent/assistants/podium/${id}`;
+  return id === "identity" ? "/agent/assistants/podium" : `/agent/assistants/podium/${id}`;
 }
 
 /** "Identity", "Identity and Model", "Identity, Model and Limits". */
