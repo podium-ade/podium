@@ -389,7 +389,7 @@ export function LogExplorer({
 
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline px-5 py-2.5">
         <Badge tone={PHASE_TONE[phase]}>{PHASE_TEXT[phase]}</Badge>
 
         <div className="relative min-w-0 flex-1 basis-72">
@@ -448,7 +448,7 @@ export function LogExplorer({
         source:, kind: or severity, and put a minus before a term to exclude it.
       </p>
 
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-hairline px-4 py-2">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-hairline px-5 py-2">
         {SEVERITIES.map((s) => (
           <FacetChip
             key={s}
@@ -524,7 +524,7 @@ export function LogExplorer({
       ) : null}
 
       {selectedEntry && selectedRow < 0 ? (
-        <div className="flex items-center gap-3 border-b border-hairline bg-run-bg px-4 py-1.5 text-xs text-run">
+        <div className="flex items-center gap-3 border-b border-hairline bg-run-bg px-5 py-1.5 text-xs text-run">
           The selected entry is hidden by the current filter.
           <Button variant="ghost" size="xs" onClick={showSurrounding}>
             <ListRestart />
