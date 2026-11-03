@@ -1,56 +1,366 @@
-import { FileCode2, Plus, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { FileCode2, Plus, Search, SearchX, Sparkles } from "lucide-react";
+import { useMemo, useState, type MouseEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { create } from "@bufbuild/protobuf";
 import type { PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import { PlaybookDefinitionSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { agent, errorMessage, isAgentUnreachable, sandboxProviders, secrets } from "../../lib/client";
+import { absolute, relative } from "../../lib/format";
 import type { PlaybookDraft } from "../../lib/playbook";
-import { cn } from "../../lib/utils";
-import { Chip } from "../Badge";
+import { RUNS_ON_NODES } from "../../lib/sandboxProviders";
+import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
 import { TableSkeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { ConductorDown } from "./ConductorDown";
-import { PlaybookEditor } from "./PlaybookEditor";
+import { PlaybookEditor, type PlaybookEditorProps } from "./PlaybookEditor";
+import { PlaybookRowActions } from "./PlaybookRowActions";
 import { ReloadProfileDirButton } from "./ReloadProfileDirButton";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 
 const HINT_CHARS = 160;
+const LIST = "/agent/playbooks";
+
+function playbookPath(name: string): string {
+  return `${LIST}/${encodeURIComponent(name)}`;
+}
+
+function useProfile() {
+  return useQuery({
+    queryKey: ["agent", "profile"],
+    queryFn: () => agent.getProfile({}),
+  });
+}
 
 /**
- * PlaybooksPanel is a two-pane editor of playbooks/<name>.yaml: pick one (or New), then
- * Form or YAML. Saves write the file on the conductor and re-read the profile directory.
+ * PlaybooksPanel is the list of playbooks/<name>.yaml on the conductor, one row each, the
+ * way Tasks lists tasks. A row opens the playbook on its own page (PlaybookPage).
  */
 export function PlaybooksPanel() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
+  const navigate = useNavigate();
+  const profile = useProfile();
+  const [filter, setFilter] = useState("");
+
+  const all = useMemo(() => profile.data?.playbooks ?? [], [profile.data]);
+  const rows = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((p) =>
+      [p.name, p.image, p.model, p.agent, p.runsOn, promptHint(p.systemPrompt ?? "")].some((v) =>
+        (v ?? "").toLowerCase().includes(q),
+      ),
+    );
+  }, [all, filter]);
+
+  if (profile.isError && !isAgentUnreachable(profile.error)) {
+    return (
+      <PageFrame title="Playbooks">
+        <Empty title="Could not read the agent profile" hint={errorMessage(profile.error)} />
+      </PageFrame>
+    );
+  }
+
+  const openRow = (e: MouseEvent<HTMLTableRowElement>, name: string) => {
+    // The name cell holds the real link; anything that is already a control keeps its click.
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    void navigate(playbookPath(name));
+  };
+
+  return (
+    <PageFrame
+      title="Playbooks"
+      lead="The jobs your assistants know how to do: what each one is for, and the tools it may use."
+      actions={
+        manage ? (
+          <div className="flex items-center gap-2">
+            <ReloadProfileDirButton />
+            <Button type="button" size="sm" data-testid="playbook-new" onClick={() => void navigate(`${LIST}/new`)}>
+              <Plus />
+              New playbook
+            </Button>
+          </div>
+        ) : null
+      }
+    >
+      {isAgentUnreachable(profile.error) ? (
+        <ConductorDown
+          what="The playbooks could not be read"
+          onRetry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+        />
+      ) : null}
+
+      <StaleAlert reason={profile.data?.staleReason} />
+
+      {profile.isPending ? <TableSkeleton rows={4} cols={5} /> : null}
+
+      {!profile.isPending && !profile.isError && all.length === 0 ? (
+        <Empty
+          icon={Sparkles}
+          title="No playbooks"
+          hint="Nothing for the assistant to start yet."
+          action={
+            manage ? (
+              <Button
+                type="button"
+                size="sm"
+                data-testid="playbook-new-empty"
+                onClick={() => void navigate(`${LIST}/new`)}
+              >
+                <Plus />
+                New playbook
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+
+      {all.length > 0 ? (
+        <>
+          <div className="relative max-w-sm">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
+            <Input
+              type="search"
+              aria-label="Filter playbooks"
+              placeholder="Filter by name, image or model"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {rows.length === 0 ? (
+            <Empty
+              icon={SearchX}
+              title="No playbook matches"
+              hint={`Nothing here mentions “${filter.trim()}”.`}
+              action={
+                <Button type="button" size="sm" variant="outline" onClick={() => setFilter("")}>
+                  Clear filter
+                </Button>
+              }
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Playbook</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Runs on</TableHead>
+                  <TableHead>Reaches</TableHead>
+                  <TableHead>Starts from</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead pinned />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((p) => (
+                  <TableRow
+                    key={`${p.name}:${p.origin}:${p.shadowed}`}
+                    data-testid="playbook-row"
+                    onClick={(e) => openRow(e, p.name)}
+                    className="cursor-pointer"
+                  >
+                    <TableCell className="max-w-[28rem]">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={playbookPath(p.name)}
+                          aria-label={`Edit ${p.name}`}
+                          className="rounded-sm font-mono text-sm font-medium text-fg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          /{p.name}
+                        </Link>
+                        {p.shadowed ? (
+                          <Badge tone="warn" dot={false}>
+                            Shadowed
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {promptHint(p.systemPrompt) ? (
+                        <p className="mt-0.5 truncate text-xs text-muted" title={promptHint(p.systemPrompt)}>
+                          {promptHint(p.systemPrompt)}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 truncate font-mono text-2xs text-faint" title={p.image} data-testid="playbook-image">
+                        {p.image}
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">
+                      <ModelCell p={p} />
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-nowrap text-muted">{runsOnLabel(p.runsOn)}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap text-muted">
+                      <Reaches p={p} />
+                    </TableCell>
+                    <TableCell>
+                      <Triggers p={p} />
+                    </TableCell>
+                    <TableCell
+                      className="text-xs whitespace-nowrap text-muted"
+                      title={p.updatedAt ? absolute(p.updatedAt) : undefined}
+                    >
+                      {p.updatedAt ? relative(p.updatedAt) : "-"}
+                      {p.updatedBy ? <div className="truncate text-2xs text-faint">{p.updatedBy}</div> : null}
+                    </TableCell>
+                    <TableCell pinned className="w-0 pr-2 text-right">
+                      <PlaybookRowActions name={p.name} href={playbookPath(p.name)} canDelete={manage} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+        </>
+      ) : null}
+    </PageFrame>
+  );
+}
+
+/**
+ * PlaybookPage is one playbook, or a new one at /agent/playbooks/new: the whole editor, on
+ * its own page, with the list one click back.
+ */
+export function PlaybookPage() {
+  const { name: rawName } = useParams();
+  const creating = rawName === undefined;
+  const name = rawName ?? "";
   const qc = useQueryClient();
   const toast = useToast();
-  const [editing, setEditing] = useState<PlaybookDefinition | "new">();
+  const navigate = useNavigate();
+  const profile = useProfile();
+  const editorProps = useEditorContext();
   const [saveError, setSaveError] = useState("");
 
-  const profile = useQuery({
-    queryKey: ["agent", "profile"],
-    queryFn: () => agent.getProfile({}),
+  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
+  const back = () => void navigate(LIST);
+
+  const createPb = useMutation({
+    mutationFn: (draft: PlaybookDraft) => agent.createPlaybook({ playbook: draftToProto(draft) }),
+    onSuccess: async (res) => {
+      toast(`/${res.playbook?.name} written.`, "ok");
+      setSaveError("");
+      await reload();
+      void navigate(res.playbook ? playbookPath(res.playbook.name) : LIST, { replace: true });
+    },
+    onError: (err) => setSaveError(errorMessage(err)),
   });
-  const secretList = useQuery({
-    queryKey: ["secrets"],
-    queryFn: () => secrets.listSecrets({}),
+  const updatePb = useMutation({
+    mutationFn: (draft: PlaybookDraft) => agent.updatePlaybook({ playbook: draftToProto(draft) }),
+    onSuccess: async (res) => {
+      toast(`/${res.playbook?.name} saved.`, "ok");
+      setSaveError("");
+      await reload();
+    },
+    onError: (err) => setSaveError(errorMessage(err)),
   });
-  const skillList = useQuery({
-    queryKey: ["agent", "skills"],
-    queryFn: () => agent.listSkills({}),
+  const deletePb = useMutation({
+    mutationFn: (n: string) => agent.deletePlaybook({ name: n }),
+    onSuccess: async (_res, n) => {
+      toast(`/${n} deleted.`, "ok");
+      setSaveError("");
+      await reload();
+      void navigate(LIST, { replace: true });
+    },
+    onError: (err) => setSaveError(errorMessage(err)),
   });
-  const mcpList = useQuery({
-    queryKey: ["agent", "mcp"],
-    queryFn: () => agent.listMcpServers({}),
-  });
+
+  const all = profile.data?.playbooks ?? [];
+  // A shadowed stored playbook can share its name with the file that wins; open the one that runs.
+  const playbook = creating
+    ? undefined
+    : all.find((p) => p.name === name && !p.shadowed) ?? all.find((p) => p.name === name);
+
+  const frame = {
+    title: creating ? "New playbook" : `/${name}`,
+    back: { to: LIST, label: "Playbooks" },
+    meta: playbook?.shadowed ? (
+      <Badge tone="warn" dot={false}>
+        Shadowed
+      </Badge>
+    ) : undefined,
+  };
+
+  if (profile.isError) {
+    return (
+      <PageFrame {...frame}>
+        {isAgentUnreachable(profile.error) ? (
+          <ConductorDown
+            what="The playbook could not be read"
+            onRetry={() => void profile.refetch()}
+            retrying={profile.isFetching}
+          />
+        ) : (
+          <Empty title="Could not read the agent profile" hint={errorMessage(profile.error)} />
+        )}
+      </PageFrame>
+    );
+  }
+
+  if (profile.isPending) {
+    return (
+      <PageFrame {...frame}>
+        <TableSkeleton rows={6} cols={2} />
+      </PageFrame>
+    );
+  }
+
+  if (!creating && !playbook) {
+    return (
+      <PageFrame {...frame}>
+        <Empty
+          icon={FileCode2}
+          title="No such playbook"
+          hint={`Nothing on this conductor is called /${name}. It may have been deleted or renamed.`}
+          action={
+            <Button type="button" size="sm" variant="outline" onClick={back}>
+              Back to playbooks
+            </Button>
+          }
+        />
+      </PageFrame>
+    );
+  }
+
+  return (
+    <PageFrame {...frame}>
+      <StaleAlert reason={profile.data?.staleReason} />
+      <PlaybookEditor
+        key={creating ? "new" : name}
+        embedded
+        playbook={playbook}
+        saving={creating ? createPb.isPending : updatePb.isPending}
+        deleting={deletePb.isPending}
+        onSubmit={(draft) => {
+          setSaveError("");
+          if (creating) createPb.mutate(draft);
+          else updatePb.mutate(draft);
+        }}
+        onDelete={playbook ? () => deletePb.mutate(playbook.name) : undefined}
+        onCancel={back}
+        error={saveError}
+        {...editorProps}
+      />
+    </PageFrame>
+  );
+}
+
+/** Everything the editor needs besides the playbook itself: the catalogues its pickers offer. */
+function useEditorContext(): Omit<PlaybookEditorProps, "playbook" | "onSubmit" | "onCancel"> {
+  const profile = useProfile();
+  const secretList = useQuery({ queryKey: ["secrets"], queryFn: () => secrets.listSecrets({}) });
+  const skillList = useQuery({ queryKey: ["agent", "skills"], queryFn: () => agent.listSkills({}) });
+  const mcpList = useQuery({ queryKey: ["agent", "mcp"], queryFn: () => agent.listMcpServers({}) });
   const { agents } = useAgents();
   // Both only fill in Runs on, so a conductor or control plane that cannot answer leaves
   // the editor working with the providers this build knows.
@@ -61,48 +371,7 @@ export function PlaybooksPanel() {
   });
   const runsOn = useQuery({ queryKey: ["agent", "runsOn"], queryFn: () => agent.getRunsOn({}), retry: false });
 
-  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
-
-  const createPb = useMutation({
-    mutationFn: (draft: PlaybookDraft) => agent.createPlaybook({ playbook: draftToProto(draft) }),
-    onSuccess: async (res) => {
-      toast(`/${res.playbook?.name} written.`, "ok");
-      setSaveError("");
-      await reload();
-      if (res.playbook) setEditing(res.playbook);
-    },
-    onError: (err) => setSaveError(errorMessage(err)),
-  });
-  const updatePb = useMutation({
-    mutationFn: (draft: PlaybookDraft) => agent.updatePlaybook({ playbook: draftToProto(draft) }),
-    onSuccess: async (res) => {
-      toast(`/${res.playbook?.name} saved.`, "ok");
-      setSaveError("");
-      await reload();
-      if (res.playbook) setEditing(res.playbook);
-    },
-    onError: (err) => setSaveError(errorMessage(err)),
-  });
-  const deletePb = useMutation({
-    mutationFn: (name: string) => agent.deletePlaybook({ name }),
-    onSuccess: async (_res, name) => {
-      toast(`/${name} deleted.`, "ok");
-      setEditing(undefined);
-      setSaveError("");
-      await reload();
-    },
-    onError: (err) => setSaveError(errorMessage(err)),
-  });
-
-  if (profile.isError && !isAgentUnreachable(profile.error)) {
-    return <Empty title="Could not read the agent profile" hint={errorMessage(profile.error)} />;
-  }
-
-  const running = profile.data?.playbooks ?? [];
-  const selected =
-    editing === "new" ? undefined : editing ? running.find((p) => p.name === editing.name) ?? editing : undefined;
-
-  const editorProps = {
+  return {
     agents,
     profileDefault: {
       agent: profile.data?.profile?.agent ?? "",
@@ -118,176 +387,62 @@ export function PlaybooksPanel() {
     mcpUnknown: mcpList.isError || mcpList.isPending,
     sandboxProviders: providerList.data?.providers,
     defaultRunsOn: runsOn.data?.runsOn?.runsOn,
-    error: saveError,
   };
+}
 
+function StaleAlert({ reason }: { reason?: string }) {
+  if (!reason) return null;
   return (
-    <PageFrame
-      bodyClassName="flex min-h-0 flex-col gap-5"
-        title="Playbooks"
-        lead="The jobs your assistants know how to do: what each one is for, and the tools it may use."
-        actions={
-          manage ? (
-          <div className="flex items-center gap-2">
-            <ReloadProfileDirButton />
-            <Button
-              type="button"
-              size="sm"
-              data-testid="playbook-new"
-              onClick={() => {
-                setSaveError("");
-                setEditing("new");
-              }}
-            >
-              <Plus />
-              New playbook
-            </Button>
-          </div>
-          ) : null
-        }
-      >
+    <Alert variant="warn" title="The conductor is running an older profile than the saved assistant would produce">
+      The saved assistant would not apply: {reason}
+    </Alert>
+  );
+}
 
-      {isAgentUnreachable(profile.error) ? (
-        <ConductorDown
-          what="The playbooks could not be read"
-          onRetry={() => void profile.refetch()}
-          retrying={profile.isFetching}
-        />
-      ) : null}
+function ModelCell({ p }: { p: PlaybookDefinition }) {
+  if (!p.model && !p.agent) return <span className="text-faint">Assistant default</span>;
+  return (
+    <span className="font-mono text-fg">
+      {p.model || p.agent}
+      {p.effort ? <span className="text-faint"> · {p.effort}</span> : null}
+    </span>
+  );
+}
 
-      {profile.data?.staleReason ? (
-        <Alert variant="warn" title="The conductor is running an older profile than the saved assistant would produce">
-          The saved assistant would not apply: {profile.data.staleReason}
-        </Alert>
-      ) : null}
+function runsOnLabel(runsOn: string): string {
+  if (!runsOn) return "Default";
+  if (runsOn === RUNS_ON_NODES) return "Nodes";
+  return runsOn.charAt(0).toUpperCase() + runsOn.slice(1);
+}
 
-      {profile.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
+function Reaches({ p }: { p: PlaybookDefinition }) {
+  const parts = [
+    count((p.skills ?? []).length, "skill"),
+    count((p.mcpServers ?? []).length, "MCP server"),
+    count((p.repos ?? []).length, "repo"),
+    count((p.secrets ?? []).length + (p.userSecrets ?? []).length, "secret"),
+  ].filter(Boolean);
+  if (parts.length === 0) return <span className="text-faint">-</span>;
+  return <span>{parts.join(" · ")}</span>;
+}
 
-      {!profile.isPending && running.length === 0 && editing !== "new" ? (
-        <Empty
-          icon={Sparkles}
-          title="No playbooks"
-          hint="Nothing for the assistant to start yet."
-          action={
-            manage ? (
-            <Button type="button" size="sm" data-testid="playbook-new-empty" onClick={() => setEditing("new")}>
-              <Plus />
-              New playbook
-            </Button>
-            ) : undefined
-          }
-        />
-      ) : null}
+function count(n: number, noun: string): string {
+  return n === 0 ? "" : `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
 
-      {editing === "new" && running.length === 0 && !profile.isPending ? (
-        <PlaybookEditor
-          key="new"
-          playbook={undefined}
-          saving={createPb.isPending}
-          deleting={false}
-          onSubmit={(draft) => {
-            setSaveError("");
-            createPb.mutate(draft);
-          }}
-          onCancel={() => {
-            setEditing(undefined);
-            setSaveError("");
-          }}
-          {...editorProps}
-        />
-      ) : null}
-
-      {running.length > 0 && !profile.isPending ? (
-      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-        <aside className="min-w-0 space-y-2">
-            <ul className="space-y-1.5">
-              {running.map((s) => (
-                <li key={s.name}>
-                  <button
-                    type="button"
-                    data-testid="playbook-row"
-                    aria-label={`Edit ${s.name}`}
-                    onClick={() => {
-                      setSaveError("");
-                      setEditing(s);
-                    }}
-                    className={cn(
-                      "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
-                      selected?.name === s.name
-                        ? "border-line-strong bg-raised"
-                        : "border-border bg-card hover:bg-raised",
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
-                      {s.linear ? <Chip>Linear</Chip> : null}
-                      {s.github ? <Chip>GitHub</Chip> : null}
-                    </div>
-                    <p className="mt-1 truncate font-mono text-2xs text-muted" title={s.image} data-testid="playbook-image">
-                      {s.image}
-                    </p>
-                    {promptHint(s.systemPrompt) ? (
-                      <p className="mt-1 line-clamp-2 text-2xs leading-relaxed text-faint">
-                        {promptHint(s.systemPrompt)}
-                      </p>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-        </aside>
-
-        <section className="min-w-0">
-          {editing === undefined || editing === "new" ? (
-            editing === "new" ? (
-            <PlaybookEditor
-              key="new"
-              embedded
-              playbook={undefined}
-              saving={createPb.isPending}
-              onSubmit={(draft) => {
-                setSaveError("");
-                createPb.mutate(draft);
-              }}
-              onCancel={() => {
-                setEditing(undefined);
-                setSaveError("");
-              }}
-              {...editorProps}
-            />
-            ) : (
-            <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
-              <FileCode2 className="mx-auto size-8 text-faint" />
-              <p className="mt-3 text-sm text-muted">Select a playbook, or create one.</p>
-            </div>
-            )
-          ) : (
-            <PlaybookEditor
-              key={editing.name}
-              embedded
-              playbook={selected}
-              saving={updatePb.isPending}
-              deleting={deletePb.isPending}
-              onSubmit={(draft) => {
-                setSaveError("");
-                updatePb.mutate(draft);
-              }}
-              onDelete={
-                selected
-                  ? () => deletePb.mutate(selected.name)
-                  : undefined
-              }
-              onCancel={() => {
-                setEditing(undefined);
-                setSaveError("");
-              }}
-              {...editorProps}
-            />
-          )}
-        </section>
-      </div>
-      ) : null}
-    </PageFrame>
+function Triggers({ p }: { p: PlaybookDefinition }) {
+  const chips = [
+    (p.slackChannels ?? []).length > 0 ? "Slack" : "",
+    p.linear ? "Linear" : "",
+    p.github ? "GitHub" : "",
+  ].filter(Boolean);
+  if (chips.length === 0) return <span className="text-xs text-faint">Chat</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {chips.map((c) => (
+        <Chip key={c}>{c}</Chip>
+      ))}
+    </div>
   );
 }
 
