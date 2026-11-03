@@ -21,7 +21,7 @@ import { Input } from "../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { ConductorDown } from "./ConductorDown";
 import { PlaybookEditor, type PlaybookEditorProps } from "./PlaybookEditor";
-import { PlaybookRowActions } from "./PlaybookRowActions";
+import { RowActions } from "./RowActions";
 import { ReloadProfileDirButton } from "./ReloadProfileDirButton";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
@@ -50,6 +50,11 @@ export function PlaybooksPanel() {
   const navigate = useNavigate();
   const profile = useProfile();
   const [filter, setFilter] = useState("");
+  const qc = useQueryClient();
+  const deletePlaybook = async (name: string) => {
+    await agent.deletePlaybook({ name });
+    await qc.invalidateQueries({ queryKey: ["agent", "profile"] });
+  };
 
   const all = useMemo(() => profile.data?.playbooks ?? [], [profile.data]);
   const rows = useMemo(() => {
@@ -102,7 +107,7 @@ export function PlaybooksPanel() {
 
       <StaleAlert reason={profile.data?.staleReason} />
 
-      {profile.isPending ? <TableSkeleton rows={4} cols={5} /> : null}
+      {profile.isPending ? <TableSkeleton rows={4} cols={6} /> : null}
 
       {!profile.isPending && !profile.isError && all.length === 0 ? (
         <Empty
@@ -151,10 +156,11 @@ export function PlaybooksPanel() {
               }
             />
           ) : (
-            <Table>
+            <Table className="[&_td]:px-2.5 [&_th]:px-2.5">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Playbook</TableHead>
+                  <TableHead>Image</TableHead>
                   <TableHead>Model</TableHead>
                   <TableHead>Runs on</TableHead>
                   <TableHead>Reaches</TableHead>
@@ -169,7 +175,7 @@ export function PlaybooksPanel() {
                     key={`${p.name}:${p.origin}:${p.shadowed}`}
                     data-testid="playbook-row"
                     onClick={(e) => openRow(e, p.name)}
-                    className="cursor-pointer"
+                    className="h-[4.5rem] cursor-pointer"
                   >
                     <TableCell className="max-w-[28rem]">
                       <div className="flex items-center gap-2">
@@ -191,9 +197,11 @@ export function PlaybooksPanel() {
                           {promptHint(p.systemPrompt)}
                         </p>
                       ) : null}
-                      <p className="mt-0.5 truncate font-mono text-2xs text-faint" title={p.image} data-testid="playbook-image">
-                        {p.image}
-                      </p>
+                    </TableCell>
+                    <TableCell className="max-w-56">
+                      <span className="block truncate font-mono text-xs text-muted" title={p.image} data-testid="playbook-image">
+                        {p.image || "-"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       <ModelCell p={p} />
@@ -213,7 +221,15 @@ export function PlaybooksPanel() {
                       {p.updatedBy ? <div className="truncate text-2xs text-faint">{p.updatedBy}</div> : null}
                     </TableCell>
                     <TableCell pinned className="w-0 pr-2 text-right">
-                      <PlaybookRowActions name={p.name} href={playbookPath(p.name)} canDelete={manage} />
+                      <RowActions
+                        noun="playbook"
+                        name={p.name}
+                        title={`/${p.name}`}
+                        href={playbookPath(p.name)}
+                        testId="playbook"
+                        onDelete={manage ? () => deletePlaybook(p.name) : undefined}
+                        deleteDescription="The definition goes with it: prompt, tools, limits and the secrets it names. Anything that routes to this playbook stops working on the next turn. There is no undo."
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
