@@ -105,7 +105,7 @@ export function draftFromProfile(p: AssistantProfileView, defaultAgent = DEFAULT
     skills: [...p.skills],
     mcpServers: [...p.mcpServers],
     maxTurns: p.maxTurns,
-    timeout: p.timeout || DEFAULT_TIMEOUT,
+    timeout: tidyDuration(p.timeout || DEFAULT_TIMEOUT),
     gitName: p.gitName,
     gitEmail: p.gitEmail,
   };
@@ -147,6 +147,17 @@ export function parseGoDuration(raw: string): number | null {
     i = DURATION_PART.lastIndex;
   }
   return sign * total;
+}
+
+/**
+ * tidyDuration drops the zero units the server spells out, so 15m0s reads 15m and 1h0m0s
+ * reads 1h. Anything it does not recognise is left as written.
+ */
+export function tidyDuration(raw: string): string {
+  const s = raw.trim();
+  if (!/^(\d+h)?(\d+m)?(\d+(\.\d+)?s)?$/.test(s) || s === "") return raw;
+  const tidy = s.replace(/(^|[hm])0s$/, "$1").replace(/(^|h)0m/, "$1");
+  return tidy === "" ? "0s" : tidy;
 }
 
 export function durationsEqual(a: string, b: string): boolean {
