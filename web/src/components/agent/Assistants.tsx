@@ -364,7 +364,7 @@ function AssistantRow({
 }
 
 function Reaches({ skills, servers }: { skills: number; servers: number }) {
-  if (skills === 0 && servers === 0) return <span className="text-muted">Delegates to playbooks</span>;
+  if (skills === 0 && servers === 0) return <span className="text-muted">Only through playbooks</span>;
   const parts = [
     skills ? `${skills} ${skills === 1 ? "skill" : "skills"}` : "",
     servers ? `${servers} MCP ${servers === 1 ? "server" : "servers"}` : "",

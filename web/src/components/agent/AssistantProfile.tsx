@@ -71,7 +71,7 @@ const SECTIONS: { id: AssistantSection; label: string; icon: LucideIcon; sentenc
     label: "Reach",
     icon: Plug,
     sentence:
-      "Skills and MCP servers the assistant may call without starting a task. Leave a list empty and it delegates. A web chat uses the signed-in person's server of that name. Slack uses the company server.",
+      "What Podium can use itself while it answers a chat, without starting a task. Anything not ticked here is only reachable by starting a playbook that names it.",
   },
   {
     id: "limits",
@@ -244,7 +244,9 @@ export function AssistantForm({
           <Checklist
             idPrefix="skill"
             label="Skills"
-            hint="Know-how it can pick up in the middle of a chat."
+            hint="Ticked skills load into every chat turn, so Podium can follow them in its own answer."
+            none="No skills load into a chat. Work that needs one goes to a playbook that names it."
+            some={(n, total) => `${n} of ${total} load into every chat turn.`}
             items={skills}
             selected={draft.skills}
             note={skillsNote}
@@ -263,7 +265,9 @@ export function AssistantForm({
           <Checklist
             idPrefix="mcp"
             label="MCP servers"
-            hint="Outside tools it can call without starting a task."
+            hint="Ticked servers connect to every chat turn. A web chat uses the signed-in person's server of that name if they have one. Slack uses the company's."
+            none="No MCP servers connect to a chat. Work that needs one goes to a playbook that names it."
+            some={(n, total) => `${n} of ${total} connect to every chat turn.`}
             items={servers}
             selected={draft.mcpServers}
             note={serversNote}
@@ -572,6 +576,8 @@ function Checklist({
   idPrefix,
   label,
   hint,
+  none,
+  some,
   items,
   selected,
   note,
@@ -582,6 +588,9 @@ function Checklist({
   idPrefix: string;
   label: string;
   hint: string;
+  /** What a turn does when nothing is ticked, said plainly. */
+  none: string;
+  some: (n: number, total: number) => string;
   items: ReachChoice[];
   selected: string[];
   note?: string;
@@ -595,16 +604,7 @@ function Checklist({
   return (
     <Row
       label={label}
-      hint={
-        <>
-          {hint}{" "}
-          {total > 0 ? (
-            <span className="tabular-nums">
-              {selected.length === 0 ? "None chosen, so it delegates." : `${selected.length} of ${total} chosen.`}
-            </span>
-          ) : null}
-        </>
-      }
+      hint={hint}
     >
       {note ? <Issue>{note}</Issue> : null}
       {!note && total === 0 ? (
@@ -638,6 +638,17 @@ function Checklist({
             </li>
           ))}
         </ul>
+      ) : null}
+      {total > 0 ? (
+        <p
+          aria-live="polite"
+          className={cn(
+            "m-0 max-w-2xl text-sm tabular-nums",
+            selected.length === 0 ? "text-muted" : "font-semibold text-fg",
+          )}
+        >
+          {selected.length === 0 ? none : some(selected.length, total)}
+        </p>
       ) : null}
     </Row>
   );
