@@ -186,6 +186,9 @@ services:
       PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}   # how a human reaches the UI, for links
       PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://hindsight:8888}
       PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
+      # The turn surface and memory as a cloud sandbox reaches them. See deploy/.env.example.
+      PODIUM_AGENT_SANDBOX_URL: ${PODIUM_AGENT_SANDBOX_URL:-}
+      PODIUM_AGENT_MEMORY_SANDBOX_URL: ${PODIUM_AGENT_MEMORY_SANDBOX_URL:-}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-podium}
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}

@@ -184,6 +184,9 @@ services:
       # A task container on a WORKER. Co-located, host.docker.internal is this machine;
       # a worker elsewhere needs this host's address on your network.
       PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
+      # The turn surface and memory as a cloud sandbox reaches them. See deploy/.env.example.
+      PODIUM_AGENT_SANDBOX_URL: ${PODIUM_AGENT_SANDBOX_URL:-}
+      PODIUM_AGENT_MEMORY_SANDBOX_URL: ${PODIUM_AGENT_MEMORY_SANDBOX_URL:-}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}

@@ -241,6 +241,8 @@ func TestMemoryValidationNamesTheVariableThatIsWrong(t *testing.T) {
 		{"bad scheme", func(c *Config) { c.MemoryURL = "ftp://hindsight" }, "PODIUM_AGENT_MEMORY_URL"},
 		{"relative task url", func(c *Config) { c.MemoryTaskURL = "host.docker.internal:8888" },
 			"PODIUM_AGENT_MEMORY_TASK_URL"},
+		{"relative sandbox url", func(c *Config) { c.MemorySandboxURL = "memory.example.com/memory" },
+			"PODIUM_AGENT_MEMORY_SANDBOX_URL"},
 		// The bank becomes a path segment in the MCP URL every turn is handed.
 		{"empty bank", func(c *Config) { c.MemoryBank = "" }, "PODIUM_AGENT_MEMORY_BANK"},
 		{"bank with a slash", func(c *Config) { c.MemoryBank = "podium/../default" }, "PODIUM_AGENT_MEMORY_BANK"},
@@ -260,6 +262,19 @@ func TestMemoryValidationNamesTheVariableThatIsWrong(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+// A sandbox reaches memory through a public address that often fronts other things too, so
+// Hindsight may sit under a path of its own there.
+func TestTheSandboxMemoryURLMayCarryAPath(t *testing.T) {
+	cfg := valid(t)
+	cfg.MemoryURL = "http://hindsight:8888"
+	cfg.MemoryTaskURL = DefaultMemoryTaskURL
+	cfg.MemoryBank = DefaultMemoryBank
+	cfg.MemoryAPIKey = "memtoken"
+	cfg.MemorySandboxURL = "https://podium.example.com/memory"
+
+	require.NoError(t, cfg.Validate())
 }
 
 // The memory key is full read/write of every memory the organisation has, so it is one more
