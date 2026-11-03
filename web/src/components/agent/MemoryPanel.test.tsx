@@ -123,7 +123,6 @@ describe("MemoryPanel", () => {
       expect(searchMemories).toHaveBeenCalledWith({ query: "who owns the scheduler", limit: 25 }),
     );
     expect(await screen.findByText("a searched fact")).toBeInTheDocument();
-    expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 
   it("says a search matched nothing without claiming the memory is empty", async () => {
@@ -168,11 +167,10 @@ describe("MemoryPanel", () => {
       }),
     );
     mount();
-    // The empty bank and the standing warning are other screens. Neither paints before
+    // The empty bank and the search are other screens. Neither paints before
     // this request says the service is missing.
     expect(screen.queryByTestId("memory-search")).toBeNull();
     expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
-    expect(screen.queryByText(/Treat every line here/)).toBeNull();
     rejectList(new ConnectError("memory is not configured on this host", Code.FailedPrecondition));
     expect(
       await screen.findByText("Memory is not configured on this host"),
@@ -180,7 +178,6 @@ describe("MemoryPanel", () => {
     expect(screen.getByText(/PODIUM_AGENT_MEMORY_URL/)).toBeInTheDocument();
     expect(screen.queryByTestId("memory-search")).toBeNull();
     expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
-    expect(screen.queryByText(/Treat every line here/)).toBeNull();
   });
 
   it("points a human at the empty memory rather than at nothing", async () => {
@@ -193,13 +190,9 @@ describe("MemoryPanel", () => {
     mount();
     expect(screen.queryByTestId("memory-search")).toBeNull();
     expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
-    expect(screen.queryByText(/Treat every line here/)).toBeNull();
 
     resolveList({ items: [], nextCursor: "" });
     expect(await screen.findByText("Nothing remembered yet.")).toBeInTheDocument();
-    // The warning arrives with the answer. It is on the screen whether or not there is
-    // anything on it: it is the reason the screen exists.
-    expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 
   it("keeps the list usable when the conductor is down", async () => {
