@@ -686,6 +686,90 @@ describe("AgentPage", () => {
     expect(within(globalCard).queryByTestId("provider-key-remove-anthropic")).toBeNull();
   });
 
+  it("lets an admin sign a subscription in for everyone", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...notSet,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+    });
+    startProviderOAuth.mockResolvedValue({
+      flowId: "flow-1",
+      userCode: "WDJB-MJHT",
+      verificationUri: "https://accounts.x.ai/device",
+      verificationUriComplete: "",
+      interval: 5,
+      codePaste: false,
+    });
+    pollProviderOAuth.mockResolvedValue({ state: "pending", interval: 5 });
+    mount("/agent/settings/models", admin);
+
+    await userEvent.click(await screen.findByRole("tab", { name: /Global/ }));
+    const global = await screen.findByTestId("models-global");
+    const card = within(global).getByTestId("provider-card-xai");
+    await userEvent.click(await within(card).findByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
+    await userEvent.click(screen.getByTestId("provider-oauth-start-xai"));
+    await waitFor(() =>
+      expect(startProviderOAuth).toHaveBeenCalledWith({ provider: "xai", global: true }),
+    );
+  });
+
+  it("keeps a global Claude subscription on a row of its own beside the key", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...connected,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+      claudeSubscription: {
+        provider: "anthropic",
+        keySet: true,
+        authKind: "oauth",
+        account: "team@acme.com",
+        refreshable: true,
+        global: true,
+      },
+    });
+    clearProviderKey.mockResolvedValue({});
+    mount("/agent/settings/models", admin);
+
+    // A person with no Anthropic credential of their own chats on the subscription.
+    const yours = await screen.findByTestId("models-yours");
+    expect(
+      await within(yours).findByTestId("provider-fallback-anthropic"),
+    ).toHaveTextContent("Using the global subscription");
+
+    await userEvent.click(screen.getByRole("tab", { name: /Global, 2 connected/ }));
+    const global = await screen.findByTestId("models-global");
+    const sub = within(global).getByTestId("provider-card-claude-subscription");
+    expect(within(sub).getByText("Connected")).toBeInTheDocument();
+    expect(within(sub).getByText(/team@acme\.com/)).toBeInTheDocument();
+    // The key is still its own row, and the Anthropic key row offers no sign-in.
+    const key = within(global).getByTestId("provider-card-anthropic");
+    expect(within(key).getByText(/abcd/)).toBeInTheDocument();
+
+    await userEvent.click(within(sub).getByRole("button", { name: "Sign out" }));
+    expect(screen.getByText(/go back to the global API key/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(clearProviderKey).toHaveBeenCalledWith({
+        provider: "anthropic",
+        global: true,
+        claudeSubscription: true,
+      }),
+    );
+  });
+
   it("keeps the card and warns when the conductor itself is down", async () => {
     getSettings.mockRejectedValue(
       new ConnectError("podium-agent is not reachable", Code.Unavailable),

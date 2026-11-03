@@ -87,6 +87,20 @@ const GoogleKeySecret = "podium.agent.google_api_key"
 // because a provider with more than one candidate variable is not handed its key otherwise.
 const GoogleKeyEnv = "GOOGLE_API_KEY"
 
+// OAuthSecretPrefix is where the conductor keeps the global subscription sign-ins' own
+// secrets: their refresh tokens, and the global Claude subscription's access token. None of
+// them is ever attached to a turn by name, so no playbook may name one.
+const OAuthSecretPrefix = "podium.agent.oauth."
+
+// ClaudeSubscriptionSecret is the global Claude Pro/Max sign-in's access token. It is kept
+// beside AnthropicKeySecret, not in it: only the assistant's chats on the chat host spend a
+// Claude subscription, through Claude Code, and every other Claude turn needs the API key.
+const ClaudeSubscriptionSecret = OAuthSecretPrefix + "anthropic.access_token"
+
+// ClaudeSubscriptionSettingKey is the conductor settings row that describes it, in the shape
+// ProviderSettingKey's rows have.
+const ClaudeSubscriptionSettingKey = "provider.anthropic.subscription"
+
 // OpenAIRefreshSecret is the refresh token of a ChatGPT / Codex sign-in. Same rule as
 // XAIRefreshSecret: reserved, never attached to a turn, never a playbook's to name.
 const OpenAIRefreshSecret = "podium.agent.openai_refresh_token"
@@ -693,6 +707,10 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 			OpenAIKeySecret, OpenAIRefreshSecret, GoogleKeySecret, MemoryKeySecret:
 			errs = append(errs, fmt.Errorf("%s may not name %s: the conductor decides what "+
 				"credential a turn gets, from the agent the playbook runs on", field, ref.Name))
+		}
+		if strings.HasPrefix(ref.Name, OAuthSecretPrefix) {
+			errs = append(errs, fmt.Errorf("%s may not name %s: a subscription sign-in is "+
+				"spent by the conductor, never handed to a task by name", field, ref.Name))
 		}
 		if strings.HasPrefix(ref.Name, GitCapabilityPrefix) {
 			errs = append(errs, fmt.Errorf("%s may not name %s: a turn's authority to mint "+

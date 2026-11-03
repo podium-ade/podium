@@ -1406,6 +1406,21 @@ func (c *Conductor) claudeSignIn(owner string) bool {
 	return owner != "" && c.authKind(profiles.ProviderAnthropic, owner) == "oauth"
 }
 
+// globalClaudeSignIn is whether an admin signed in a Claude subscription for everyone, beside
+// the global Anthropic key. The settings row is what says so, as it is for claudeSignIn.
+func (c *Conductor) globalClaudeSignIn() bool {
+	if c.store == nil {
+		return false
+	}
+	var row struct {
+		AuthKind string `json:"auth_kind"`
+	}
+	if err := c.store.GetSetting(context.Background(), profiles.ClaudeSubscriptionSettingKey, &row); err != nil {
+		return false
+	}
+	return row.AuthKind == "oauth"
+}
+
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
 // reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,10 @@ func chatConductor(t *testing.T) *Conductor {
 	t.Helper()
 	return &Conductor{
 		host: &HostRuntime{Credential: func(_ context.Context, provider string) (string, error) {
+			if provider == claudeAgentProvider {
+				// No Claude subscription is signed in for everyone.
+				return "", errors.New("no Claude subscription is signed in for everyone")
+			}
 			return "real-key-for-" + provider, nil
 		}},
 		chatSlots:   make(chan struct{}, 2),
@@ -257,4 +262,49 @@ func TestClaudeAgentSendsAnAPIKeyAsAnAPIKey(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "real-key-for-anthropic", got.Header.Get("x-api-key"))
 	assert.Empty(t, got.Header.Get("Authorization"))
+}
+
+// With no sign-in of their own, a person's Claude Code chat spends the Claude subscription an
+// admin signed in for everyone; their own sign-in still comes first.
+func TestClaudeAgentSpendsTheGlobalSubscriptionWhenThePersonHasNone(t *testing.T) {
+	var got *http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+	c := chatConductor(t)
+	c.host.Credential = func(_ context.Context, provider string) (string, error) {
+		if provider == claudeAgentProvider {
+			return "sk-ant-oat01-company", nil
+		}
+		return "real-key-for-" + provider, nil
+	}
+	c.host.PersonalCredential = func(_ context.Context, login, _ string) (string, error) {
+		if login == "alice" {
+			return "sk-ant-oat01-alice", nil
+		}
+		return "", nil
+	}
+	gw := httptest.NewServer(c.ChatHostGateway())
+	t.Cleanup(gw.Close)
+
+	send := func(login string) {
+		got = nil
+		cv, err := c.chatConvFor("sess_" + login)
+		require.NoError(t, err)
+		cv.provider, cv.upstream = claudeAgentProvider, upstream.URL
+		cv.turn = &chatTurn{id: "turn_1", login: login}
+		req, _ := http.NewRequest(http.MethodPost, gw.URL+chatGatewayPath+cv.token+"/v1/messages", strings.NewReader("{}"))
+		req.Header.Set("Authorization", "Bearer podium")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.NotNil(t, got)
+	}
+	send("bob")
+	assert.Equal(t, "Bearer sk-ant-oat01-company", got.Header.Get("Authorization"))
+	assert.Empty(t, got.Header.Get("x-api-key"))
+	send("alice")
+	assert.Equal(t, "Bearer sk-ant-oat01-alice", got.Header.Get("Authorization"))
 }
