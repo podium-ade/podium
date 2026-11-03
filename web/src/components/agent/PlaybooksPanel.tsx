@@ -107,7 +107,7 @@ export function PlaybooksPanel() {
 
       <StaleAlert reason={profile.data?.staleReason} />
 
-      {profile.isPending ? <TableSkeleton rows={4} cols={5} /> : null}
+      {profile.isPending ? <TableSkeleton rows={4} cols={6} /> : null}
 
       {!profile.isPending && !profile.isError && all.length === 0 ? (
         <Empty
@@ -156,10 +156,11 @@ export function PlaybooksPanel() {
               }
             />
           ) : (
-            <Table>
+            <Table className="[&_td]:px-2.5 [&_th]:px-2.5">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Playbook</TableHead>
+                  <TableHead>Image</TableHead>
                   <TableHead>Model</TableHead>
                   <TableHead>Runs on</TableHead>
                   <TableHead>Reaches</TableHead>
@@ -174,7 +175,7 @@ export function PlaybooksPanel() {
                     key={`${p.name}:${p.origin}:${p.shadowed}`}
                     data-testid="playbook-row"
                     onClick={(e) => openRow(e, p.name)}
-                    className="cursor-pointer"
+                    className="h-[4.5rem] cursor-pointer"
                   >
                     <TableCell className="max-w-[28rem]">
                       <div className="flex items-center gap-2">
@@ -196,9 +197,11 @@ export function PlaybooksPanel() {
                           {promptHint(p.systemPrompt)}
                         </p>
                       ) : null}
-                      <p className="mt-0.5 truncate font-mono text-2xs text-faint" title={p.image} data-testid="playbook-image">
-                        {p.image}
-                      </p>
+                    </TableCell>
+                    <TableCell className="max-w-56">
+                      <span className="block truncate font-mono text-xs text-muted" title={p.image} data-testid="playbook-image">
+                        {p.image || "-"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       <ModelCell p={p} />

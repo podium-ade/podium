@@ -138,7 +138,7 @@ export function SkillsPanel() {
               }
             />
           ) : (
-            <Table>
+            <Table className="[&_td]:px-2.5 [&_th]:px-2.5">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Skill</TableHead>
@@ -154,7 +154,7 @@ export function SkillsPanel() {
                     key={`${s.name}:${s.origin}:${s.shadowed}`}
                     data-testid="skill-row"
                     onClick={manage ? (e) => openRow(e, s.name) : undefined}
-                    className={manage ? "cursor-pointer" : undefined}
+                    className={manage ? "h-[4.5rem] cursor-pointer" : "h-[4.5rem]"}
                   >
                     <TableCell className="max-w-[32rem]">
                       <div className="flex items-center gap-2">
