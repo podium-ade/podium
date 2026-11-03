@@ -61,7 +61,7 @@ const PERSONAL: { id: PersonalSection; label: string; icon: LucideIcon; sentence
     id: "identity",
     label: "Identity",
     icon: UserRound,
-    sentence: "A personal assistant is a voice on top of Podium. It uses Podium's skills and tools.",
+    sentence: "A personal assistant is a voice on top of Podium. It reaches the same skills and MCP servers Podium does, set on Podium's Reach tab, and runs under Podium's limits.",
   },
   {
     id: "instructions",
@@ -269,7 +269,12 @@ function AssistantList({ voices }: { voices: UseQueryResult<{ personalities: Per
                 badge={<Chip className="px-2 py-0.5">Personal</Chip>}
                 hint={firstLine(p.instructions)}
                 model={<ModelLine agentId={p.agent} model={p.model} fallback="Follows Podium's model" />}
-                reaches={<span className="text-muted">Podium&rsquo;s skills and tools</span>}
+                reaches={
+                  <span className="flex flex-col">
+                    <Reaches skills={podium?.skills?.length ?? 0} servers={podium?.mcpServers?.length ?? 0} />
+                    <span className="text-2xs text-faint">Same as Podium</span>
+                  </span>
+                }
                 updatedAt={p.updatedAt}
               />
             ))}
