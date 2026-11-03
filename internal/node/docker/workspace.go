@@ -28,6 +28,30 @@ type Workspace struct {
 	// not fail the run: the previous snapshot stays the one on record when the upload
 	// itself fails.
 	Save func(ctx context.Context, tarPath string, size int64) error
+	// Image is set on a node whose sandbox provider keeps a directory as an image of its own
+	// (Modal). The session's workspace is then that image, never a tar: the executor mounts
+	// the one Image.Get names in place of Restore, and keeps a new one with Image.Put in
+	// place of Save. Restore still serves a session that has no image yet — a tar from
+	// before, or the repository's base.
+	Image *WorkspaceImage
+	// Snapshot is set inside a sandbox, by the agent, when the node keeps the workspace as a
+	// provider image. It is called where Save would be, and before it.
+	Snapshot func(ctx context.Context) error
+}
+
+// WorkspaceImage is a session's workspace kept as a sandbox provider's image.
+type WorkspaceImage struct {
+	// Provider is the provider that keeps it.
+	Provider string
+	// Get is the image the session resumes from, and the lifetime a new one is given; a
+	// negative ttl is no expiry. found is false when the session has none.
+	Get func(ctx context.Context) (image string, ttl time.Duration, found bool, err error)
+	// Put records the session's new image. An empty image forgets the one it had, which
+	// the provider no longer has. Nil for a read-only task, which stores nothing.
+	Put func(ctx context.Context, image string) error
+	// Base stores a tar of the workspace as the repository's base, which any node restores.
+	// Nil when the task does not publish one.
+	Base func(ctx context.Context, tarPath string, size int64) error
 }
 
 func (e *Executor) restoreWorkspace(ctx context.Context, req Request) error {

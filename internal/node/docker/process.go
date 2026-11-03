@@ -518,6 +518,11 @@ func (p *ProcessExecutor) uid() string {
 // the volume. The tar is the task's own work from an earlier run, so it is extracted as the
 // task's user: an entry that reaches outside /workspace has nowhere it may write.
 func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) error {
+	if req.Workspace != nil && req.Workspace.Snapshot != nil {
+		if err := p.adoptWorkspace(); err != nil {
+			return fmt.Errorf("restore workspace: %w", err)
+		}
+	}
 	if req.Workspace == nil || req.Workspace.Restore == nil {
 		return nil
 	}
@@ -535,10 +540,36 @@ func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) err
 	return nil
 }
 
-func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error {
-	if req.Workspace == nil || req.Workspace.Save == nil {
+// adoptWorkspace gives the task's user whatever in /workspace it does not own. A workspace
+// the provider mounted from an image keeps the owners it was snapshotted with, and the task's
+// account need not have the same uid in this sandbox: another image makes it another. Links
+// are changed, never followed, and nothing past /workspace's own filesystem is touched. With
+// the same uid, as on the same image, there is nothing to change.
+func (p *ProcessExecutor) adoptWorkspace() error {
+	if p.o.User == "" {
 		return nil
 	}
+	return p.privileged("find", workspacePath, "-xdev", "!", "-user", p.o.User,
+		"-exec", "chown", "-h", p.o.User+":"+p.o.User, "{}", "+")
+}
+
+func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error {
+	if req.Workspace == nil {
+		return nil
+	}
+	var snapErr error
+	if req.Workspace.Snapshot != nil {
+		if snapErr = req.Workspace.Snapshot(ctx); snapErr != nil {
+			snapErr = fmt.Errorf("snapshot workspace: %w", snapErr)
+		}
+	}
+	if req.Workspace.Save == nil {
+		return snapErr
+	}
+	return errors.Join(snapErr, p.saveWorkspaceTar(ctx, req))
+}
+
+func (p *ProcessExecutor) saveWorkspaceTar(ctx context.Context, req Request) error {
 	f, err := os.CreateTemp("", "podium-ws-"+req.TaskID+"-*.tar")
 	if err != nil {
 		return err

@@ -162,7 +162,7 @@ func (e *Executor) relay(ctx context.Context, t *task, c *agentClient, req docke
 		err := c.stream(ctx, from, func(f wire.Frame) error {
 			if f.Transfer != nil {
 				if _, dup := served.LoadOrStore(f.Transfer.ID, true); !dup {
-					go e.serveTransfer(ctx, c, req, *f.Transfer)
+					go e.serveTransfer(ctx, t, c, req, *f.Transfer)
 				}
 				return nil
 			}
@@ -294,9 +294,14 @@ func (c *agentClient) stream(ctx context.Context, from uint64, fn func(wire.Fram
 }
 
 // serveTransfer moves one transfer's bytes and answers the agent.
-func (e *Executor) serveTransfer(ctx context.Context, c *agentClient, req docker.Request, tr wire.Transfer) {
+func (e *Executor) serveTransfer(ctx context.Context, t *task, c *agentClient, req docker.Request, tr wire.Transfer) {
 	var res wire.TransferResult
-	err := e.transfer(ctx, c, req, tr, &res)
+	var err error
+	if tr.Kind == wire.TransferWorkspaceSnapshot {
+		err = e.snapshotWorkspace(ctx, t, req)
+	} else {
+		err = e.transfer(ctx, c, req, tr, &res)
+	}
 	if err != nil {
 		res.Error = err.Error()
 		e.log.Warn("transfer failed", "task", req.TaskID, "kind", tr.Kind, "error", err)
@@ -361,6 +366,41 @@ func (e *Executor) transfer(ctx context.Context, c *agentClient, req docker.Requ
 		return req.Workspace.Save(ctx, f.Name(), n)
 	}
 	return fmt.Errorf("unknown transfer kind %q", tr.Kind)
+}
+
+// snapshotWorkspace has the provider keep /workspace as an image, now that the task has
+// exited, and records it as the session's. An adopted run has no workspace hooks, and keeps
+// nothing, as with a tar.
+func (e *Executor) snapshotWorkspace(ctx context.Context, t *task, req docker.Request) error {
+	if req.Workspace == nil || req.Workspace.Image == nil || req.Workspace.Image.Put == nil {
+		return nil
+	}
+	snap, ok := e.p.(sandbox.Snapshotter)
+	if !ok {
+		return fmt.Errorf("provider %s keeps no snapshots of its own", e.p.Name())
+	}
+	img := req.Workspace.Image
+	_, ttl, _, err := img.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("look up the snapshot lifetime: %w", err)
+	}
+	t.mu.Lock()
+	id := t.rec.SandboxID
+	t.mu.Unlock()
+	started := time.Now()
+	image, err := snap.SnapshotDir(ctx, id, workspaceDir, ttl)
+	if err != nil {
+		return err
+	}
+	if err := img.Put(ctx, image); err != nil {
+		// Recorded nowhere, so nothing would ever delete it.
+		if derr := snap.DeleteSnapshot(context.WithoutCancel(ctx), image); derr != nil {
+			e.log.Warn("deleting an unrecorded workspace snapshot failed", "task", req.TaskID, "image", image, "error", derr)
+		}
+		return fmt.Errorf("record the workspace snapshot: %w", err)
+	}
+	e.log.Info("workspace kept as a provider snapshot", "task", req.TaskID, "image", image, "took", time.Since(started))
+	return nil
 }
 
 // resumeAttempts is how many attempts in a row may move no bytes before a broken transfer

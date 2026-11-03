@@ -160,4 +160,47 @@ func (s *Swappable) Limits(ctx context.Context) (Limits, error) {
 	return p.Limits(ctx)
 }
 
-var _ Provider = (*Swappable)(nil)
+// snapshotter is the current provider as a Snapshotter.
+func (s *Swappable) snapshotter(op string) (Snapshotter, error) {
+	p, err := s.current(op)
+	if err != nil {
+		return nil, err
+	}
+	sn, ok := p.(Snapshotter)
+	if !ok {
+		return nil, &Error{Op: op, Code: "unsupported", Err: errors.New("sandbox provider " + s.name + " keeps no snapshots of its own")}
+	}
+	return sn, nil
+}
+
+// SnapshotDir implements Snapshotter.
+func (s *Swappable) SnapshotDir(ctx context.Context, id, path string, ttl time.Duration) (string, error) {
+	sn, err := s.snapshotter("snapshot")
+	if err != nil {
+		return "", err
+	}
+	return sn.SnapshotDir(ctx, id, path, ttl)
+}
+
+// MountSnapshot implements Snapshotter.
+func (s *Swappable) MountSnapshot(ctx context.Context, id, path, image string) error {
+	sn, err := s.snapshotter("mount")
+	if err != nil {
+		return err
+	}
+	return sn.MountSnapshot(ctx, id, path, image)
+}
+
+// DeleteSnapshot implements Snapshotter.
+func (s *Swappable) DeleteSnapshot(ctx context.Context, image string) error {
+	sn, err := s.snapshotter("delete snapshot")
+	if err != nil {
+		return err
+	}
+	return sn.DeleteSnapshot(ctx, image)
+}
+
+var (
+	_ Provider    = (*Swappable)(nil)
+	_ Snapshotter = (*Swappable)(nil)
+)

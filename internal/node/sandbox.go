@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -31,8 +30,7 @@ func (n *Node) applySandboxConfig(ctx context.Context, c *podiumv1.SandboxConfig
 		n.signal()
 		return
 	}
-	cfg := providerSettings(c.GetSettings())
-	cfg["secret"] = string(c.GetSecret())
+	cfg := sandbox.ConfigOf(c.GetSettings(), c.GetSecret())
 	p, err := sandbox.New(c.GetProvider(), cfg)
 	if err != nil {
 		n.sandbox.Disable()
@@ -53,24 +51,6 @@ func (n *Node) applySandboxConfig(ctx context.Context, c *podiumv1.SandboxConfig
 	}
 	n.logger.InfoContext(ctx, "sandbox provider configured by the control plane", "provider", c.GetProvider())
 	n.signal()
-}
-
-// providerSettings turns the control plane's string settings into what a provider's config
-// decodes: a number or a boolean where the text is one, the text otherwise.
-func providerSettings(in map[string]string) map[string]any {
-	out := make(map[string]any, len(in)+1)
-	for k, v := range in {
-		var typed any
-		if err := json.Unmarshal([]byte(v), &typed); err == nil {
-			switch typed.(type) {
-			case float64, bool:
-				out[k] = typed
-				continue
-			}
-		}
-		out[k] = v
-	}
-	return out
 }
 
 // reapTimeout bounds one sandbox deletion; a provider that polls its delete operation can

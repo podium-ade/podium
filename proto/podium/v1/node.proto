@@ -27,6 +27,14 @@ service NodeService {
   // session has never been snapshotted, the repository's base snapshot is sent instead.
   // found is false when neither exists; that is not an error.
   rpc DownloadWorkspaceSnapshot(DownloadWorkspaceSnapshotRequest) returns (stream DownloadWorkspaceSnapshotResponse);
+  // GetSandboxSnapshot is the provider image a session's workspace was last kept as, on a
+  // sandbox provider that snapshots a directory itself (Modal), and how long a new one
+  // should live. found is false when the session has none; that is not an error.
+  rpc GetSandboxSnapshot(GetSandboxSnapshotRequest) returns (GetSandboxSnapshotResponse);
+  // PutSandboxSnapshot records the image a session's workspace is now kept as. The server
+  // deletes the image it replaces, and the session's tar, if it had one. An empty image_id
+  // forgets the session's image: the provider no longer has it.
+  rpc PutSandboxSnapshot(PutSandboxSnapshotRequest) returns (PutSandboxSnapshotResponse);
 }
 
 message EnrollRequest {
@@ -134,6 +142,35 @@ message WorkspaceSnapshotInfo {
   int64 size_bytes = 3;
   string sha256 = 4;
 }
+
+message GetSandboxSnapshotRequest {
+  string node_id = 1;
+  // SENSITIVE: never log.
+  string node_key = 2;
+  string task_id = 3;
+  string session_id = 4;
+  string provider = 5;
+}
+
+message GetSandboxSnapshotResponse {
+  bool found = 1;
+  string image_id = 2;
+  // ttl_seconds is how long the provider should keep a new image: the retention policy's
+  // age with a margin, so the server's sweep deletes it first. -1 is no expiry.
+  int64 ttl_seconds = 3;
+}
+
+message PutSandboxSnapshotRequest {
+  string node_id = 1;
+  // SENSITIVE: never log.
+  string node_key = 2;
+  string task_id = 3;
+  string session_id = 4;
+  string provider = 5;
+  string image_id = 6;
+}
+
+message PutSandboxSnapshotResponse {}
 
 // NodeMessage is everything a node can send on the stream.
 message NodeMessage {

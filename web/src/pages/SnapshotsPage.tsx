@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { Badge } from "../components/Badge";
 import { PageFrame } from "../components/PageHeader";
@@ -19,6 +19,7 @@ import {
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -34,15 +35,122 @@ import { absolute, conversationLabel, humanBytes, relative } from "../lib/format
 import { useViewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
 import { DAY_SECONDS, GIB, sweepPlan, totalBytes, type Policy } from "../lib/snapshots";
+import { SANDBOX_PROVIDERS } from "../lib/sandboxProviders";
+import { SANDBOX_SNAPSHOTS_KEY, SandboxSnapshotsPanel } from "./SandboxSnapshotsPanel";
+import { headCell, MobileLabel } from "./snapshotsShared";
 
 /**
- * The Snapshots screen: the one workspace tar each conversation keeps in the object store,
- * and the policy that deletes old ones. A snapshot is not tied to the node that took it; the
- * next task of the conversation restores it on whichever node runs it.
+ * The Snapshots screen: the workspace each conversation picks up from. On your own nodes and
+ * boat it is one tar per conversation in the object store, restored on whichever node runs
+ * the next task. A provider that keeps a directory as an image of its own (Modal) keeps the
+ * workspaces of the conversations it runs that way instead, and they get a tab of their own.
  */
 export function SnapshotsPage() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+
+  const sandbox = useQuery({
+    queryKey: SANDBOX_SNAPSHOTS_KEY,
+    queryFn: () => snapshots.listSandboxSnapshots({}),
+    placeholderData: (prev) => prev,
+  });
+  // Best effort: a snapshot is keyed by the conductor's session id, and the conductor is
+  // what knows where that conversation happened. Without one the id is shown as it is.
+  const sessions = useQuery({
+    queryKey: ["agent", "sessions", "snapshots"],
+    queryFn: () => agent.listSessions({ page: { limit: 500 } }),
+    enabled: viewer?.agentEnabled === true,
+  });
+  const sessionByID = useMemo(() => {
+    const m = new Map<string, Session>();
+    for (const s of sessions.data?.sessions ?? []) m.set(s.id, s);
+    return m;
+  }, [sessions.data]);
+
+  useEffect(() => {
+    if (sandbox.error) toast(`ListSandboxSnapshots: ${errorMessage(sandbox.error)}`);
+  }, [sandbox.error, toast]);
+
+  // A tab for every provider that is configured to keep images, and for any that still has
+  // some from before it was removed.
+  const providers = useMemo(() => {
+    const names = new Set(sandbox.data?.providers ?? []);
+    for (const s of sandbox.data?.snapshots ?? []) names.add(s.provider);
+    return [...names].sort();
+  }, [sandbox.data]);
+  const tab = providers.includes(params.get("tab") ?? "") ? (params.get("tab") as string) : "nodes";
+
+  const lead =
+    "The workspace each conversation picks up from. Podium keeps one per conversation and restores it wherever the next task runs.";
+
+  if (providers.length === 0) {
+    return (
+      <PageFrame title="Snapshots" bodyClassName="space-y-5 p-6" lead={lead}>
+        <NodeSnapshots manage={manage} sessions={sessionByID} />
+      </PageFrame>
+    );
+  }
+  return (
+    <PageFrame title="Snapshots" bodyClassName="p-6" lead={lead}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          setParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              if (v === "nodes") next.delete("tab");
+              else next.set("tab", v);
+              return next;
+            },
+            { replace: true },
+          )
+        }
+      >
+        <TabsList aria-label="Where the snapshots are kept">
+          <TabsTrigger value="nodes">Nodes</TabsTrigger>
+          {providers.map((p) => (
+            <TabsTrigger key={p} value={p}>
+              {providerName(p)}
+              {sandbox.data ? (
+                <span className="text-xs font-normal text-muted tabular">
+                  {sandbox.data.snapshots.filter((s) => s.provider === p).length}
+                </span>
+              ) : null}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="nodes" className="space-y-5 pt-5">
+          <NodeSnapshots manage={manage} sessions={sessionByID} />
+        </TabsContent>
+        {providers.map((p) => (
+          <TabsContent key={p} value={p} className="pt-5">
+            <SandboxSnapshotsPanel
+              provider={p}
+              label={providerName(p)}
+              data={sandbox.data}
+              pending={sandbox.isPending}
+              error={sandbox.error}
+              sessions={sessionByID}
+              manage={manage}
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
+    </PageFrame>
+  );
+}
+
+function providerName(name: string): string {
+  return SANDBOX_PROVIDERS.find((p) => p.name === name)?.label ?? name;
+}
+
+/**
+ * The object store's tars: one per conversation that runs on your own nodes or on a provider
+ * that keeps no images of its own, and the policy that deletes old ones.
+ */
+function NodeSnapshots({ manage: canManage, sessions: sessionByID }: { manage: boolean; sessions: Map<string, Session> }) {
   const toast = useToast();
   const [deleting, setDeleting] = useState<Snapshot>();
 
@@ -52,13 +160,6 @@ export function SnapshotsPage() {
     placeholderData: (prev) => prev,
   });
   const nodes = useQuery({ queryKey: ["nodes"], queryFn: () => admin.listNodes({}) });
-  // Best effort: a snapshot is keyed by the conductor's session id, and the conductor is
-  // what knows where that conversation happened. Without one the id is shown as it is.
-  const sessions = useQuery({
-    queryKey: ["agent", "sessions", "snapshots"],
-    queryFn: () => agent.listSessions({ page: { limit: 500 } }),
-    enabled: viewer?.agentEnabled === true,
-  });
 
   useEffect(() => {
     if (query.error) toast(`ListSnapshots: ${errorMessage(query.error)}`);
@@ -70,11 +171,6 @@ export function SnapshotsPage() {
     for (const n of nodes.data?.nodes ?? []) m.set(n.id, n.name);
     return m;
   }, [nodes.data]);
-  const sessionByID = useMemo(() => {
-    const m = new Map<string, Session>();
-    for (const s of sessions.data?.sessions ?? []) m.set(s.id, s);
-    return m;
-  }, [sessions.data]);
 
   const saved = query.data?.retention;
   const [draft, setDraft] = useState<Draft>();
@@ -84,15 +180,12 @@ export function SnapshotsPage() {
   const dirty = draft !== undefined && !samePolicy(policy, policyFrom(draftFrom(saved)));
 
   const enabled = query.data?.enabled ?? true;
+  const manage = canManage;
   const showTable = !query.isPending && query.error === null;
   const total = totalBytes(rows);
 
   return (
-    <PageFrame
-      title="Snapshots"
-      bodyClassName="space-y-5 p-6"
-      lead="The workspace each conversation picks up from. Podium keeps one per conversation in the object store and restores it on whichever node runs the next task."
-    >
+    <>
       {!enabled ? (
         <Alert variant="warn" title="This server has no object store configured">
           Without one nothing is stored, and every task starts from an empty workspace. Set{" "}
@@ -182,7 +275,7 @@ export function SnapshotsPage() {
           onOpenChange={(open) => !open && setDeleting(undefined)}
         />
       ) : null}
-    </PageFrame>
+    </>
   );
 }
 
@@ -481,10 +574,6 @@ function DeleteSnapshotDialog({
   );
 }
 
-/** Design table head: 12px, weight 750, muted, uppercase, 0.08em tracking, 12×16 padding. */
-const headCell =
-  "px-4 py-3 text-xs font-[750] leading-[normal] tracking-[0.08em] text-muted uppercase";
-
 function SnapshotsEmpty() {
   return (
     <div className="grid min-h-60 content-center justify-items-center gap-3 px-6 py-12 text-center">
@@ -496,21 +585,13 @@ function SnapshotsEmpty() {
       </span>
       <h3 className="text-lg font-bold">No snapshots yet</h3>
       <p className="m-0 max-w-[58ch] text-soft">
-        A conversation stores one when its first task exits, on your own nodes or on sandbox
-        nodes.
+        A conversation stores one when its first task exits, on your own nodes or on boat.
       </p>
       <p className="m-0 max-w-[58ch] text-sm text-muted">
-        Not listed here: host turns and one-shot tasks, which keep no workspace, and snapshots
-        made by a sandbox provider itself, such as a boat named snapshot or a Modal image.
+        Not listed here: host turns and one-shot tasks, which keep no workspace; conversations on
+        Modal, which keeps their workspaces itself and has a tab of its own; and images a task
+        starts from, such as a boat named snapshot.
       </p>
     </div>
-  );
-}
-
-function MobileLabel({ children }: { children: string }) {
-  return (
-    <span className="mb-1 hidden text-xs font-bold tracking-[0.08em] text-muted uppercase max-[600px]:block">
-      {children}
-    </span>
   );
 }

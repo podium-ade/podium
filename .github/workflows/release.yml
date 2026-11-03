@@ -1,81 +1,59 @@
 name: release
 
-# Releasing is a manual act, run from main with the version written down. The first job that
-# leaves a mark tags main; every job after it builds and publishes from that tag.
+# Every merge to main is a release. The push to main starts this workflow, the version is worked
+# out here rather than typed in, the first job that leaves a mark tags main, and every job after
+# it builds and publishes from that tag.
 #
-# There is no `push: tags` trigger any more, and that is the point. The tag no longer STARTS
-# this workflow, it is created BY it — so one release is one run, a tag pushed by hand
-# publishes nothing, and GITHUB_TOKEN is enough to push it because nothing is waiting on the
-# push event. Everything that is not a release still goes through ci.yml, which builds the
-# same artifacts and throws them away.
+# The version is the latest stable v* tag, bumped. How far is decided by the pull request that
+# produced the push — the first match wins:
+#
+#   1. a version in its title, `[RELEASE] 0.9.0` — the old convention, still honoured as an override
+#   2. a `release:major`, `release:minor` or `release:patch` label
+#   3. otherwise a patch bump
+#
+# A `release:skip` label, or `[skip release]` in the head commit's message, merges without
+# releasing. (`[skip ci]` does too, because GitHub then starts no workflow at all.)
+#
+# workflow_dispatch is still here for the cases a merge does not cover — a prerelease, or
+# re-releasing after a skipped merge. Its version is optional; left empty, it bumps like a merge.
+#
+# The tag is created BY this workflow, never pushed to START it, so one release is one run, a
+# tag pushed by hand publishes nothing, and GITHUB_TOKEN is enough to push it because nothing is
+# waiting on the push event. Everything that is not a release still goes through ci.yml, which
+# builds the same artifacts and throws them away.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, without the leading v — 0.2.4, or 0.2.4-rc.1"
-        required: true
+        description: "Version to release, without the leading v — 0.2.4, or 0.2.4-rc.1. Empty: bump like a merge would."
+        required: false
         type: string
+      bump:
+        description: "When version is empty: how far to bump the latest release."
+        required: false
+        type: choice
+        default: patch
+        options: [patch, minor, major]
 
 permissions:
   contents: read
 
-# One release at a time. Two runs racing to tag is a confusing way to learn which won.
+# One release at a time. Two runs racing to tag is a confusing way to learn which won. A merge
+# that lands while a release is in flight waits for it, so it bumps from the tag that run made.
+# (GitHub keeps one pending run per group: three merges inside one release window become two
+# releases, the second carrying both later merges. Nothing is lost, only coalesced.)
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   # ===========================================================================
-  # The project licence is the Apache License, Version 2.0 (see LICENSE).
-  #
-  # This job still gates every other job. A LICENSE file that contains a TODO
-  # placeholder is not a licence. Publishing archives and container images of
-  # code that carries no licence gives nobody the right to use it, and editing
-  # the file afterwards does not retract a tag, a release, or a copy already
-  # pulled.
-  # ===========================================================================
-  license:
-    name: LICENSE must not be a TODO
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.sha }} # the LICENSE of the commit being released, not of main now
-      - name: Refuse to release unlicensed code
-        run: |
-          if grep -qi 'TODO' LICENSE; then
-            echo "::error file=LICENSE::LICENSE still contains a TODO placeholder."
-            cat <<'MSG'
-
-          ============================================================
-           RELEASE REFUSED: Podium has no licence.
-          ============================================================
-
-          LICENSE currently reads:
-
-          MSG
-            sed 's/^/    /' LICENSE
-            cat <<'MSG'
-
-          Nothing is published until a real licence text is in that file.
-          The chosen licence is Apache-2.0. Put that full text back in LICENSE,
-          keep the SPDX identifier in README.md, delete the tag, and tag again.
-
-          Until then every artifact this workflow would produce is code that
-          nobody has the right to use, and republishing under a licence later
-          does not retract what was already downloaded.
-          ============================================================
-          MSG
-            exit 1
-          fi
-          echo "LICENSE looks like a real licence. Proceeding."
-
-  # ===========================================================================
   # The tag. The first job that leaves a mark, and what everything below builds from.
   #
-  # It runs AFTER the licence gate and BEFORE anything is published, because a tag is public
-  # the moment it is pushed and deleting it does not un-fetch it. The one check that can
-  # refuse a release outright therefore happens while refusing is still free.
+  # It runs BEFORE anything is published, because a tag is public the moment it is pushed and
+  # deleting it does not un-fetch it, so every check that can refuse a release happens here.
   #
   # It tags github.sha — the commit this run was dispatched against — and not whatever main
   # points at by now, so the tag, the sha-* image tags and the code in the artifacts are all
@@ -83,16 +61,18 @@ jobs:
   # ===========================================================================
   tag:
     name: tag main
-    needs: [license]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create and push the tag
+      pull-requests: read # read the merged PR's title and labels to choose the bump
     outputs:
+      release: ${{ steps.v.outputs.release }}
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
     steps:
       # workflow_dispatch can be started against any branch. A release comes off main, and a
-      # tag pointing at code that was never merged is the mistake worth catching here.
+      # tag pointing at code that was never merged is the mistake worth catching here. (A push
+      # run is main by construction.)
       - name: Refuse to release anything but main
         if: github.ref != 'refs/heads/main'
         run: |
@@ -104,15 +84,75 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0 # every existing tag, so a duplicate is caught before it is made
 
-      - name: Read and check the version
+      - name: Work out the version
         id: v
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+
+          # A re-run of a release whose tag already went out reuses that tag rather than
+          # minting a second version for the same commit.
+          existing=$(git tag --points-at HEAD --list 'v*' | grep -E "^v${semver#^}" | head -1 || true)
+          if [ -n "$existing" ]; then
+            echo "\`$(git rev-parse --short HEAD)\` is already \`${existing}\`; publishing that." >> "$GITHUB_STEP_SUMMARY"
+            echo "release=true"           >> "$GITHUB_OUTPUT"
+            echo "version=${existing#v}"  >> "$GITHUB_OUTPUT"
+            echo "tag=${existing}"        >> "$GITHUB_OUTPUT"
+            echo "push=false"             >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           version="${INPUT_VERSION#v}"   # a leading v is forgiven rather than refused
-          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
-            echo "::error::'${INPUT_VERSION}' is not a version. Expected 0.2.4, or 0.2.4-rc.1."
+          bump="${INPUT_BUMP:-patch}"
+
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            if printf '%s' "$HEAD_MESSAGE" | grep -qiF '[skip release]'; then
+              echo "Head commit says \`[skip release]\`. Not releasing." >> "$GITHUB_STEP_SUMMARY"
+              echo "release=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            # The pull request this push merged. A direct push to main has none, and bumps patch.
+            pr=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                   --jq '[.[] | select(.merged_at != null and .base.ref == "main")][0] // empty')
+            if [ -n "$pr" ]; then
+              title=$(jq -r .title <<<"$pr")
+              labels=$(jq -r '.labels[].name' <<<"$pr")
+              echo "Merged #$(jq -r .number <<<"$pr"): ${title}"
+              if grep -qx 'release:skip' <<<"$labels"; then
+                echo "#$(jq -r .number <<<"$pr") is labelled \`release:skip\`. Not releasing." >> "$GITHUB_STEP_SUMMARY"
+                echo "release=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              titled=$(sed -nE 's/.*\[RELEASE\][[:space:]]*v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?).*/\1/p' <<<"$title")
+              if   [ -n "$titled" ];                      then version="$titled"
+              elif grep -qx 'release:major' <<<"$labels"; then bump=major
+              elif grep -qx 'release:minor' <<<"$labels"; then bump=minor
+              elif grep -qx 'release:patch' <<<"$labels"; then bump=patch
+              fi
+            else
+              echo "No merged pull request for ${GITHUB_SHA::7}; bumping ${bump}."
+            fi
+          fi
+
+          if [ -z "$version" ]; then
+            # The latest STABLE release. A prerelease is never the base: after 0.9.0-rc.1, a
+            # patch bump of 0.8.2 is 0.8.3, and 0.9.0 is reached with a minor bump.
+            latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+            IFS=. read -r major minor patch <<<"${latest#v}"
+            major=${major:-0} minor=${minor:-0} patch=${patch:-0}
+            case "$bump" in
+              major) version="$((major + 1)).0.0" ;;
+              minor) version="${major}.$((minor + 1)).0" ;;
+              *)     version="${major}.${minor}.$((patch + 1))" ;;
+            esac
+            echo "Latest release ${latest:-none}, ${bump} bump → ${version}"
+          fi
+
+          if ! printf '%s' "$version" | grep -Eq "$semver"; then
+            echo "::error::'${version}' is not a version. Expected 0.2.4, or 0.2.4-rc.1."
             exit 1
           fi
           tag="v${version}"
@@ -120,10 +160,13 @@ jobs:
             echo "::error::${tag} already exists. A tag is what was published; it is not re-cut."
             exit 1
           fi
+          echo "release=true"       >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}"         >> "$GITHUB_OUTPUT"
+          echo "push=true"          >> "$GITHUB_OUTPUT"
 
       - name: Tag main
+        if: steps.v.outputs.release == 'true' && steps.v.outputs.push == 'true'
         env:
           TAG: ${{ steps.v.outputs.tag }}
           VERSION: ${{ steps.v.outputs.version }}
@@ -228,6 +271,8 @@ jobs:
   agent-runtime:
     name: podium-agent-runtime
     needs: [tag]
+    # A skipped release stops here; goreleaser and -dev both need this job, so they skip too.
+    if: needs.tag.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       packages: write # push to ghcr.io

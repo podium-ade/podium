@@ -180,6 +180,24 @@ These exist because a developer's Docker engine is shared with the rest of their
   locally and say that you did. Neither is `make build` with a real UI — the release snapshot is
   the only job that links `web/dist` into the binaries.
 
+## Releasing
+
+Every merge to `main` is a release: `.github/workflows/release.yml` runs on the push, tags
+`main`, and publishes the archives and images. Nobody types a version. It is the latest stable
+`v*` tag, bumped by the pull request that was merged — first match wins:
+
+| On the PR | Release |
+|---|---|
+| a version in the title, `[RELEASE] 0.9.0` | exactly that version |
+| the `release:major` label | `1.0.0` from `0.8.2` |
+| the `release:minor` label | `0.9.0` from `0.8.2` |
+| the `release:patch` label, or nothing | `0.8.3` from `0.8.2` |
+| the `release:skip` label, or `[skip release]` in the merge commit | no release |
+
+A prerelease (`0.9.0-rc.1`) is cut by dispatching the workflow on `main` with the version
+filled in. Leave the version empty and the dispatch bumps like a merge (choose patch, minor or
+major).
+
 ## Known flake
 
 There are none currently outstanding. `TestNodeRestartAdoptsItsContainers` used to duplicate one
