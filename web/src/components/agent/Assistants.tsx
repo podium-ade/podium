@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Cpu, MessageSquare, UserRound } from "lucide-react";
+import { Cpu, MessageSquare, MessageSquarePlus, Plus, Trash2, UserRound } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Personality } from "../../gen/podium/agent/v1/agent_pb";
@@ -10,6 +10,7 @@ import {
   draftFromProfile,
   viewFromProfile,
   type AssistantSection,
+  listSections,
 } from "../../lib/assistantProfile";
 import type { AgentChoice } from "../../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -26,10 +27,21 @@ import {
 import { canManageInfra } from "../../lib/rbac";
 import { cn } from "../../lib/utils";
 import { AgentPicker } from "./AgentPicker";
-import { PodiumEditor } from "./AssistantProfile";
+import { ModelLine, PodiumEditor } from "./AssistantProfile";
+import {
+  AssistantPanel,
+  AssistantTile,
+  Issue,
+  PanelBody,
+  PanelHeader,
+  Row,
+  SaveBar,
+  ScopeBar,
+  SectionTabs,
+  type AssistantTab,
+} from "./AssistantPanel";
 import { ConductorDown } from "./ConductorDown";
-import { FormActions, SectionLead } from "./FormActions";
-import { SettingsSectionNav, type SettingsSection } from "./SettingsSections";
+import { Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
@@ -44,7 +56,6 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 
 const PERSONAL_SECTIONS = ["identity", "instructions", "model"] as const;
@@ -112,6 +123,9 @@ function parseAssistantsPath(splat: string): AssistantsRoute {
 /**
  * Assistants is where a person defines a voice, and where an owner maintains Podium.
  * Chat is where they talk. This screen does not start a turn.
+ *
+ * The roster is on the left and the open assistant is one panel on the right, drawn in the
+ * same parts as MCP, Secrets and Models.
  */
 export function Assistants() {
   const viewer = useViewer();
@@ -135,10 +149,21 @@ export function Assistants() {
     <PageFrame
       title="Assistants"
       lead="The assistants people can talk to, and the personality and job each one has."
+      actions={
+        // With none of your own yet, the roster's own New card is the way in.
+        route.kind === "new" || voices.isPending || personalities.length === 0 ? null : (
+          <Button size="sm" asChild data-testid="assistant-new">
+            <Link to="/agent/assistants/new" aria-label="New assistant">
+              <Plus />
+              <span className="hidden sm:inline">New assistant</span>
+            </Link>
+          </Button>
+        )
+      }
     >
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-        <VoiceList route={route} personalities={personalities} loading={voices.isPending} />
-        <div className="min-w-0 flex-1">
+      <div className="grid gap-5 lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start">
+        <Roster route={route} personalities={personalities} loading={voices.isPending} />
+        <div className="min-w-0">
           {route.kind === "podium" ? (
             <PodiumEditor section={route.section} readOnly={readOnly} />
           ) : down ? (
@@ -162,7 +187,12 @@ export function Assistants() {
   );
 }
 
-function VoiceList({
+/**
+ * Roster is every assistant this person can open: Podium first, then their own voices. Each
+ * card says what it runs on and how it starts, so the list answers "which one was that"
+ * without opening each. A narrow window scrolls the cards sideways above the panel.
+ */
+function Roster({
   route,
   personalities,
   loading,
@@ -171,58 +201,133 @@ function VoiceList({
   personalities: Personality[];
   loading: boolean;
 }) {
-  const podium = route.kind === "podium";
+  const profile = useQuery({
+    queryKey: ["agent", "profile"],
+    queryFn: () => agent.getProfile({}),
+    staleTime: 30_000,
+  });
+  const podium = profile.data?.profile;
+  const sorted = [...personalities].sort(comparePersonalities);
+  // The draft card shows while one is being written, and as the way in when there are none.
+  const showNew = route.kind === "new" || (!loading && sorted.length === 0);
+
   return (
-    <nav
-      aria-label="Assistants"
-      className="border-b border-border pb-3 sm:sticky sm:top-0 sm:w-48 sm:shrink-0 sm:self-start sm:border-r sm:border-b-0 sm:pr-6 sm:pb-0"
-    >
-      <ul className="flex flex-col gap-0.5">
-        <li>
-          <RowLink to="/agent/assistants" open={podium}>
-            <span className="min-w-0 flex-1 truncate">Podium</span>
-            <span className="shrink-0 text-2xs text-muted">Built-in</span>
-          </RowLink>
+    <nav aria-label="Assistants" className="min-w-0 lg:sticky lg:top-0">
+      <ul className="-mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 sm:scroll-px-6 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
+        <li className="w-72 shrink-0 snap-start lg:w-auto">
+          <RosterCard
+            to="/agent/assistants"
+            open={route.kind === "podium"}
+            tile={<AssistantTile kind="podium" />}
+            name={podium?.displayName || "Podium"}
+            badge={<Chip className="px-2 py-0.5">Built-in</Chip>}
+            model={<ModelLine agentId={podium?.agent ?? ""} model={podium?.model ?? ""} fallback="Reading…" />}
+            hint={firstLine(podium?.systemPrompt ?? "")}
+          />
         </li>
         {loading
           ? Array.from({ length: 2 }, (_, i) => (
-              <li key={i} className="flex h-8 items-center px-2.5" aria-hidden>
-                <Skeleton className="h-3.5 w-24" />
+              <li key={i} className="w-72 shrink-0 lg:w-auto" aria-hidden>
+                <div className="flex items-start gap-3 rounded-lg border border-border bg-panel p-3">
+                  <Skeleton className="size-10 rounded-sm" />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </div>
               </li>
             ))
-          : [...personalities].sort(comparePersonalities).map((p) => (
-              <li key={p.id}>
-                <RowLink to={`/agent/assistants/${p.id}`} open={route.kind === "one" && route.id === p.id}>
-                  <span className="min-w-0 flex-1 truncate" title={p.displayName}>
-                    {p.displayName || p.name}
-                  </span>
-                </RowLink>
+          : sorted.map((p) => (
+              <li key={p.id} className="w-72 shrink-0 snap-start lg:w-auto">
+                <RosterCard
+                  to={`/agent/assistants/${p.id}`}
+                  open={route.kind === "one" && route.id === p.id}
+                  tile={<AssistantTile kind="personal" name={p.displayName || p.name} seed={p.id} />}
+                  name={p.displayName || p.name}
+                  model={<ModelLine agentId={p.agent} model={p.model} fallback="Follows Podium's model" />}
+                  hint={firstLine(p.instructions)}
+                />
               </li>
             ))}
-        <li>
-          <RowLink to="/agent/assistants/new" open={route.kind === "new"}>
-            New
-          </RowLink>
-        </li>
+        {showNew ? (
+          <li className="w-72 shrink-0 snap-start lg:w-auto">
+            <RosterCard
+              to="/agent/assistants/new"
+              open={route.kind === "new"}
+              dashed
+              tile={<AssistantTile kind="new" />}
+              name="New assistant"
+              model={<span>A voice of your own on top of Podium</span>}
+            />
+          </li>
+        ) : null}
       </ul>
     </nav>
   );
 }
 
-function RowLink({ to, open, children }: { to: string; open: boolean; children: ReactNode }) {
+function RosterCard({
+  to,
+  open,
+  tile,
+  name,
+  badge,
+  model,
+  hint,
+  dashed = false,
+}: {
+  to: string;
+  open: boolean;
+  tile: ReactNode;
+  name: string;
+  badge?: ReactNode;
+  model: ReactNode;
+  hint?: string;
+  dashed?: boolean;
+}) {
+  const nameId = useId();
+  const detailId = useId();
   return (
     <Link
       to={to}
       aria-current={open ? "page" : undefined}
+      aria-labelledby={nameId}
+      aria-describedby={detailId}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-md px-2.5 text-sm transition-colors duration-150",
-        "outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        open ? "bg-raised font-medium text-fg shadow-xs" : "text-muted hover:bg-panel hover:text-fg",
+        "group flex h-full items-start gap-3 rounded-lg border p-3 transition-[background-color,border-color,box-shadow] duration-150 ease-out",
+        "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+        open
+          ? "border-accent bg-panel shadow-[inset_0_0_0_1px_var(--color-accent),0_1px_3px_rgb(25_35_45/0.08)]"
+          : dashed
+            ? "border-dashed border-line-strong bg-transparent hover:bg-panel"
+            : "border-border bg-panel hover:border-line-strong hover:bg-raised",
       )}
     >
-      {children}
+      {tile}
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-2">
+          <span id={nameId} className="min-w-0 truncate text-base font-bold text-fg" title={name}>
+            {name}
+          </span>
+          {badge}
+        </span>
+        <span id={detailId} className="block">
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">{model}</span>
+          {hint ? <span className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">{hint}</span> : null}
+        </span>
+      </span>
     </Link>
   );
+}
+
+/** The first line of a prompt that is prose, for a card that has room for a sentence. */
+function firstLine(text: string): string {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    return line.length > 140 ? `${line.slice(0, 140)}…` : line;
+  }
+  return "";
 }
 
 function OpenPersonality({
@@ -236,7 +341,18 @@ function OpenPersonality({
 }) {
   const row = personalities.find((p) => p.id === id);
   if (!row) {
-    return <p className="text-sm leading-relaxed text-muted">That assistant is not yours, or it was deleted.</p>;
+    return (
+      <Empty
+        icon={UserRound}
+        title="That assistant is not here"
+        hint="It belongs to someone else, or it was deleted."
+        action={
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/agent/assistants">Open Podium</Link>
+          </Button>
+        }
+      />
+    );
   }
   return <PersonalityEditor personality={row} section={section} />;
 }
@@ -276,7 +392,7 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
   const ready = canSavePersonality(draft, saved);
   const base = id ? `/agent/assistants/${id}` : "/agent/assistants/new";
   const sentence = PERSONAL.find((item) => item.id === section)?.sentence;
-  const nav: SettingsSection[] = PERSONAL.map((item) => ({
+  const tabs: AssistantTab[] = PERSONAL.map((item) => ({
     id: item.id,
     label: item.label,
     icon: item.icon,
@@ -287,6 +403,8 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
           ? draft.instructions.trim() !== saved.instructions.trim()
           : personalityModelDirty(draft, saved),
   }));
+  const dirty = tabs.filter((t) => t.unsaved).map((t) => t.label);
+  const title = cleanDisplay(draft.displayName) || cleanDisplay(saved.displayName) || "New assistant";
 
   const remember = (row: Personality) => {
     qc.setQueryData(["agent", "personalities"], (current: { personalities: Personality[] } | undefined) => {
@@ -339,71 +457,106 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
     save.mutate();
   };
 
+  const status = !id
+    ? ready
+      ? "Not saved yet. Save to add it to Chat."
+      : "Not saved yet. Give it a display name to save it."
+    : dirty.length > 0
+      ? `Unsaved changes in ${listSections(dirty)}`
+      : "Saved. Chat uses it on the next turn.";
+
   return (
-    <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-      <SettingsSectionNav
-        label="Assistant"
-        sections={nav}
-        current={section}
-        href={(item) => personalSectionHref(base, item)}
+    <AssistantPanel label={title}>
+      <PanelHeader
+        tile={<AssistantTile kind={id ? "personal" : "new"} name={title === "New assistant" ? "" : title} seed={id} size="detail" />}
+        title={title}
+        chips={<Chip>{id ? "Personal" : "Draft"}</Chip>}
+        subtitle={<ModelLine agentId={draft.agent} model={draft.model} fallback="Follows Podium's model" />}
+        actions={
+          id ? (
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/agent/chat/a/${id}`}>
+                  <MessageSquarePlus />
+                  Talk to it
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-err hover:bg-err-bg"
+                onClick={() => setAskDelete(true)}
+              >
+                <Trash2 />
+                Delete
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/agent/assistants">Cancel</Link>
+            </Button>
+          )
+        }
       />
+      <SectionTabs tabs={tabs} current={section} href={(item) => personalSectionHref(base, item)} />
       <form
         id="personality-form"
-        className="min-w-0 max-w-3xl flex-1"
+        className="min-w-0"
         onSubmit={(e) => {
           e.preventDefault();
           commit();
         }}
       >
-      {sentence ? <SectionLead>{sentence}</SectionLead> : null}
-      <div hidden={section !== "identity"}>
-        <Field id="personality-display" label="Display name" hint="What it is called in its chats.">
-          <Input
-            id="personality-display"
-            value={draft.displayName}
-            onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
-            className="h-8 max-w-sm"
-            autoComplete="off"
-            aria-invalid={issues.has("display-name") && cleanDisplay(draft.displayName) !== ""}
-          />
-          <FieldNote text={displayNote(draft)} />
-        </Field>
-      </div>
-      <div hidden={section !== "instructions"}>
-        <Field id="personality-instructions" label="Instructions">
-          <Textarea
+        {sentence ? <ScopeBar>{sentence}</ScopeBar> : null}
+        <PanelBody hidden={section !== "identity"}>
+          <Row id="personality-display" label="Display name" hint="What it is called in its chats, and on its card here.">
+            <Input
+              id="personality-display"
+              value={draft.displayName}
+              onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
+              className="max-w-md"
+              autoComplete="off"
+              aria-invalid={issues.has("display-name") && cleanDisplay(draft.displayName) !== ""}
+            />
+            <FieldNote text={displayNote(draft)} />
+          </Row>
+        </PanelBody>
+        <PanelBody hidden={section !== "instructions"}>
+          <Row
             id="personality-instructions"
-            value={draft.instructions}
-            onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-            className="min-h-40"
-            spellCheck
-            aria-invalid={issues.has("instructions") && draft.instructions.trim() !== ""}
+            label="Instructions"
+            hint={
+              <>
+                How this voice talks and what it cares about.{" "}
+                <span className="tabular-nums">{draft.instructions.trim().length.toLocaleString()} of 4,000 characters.</span>
+              </>
+            }
+          >
+            <Textarea
+              id="personality-instructions"
+              value={draft.instructions}
+              onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
+              className="min-h-64 leading-relaxed"
+              spellCheck
+              aria-invalid={issues.has("instructions") && draft.instructions.trim() !== ""}
+            />
+            <FieldNote text={instructionsNote(draft)} />
+          </Row>
+        </PanelBody>
+        <PanelBody hidden={section !== "model"}>
+          <VoiceModel
+            value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
+            onChange={(next) => setDraft({ ...draft, ...next })}
           />
-          <FieldNote text={instructionsNote(draft)} />
-        </Field>
-      </div>
-      <div hidden={section !== "model"}>
-        <VoiceModel
-          value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
-          onChange={(next) => setDraft({ ...draft, ...next })}
-        />
-      </div>
+        </PanelBody>
 
-      <FormActions>
-        <Button type="submit" size="sm" disabled={!ready || save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
-        </Button>
-        {id ? (
-          <>
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/agent/chat/a/${id}`}>Talk to it</Link>
-            </Button>
-            <Button type="button" variant="danger" size="sm" onClick={() => setAskDelete(true)}>
-              Delete
-            </Button>
-          </>
-        ) : null}
-      </FormActions>
+        <SaveBar dirty={dirty.length > 0 || !id} status={status}>
+          <Button type="submit" disabled={!ready || save.isPending}>
+            {save.isPending ? "Saving…" : "Save"}
+          </Button>
+        </SaveBar>
+      </form>
 
       <Dialog open={askDelete} onOpenChange={setAskDelete}>
         <DialogContent>
@@ -429,8 +582,7 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      </form>
-    </div>
+    </AssistantPanel>
   );
 }
 
@@ -447,8 +599,9 @@ function VoiceModel({ value, onChange }: { value: AgentChoice; onChange: (next: 
   const inherited = view ? { agent: view.agent, model: view.model, effort: view.effort } : undefined;
 
   return (
-    <Field label="Model">
+    <Row label="Model" hint="Leave it on Podium's model and it changes when Podium's does.">
       {view ? (
+        <div className="max-w-md">
         <AgentPicker
           label="Assistant"
           agents={agents}
@@ -458,44 +611,19 @@ function VoiceModel({ value, onChange }: { value: AgentChoice; onChange: (next: 
           inherit={{ label: "Podium's model", hint: view.model }}
           inherited={inherited}
         />
+        </div>
       ) : profile.isError ? (
         <p className="text-sm leading-relaxed text-muted">Podium's model could not be read.</p>
       ) : (
-        <Skeleton className="h-9 w-full max-w-sm" />
+        <Skeleton className="h-11 w-full max-w-md" />
       )}
-    </Field>
-  );
-}
-
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id?: string;
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="grid gap-x-8 gap-y-2 border-t border-border py-5 sm:grid-cols-[12rem_minmax(0,1fr)]">
-      <div className="space-y-1">
-        {id ? (
-          <Label htmlFor={id}>{label}</Label>
-        ) : (
-          <p className="text-xs font-medium text-muted">{label}</p>
-        )}
-        {hint ? <p className="text-xs leading-relaxed text-muted">{hint}</p> : null}
-      </div>
-      <div className="min-w-0 space-y-2">{children}</div>
-    </div>
+    </Row>
   );
 }
 
 function FieldNote({ text }: { text: string | null }) {
   if (!text) return null;
-  return <p className="text-xs text-err">{text}</p>;
+  return <Issue>{text}</Issue>;
 }
 
 function displayNote(draft: PersonalityDraft): string | null {
@@ -521,10 +649,15 @@ function instructionsNote(draft: PersonalityDraft): string | null {
 
 function EditorSkeleton() {
   return (
-    <div aria-busy="true" className="max-w-3xl space-y-4 pt-2">
-      <Skeleton className="h-4 w-72" />
-      <Skeleton className="h-9 w-full max-w-sm" />
-      <Skeleton className="h-9 w-full max-w-sm" />
+    <div aria-busy="true" className="space-y-5 rounded-lg border border-border bg-panel p-6">
+      <div className="flex items-center gap-4">
+        <Skeleton className="size-14 rounded-sm" />
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3.5 w-28" />
+        </div>
+      </div>
+      <Skeleton className="h-11 w-full max-w-md" />
     </div>
   );
 }

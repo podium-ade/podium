@@ -278,3 +278,9 @@ export function assistantSection(pathname: string): AssistantSection | null {
 export function assistantSectionHref(id: AssistantSection): string {
   return id === "identity" ? "/agent/assistants" : `/agent/assistants/podium/${id}`;
 }
+
+/** "Identity", "Identity and Model", "Identity, Model and Limits". */
+export function listSections(labels: string[]): string {
+  if (labels.length <= 1) return labels.join("");
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}

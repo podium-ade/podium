@@ -280,7 +280,7 @@ describe("AgentPage", () => {
     const assistants = screen.getByRole("navigation", { name: "Assistants" });
     expect(within(assistants).getByRole("link", { name: /Podium/ })).toHaveAttribute("aria-current", "page");
     expect(within(assistants).getByText("Built-in")).toBeInTheDocument();
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("href", "/agent/assistants/new");
+    expect(within(assistants).getByRole("link", { name: "New assistant" })).toHaveAttribute("href", "/agent/assistants/new");
     expect(screen.queryByLabelText("Name", { selector: "#assistant-name" })).toBeNull();
     expect(screen.getByLabelText("Name", { selector: "#assistant-git-name" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
@@ -376,7 +376,7 @@ describe("AgentPage", () => {
     await user.click(picker);
     await user.click(await screen.findByText("grok-4.6"));
     const assistants = screen.getByRole("navigation", { name: "Assistants" });
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("aria-current", "page");
+    expect(within(assistants).getByRole("link", { name: "New assistant" })).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("link", { name: "Instructions" }));
     await user.type(screen.getByLabelText("Instructions"), "Speak briefly.");
     const save = screen.getByRole("button", { name: "Save" });
