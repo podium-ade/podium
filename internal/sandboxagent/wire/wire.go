@@ -63,6 +63,12 @@ type TransferResult struct {
 	Stored   docker.ArtifactStored `json:"stored"`
 }
 
+// TransferOffset is how many bytes of a restore the agent holds, where the node resumes
+// an upload that broke.
+type TransferOffset struct {
+	Offset int64 `json:"offset"`
+}
+
 // Frame is one message on the events stream: exactly one of Event and Transfer is set.
 type Frame struct {
 	Event    *Event    `json:"event,omitempty"`
