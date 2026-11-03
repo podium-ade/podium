@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -159,4 +160,95 @@ func TestAModalImageByName(t *testing.T) {
 		t.Fatalf("exec: %v, exit %d: %s%s", err, res.ExitCode, res.Stdout, res.Stderr)
 	}
 	t.Logf("%s", res.Stdout)
+}
+
+// A workspace kept as a directory snapshot comes back in a new sandbox: its files, modes and
+// links, on a mount the next task can write to and take over, and what it adds is in the next
+// snapshot. A deleted image is not_found, which is what makes a session start over.
+func TestDirectorySnapshotRoundTrip(t *testing.T) {
+	p := newConformance(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	start := func(name string) string {
+		t.Helper()
+		req := confCreate
+		req.Key = fmt.Sprintf("conformance-%s-%d", name, time.Now().UnixNano())
+		req.TTL = 10 * time.Minute
+		id, err := p.Create(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = p.Delete(context.Background(), id) })
+		if err := p.WaitReady(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	sh := func(id, cmd string) string {
+		t.Helper()
+		res, err := p.Exec(ctx, id, cmd, false)
+		if err != nil || res.ExitCode != 0 {
+			t.Fatalf("%s: %+v %v", cmd, res, err)
+		}
+		return strings.TrimSpace(res.Stdout)
+	}
+	var images []string
+	t.Cleanup(func() {
+		for _, img := range images {
+			if err := p.DeleteSnapshot(context.Background(), img); err != nil {
+				t.Errorf("delete snapshot %s: %v", img, err)
+			}
+		}
+	})
+
+	first := start("snap-a")
+	sh(first, `useradd -m podium 2>/dev/null || true; install -d -m 0755 -o podium /workspace &&
+		su podium -c 'mkdir -p /workspace/src && echo hello > /workspace/src/a.txt && chmod 0640 /workspace/src/a.txt && ln -s src/a.txt /workspace/link'`)
+	img, err := p.SnapshotDir(ctx, first, "/workspace", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images = append(images, img)
+	if !strings.HasPrefix(img, "im-") {
+		t.Fatalf("image id %q", img)
+	}
+	_ = p.Delete(ctx, first)
+
+	second := start("snap-b")
+	if err := p.MountSnapshot(ctx, second, "/workspace", img); err != nil {
+		t.Fatal(err)
+	}
+	if got := sh(second, "cat /workspace/link; stat -c '%a %U' /workspace/src/a.txt"); got != "hello\n640 podium" && got != "hello\n640 1000" {
+		t.Logf("after the mount: %q", got)
+		if !strings.HasPrefix(got, "hello\n640") {
+			t.Fatalf("the files did not come back: %q", got)
+		}
+	}
+	sh(second, `useradd -m podium 2>/dev/null || true; install -d -m 0755 -o podium /workspace && su podium -c 'echo more > /workspace/b.txt'`)
+	again, err := p.SnapshotDir(ctx, second, "/workspace", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images = append(images, again)
+
+	third := start("snap-c")
+	if err := p.MountSnapshot(ctx, third, "/workspace", again); err != nil {
+		t.Fatal(err)
+	}
+	if got := sh(third, "cat /workspace/src/a.txt /workspace/b.txt"); got != "hello\nmore" {
+		t.Fatalf("a snapshot of a mounted snapshot lost something: %q", got)
+	}
+
+	if err := p.DeleteSnapshot(ctx, img); err != nil {
+		t.Fatal(err)
+	}
+	images = images[1:]
+	if err := p.DeleteSnapshot(ctx, img); err != nil {
+		t.Fatalf("deleting a deleted image: %v", err)
+	}
+	err = p.MountSnapshot(ctx, third, "/elsewhere", img)
+	var pe *sandbox.Error
+	if !errors.As(err, &pe) || pe.Code != "not_found" {
+		t.Fatalf("mounting a deleted image: %v", err)
+	}
 }

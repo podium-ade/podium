@@ -177,10 +177,12 @@ func (t *transfers) UploadArtifact(ctx context.Context, up docker.ArtifactUpload
 	return res.Stored, err
 }
 
-// workspace bridges docker.Workspace to the node.
-func (t *transfers) workspace() *docker.Workspace {
-	return &docker.Workspace{
-		Restore: func(ctx context.Context) (io.ReadCloser, bool, error) {
+// workspace bridges docker.Workspace to the node: the tar halves it asks for, and a
+// provider snapshot in place of a saved tar when snapshot is set.
+func (t *transfers) workspace(restore, save, snapshot bool) *docker.Workspace {
+	ws := &docker.Workspace{}
+	if restore {
+		ws.Restore = func(ctx context.Context) (io.ReadCloser, bool, error) {
 			path := filepath.Join(t.dir, "workspace-restore.tar")
 			res, err := t.offer(ctx, wire.Transfer{Kind: wire.TransferWorkspaceRestore}, path)
 			if err != nil || res.NotFound {
@@ -191,12 +193,21 @@ func (t *transfers) workspace() *docker.Workspace {
 				return nil, false, err
 			}
 			return removeOnClose{f}, true, nil
-		},
-		Save: func(ctx context.Context, tarPath string, size int64) error {
+		}
+	}
+	if save {
+		ws.Save = func(ctx context.Context, tarPath string, size int64) error {
 			_, err := t.offer(ctx, wire.Transfer{Kind: wire.TransferWorkspaceSave, Size: size}, tarPath)
 			return err
-		},
+		}
 	}
+	if snapshot {
+		ws.Snapshot = func(ctx context.Context) error {
+			_, err := t.offer(ctx, wire.Transfer{Kind: wire.TransferWorkspaceSnapshot}, "")
+			return err
+		}
+	}
+	return ws
 }
 
 type removeOnClose struct{ *os.File }
