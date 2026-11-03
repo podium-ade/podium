@@ -1,7 +1,6 @@
 package ghreview
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -21,26 +20,20 @@ type threadNote struct {
 	Resolve bool
 }
 
-var threadFence = regexp.MustCompile("(?s)```(reply|resolved)[ \t]*\r?\n(.*?)```")
-
 // splitThreadNotes pulls ```reply and ```resolved fences out of an answer. Each names the
 // finding's path:line on its first line, as the review's own inline note did, and the rest is
 // the reply. A fence that does not start with path:line stays in the answer.
 func splitThreadNotes(body string) (string, []threadNote) {
 	var notes []threadNote
-	rest := threadFence.ReplaceAllStringFunc(body, func(block string) string {
-		m := threadFence.FindStringSubmatch(block)
-		if len(m) < 3 {
-			return block
-		}
-		inline, ok := parseInline(m[2])
+	rest := replaceFences(body, []string{"reply", "resolved"}, func(kind, inner string) bool {
+		inline, ok := parseInline(inner)
 		if !ok {
-			return block
+			return false
 		}
 		notes = append(notes, threadNote{
-			Path: inline.Path, Line: inline.Line, Body: inline.Body, Resolve: m[1] == "resolved",
+			Path: inline.Path, Line: inline.Line, Body: inline.Body, Resolve: kind == "resolved",
 		})
-		return ""
+		return true
 	})
 	return strings.TrimSpace(rest), notes
 }
@@ -80,8 +73,6 @@ type inlineNote struct {
 	Body      string
 }
 
-var inlineFence = regexp.MustCompile("(?s)```inline[ \t]*\r?\n(.*?)```")
-
 // reviewEvent is the GitHub event for a final answer. The playbook's first
 // line is the verdict. Approve, and a review that is only nits, submit an
 // approval. Anything else stays a comment, which is also the fail-safe when
@@ -115,19 +106,80 @@ func verdictLine(body string) string {
 // disappearing. The summary is what GitHub shows above the inline comments.
 func splitInline(body string) (string, []inlineNote) {
 	var notes []inlineNote
-	summary := inlineFence.ReplaceAllStringFunc(body, func(block string) string {
-		m := inlineFence.FindStringSubmatch(block)
-		if len(m) < 2 {
-			return block
-		}
-		note, ok := parseInline(m[1])
+	summary := replaceFences(body, []string{"inline"}, func(_, inner string) bool {
+		note, ok := parseInline(inner)
 		if !ok {
-			return block
+			return false
 		}
 		notes = append(notes, note)
-		return ""
+		return true
 	})
 	return strings.TrimSpace(summary), notes
+}
+
+// replaceFences finds the fences whose info string is one of kinds and hands each one's
+// inside to take; a fence take accepts is cut out of body, and one it refuses stays.
+//
+// It reads lines rather than matching a pattern, because a note quotes code: an ```inline
+// fence holding a ```go block must end at its own closing fence, not at the first three
+// backticks inside it. So, as in CommonMark, a fence closes only on a bare line of at least
+// as many backticks as opened it, and a fence that opens with an info string inside it
+// (```go) is counted and closed before the note's own can be. A nested fence with no info
+// string is indistinguishable from the note's close; an outer fence of four backticks is how
+// a note quotes one.
+func replaceFences(body string, kinds []string, take func(kind, inner string) bool) string {
+	lines := strings.SplitAfter(body, "\n")
+	var out strings.Builder
+	for i := 0; i < len(lines); i++ {
+		n, info := fenceLine(lines[i])
+		if n == 0 || !contains(kinds, info) {
+			out.WriteString(lines[i])
+			continue
+		}
+		end, depth := -1, 0
+		for j := i + 1; j < len(lines) && end < 0; j++ {
+			m, inner := fenceLine(lines[j])
+			switch {
+			case m == 0:
+			case inner != "":
+				depth++
+			case depth > 0:
+				depth--
+			case m >= n:
+				end = j
+			}
+		}
+		if end < 0 || !take(info, strings.Join(lines[i+1:end], "")) {
+			out.WriteString(lines[i])
+			continue
+		}
+		i = end
+	}
+	return out.String()
+}
+
+// fenceLine is a line's backtick fence: how many backticks open it, and its info string. 0
+// when the line is not a fence.
+func fenceLine(line string) (int, string) {
+	t := strings.TrimSpace(line)
+	n := len(t) - len(strings.TrimLeft(t, "`"))
+	if n < 3 {
+		return 0, ""
+	}
+	info := strings.TrimSpace(t[n:])
+	if strings.Contains(info, "`") {
+		return 0, ""
+	}
+	return n, info
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func parseInline(inner string) (inlineNote, bool) {
