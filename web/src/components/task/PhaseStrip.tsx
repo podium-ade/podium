@@ -33,7 +33,7 @@ export function PhaseStrip({ task, entries }: { task: Task; entries: readonly En
   const exit = task.exitCode;
 
   return (
-    <div data-testid="phase-strip" className="space-y-2 rounded-xl border border-border bg-panel px-4 py-3">
+    <div data-testid="phase-strip" className="space-y-2 rounded-xl border border-border bg-panel px-5 py-3">
       <div aria-hidden className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
         {phases.map((p) => (
           <span

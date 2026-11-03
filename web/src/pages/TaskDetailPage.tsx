@@ -220,7 +220,7 @@ function TaskDetail({ id }: { id: string }) {
       <ResultCard task={task} entries={entries} onJump={openInLogs} />
 
       <Card>
-        <div className="grid divide-y divide-hairline xl:grid-cols-[1.5fr_1fr_1fr] xl:divide-x xl:divide-y-0">
+        <div className="grid divide-y divide-hairline xl:grid-cols-3 xl:divide-x xl:divide-y-0">
           <FactGroup title="Task">
             <Fact label="Image">
               {image ? (
@@ -294,6 +294,13 @@ function TaskDetail({ id }: { id: string }) {
                 </span>
               </Fact>
             ) : null}
+            {task.spec?.resources ? (
+              <Fact label="Requested">
+                <span className="tabular">
+                  {task.spec.resources.cpu} CPU · {String(task.spec.resources.memoryMb)} MB
+                </span>
+              </Fact>
+            ) : null}
             <Fact label="Labels">
               {task.spec && task.spec.labels.length > 0 ? (
                 <span className="flex flex-wrap gap-1">
@@ -307,13 +314,6 @@ function TaskDetail({ id }: { id: string }) {
                 <Unknown>any node</Unknown>
               )}
             </Fact>
-            {task.spec?.resources ? (
-              <Fact label="Requested">
-                <span className="tabular">
-                  {task.spec.resources.cpu} CPU · {String(task.spec.resources.memoryMb)} MB
-                </span>
-              </Fact>
-            ) : null}
           </FactGroup>
 
           <FactGroup title="Timing">
@@ -350,7 +350,7 @@ function TaskDetail({ id }: { id: string }) {
               value={view}
               onValueChange={(v) => setLink({ view: v }, true)}
             >
-              <TabsList className="border-hairline px-2">
+              <TabsList className="border-hairline px-1.5">
                 <TabsTrigger value="logs">
                   <ScrollText />
                   Logs
@@ -513,7 +513,9 @@ function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
     });
   }
   if (usage) {
-    items.push({ label: "CPU", value: `${usage.cpuSeconds.toFixed(2)}s` });
+    // Zero is "not measured", not "idle": a process task (every Modal sandbox) reports only
+    // its wall time, and a reading of 0.00s would say it did no work.
+    if (usage.cpuSeconds > 0) items.push({ label: "CPU", value: `${usage.cpuSeconds.toFixed(2)}s` });
     if (usage.peakMemoryMb) {
       items.push({
         label: "Peak memory",
@@ -529,7 +531,7 @@ function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-x-10 gap-y-3 border-t border-hairline px-4 py-3">
+    <div className="flex flex-wrap gap-x-10 gap-y-3 border-t border-hairline px-5 py-3.5">
       {items.map((item) => (
         <div key={item.label}>
           <dt className="text-2xs text-faint">{item.label}</dt>
@@ -584,9 +586,9 @@ function PullRequestLinks({ pullRequests }: { pullRequests: PullRequest[] }) {
 
 function FactGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="min-w-0 space-y-3 p-4">
+    <section className="min-w-0 space-y-3 px-5 py-4">
       <h3 className="text-2xs font-medium tracking-wide text-faint uppercase">{title}</h3>
-      <dl className="space-y-2">{children}</dl>
+      <dl className="space-y-2.5">{children}</dl>
     </section>
   );
 }
@@ -642,7 +644,7 @@ function DetailSkeleton() {
     >
       <div aria-busy="true" aria-label="Loading task" className="space-y-5">
         {/* Phase strip */}
-        <div className="space-y-2.5 rounded-xl border border-border bg-panel px-4 py-3">
+        <div className="space-y-2.5 rounded-xl border border-border bg-panel px-5 py-3">
           <Skeleton className="h-1.5 w-full rounded-full" />
           <div className="flex gap-4">
             {[0, 1, 2].map((i) => (
@@ -665,9 +667,9 @@ function DetailSkeleton() {
 
         {/* Facts: task, placement, timing */}
         <Card>
-          <div className="grid divide-y divide-hairline xl:grid-cols-[1.5fr_1fr_1fr] xl:divide-x xl:divide-y-0">
+          <div className="grid divide-y divide-hairline xl:grid-cols-3 xl:divide-x xl:divide-y-0">
             {[3, 3, 4].map((rows, c) => (
-              <div key={c} className="space-y-3 p-4">
+              <div key={c} className="space-y-3 px-5 py-4">
                 <Skeleton className="h-2.5 w-16" />
                 <div className="space-y-2.5">
                   {Array.from({ length: rows }, (_, r) => (
@@ -684,7 +686,7 @@ function DetailSkeleton() {
 
         {/* Logs and transcript */}
         <Card className="overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-hairline px-2">
+          <div className="flex items-center gap-2 border-b border-hairline px-1.5">
             <div className="flex min-h-11 items-center border-b-[3px] border-border px-3.5">
               <Skeleton className="h-3.5 w-12" />
             </div>
@@ -692,7 +694,7 @@ function DetailSkeleton() {
               <Skeleton className="h-3.5 w-20" />
             </div>
           </div>
-          <div className="space-y-2 p-4">
+          <div className="space-y-2 px-5 py-4">
             <Skeleton className="mb-3 h-8 w-full max-w-sm" />
             {Array.from({ length: 10 }, (_, r) => (
               <div key={r} className="flex items-center gap-3">
