@@ -642,7 +642,8 @@ func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
 
 	people, err := s.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, people)
+	assert.Equal(t, []ChatParticipant{{Name: "alice"}, {Name: "bob"}}, people,
+		"nobody here is in Podium, so each is known only by name")
 }
 
 func TestAMessageRemembersWhoSaidIt(t *testing.T) {

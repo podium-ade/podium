@@ -297,7 +297,8 @@ func (s *AgentService) SendChatMessage(
 		Override: override,
 	})
 	switch {
-	case errors.Is(err, chat.ErrTurnRunning), errors.Is(err, chat.ErrPersonalityGone):
+	case errors.Is(err, chat.ErrTurnRunning), errors.Is(err, chat.ErrPersonalityGone),
+		errors.Is(err, chat.ErrMirrored):
 		// The UI disables the composer while a turn runs, and it says so when the
 		// assistant this chat was bound to has been deleted. Either way the message
 		// was not stored.
@@ -444,7 +445,11 @@ func (s *AgentService) StreamChat(
 	if err != nil {
 		return storeError(err)
 	}
-	if !readableBy(row, login, SeesAll(ctx)) {
+	visible, err := s.mayReadChat(ctx, row, login)
+	if err != nil {
+		return storeError(err)
+	}
+	if !visible {
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	// Who has spoken, for a conversation with more than one person in it. Loaded here and
@@ -567,16 +572,27 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 	}
 }
 
-// readableBy reports whether login may READ this conversation. A signed-in user reads a
-// web chat only when they own it. seeAll is the dev token, which reads every chat,
-// including mirrored threads and other people's web chats.
+// mayReadChat reports whether login may READ this conversation: the dev token reads every
+// chat; anybody else reads what store.ChatVisibleTo allows — a chat they own, or one they
+// have taken part in from any surface (0031_identities.sql's chat_visible_to). The owner
+// check is answered from the row without a query, because it is every web chat's case.
 //
-// Sending still requires the owner. A mirrored thread is answered where it lives.
-func readableBy(c store.Chat, login string, seeAll bool) bool {
-	if seeAll {
-		return true
+// Sending still requires the owner, and a mirrored thread is answered where it lives.
+func (s *AgentService) mayReadChat(ctx context.Context, c store.Chat, login string) (bool, error) {
+	if SeesAll(ctx) {
+		return true, nil
 	}
-	return c.Login != "" && c.Login == login
+	if login == "" || login == "unknown" {
+		return false, nil
+	}
+	if c.Login != "" && c.Login == login {
+		return true, nil
+	}
+	ok, err := s.store.ChatVisibleTo(ctx, c.ID, login)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return ok, err
 }
 
 func chatToProto(c store.Chat) *agentv1.Chat {
@@ -593,7 +609,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		Origin:             c.Origin,
 		StartedBy:          c.StartedBy,
 		Login:              c.Login,
-		Participants:       c.Participants,
+		Participants:       participantNames(c.Participants),
 		Channel:            c.Channel,
 		PersonalityId:      c.PersonalityID,
 		PersonalityDisplay: c.PersonalityDisplay,
@@ -636,6 +652,19 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 			ContentType: a.ContentType,
 			SizeBytes:   a.SizeBytes,
 		})
+	}
+	return out
+}
+
+// participantNames is the participants as the existing proto field carries them: one name
+// each, Podium people first.
+func participantNames(ps []store.ChatParticipant) []string {
+	if len(ps) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Name)
 	}
 	return out
 }

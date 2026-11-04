@@ -16,6 +16,7 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/connections"
 	"github.com/podium-ade/podium/internal/agent/github"
+	"github.com/podium-ade/podium/internal/agent/store"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
@@ -105,6 +106,10 @@ func TestConnectingGitHubStoresTheTokenAsThePersonsSecret(t *testing.T) {
 	assert.Equal(t, "ghr_refresh", stored.RefreshToken)
 	assert.WithinDuration(t, time.Now().Add(8*time.Hour), stored.ExpiresAt, time.Minute)
 	assert.Equal(t, "ada@acme.com", f.secrets.owners["github.token"])
+	// The numeric id from OAuth is now proof that GitHub user 4242 is ada.
+	who, err := f.svc.store.IdentityLogin(t.Context(), store.ProviderGitHub, "4242")
+	require.NoError(t, err)
+	assert.Equal(t, "ada@acme.com", who)
 	assert.NotContains(t, f.log.String(), "ghr_refresh")
 	assert.NotContains(t, done.Msg.String(), "ghu_user_token")
 	assert.NotContains(t, f.log.String(), "ghu_user_token")
@@ -119,6 +124,8 @@ func TestConnectingGitHubStoresTheTokenAsThePersonsSecret(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, off.Msg.GetAccount().GetConnected())
 	assert.NotContains(t, f.secrets.set, "github.token")
+	_, err = f.svc.store.IdentityLogin(t.Context(), store.ProviderGitHub, "4242")
+	require.ErrorIs(t, err, store.ErrNotFound, "a disconnected account proves nobody")
 	_, err = f.svc.DisconnectGitHubAccount(loginCtx("ada@acme.com"), connect.NewRequest(&agentv1.DisconnectGitHubAccountRequest{}))
 	require.NoError(t, err, "disconnecting twice is not an error")
 }

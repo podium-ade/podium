@@ -97,19 +97,19 @@ func (q *Queries) AttachChatPullRequest(ctx context.Context, arg AttachChatPullR
 	return i, err
 }
 
-const chatParticipants = `-- name: ChatParticipants :many
+const chatAuthors = `-- name: ChatAuthors :many
 select author from chat_messages
 where chat_id = $1 and role = 'user' and author <> ''
 group by author
 order by min(seq)
 `
 
-// ChatParticipants is who has spoken in a conversation, first appearance first. It is the
-// distinct authors of the human messages, which for a mirrored Slack thread is everyone in
-// it and for a web chat is nobody — a web chat's messages carry no author, because its
-// login already says who is typing.
-func (q *Queries) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, chatParticipants, chatID)
+// ChatAuthors is who has spoken in a conversation by display name, first appearance first:
+// the distinct authors of the human messages. For a mirrored thread that is everyone in it,
+// in Podium or not; for a web chat it is nobody, because a web chat's messages carry no
+// author. store.ChatParticipants merges it with chat_participants, which knows who is who.
+func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, chatAuthors, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +482,7 @@ left join (
 ) m on m.chat_id = c.id and m.rn = 1
 where (
     $1::bool
-    or c.login = $2
+    or chat_visible_to(c.id, c.login, $2::text)
   )
   and ($3::text = '' or c.id < $3::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
@@ -501,7 +501,7 @@ limit $6::int
 
 type ListChatsParams struct {
 	IncludeAll        bool
-	Login             *string
+	Viewer            string
 	AfterID           string
 	FilterPersonality bool
 	PersonalityID     string
@@ -541,12 +541,13 @@ type ListChatsRow struct {
 // a chat that claims a message it does not have.
 // include_all is the shared dev token, which has no per-user identity and is the operator
 // view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
-// any other named login) is the other branch and sees only rows they own. A mirrored
-// thread has no login, so that branch does not include it.
+// any other named login) is the other branch and sees what chat_visible_to allows: what
+// they own, and every conversation they have taken part in from any surface. A mirrored
+// thread nobody in Podium has spoken in matches neither, and stays hidden.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats,
 		arg.IncludeAll,
-		arg.Login,
+		arg.Viewer,
 		arg.AfterID,
 		arg.FilterPersonality,
 		arg.PersonalityID,

@@ -518,7 +518,8 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	})
 	root.HandleFunc("/readyz", a.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
-	root.Handle("/"+agentv1connect.AgentServiceName+"/", api.RequireBearer(a.cfg.Token, rpc))
+	root.Handle("/"+agentv1connect.AgentServiceName+"/",
+		api.RequireBearer(a.cfg.Token, api.RecordWebIdentities(a.store, a.logger, rpc)))
 	a.mountSurface(root)
 	if a.chatHost != nil {
 		// The chat host's model gateway and tools. Each request names a conversation by a

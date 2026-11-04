@@ -38,6 +38,13 @@ var ErrTurnRunning = errors.New("a turn is already running for this chat")
 //nolint:revive,staticcheck // user-facing copy, including the capital and the period
 var ErrPersonalityGone = errors.New("That assistant was deleted.")
 
+// ErrMirrored is what Send returns for a chat that mirrors a conversation living somewhere
+// else. A mirrored chat gained an owner once its first Podium participant was resolved, so
+// the owner check alone would now let a message in — and a web turn on a Slack thread's
+// chat would run in a session of its own, beside the thread rather than in it. The mirror
+// is read here and answered where it lives.
+var ErrMirrored = errors.New("this conversation lives in Slack or GitHub; reply there")
+
 // eventBuffer is how many inbound messages may be waiting for the turn loop. One human
 // typing cannot outrun this, and a full channel makes Send block rather than lose a
 // message.
@@ -198,6 +205,9 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		// login's chat is itself something this caller has no business learning.
 		return store.ChatMessage{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, req.ChatID)
 	}
+	if chat.Origin != "" && chat.Origin != store.OriginWeb {
+		return store.ChatMessage{}, ErrMirrored
+	}
 	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)
 	if err != nil {
 		return store.ChatMessage{}, err
@@ -237,6 +247,7 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		SourceKey:         store.ChatSourceKey(req.ChatID),
 		Ref:               req.ChatID,
 		Author:            req.Login,
+		Login:             req.Login,
 		Text:              req.Text,
 		TS:                msg.TS,
 		URL:               s.URL(req.ChatID),
@@ -599,6 +610,11 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		}
 		s.bcast.Publish(ref, Frame{Kind: FrameStatus, State: StatusFailed})
 		return err
+	case conductor.ReactionRefused:
+		// The web chat's caller is always a signed-in person, so nothing it sends is
+		// refused for who sent it. Accepted and ignored rather than an error, so a change
+		// to the gate cannot turn into a failure here.
+		return nil
 	default:
 		return fmt.Errorf("chat: unknown reaction %q", kind)
 	}
