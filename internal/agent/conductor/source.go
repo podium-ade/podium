@@ -17,6 +17,17 @@ const (
 	ReactionDone     Reaction = "done"
 	ReactionFailed   Reaction = "failed"
 	ReactionAwaiting Reaction = "awaiting"
+	// ReactionRefused is "I heard you, and I will not act on it": somebody who is not in
+	// Podium asked for something. Slack shows 🚫, GitHub a confused reaction. Nothing runs,
+	// so no other reaction follows it.
+	ReactionRefused Reaction = "refused"
+)
+
+// The account providers a source can name in InboundEvent.SpeakerProvider. They are the
+// store's identity providers, spelled here so a source never imports the store.
+const (
+	SpeakerSlack  = "slack"
+	SpeakerGitHub = "github"
 )
 
 // Outbound types. Type is what the source may use to style a post; nothing branches on it
@@ -76,11 +87,38 @@ type InboundEvent struct {
 	ChannelName string
 	// Author is the display name of the human who spoke.
 	Author string
-	// Login is a Podium login the source could infer for this speaker. Slack sets it
-	// from the workspace email when the bot can read one. Empty means the turn has no
-	// person for MCP purposes and uses the global list. It is not a secret and it is
-	// not written onto a mirrored chat: those stay unowned so the workspace can see them.
+	// Login is the Podium login of the speaker. Who may set it differs, and the conductor
+	// is the last word on all of them (resolveSpeaker):
+	//
+	//   - the web chat sets the signed-in caller, which podium-server already proved;
+	//   - Slack sets a CANDIDATE, the workspace email of a user who passed the source's
+	//     account checks, which the conductor keeps only if that login has signed in to
+	//     Podium;
+	//   - GitHub sets nothing: the conductor looks the speaker's numeric id up in the
+	//     identities a GitHub connect wrote.
+	//
+	// After resolveSpeaker it is either a person who is in Podium or empty. A turn runs
+	// with this person's credentials, and it is what makes them a participant of the chat.
 	Login string
+	// SpeakerProvider and SpeakerID name the account that spoke, as its source proved it:
+	// store.ProviderSlack and "<team>/<user>", or store.ProviderGitHub and the numeric user
+	// id. Empty for a source that has no accounts (Linear, the dev source) and for the web
+	// chat, whose Login is already the proof.
+	SpeakerProvider string
+	SpeakerID       string
+	// SpeakerAvatar is the account's picture, when the source had it for free.
+	SpeakerAvatar string
+	// Mentioned is true when the speaker addressed the bot explicitly — an @mention, a DM,
+	// a review command — rather than a reply the source decided to treat as one. Only a
+	// mentioned message is answered with ReactionRefused: reacting to a reply nobody
+	// addressed to the bot would be noise.
+	Mentioned bool
+	// ReviewRequest is set on a GitHub review command (`@podium review [note]`, `/review
+	// [note]`): the instruction to run INSTEAD of Text when the speaker is not in Podium. It
+	// is built from nothing the speaker controls but a sanitized, injection-checked note, so
+	// it is safe to hand the review playbook on the App's credentials. Empty for anything
+	// else, and ignored for a speaker who is in Podium, who gets the full comment.
+	ReviewRequest string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.

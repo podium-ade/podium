@@ -54,13 +54,10 @@ const listSessions = `-- name: ListSessions :many
 select id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id from sessions
 where (
   $1::bool
-  or (
-    source_kind = 'chat'
-    and exists (
-      select 1 from chats c
-      where c.source_key = sessions.source_key
-        and c.login = $2
-    )
+  or exists (
+    select 1 from chats c
+    where c.source_key = sessions.source_key
+      and chat_visible_to(c.id, c.login, $2::text)
   )
 )
 and ($3::text = '' or id < $3::text)
@@ -70,18 +67,19 @@ limit $4::int
 
 type ListSessionsParams struct {
 	IncludeAll bool
-	Login      *string
+	Viewer     string
 	AfterID    string
 	PageLimit  int32
 }
 
 // ListSessions is the same partition as ListChats. include_all is the dev token and returns
-// every source. Otherwise only web-chat sessions whose chat row is owned by this login —
-// a Slack, Linear or dev session has no such row, so a signed-in user does not see it.
+// every source. Otherwise a session is visible exactly when the chat that holds it is: a web
+// chat's own row, or the mirror of a Slack thread or pull request (joined on source_key, the
+// key both are written under). A Linear or dev session has no chat and stays the operator's.
 func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]Session, error) {
 	rows, err := q.db.Query(ctx, listSessions,
 		arg.IncludeAll,
-		arg.Login,
+		arg.Viewer,
 		arg.AfterID,
 		arg.PageLimit,
 	)

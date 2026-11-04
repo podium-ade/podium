@@ -79,11 +79,12 @@ left join (
 ) m on m.chat_id = c.id and m.rn = 1
 -- include_all is the shared dev token, which has no per-user identity and is the operator
 -- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
--- any other named login) is the other branch and sees only rows they own. A mirrored
--- thread has no login, so that branch does not include it.
+-- any other named login) is the other branch and sees what chat_visible_to allows: what
+-- they own, and every conversation they have taken part in from any surface. A mirrored
+-- thread nobody in Podium has spoken in matches neither, and stays hidden.
 where (
     @include_all::bool
-    or c.login = @login
+    or chat_visible_to(c.id, c.login, @viewer::text)
   )
   and (@after_id::text = '' or c.id < @after_id::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
@@ -199,11 +200,11 @@ order by created_at, number;
 -- name: GetChatBySourceKey :one
 select * from chats where source_key = @source_key;
 
--- ChatParticipants is who has spoken in a conversation, first appearance first. It is the
--- distinct authors of the human messages, which for a mirrored Slack thread is everyone in
--- it and for a web chat is nobody — a web chat's messages carry no author, because its
--- login already says who is typing.
--- name: ChatParticipants :many
+-- ChatAuthors is who has spoken in a conversation by display name, first appearance first:
+-- the distinct authors of the human messages. For a mirrored thread that is everyone in it,
+-- in Podium or not; for a web chat it is nobody, because a web chat's messages carry no
+-- author. store.ChatParticipants merges it with chat_participants, which knows who is who.
+-- name: ChatAuthors :many
 select author from chat_messages
 where chat_id = @chat_id and role = 'user' and author <> ''
 group by author

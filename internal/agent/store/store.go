@@ -195,12 +195,13 @@ func (s *Store) GetSessionByKey(ctx context.Context, sourceKey string) (Session,
 // ListSessions returns sessions newest first. The cursor is the last id of the previous
 // page, which sorts by time because every id is a ULID.
 //
-// all is the dev token: every source. Otherwise only web-chat sessions owned by login.
+// all is the dev token: every source. Otherwise the sessions whose chat login may read:
+// their own web chats and every mirrored conversation they took part in.
 func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string) ([]Session, string, error) {
 	limit = clampLimit(limit)
 	rows, err := s.q.ListSessions(ctx, db.ListSessionsParams{
 		IncludeAll: all,
-		Login:      &login,
+		Viewer:     login,
 		AfterID:    cursor,
 		PageLimit:  int32(limit),
 	})
@@ -558,8 +559,9 @@ func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 // The origins a chat can have. OriginWeb is a conversation Podium owns and may be written
 // to; OriginSlack is one it mirrors for reading, which lives in Slack and is answered there.
 const (
-	OriginWeb   = "web"
-	OriginSlack = "slack"
+	OriginWeb    = "web"
+	OriginSlack  = "slack"
+	OriginGitHub = "github"
 )
 
 // DefaultChatTitle is what a chat created with no title is called.
@@ -592,7 +594,7 @@ type Chat struct {
 	// Participants is everyone who has spoken, first appearance first. Loaded for one chat
 	// and not for a list: it is a second query per conversation and the list only needs
 	// StartedBy.
-	Participants []string
+	Participants []ChatParticipant
 	CreatedAt    time.Time
 	// ChatChoice is what this chat is answered on, remembered so a model is picked once per
 	// conversation rather than on every message.
@@ -741,15 +743,6 @@ func (s *Store) ChatBySourceKey(ctx context.Context, sourceKey string) (Chat, er
 	return chatFromRow(row), nil
 }
 
-// ChatParticipants is everyone who has spoken in a chat, first appearance first.
-func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
-	rows, err := s.q.ChatParticipants(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("list participants of chat %s: %w", chatID, err)
-	}
-	return rows, nil
-}
-
 // RenameChat sets the title of one of login's chats. shared is the dev token, and it is
 // what lets that token rename a mirrored thread. Another login's web chat is not found,
 // the same as every other chat read: knowing the id is not access. The row it returns has
@@ -814,7 +807,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
 		IncludeAll:        all,
-		Login:             &login,
+		Viewer:            login,
 		AfterID:           cursor,
 		FilterPersonality: sc.FilterPersonality,
 		PersonalityID:     sc.PersonalityID,

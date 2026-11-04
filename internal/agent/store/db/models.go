@@ -36,6 +36,14 @@ type ChatMessage struct {
 	Author      string
 }
 
+type ChatParticipant struct {
+	ChatID    string
+	Login     string
+	JoinedVia string
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
 type ChatPullRequest struct {
 	ChatID     string
 	Url        string
@@ -75,6 +83,16 @@ type GithubAccount struct {
 	Name           string
 	ConnectedAt    time.Time
 	NeedsReconnect bool
+}
+
+type Identity struct {
+	Login       string
+	Provider    string
+	ExternalID  string
+	Handle      string
+	DisplayName string
+	AvatarUrl   string
+	VerifiedAt  time.Time
 }
 
 type LinearCursor struct {

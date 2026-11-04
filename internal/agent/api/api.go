@@ -456,14 +456,15 @@ func (s *AgentService) ListTurns(
 }
 
 // mayReadSession is the session half of the chat partition. The dev token sees every
-// source. A signed-in user sees a web-chat session only when they own that chat. Slack,
-// Linear and dev sessions have no such owner, so they are not returned.
+// source. A signed-in user sees a session exactly when they may read the chat that holds it:
+// their own web chat, or the mirror of a Slack thread or pull request they took part in. A
+// Linear or dev session has no chat, so it stays the operator's.
 func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (bool, error) {
 	if SeesAll(ctx) {
 		return true, nil
 	}
 	login := Login(ctx)
-	if login == "" || login == "unknown" || sess.SourceKind != "chat" {
+	if login == "" || login == "unknown" {
 		return false, nil
 	}
 	row, err := s.store.ChatBySourceKey(ctx, sess.SourceKey)
@@ -473,7 +474,7 @@ func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (
 	if err != nil {
 		return false, err
 	}
-	return row.Login == login, nil
+	return s.mayReadChat(ctx, row, login)
 }
 
 // DefaultUsageDays is the range GetUsage reads when the request names neither end.

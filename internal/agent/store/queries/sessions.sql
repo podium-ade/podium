@@ -20,19 +20,17 @@ select * from sessions where id = @id;
 select * from sessions where source_key = @source_key;
 
 -- ListSessions is the same partition as ListChats. include_all is the dev token and returns
--- every source. Otherwise only web-chat sessions whose chat row is owned by this login —
--- a Slack, Linear or dev session has no such row, so a signed-in user does not see it.
+-- every source. Otherwise a session is visible exactly when the chat that holds it is: a web
+-- chat's own row, or the mirror of a Slack thread or pull request (joined on source_key, the
+-- key both are written under). A Linear or dev session has no chat and stays the operator's.
 -- name: ListSessions :many
 select * from sessions
 where (
   @include_all::bool
-  or (
-    source_kind = 'chat'
-    and exists (
-      select 1 from chats c
-      where c.source_key = sessions.source_key
-        and c.login = @login
-    )
+  or exists (
+    select 1 from chats c
+    where c.source_key = sessions.source_key
+      and chat_visible_to(c.id, c.login, @viewer::text)
   )
 )
 and (@after_id::text = '' or id < @after_id::text)
