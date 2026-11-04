@@ -464,6 +464,8 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
 | `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
+| `PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES` | no | 32768 | how much of a conversation's text a turn is handed before old chatter nobody put to Podium is condensed into one note (see [One record, one transcript](#one-record-one-transcript)) |
+| `PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT` | no | 20 | how many of the latest messages a turn always gets word for word, budget or not |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
@@ -2745,6 +2747,48 @@ What that decides:
   request every ten minutes. Anything else from them gets a confused reaction.
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
+- **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`
+  breaks the range down by it (`people`). `github-app` is a review nobody in Podium asked
+  for. A delegated task's spend is its delegating turn's person's.
+- **Writing to GitHub for somebody who has not connected it.** A turn that pushes or
+  comments as the App, for a Podium person, is told to end every commit with
+  `Requested-by: Name <login>` and to say "requested by Name" in what it writes.
+
+## One record, one transcript
+
+Every conversation — a web chat, a Slack thread, a pull request — is one record in
+`chat_messages`, and that record is what a turn is handed, labelled with who said what and
+where: `Dana (slack, not in Podium)`, `Bob (github)`, `Alvaro`. A Slack- or GitHub-started
+turn therefore also sees what was said in Podium beside the thread. A message deleted on its
+surface stays in the record and is left out of the transcript; an edited one is read as it
+stands. A source's own transcript is only used for a conversation with no record yet, and a
+pull request's history from before Podium first heard it is read from GitHub and put in
+front.
+
+The transcript has a budget (`PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES`). Under it, everything
+goes through. Over it, what was put to Podium, its answers, the conversation's summary and
+the latest `PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT` messages are kept word for word, and the
+rest — the side conversation nobody addressed — is condensed into one "earlier
+conversation" note: who said how much, and the opening words of each, newest kept when it
+has to cut. The condensing is extractive and makes no model call.
+
+### Delivery
+
+The web record is written first, and the copy on Slack or GitHub is then **owed**: an
+answer, a failure or a question in a conversation that lives elsewhere is a row in
+`chat_outbox`. It is attempted at once, where the post always was; a refused or failed post
+is retried by whichever conductor gets to it (10s, doubling, capped at 15 minutes), and given
+up on after six attempts. The web chat shows "Not delivered to Slack · Retry" on an answer
+that was given up on, and "Delivering — retrying" while it is still being tried. Retry
+(`RetryChatDelivery`) puts it back in the queue and tries it at once. Progress is not owed: it
+is superseded by the answer.
+
+Where an answer goes follows from where the turn started: a web-started turn answers in the
+web chat only; a Slack-started one in its thread; a GitHub-started one on its pull request
+and in every Slack thread bound to it, each copy owed and retried on its own. Delivery is at
+least once — a conductor that dies after the surface accepted a post and before it recorded
+that can post it again — because losing an answer is the worse failure.
+`podium_agent_outbox_deliveries_total{surface,outcome}` counts sent, retry and failed.
 
 ## Chat
 
