@@ -92,6 +92,20 @@ describe("SessionsTable", () => {
     expect(rows[1]).toHaveTextContent("slack");
   });
 
+  it("gives the pull requests a person took part in a section of their own", async () => {
+    listSessions.mockResolvedValue({
+      sessions: [
+        session,
+        { ...session, id: "sess_pr", sourceKind: "github", sourceKey: "github:acme/repo#12" },
+      ],
+      nextCursor: "",
+    });
+    mount();
+    expect(await screen.findByTestId("session-section-github")).toHaveTextContent("GitHub");
+    expect(screen.getByTestId("session-section-slack")).toHaveTextContent("Slack");
+    expect(screen.queryByTestId("session-section-other")).not.toBeInTheDocument();
+  });
+
   it("shows the source, a readable conversation ref and the playbook", async () => {
     mount();
     const row = await screen.findByTestId("session-row");

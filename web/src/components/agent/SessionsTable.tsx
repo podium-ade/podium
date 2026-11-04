@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
   ChevronRight,
+  GitPullRequest,
   Hash,
   History,
   MessageSquare,
@@ -40,17 +41,26 @@ const POLL_MS = 10_000;
 const KIND: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
   chat: { icon: MessageSquare, tone: "ok", label: "chat" },
   slack: { icon: Hash, tone: "run", label: "slack" },
+  github: { icon: GitPullRequest, tone: "run", label: "github" },
   linear: { icon: SquareKanban, tone: "lost", label: "linear" },
   dev: { icon: Terminal, tone: "warn", label: "dev" },
 };
 
+/**
+ * sessionSections groups the list by where each conversation lives. A signed-in person now
+ * sees the Slack threads and pull requests they took part in beside their own web chats, so
+ * GitHub is a section of its own rather than "Other".
+ */
 function sessionSections(rows: Session[]): { key: string; label: string; rows: Session[] }[] {
+  const known = new Set(["chat", "slack", "github"]);
   const web = rows.filter((s) => s.sourceKind === "chat");
   const slack = rows.filter((s) => s.sourceKind === "slack");
-  const other = rows.filter((s) => s.sourceKind !== "chat" && s.sourceKind !== "slack");
+  const github = rows.filter((s) => s.sourceKind === "github");
+  const other = rows.filter((s) => !known.has(s.sourceKind));
   const out: { key: string; label: string; rows: Session[] }[] = [];
   if (web.length > 0) out.push({ key: "web", label: "Web", rows: web });
   if (slack.length > 0) out.push({ key: "slack", label: "Slack", rows: slack });
+  if (github.length > 0) out.push({ key: "github", label: "GitHub", rows: github });
   if (other.length > 0) out.push({ key: "other", label: "Other", rows: other });
   return out;
 }
