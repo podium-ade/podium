@@ -181,6 +181,10 @@ service AgentService {
   // awaiting a human reply (an interactive playbook asked a question): then the text is
   // injected into the running task and no second turn starts.
   rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+  // queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+  // message has nothing failed to retry.
+  rpc RetryChatDelivery(RetryChatDeliveryRequest) returns (RetryChatDeliveryResponse);
   // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
   // own; the client cancels. Progress frames are ephemeral and are not replayed.
   rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
@@ -332,6 +336,20 @@ message TaskCost {
   // cost_usd is unset for a turn whose runtime never reported one — one still running, or
   // one whose turn.json never landed. Unset is never the same as zero.
   optional double cost_usd = 12;
+  // started_by is the Podium login whose turn this was, "github-app" for a review nobody in
+  // Podium asked for, and empty for a turn from before it was recorded. A delegated task
+  // reports the login of the turn that delegated it.
+  string started_by = 17;
+}
+
+// UsagePerson is what one person's turns cost over the range, aggregated by the server for
+// the same reason backends are.
+message UsagePerson {
+  string started_by = 1;
+  double cost_usd = 2;
+  int32 turns = 3;
+  int32 model_turns = 4;
+  int32 unpriced = 5;
 }
 
 // UsageBackend is what one agent, model and effort cost over the range. It is aggregated by
@@ -388,6 +406,8 @@ message GetUsageResponse {
   int32 unpriced = 6;
   // backends covers the whole range, most expensive first.
   repeated UsageBackend backends = 7;
+  // people is the same range by whose turn it was, most expensive first.
+  repeated UsagePerson people = 8;
 }
 
 message GetSettingsRequest {}
@@ -1040,6 +1060,22 @@ message ChatMessage {
   // deleted is true once the message was deleted on its own surface. text and attachments
   // are then empty: Podium keeps the row, and the UI shows that it was deleted.
   bool deleted = 16;
+  // deliveries is where the bot's answer was owed beyond the web chat (the Slack thread or
+  // pull request the turn started on, and Slack threads bound to it) and how that went.
+  // Empty for every other message.
+  repeated ChatDelivery deliveries = 17;
+}
+
+// ChatDelivery is one surface a bot message was owed to.
+message ChatDelivery {
+  // surface is the source kind: "slack" or "github".
+  string surface = 1;
+  // status is "pending" (on its way, or waiting to be retried), "sent" or "failed" (given
+  // up; RetryChatDelivery puts it back).
+  string status = 2;
+  int32 attempts = 3;
+  // error is the last attempt's failure, for the person deciding whether to retry.
+  string error = 4;
 }
 
 // ChatPerson is one participant of a chat, for the header's avatar row.
@@ -1160,6 +1196,13 @@ message DeleteChatRequest {
 }
 
 message DeleteChatResponse {}
+
+message RetryChatDeliveryRequest {
+  string chat_id = 1;
+  uint64 seq = 2;
+}
+
+message RetryChatDeliveryResponse {}
 
 message SendChatMessageRequest {
   string chat_id = 1;
