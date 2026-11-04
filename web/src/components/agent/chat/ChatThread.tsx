@@ -33,6 +33,8 @@ import { Tooltip } from "../../ui/tooltip";
 import { ToolCallRow } from "../../activity/ToolCallRow";
 import { ChatAttachments } from "../ChatAttachments";
 import { MarkdownText } from "./MarkdownText";
+import { surfaceName } from "../../../lib/surfaces";
+import { Avatar, OriginMark } from "./Origin";
 
 interface ChatContextValue {
   botName: string;
@@ -116,30 +118,82 @@ const ts = (d?: Date) => (d ? timestampFromDate(d) : undefined);
 const useCustom = () => useAuiState((s) => s.message.metadata.custom as MessageCustom);
 
 /**
- * UserMessage is a question: short, scanned for, so a bubble on the right. The asker's name
- * is shown only when the message carries one — a mirrored thread, with more than one person
- * in it. In a web chat the only person asking is the person reading.
+ * UserMessage is a question: short, scanned for, so a bubble on the right. The asker is
+ * shown only when the message carries one — a mirrored thread, with more than one person in
+ * it — and then with where they said it (a Slack or GitHub mark, linking to the message) and
+ * whether they are in Podium at all. In a web chat with one person the only person asking
+ * is the person reading.
+ *
+ * What nobody put to Podium is the conversation around it, and is drawn quieter: dimmed,
+ * with a tooltip saying it did not reach Podium. A message deleted where it was said keeps
+ * its place and says so.
  */
 function UserMessage() {
   const custom = useCustom();
   const createdAt = useAuiState((s) => s.message.createdAt);
+  const where = surfaceName(custom?.via);
+  const unaddressed = custom?.addressed === false;
+  const external = Boolean(custom?.author) && !custom?.authorLogin && custom?.via !== "web";
+  const bubble = (
+    <div
+      data-testid="chat-message"
+      data-role="user"
+      data-author={custom?.author}
+      data-addressed={unaddressed ? "false" : "true"}
+      title={unaddressed ? undefined : absolute(ts(createdAt))}
+      className={cn(
+        "min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-run-bg px-4 py-2.5",
+        unaddressed && "opacity-60",
+        custom?.deleted && "border border-dashed border-border bg-transparent",
+      )}
+    >
+      {custom?.deleted ? (
+        <span data-testid="chat-deleted" className="text-sm italic text-muted">
+          Message deleted on {where}
+        </span>
+      ) : (
+        <>
+          <MessagePrimitive.Parts components={{ Text: () => <MarkdownText /> }} />
+          <ChatAttachments attachments={custom?.attachments ?? []} />
+        </>
+      )}
+    </div>
+  );
   return (
     <MessagePrimitive.Root className="flex flex-col items-end gap-1">
       {custom?.author ? (
-        <span data-testid="chat-author" className="pr-1 text-xs font-medium text-muted">
-          {custom.author}
-        </span>
+        <div className="flex items-center gap-1.5 pr-1">
+          <OriginMark via={custom.via} url={custom.externalUrl} />
+          <Avatar name={custom.author} src={custom.authorAvatar} className="size-5" />
+          <span data-testid="chat-author" className="text-xs font-medium text-muted">
+            {custom.author}
+          </span>
+          {custom.authorHandle && custom.authorHandle !== custom.author ? (
+            <span className="text-2xs text-faint">@{custom.authorHandle}</span>
+          ) : null}
+          {external ? (
+            <span
+              data-testid="chat-external"
+              title={`Not in Podium · ${where}`}
+              className="rounded-sm border border-border px-1 text-2xs leading-4 text-faint"
+            >
+              External
+            </span>
+          ) : null}
+          {custom.edited && !custom.deleted ? (
+            <span data-testid="chat-edited" className="text-2xs text-faint">
+              (edited)
+            </span>
+          ) : null}
+        </div>
       ) : null}
-      <div
-        data-testid="chat-message"
-        data-role="user"
-        data-author={custom?.author}
-        title={absolute(ts(createdAt))}
-        className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-run-bg px-4 py-2.5"
-      >
-        <MessagePrimitive.Parts components={{ Text: () => <MarkdownText /> }} />
-        <ChatAttachments attachments={custom?.attachments ?? []} />
-      </div>
+      {unaddressed ? (
+        <Tooltip label={`Not sent to Podium — said in ${where} without mentioning it`} side="left">
+          {bubble}
+        </Tooltip>
+      ) : (
+        bubble
+      )}
     </MessagePrimitive.Root>
   );
 }

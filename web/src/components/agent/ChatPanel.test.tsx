@@ -10,6 +10,8 @@ import {
   ChatFrameSchema,
   ChatMessageSchema,
   ChatSchema,
+  ChatPersonSchema,
+  ChatSurfaceSchema,
   AssistantSchema,
   PlaybookSchema,
   type ChatFrame,
@@ -859,6 +861,69 @@ describe("ChatPanel", () => {
       return found;
     });
     expect(authors.map((a) => a.textContent)).toEqual(["alice", "bob"]);
+  });
+
+  // The record is the whole conversation: each message says where it was said and whether
+  // its author is in Podium; chatter nobody put to Podium is drawn quieter; a message
+  // deleted on its surface keeps its place and says so.
+  it("labels each message with its person and origin", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(
+      chatRow({
+        origin: "github",
+        startedBy: "octocat",
+        people: [
+          create(ChatPersonSchema, { login: "alice@acme.com", name: "Alice", via: "github" }),
+          create(ChatPersonSchema, { name: "octocat", via: "github", avatar: "https://a/o.png" }),
+        ],
+        surfaces: [
+          create(ChatSurfaceSchema, {
+            kind: "github",
+            label: "acme/repo#12",
+            url: "https://github.com/acme/repo/pull/12",
+          }),
+        ],
+      }),
+    );
+    const attributed = (seq: number, over: Record<string, unknown>) => {
+      const frame = said(seq, "user", String(over.text ?? ""), String(over.author ?? ""));
+      if (frame.frame.case === "message") Object.assign(frame.frame.value, over);
+      return frame;
+    };
+    stream.push(
+      attributed(1, {
+        text: "@podium review",
+        author: "Alice",
+        authorLogin: "alice@acme.com",
+        via: "github",
+        addressed: true,
+        externalUrl: "https://github.com/acme/repo/pull/12#issuecomment-1",
+      }),
+    );
+    stream.push(
+      attributed(2, { text: "lgtm", author: "octocat", authorHandle: "octocat", via: "github", addressed: false }),
+    );
+    stream.push(attributed(3, { text: "", author: "octocat", via: "github", addressed: false, deleted: true }));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-author")).toHaveLength(3));
+    const linked = screen.getAllByTestId("chat-origin").filter((o) => o.tagName === "A");
+    expect(linked.map((o) => o.getAttribute("href"))).toEqual([
+      "https://github.com/acme/repo/pull/12#issuecomment-1",
+    ]);
+    expect(screen.getAllByTestId("chat-external")).toHaveLength(2);
+
+    const bubbles = screen.getAllByTestId("chat-message").filter((m) => m.dataset.role === "user");
+    expect(bubbles.map((b) => b.dataset.addressed)).toEqual(["true", "false", "false"]);
+    expect(screen.getByTestId("chat-deleted")).toHaveTextContent("Message deleted on GitHub");
+
+    expect(screen.getByTestId("chat-surface")).toHaveAttribute("href", "https://github.com/acme/repo/pull/12");
+    const people = screen.getAllByTestId("chat-person");
+    expect(people.map((p) => p.dataset.external)).toEqual(["false", "true"]);
+    expect(people[1]).toHaveAttribute("aria-label", "octocat (not in Podium) · GitHub");
   });
 
   it("offers no composer for a conversation that lives somewhere else", async () => {

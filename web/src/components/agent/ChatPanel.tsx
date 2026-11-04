@@ -47,6 +47,7 @@ import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
+import { ChatPeople } from "./chat/ChatPeople";
 import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
 
@@ -1149,6 +1150,7 @@ function Conversation({
   return (
     <>
       <ConversationTitle title={title} channel={channel} onRename={onRename} />
+      <ChatPeople people={stream.chat?.people ?? []} surfaces={stream.chat?.surfaces ?? []} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
       <Suspense fallback={<div className="min-h-0 flex-1" />}>
         <ChatThread

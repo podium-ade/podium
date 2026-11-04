@@ -172,3 +172,33 @@ describe("toThread", () => {
     expect(thread[1].metadata?.custom).toMatchObject({ attachments: [{ name: "report.csv" }] });
   });
 });
+
+describe("toThread attribution", () => {
+  it("carries who said a message, where, and whether it reached Podium", () => {
+    const m = create(ChatMessageSchema, {
+      seq: 99n,
+      role: "user",
+      text: "lgtm",
+      author: "octocat",
+      authorHandle: "octocat",
+      via: "github",
+      externalUrl: "https://x/1",
+      addressed: false,
+    });
+    const [u] = toThread({ messages: [m], busy: false, taskRunning: false });
+    expect(u.metadata?.custom).toMatchObject({
+      author: "octocat",
+      authorHandle: "octocat",
+      via: "github",
+      externalUrl: "https://x/1",
+      addressed: false,
+      edited: false,
+    });
+  });
+
+  it("never dims a message from a server that says nothing about where it came from", () => {
+    const m = create(ChatMessageSchema, { seq: 100n, role: "user", text: "hi" });
+    const [u] = toThread({ messages: [m], busy: false, taskRunning: false });
+    expect(u.metadata?.custom).toMatchObject({ addressed: true });
+  });
+});
