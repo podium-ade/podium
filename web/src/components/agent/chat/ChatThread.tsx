@@ -35,6 +35,7 @@ import { ChatAttachments } from "../ChatAttachments";
 import { MarkdownText } from "./MarkdownText";
 import { surfaceName } from "../../../lib/surfaces";
 import { Avatar, OriginMark } from "./Origin";
+import { DeliveryNotice } from "./Delivery";
 
 interface ChatContextValue {
   botName: string;
@@ -245,6 +246,7 @@ function AssistantMessage() {
           <Parts />
         </div>
         <ChatAttachments attachments={custom?.attachments ?? []} />
+        <DeliveryNotice items={custom?.undelivered} />
         <CopyMessage text={text} />
       </div>
     </MessagePrimitive.Root>
