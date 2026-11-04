@@ -340,6 +340,23 @@ func (c *Conductor) turnLogin(ctx context.Context, src Source, sess store.Sessio
 	return c.asker(ctx, src, sess)
 }
 
+// turnStartedBy is what a turn records as whose it was (turns.started_by): turnLogin, or
+// store.TurnStartedByApp for a GitHub turn nobody in Podium is behind — an automatic review,
+// or a review command from somebody who has not linked GitHub. Usage is broken down by it.
+func (c *Conductor) turnStartedBy(ctx context.Context, src Source, sess store.Session, ev InboundEvent) string {
+	if l := turnOwner(c.turnLogin(ctx, src, sess, ev)); l != "" {
+		return l
+	}
+	kind := sess.SourceKind
+	if src != nil {
+		kind = src.Kind()
+	}
+	if kind == SourceGitHub {
+		return store.TurnStartedByApp
+	}
+	return ""
+}
+
 func (c *Conductor) now() time.Time {
 	if c.clock != nil {
 		return c.clock()

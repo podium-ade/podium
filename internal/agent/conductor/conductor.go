@@ -145,6 +145,14 @@ type Options struct {
 	// be resolved to a Podium login (PODIUM_ALLOWED_DOMAINS). Empty skips that one check;
 	// the email must still be a login that has signed in. See identity.go.
 	AllowedDomains []string
+	// TranscriptBudgetBytes and TranscriptKeepRecent bound the transcript a turn is handed
+	// (transcript.go). Zero is DefaultTranscriptBudgetBytes / DefaultTranscriptKeepRecent.
+	TranscriptBudgetBytes int
+	TranscriptKeepRecent  int
+	// OutboxRetryDelay is the delivery outbox's backoff base (outbox.go). Zero is the real
+	// schedule (10s, doubling); negative retries a failed delivery at once, which is what a
+	// test wants and nothing else does.
+	OutboxRetryDelay time.Duration
 	// ChatHost answers conversations on one long-lived opencode 2 service instead of a
 	// runtime per turn (chathost.go). Nil runs every assistant turn as a host process. It
 	// needs Host as well: the brief, the prompt and the credentials are a host turn's.
@@ -264,6 +272,15 @@ type Conductor struct {
 	githubURL    string
 	// allowedDomains is Options.AllowedDomains.
 	allowedDomains []string
+	// outboxBase is Options.OutboxRetryDelay.
+	outboxBase time.Duration
+	// summarizer condenses the chatter a transcript budget leaves out. Nil is the
+	// extractive default; a test replaces it. See transcript.go.
+	summarizer Summarizer
+	// transcriptBudget and transcriptKeep are Options.TranscriptBudgetBytes and
+	// TranscriptKeepRecent with their defaults applied.
+	transcriptBudget int
+	transcriptKeep   int
 	// idents caches who a Slack or GitHub account is, and rate-limits review commands from
 	// outside Podium. See identity.go.
 	idents identityCache
@@ -358,7 +375,7 @@ func New(opts Options) (*Conductor, error) {
 	if metrics == nil {
 		metrics = NewMetrics(nil)
 	}
-	return &Conductor{
+	c := &Conductor{
 		store:               opts.Store,
 		podium:              opts.Podium,
 		profiles:            opts.Profiles,
@@ -396,11 +413,23 @@ func New(opts Options) (*Conductor, error) {
 		githubAPIURL:        opts.GitHubAPIURL,
 		githubURL:           opts.GitHubURL,
 		allowedDomains:      opts.AllowedDomains,
+		transcriptBudget:    cmp.Or(opts.TranscriptBudgetBytes, DefaultTranscriptBudgetBytes),
+		transcriptKeep:      cmp.Or(opts.TranscriptKeepRecent, DefaultTranscriptKeepRecent),
+		outboxBase:          opts.OutboxRetryDelay,
 		sessions:            map[string]*sessionState{},
 		hostRuns:            map[string]func(){},
 		turnTokens:          map[string]turnGrant{},
 		liveDelegations:     map[string]*delegationRun{},
-	}, nil
+	}
+	// A source that fans answers out to another (the GitHub source, to the Slack threads bound
+	// to a pull request) hands each copy back here, so it is owed and retried like the
+	// primary. See outbox.go.
+	for _, src := range c.sources {
+		if ds, ok := src.(deliverySetter); ok {
+			ds.SetDeliverer(c)
+		}
+	}
+	return c, nil
 }
 
 // Run drains every source until ctx is cancelled, and resumes whatever was in flight when
@@ -421,6 +450,11 @@ func (c *Conductor) Run(ctx context.Context) error {
 	go func() {
 		defer c.wg.Done()
 		c.renewLeases(ctx)
+	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.deliverOutbox(ctx)
 	}()
 	if c.chatHost != nil {
 		c.wg.Add(1)
@@ -803,7 +837,7 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	if !ok {
 		return
 	}
-	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	turn, err := c.store.CreateTurnFor(ctx, sess.ID, ev.Ref, c.turnStartedBy(ctx, src, sess, ev), store.Backend{})
 	if err == nil {
 		// A turn with no task, possibly for hours while it queues behind a writer: the lease
 		// is what tells another conductor's restart that it is alive.
@@ -994,14 +1028,15 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		defer release()
 	}
 
-	entries, err := src.FetchTranscript(ctx, ev.Ref)
+	// The record, not the source: see transcript.go. The summary and the budget are applied
+	// inside, because the budget has to know which lines were put to Podium.
+	entries, err := c.turnTranscript(ctx, src, ev.Ref, sess)
 	if err != nil {
 		// A turn with no history is a worse answer than one with it, and a much better
 		// answer than none at all.
 		c.logger.WarnContext(ctx, "reading the conversation failed; running the turn without history",
 			"ref", ev.Ref, "error", err)
 	}
-	entries = c.withSummary(ctx, sess.ID, entries)
 
 	// Resolved before the turn is recorded so the row says what actually ran, and handed to
 	// the brief and the task spec so all three agree on one answer.
@@ -1013,7 +1048,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		Provider: c.providerFor(choice.Agent, "").ID,
 	}
 
-	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, backend)
+	turn, err := c.store.CreateTurnFor(ctx, sess.ID, ev.Ref, c.turnStartedBy(ctx, src, sess, ev), backend)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side before I could start. Nothing ran."})
@@ -1084,6 +1119,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if persona != nil {
 		brief.Git = persona
 	}
+	c.withRequestedBy(ctx, brief, login, persona)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -1968,6 +2004,13 @@ func (c *Conductor) failTurn(
 // source that cannot post is logged and the turn carries on: the work is more use to a
 // human than the placeholder was.
 func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbound) string {
+	// An answer, a failure or a question in a conversation that lives elsewhere is recorded
+	// and owed through the outbox (outbox.go), which also makes the first attempt.
+	if durableOut(out.Type) {
+		if id, handled := c.postDurable(ctx, src, ref, out); handled {
+			return id
+		}
+	}
 	id, err := src.Post(ctx, ref, out)
 	if err != nil {
 		c.logger.WarnContext(ctx, "posting to the conversation failed",
@@ -2162,6 +2205,9 @@ func (c *Conductor) ReplaceSource(kind string, src Source) {
 	c.sources = slices.DeleteFunc(c.sources, func(s Source) bool { return s.Kind() == kind })
 	if src != nil {
 		c.sources = append(c.sources, src)
+		if ds, ok := src.(deliverySetter); ok {
+			ds.SetDeliverer(c)
+		}
 	}
 	ctx := c.baseCtx
 	c.mu.Unlock()

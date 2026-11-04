@@ -62,10 +62,13 @@ type Source struct {
 	// mirror makes this a source whose conversation lives somewhere else, so the conductor
 	// keeps a readable copy of it. Off by default: the web chat must NOT be mirrored,
 	// because it already stores its own messages and a second writer would double them.
-	mirror  bool
-	seq     int64
-	nextMsg int64
-	closed  bool
+	mirror bool
+	// failPosts is how many more answers, failures or questions Post refuses, which is how a
+	// test drives the delivery outbox's retries.
+	failPosts int
+	seq       int64
+	nextMsg   int64
+	closed    bool
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -132,11 +135,27 @@ func (s *Source) FetchTranscript(_ context.Context, ref string) ([]conductor.Bri
 	return append([]conductor.BriefEntry(nil), s.transcript[ref]...), nil
 }
 
+// FailPosts makes the next n answers, failures or questions fail to post. Progress and the
+// placeholder still post: the outbox only owes what a person has to see.
+func (s *Source) FailPosts(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failPosts = n
+}
+
+// ErrPostRefused is what Post returns while FailPosts is in force.
+var ErrPostRefused = errors.New("fakesource: the surface refused the post")
+
 // Post implements conductor.Source. A final joins the transcript; a placeholder and a
 // progress line do not, exactly as the Slack source leaves out its own noise.
 func (s *Source) Post(_ context.Context, ref string, out conductor.Outbound) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.failPosts > 0 && (out.Type == conductor.OutFinal || out.Type == conductor.OutFailure ||
+		out.Type == conductor.OutQuestion) {
+		s.failPosts--
+		return "", ErrPostRefused
+	}
 	s.nextMsg++
 	id := "msg-" + strconv.FormatInt(s.nextMsg, 10)
 	s.record(Record{

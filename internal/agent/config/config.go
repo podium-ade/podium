@@ -290,6 +290,13 @@ type Config struct {
 	// signed in through podium-server. Defence in depth for a server that admits only its
 	// own workspace anyway.
 	AllowedDomains []string
+	// TranscriptBudgetBytes is PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES: how much of the
+	// conversation's text a turn is handed before the older chatter nobody put to Podium is
+	// condensed. Zero is the conductor's default. See conductor/transcript.go.
+	TranscriptBudgetBytes int
+	// TranscriptKeepRecent is PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT: how many of the latest
+	// messages a turn always gets word for word, budget or not. Zero is the default.
+	TranscriptKeepRecent int
 	// GitHubAppID is the numeric id of the GitHub App turns clone and push with, and that
 	// the review source talks as. It is saved under Settings → Connections. Empty turns
 	// the App off and leaves the older path — a playbook naming podium.agent.github_token
@@ -418,26 +425,28 @@ func FromEnv() Config {
 		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
-		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
-		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
-		AllowedDomains:     domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
-		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
-		HostIsolation:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
-		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
-		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
-		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
-		ChatHost:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
-		ChatHostClaude:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
-		ChatHostMaxTurns:   envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
-		ChatHostMaxPerUser: envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
-		PublicURL:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
-		SMTPURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
-		SMTPFrom:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
-		NotifyAway:         envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
-		ReplicaID:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
-		SandboxURL:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
-		SurfaceListen:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
-		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		UIURL:                 os.Getenv("PODIUM_AGENT_UI_URL"),
+		AllowedDomains:        domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
+		TranscriptBudgetBytes: envInt("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES"),
+		TranscriptKeepRecent:  envInt("PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT"),
+		TaskURL:               envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
+		HostIsolation:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
+		HostBwrap:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
+		HostMemoryMax:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
+		HostWarm:              envDuration("PODIUM_AGENT_HOST_WARM", 0),
+		ChatHost:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
+		ChatHostClaude:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
+		ChatHostMaxTurns:      envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
+		ChatHostMaxPerUser:    envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
+		PublicURL:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
+		SMTPURL:               strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
+		SMTPFrom:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
+		NotifyAway:            envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
+		ReplicaID:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
+		SandboxURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
+		SurfaceListen:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
+		DevSource:             envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -588,6 +597,10 @@ func (c Config) Validate() error {
 	// Same reasoning as the skills directory, and a stronger case for it: with a host
 	// runtime configured, EVERY conversation runs on it, so a path that is not there is
 	// every turn failing rather than some of them.
+	if c.TranscriptBudgetBytes < 0 || c.TranscriptKeepRecent < 0 {
+		return errors.New("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES and PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT " +
+			"must be whole numbers of zero or more (zero is the default)")
+	}
 	if c.HostMaxTurns < 0 {
 		return errors.New("PODIUM_AGENT_HOST_MAX_TURNS must be a whole number of turns")
 	}
