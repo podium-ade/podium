@@ -164,6 +164,11 @@ type ChatParticipant struct {
 	Login     string
 	Name      string
 	JoinedVia string
+	// Avatar is a picture for the header: an account's own, or the first message's.
+	Avatar string
+	// Via is the surface the header shows them on: where a Podium person joined from, or
+	// where an author who is not in Podium first spoke.
+	Via string
 }
 
 // ChatParticipants is everyone in a chat, first appearance first: the Podium people who
@@ -190,9 +195,13 @@ func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]ChatPart
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]string{} // login → best display name
-	known := map[string]bool{}   // lowercased names that are a participant
+	names := map[string]string{}   // login → best display name
+	avatars := map[string]string{} // login → first picture any of their accounts has
+	known := map[string]bool{}     // lowercased names that are a participant
 	for _, id := range ids {
+		if avatars[id.Login] == "" && id.AvatarURL != "" {
+			avatars[id.Login] = id.AvatarURL
+		}
 		for _, n := range []string{id.DisplayName, id.Handle} {
 			if n = strings.TrimSpace(n); n != "" {
 				known[strings.ToLower(n)] = true
@@ -207,16 +216,30 @@ func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]ChatPart
 		known[strings.ToLower(r.Login)] = true
 		out = append(out, ChatParticipant{
 			Login: r.Login, Name: firstNonEmptyString(names[r.Login], r.Login), JoinedVia: r.JoinedVia,
+			Avatar: avatars[r.Login], Via: joinedSurface(r.JoinedVia),
 		})
 	}
 	for _, a := range authors {
-		if known[strings.ToLower(strings.TrimSpace(a))] {
+		name := strings.TrimSpace(a.Author)
+		if known[strings.ToLower(name)] {
 			continue
 		}
-		known[strings.ToLower(strings.TrimSpace(a))] = true
-		out = append(out, ChatParticipant{Name: a})
+		known[strings.ToLower(name)] = true
+		out = append(out, ChatParticipant{Name: a.Author, Avatar: a.Avatar, Via: a.Via})
 	}
 	return out, nil
+}
+
+// joinedSurface is the surface a participant row's joined_via names. A backfilled or shared
+// participant joined through nothing the header can show, and is drawn as web.
+func joinedSurface(joinedVia string) string {
+	switch joinedVia {
+	case JoinedSlack:
+		return ViaSlack
+	case JoinedGitHub:
+		return ViaGitHub
+	}
+	return ViaWeb
 }
 
 func firstNonEmptyString(vs ...string) string {

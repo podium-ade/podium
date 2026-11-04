@@ -294,7 +294,7 @@ func TestAMessageForAChatThatIsNotThereIsRefused(t *testing.T) {
 	_, err := s.AppendChatMessage(context.Background(), ChatMessage{
 		ChatID: "chat_nope", Role: RoleUser, Text: "hello",
 	})
-	assert.ErrorContains(t, err, "chat_messages_chat_id_fkey")
+	assert.ErrorIs(t, err, ErrNotFound, "the seq comes from the chat row, so no chat is no message")
 }
 
 func TestAChatMayBeRenamed(t *testing.T) {
@@ -629,10 +629,10 @@ func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
 	chat, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "one")
 	require.NoError(t, err)
 	for _, m := range []ChatMessage{
-		{Role: RoleUser, Author: "alice", Text: "one"},
+		{Role: RoleUser, Author: "alice", Text: "one", Via: ViaSlack, AuthorAvatar: "https://a/alice.png"},
 		{Role: RoleAssistant, Author: "Podium", Text: "answer"},
-		{Role: RoleUser, Author: "bob", Text: "two"},
-		{Role: RoleUser, Author: "alice", Text: "three"},
+		{Role: RoleUser, Author: "bob", Text: "two", Via: ViaSlack},
+		{Role: RoleUser, Author: "alice", Text: "three", Via: ViaSlack},
 		{Role: RoleUser, Author: "", Text: "from nobody in particular"},
 	} {
 		m.ChatID = chat.ID
@@ -642,8 +642,10 @@ func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
 
 	people, err := s.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []ChatParticipant{{Name: "alice"}, {Name: "bob"}}, people,
-		"nobody here is in Podium, so each is known only by name")
+	assert.Equal(t, []ChatParticipant{
+		{Name: "alice", Via: ViaSlack, Avatar: "https://a/alice.png"},
+		{Name: "bob", Via: ViaSlack},
+	}, people, "nobody here is in Podium, so each is known by name, surface and first picture")
 }
 
 func TestAMessageRemembersWhoSaidIt(t *testing.T) {

@@ -620,6 +620,10 @@ type Chat struct {
 	// PersonalityDisplay is that assistant's display name at the moment the chat was
 	// opened, so a deleted assistant's threads stay labeled.
 	PersonalityDisplay string
+	// SourceKey is the conductor session this chat is the record of: chat:<id> for a web
+	// chat, the Slack thread or the pull request for a mirrored one. The API reads the
+	// conversation's surfaces from it.
+	SourceKey string
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -648,6 +652,47 @@ type ChatMessage struct {
 	// what lets a reader tell the three kinds of progress apart: the assistant thinking on
 	// this host, the conductor announcing a delegation, and a delegated task talking.
 	TaskID string
+
+	// AuthorLogin is the Podium person who said it. Empty for somebody who is not in Podium,
+	// and for the bot. AuthorHandle and AuthorAvatar are what the UI draws beside the name:
+	// a GitHub @handle, a Slack display name's avatar.
+	AuthorLogin  string
+	AuthorHandle string
+	AuthorAvatar string
+	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaBot).
+	// Empty on a write means ViaWeb for a user message and ViaBot for anything else.
+	Via string
+	// ExternalID is the message's identity on its own surface, and empty for a web message.
+	// ExternalURL links back to it.
+	ExternalID  string
+	ExternalURL string
+	// Addressed is whether the message was put to Podium. Only an addressed message ever
+	// starts a turn; the rest are the conversation around it.
+	Addressed bool
+	// EditedAt and DeletedAt are an edit or a delete made on the surface. A deleted message
+	// keeps its text in the store; the API and the transcript do not hand it out.
+	EditedAt  *time.Time
+	DeletedAt *time.Time
+}
+
+// The surfaces a chat message can come in through.
+const (
+	ViaWeb    = "web"
+	ViaSlack  = "slack"
+	ViaGitHub = "github"
+	// ViaBot is what the conductor itself wrote: an answer, a progress line, a failure.
+	ViaBot = "bot"
+)
+
+// via is the surface a message is stored under when the writer did not say.
+func (m ChatMessage) via() string {
+	if m.Via != "" {
+		return m.Via
+	}
+	if m.Role == "user" {
+		return ViaWeb
+	}
+	return ViaBot
 }
 
 // CreateChat opens a Podium chat owned by login. An empty title becomes DefaultChatTitle,
@@ -835,6 +880,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			Channel:            r.Channel,
 			PersonalityID:      deref(r.PersonalityID),
 			PersonalityDisplay: r.PersonalityDisplay,
+			SourceKey:          deref(r.SourceKey),
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -853,6 +899,14 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 // AppendChatMessage stores one message and gives it the chat's next seq. The seq comes from
 // the insert itself, so two concurrent appends get two seqs rather than one collision.
 func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMessage, error) {
+	return s.appendChatMessage(ctx, msg, true)
+}
+
+// appendChatMessage is AppendChatMessage with Addressed decided by the caller. Append itself
+// always stores true: everything that appends without saying otherwise — a web send, an
+// answer, a progress line — was put to Podium or written by it. RecordChatMessage is the
+// writer that says otherwise, and it passes msg.Addressed through.
+func (s *Store) appendChatMessage(ctx context.Context, msg ChatMessage, addressed bool) (ChatMessage, error) {
 	raw, err := marshalAttachments(msg.Attachments)
 	if err != nil {
 		return ChatMessage{}, err
@@ -862,16 +916,124 @@ func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		ts = time.Now().UTC()
 	}
 	row, err := s.q.AppendChatMessage(ctx, db.AppendChatMessageParams{
-		ChatID:      msg.ChatID,
-		Role:        msg.Role,
-		Text:        msg.Text,
-		Attachments: raw,
-		Ts:          ts,
-		Author:      msg.Author,
-		TaskID:      msg.TaskID,
+		ChatID:       msg.ChatID,
+		Role:         msg.Role,
+		Text:         msg.Text,
+		Attachments:  raw,
+		Ts:           ts,
+		Author:       msg.Author,
+		TaskID:       msg.TaskID,
+		AuthorLogin:  nullable(msg.AuthorLogin),
+		AuthorHandle: msg.AuthorHandle,
+		AuthorAvatar: msg.AuthorAvatar,
+		Via:          msg.via(),
+		ExternalID:   nullable(msg.ExternalID),
+		ExternalUrl:  msg.ExternalURL,
+		Addressed:    addressed,
 	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: chat %s", ErrNotFound, msg.ChatID)
+	}
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("append %s message to chat %s: %w", msg.Role, msg.ChatID, err)
+	}
+	return chatMessageFromRow(row)
+}
+
+// RecordChatMessage stores a message that has an identity on its own surface, once. It
+// reports false, and writes nothing, when that message is already in the chat: the same
+// Slack event retried, a GitHub webhook redelivered, two conductors hearing one event. The
+// caller starts a turn only on true, which is what makes "record it" and "act on it" one
+// decision rather than two that can disagree.
+//
+// A message with no ExternalID cannot be recognised a second time, so it is simply appended.
+func (s *Store) RecordChatMessage(ctx context.Context, msg ChatMessage) (ChatMessage, bool, error) {
+	if msg.ExternalID == "" {
+		row, err := s.appendChatMessage(ctx, msg, msg.Addressed)
+		return row, err == nil, err
+	}
+	raw, err := marshalAttachments(msg.Attachments)
+	if err != nil {
+		return ChatMessage{}, false, err
+	}
+	ts := msg.TS
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	row, err := s.q.RecordChatMessage(ctx, db.RecordChatMessageParams{
+		ChatID:       msg.ChatID,
+		Role:         msg.Role,
+		Text:         msg.Text,
+		Attachments:  raw,
+		Ts:           ts,
+		Author:       msg.Author,
+		TaskID:       msg.TaskID,
+		AuthorLogin:  nullable(msg.AuthorLogin),
+		AuthorHandle: msg.AuthorHandle,
+		AuthorAvatar: msg.AuthorAvatar,
+		Via:          msg.via(),
+		ExternalID:   msg.ExternalID,
+		ExternalUrl:  msg.ExternalURL,
+		Addressed:    msg.Addressed,
+	})
+	if noRows(err) {
+		// Either the message is already here, or the chat is not. The chat is the caller's
+		// own (it just found or made it), so this is the duplicate.
+		return ChatMessage{}, false, nil
+	}
+	if err != nil {
+		return ChatMessage{}, false, fmt.Errorf("record %s message %s in chat %s: %w",
+			msg.Via, msg.ExternalID, msg.ChatID, err)
+	}
+	out, err := chatMessageFromRow(row)
+	return out, err == nil, err
+}
+
+// EditChatMessage applies an edit made on a message's own surface. ErrNotFound means the
+// message was never recorded — said before the chat existed, or in a thread Podium does not
+// hold — and there is nothing to change.
+func (s *Store) EditChatMessage(
+	ctx context.Context, chatID, via, externalID, text string, at time.Time,
+) (ChatMessage, error) {
+	row, err := s.q.EditChatMessageByExternal(ctx, db.EditChatMessageByExternalParams{
+		ChatID: chatID, Via: via, ExternalID: externalID, Text: text, EditedAt: &at,
+	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %s/%s in chat %s", ErrNotFound, via, externalID, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("edit message %s/%s in chat %s: %w", via, externalID, chatID, err)
+	}
+	return chatMessageFromRow(row)
+}
+
+// DeleteChatMessage marks a message deleted on its own surface. The row and its text stay.
+func (s *Store) DeleteChatMessage(
+	ctx context.Context, chatID, via, externalID string, at time.Time,
+) (ChatMessage, error) {
+	row, err := s.q.DeleteChatMessageByExternal(ctx, db.DeleteChatMessageByExternalParams{
+		ChatID: chatID, Via: via, ExternalID: externalID, DeletedAt: &at,
+	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %s/%s in chat %s", ErrNotFound, via, externalID, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("delete message %s/%s in chat %s: %w", via, externalID, chatID, err)
+	}
+	return chatMessageFromRow(row)
+}
+
+// GetChatMessage reads one message by its seq.
+func (s *Store) GetChatMessage(ctx context.Context, chatID string, seq uint64) (ChatMessage, error) {
+	if seq > 1<<62 {
+		return ChatMessage{}, fmt.Errorf("chat %s: seq %d overflows bigint", chatID, seq)
+	}
+	row, err := s.q.GetChatMessage(ctx, db.GetChatMessageParams{ChatID: chatID, Seq: int64(seq)})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %d of chat %s", ErrNotFound, seq, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("get message %d of chat %s: %w", seq, chatID, err)
 	}
 	return chatMessageFromRow(row)
 }
@@ -1005,6 +1167,7 @@ func chatFromRow(row db.Chat) Chat {
 		Channel:            row.Channel,
 		PersonalityID:      deref(row.PersonalityID),
 		PersonalityDisplay: row.PersonalityDisplay,
+		SourceKey:          deref(row.SourceKey),
 	}
 }
 
@@ -1187,6 +1350,20 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		TS:     r.Ts.UTC(),
 		Author: r.Author,
 		TaskID: r.TaskID,
+
+		AuthorHandle: r.AuthorHandle,
+		AuthorAvatar: r.AuthorAvatar,
+		Via:          r.Via,
+		ExternalURL:  r.ExternalUrl,
+		Addressed:    r.Addressed,
+		EditedAt:     utcPtr(r.EditedAt),
+		DeletedAt:    utcPtr(r.DeletedAt),
+	}
+	if r.AuthorLogin != nil {
+		msg.AuthorLogin = *r.AuthorLogin
+	}
+	if r.ExternalID != nil {
+		msg.ExternalID = *r.ExternalID
 	}
 	if len(r.Attachments) > 0 {
 		if err := json.Unmarshal(r.Attachments, &msg.Attachments); err != nil {
@@ -1224,4 +1401,12 @@ func preview(text string, limit int) string {
 	}
 	runes := []rune(text)
 	return strings.TrimRight(string(runes[:limit]), " \t\n") + "…"
+}
+
+// nullable is a text column's value for an empty Go string: NULL, not ”.
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
