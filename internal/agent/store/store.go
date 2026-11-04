@@ -115,7 +115,15 @@ type Turn struct {
 	// before the columns existed — never guessed from the playbook, whose model is only a
 	// default and may have been edited since.
 	Backend Backend
+	// StartedBy is the Podium login whose turn this was and whose credentials it ran with,
+	// TurnStartedByApp for a review nobody in Podium asked for, and empty for a turn from
+	// before the column or one with no person.
+	StartedBy string
 }
+
+// TurnStartedByApp is turns.started_by for a review the GitHub App ran on nobody's behalf:
+// an automatic review, or a review command from somebody who has not linked GitHub.
+const TurnStartedByApp = "github-app"
 
 // Backend is the resolved agent, model and effort a turn ran on, and the provider that was
 // billed for it. Provider is stored rather than derived from Agent so that remapping a
@@ -222,6 +230,12 @@ func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit 
 // CreateTurn records a turn as running. The task does not exist yet: SetTurnTask fills it
 // in once CreateTask has answered.
 func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string, b Backend) (Turn, error) {
+	return s.CreateTurnFor(ctx, sessionID, triggerRef, "", b)
+}
+
+// CreateTurnFor is CreateTurn with the login the turn is for, which is what usage is broken
+// down by. CreateTurn is the same call for a turn with nobody behind it.
+func (s *Store) CreateTurnFor(ctx context.Context, sessionID, triggerRef, startedBy string, b Backend) (Turn, error) {
 	now := time.Now().UTC()
 	row, err := s.q.CreateTurn(ctx, db.CreateTurnParams{
 		ID:         ids.New("turn"),
@@ -233,6 +247,7 @@ func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string, b 
 		Model:      b.Model,
 		Effort:     b.Effort,
 		Provider:   b.Provider,
+		StartedBy:  startedBy,
 	})
 	if err != nil {
 		return Turn{}, fmt.Errorf("create turn for session %s: %w", sessionID, err)
@@ -483,6 +498,7 @@ func turnFromRow(r db.Turn) Turn {
 		FinishedAt: utcPtr(r.FinishedAt),
 		CostUSD:    r.CostUsd,
 		FinalText:  deref(r.FinalText),
+		StartedBy:  r.StartedBy,
 		Backend: Backend{
 			Agent:    deref(r.Agent),
 			Model:    deref(r.Model),
@@ -673,6 +689,18 @@ type ChatMessage struct {
 	// keeps its text in the store; the API and the transcript do not hand it out.
 	EditedAt  *time.Time
 	DeletedAt *time.Time
+	// Deliveries is where the bot's message was owed beyond the web chat, and how that went:
+	// the chat_outbox rows behind it (0033). Read with the message, never written with it.
+	// Empty for every message that is not the bot's answer in a conversation living elsewhere.
+	Deliveries []MessageDelivery
+}
+
+// MessageDelivery is one surface a bot message was owed to.
+type MessageDelivery struct {
+	SurfaceKind string
+	Status      string
+	Attempts    int
+	LastError   string
 }
 
 // The surfaces a chat message can come in through.
@@ -1035,7 +1063,49 @@ func (s *Store) GetChatMessage(ctx context.Context, chatID string, seq uint64) (
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("get message %d of chat %s: %w", seq, chatID, err)
 	}
-	return chatMessageFromRow(row)
+	msg, err := chatMessageFromRow(row)
+	if err != nil {
+		return ChatMessage{}, err
+	}
+	out := []ChatMessage{msg}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return ChatMessage{}, err
+	}
+	return out[0], nil
+}
+
+// attachDeliveries fills Deliveries on the bot's messages in msgs from one read of the
+// chat's outbox. A chat with no bot messages is not read at all.
+func (s *Store) attachDeliveries(ctx context.Context, chatID string, msgs []ChatMessage) error {
+	bot := false
+	for _, m := range msgs {
+		if m.Via == ViaBot {
+			bot = true
+			break
+		}
+	}
+	if !bot {
+		return nil
+	}
+	items, err := s.ListChatOutbox(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	bySeq := map[uint64][]MessageDelivery{}
+	for _, it := range items {
+		bySeq[it.MessageSeq] = append(bySeq[it.MessageSeq], MessageDelivery{
+			SurfaceKind: it.SurfaceKind, Status: it.Status, Attempts: it.Attempts, LastError: it.LastError,
+		})
+	}
+	for i := range msgs {
+		if d, ok := bySeq[msgs[i].Seq]; ok && msgs[i].Via == ViaBot {
+			msgs[i].Deliveries = d
+		}
+	}
+	return nil
 }
 
 // ListChatMessages returns a chat's messages with seq > fromSeq, in seq order. fromSeq is
@@ -1057,6 +1127,9 @@ func (s *Store) ListChatMessages(ctx context.Context, chatID string, fromSeq uin
 			return nil, err
 		}
 		out = append(out, msg)
+	}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
