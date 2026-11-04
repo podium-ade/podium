@@ -141,6 +141,10 @@ type Options struct {
 	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
 	GitHubAPIURL string
 	GitHubURL    string
+	// AllowedDomains are the Google Workspace domains a Slack speaker's email must be on to
+	// be resolved to a Podium login (PODIUM_ALLOWED_DOMAINS). Empty skips that one check;
+	// the email must still be a login that has signed in. See identity.go.
+	AllowedDomains []string
 	// ChatHost answers conversations on one long-lived opencode 2 service instead of a
 	// runtime per turn (chathost.go). Nil runs every assistant turn as a host process. It
 	// needs Host as well: the brief, the prompt and the credentials are a host turn's.
@@ -258,6 +262,13 @@ type Conductor struct {
 	// scoped tokens each running turn holds. See usertoken.go.
 	githubAPIURL string
 	githubURL    string
+	// allowedDomains is Options.AllowedDomains.
+	allowedDomains []string
+	// idents caches who a Slack or GitHub account is, and rate-limits review commands from
+	// outside Podium. See identity.go.
+	idents identityCache
+	// clock is time.Now, replaceable by a test.
+	clock        func() time.Time
 	userTokensMu sync.Mutex
 	userTokens   map[string]*userTokenSet
 	loginLocks   map[string]*sync.Mutex
@@ -384,6 +395,7 @@ func New(opts Options) (*Conductor, error) {
 		heldLeases:          map[string]bool{},
 		githubAPIURL:        opts.GitHubAPIURL,
 		githubURL:           opts.GitHubURL,
+		allowedDomains:      opts.AllowedDomains,
 		sessions:            map[string]*sessionState{},
 		hostRuns:            map[string]func(){},
 		turnTokens:          map[string]turnGrant{},
@@ -453,6 +465,12 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.rememberSlackChannel(ctx, ev)
+	// Who said it, and whether they may start anything at all. A refused event has already
+	// been recorded and reacted to by admit.
+	c.resolveSpeaker(ctx, src, &ev)
+	if !c.admit(ctx, src, &ev) {
+		return
+	}
 	// One snapshot for the whole of this event. A profile swapped in half way through must
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
@@ -1011,14 +1029,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn, and a name that no longer resolves fails the job that names it rather than the
 	// whole conductor.
 	//
-	// login is who personal secrets attach to. A Slack turn still has none of those: the
-	// speaker's email picks MCP servers only. A playbook that names user_secrets keeps
-	// failing a Slack turn, the same as before.
-	login := c.asker(ctx, src, sess)
-	speaker := ""
-	if src != nil && src.Kind() == SourceSlack {
-		speaker = strings.TrimSpace(ev.Login)
-	}
+	// login is who personal secrets attach to: the person who started this turn, on whatever
+	// surface they spoke (turnLogin). Slack and GitHub speakers are only ever resolved to a
+	// login that has proven the account is theirs, so their secrets follow them here the
+	// way a web chat's always have. speaker is the same person, kept as its own name for
+	// the places that only want somebody to count or to pick MCP servers for.
+	login := c.turnLogin(ctx, src, sess, ev)
+	speaker := login
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = speaker

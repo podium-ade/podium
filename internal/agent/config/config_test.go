@@ -458,3 +458,8 @@ func TestTurnSurfaceValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestDomainList(t *testing.T) {
+	assert.Equal(t, []string{"acme.com", "example.org"}, domainList(" Acme.com, ,@example.org "))
+	assert.Empty(t, domainList(""))
+}

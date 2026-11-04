@@ -127,7 +127,13 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
 	phrases := f.phraseRE()
-	triggered := c.ready || c.mentioned || (phrases != nil && phrases.MatchString(c.body))
+	// A review command is its own trigger: `/review` names no mention, and it is the one
+	// request somebody outside Podium may make, so it must reach the conductor's gate.
+	cmd, isCommand := ParseReviewCommand(c.body, s.mentionRE)
+	if c.ready {
+		isCommand = false
+	}
+	triggered := c.ready || c.mentioned || isCommand || (phrases != nil && phrases.MatchString(c.body))
 	if !triggered && c.inReply {
 		triggered = s.replyTriggers(ctx, f, c, known)
 	}
@@ -182,6 +188,14 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	} else {
 		text = commentInstruction(c, text, commit, head)
 	}
+	request := ""
+	if isCommand {
+		request = s.reviewRequest(ctx, c, cmd, commit, head)
+	}
+	speakerID := ""
+	if c.authorID != 0 {
+		speakerID = strconv.FormatInt(c.authorID, 10)
+	}
 
 	s.emit(ctx, conductor.InboundEvent{
 		SourceKind: Kind,
@@ -190,15 +204,37 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID,
 			Kind: c.kind, CommentID: c.commentID,
 		}),
-		Author:    c.author,
-		Text:      text,
-		TS:        c.ts,
-		URL:       PRURL(c.owner, c.repo, c.number),
-		BriefKind: conductor.SourceGitHub,
-		Automatic: c.ready,
-		Role:      c.role,
+		Author:          c.author,
+		SpeakerProvider: conductor.SpeakerGitHub,
+		SpeakerID:       speakerID,
+		SpeakerAvatar:   c.authorAvatar,
+		Mentioned:       c.mentioned || isCommand,
+		ReviewRequest:   request,
+		Text:            text,
+		TS:              c.ts,
+		URL:             PRURL(c.owner, c.repo, c.number),
+		BriefKind:       conductor.SourceGitHub,
+		Automatic:       c.ready,
+		Role:            c.role,
 	})
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
+}
+
+// reviewRequest is the review a commenter outside Podium is allowed to have: the fixed
+// instruction, with their note only if it survives sanitizing and the note checker. A note
+// that does not is dropped and the review still runs — refusing the review would make the
+// checker an oracle for what it catches.
+func (s *Source) reviewRequest(ctx context.Context, c classified, cmd ReviewCommand, commit, head string) string {
+	note := SanitizeReviewNote(cmd.Note)
+	if note != "" {
+		ok, err := s.noteChecker.Allowed(ctx, note)
+		if err != nil || !ok {
+			s.logger.InfoContext(ctx, "github: dropped the note on a review command",
+				"pr", PRURL(c.owner, c.repo, c.number), "sender", c.author, "error", err)
+			note = ""
+		}
+	}
+	return reviewRequestInstruction(c.author, PRURL(c.owner, c.repo, c.number), note, commit, head)
 }
 
 // logWebhook records one delivery. The body stays out of the log: it is the
@@ -262,6 +298,19 @@ type classified struct {
 	// offered. locked is a fork nobody here can push to; role is capped below write for it.
 	role   string
 	locked bool
+	// authorID is the numeric GitHub id of who wrote the comment, review or pull request
+	// event, and authorAvatar their picture: the account the conductor resolves to a Podium
+	// login. Zero when GitHub did not say.
+	authorID     int64
+	authorAvatar string
+}
+
+// speaker records the account a comment or review came from, when the payload carries it.
+func (c *classified) speaker(u User) {
+	if u.ID != 0 {
+		c.authorID = u.ID
+		c.authorAvatar = u.AvatarURL
+	}
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -276,10 +325,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				Login string `json:"login"`
 			} `json:"owner"`
 		} `json:"repository"`
-		Sender struct {
-			Login string `json:"login"`
-			Type  string `json:"type"`
-		} `json:"sender"`
+		Sender User `json:"sender"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
 		return classified{}, false
@@ -291,6 +337,10 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		installID:   env.Installation.ID,
 		senderLogin: env.Sender.Login,
 		senderType:  env.Sender.Type,
+		// Who spoke, by the numeric id the identities table proves. The sender is right for
+		// a pull request event; a comment or review overrides it with its own user below.
+		authorID:     env.Sender.ID,
+		authorAvatar: env.Sender.AvatarURL,
 	}
 	if base.owner == "" || base.repo == "" {
 		base.reason = "unhandled"
@@ -327,6 +377,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.commentID = p.Comment.ID
 		base.body = p.Comment.Body
 		base.author = firstNonEmpty(p.Comment.User.Login, env.Sender.Login)
+		base.speaker(p.Comment.User)
 		base.ts = p.Comment.CreatedAt
 		base.mentioned = s.mentioned(p.Comment.Body)
 		if base.number == 0 || base.commentID == 0 {
@@ -365,6 +416,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.commentID = p.Comment.ID
 		base.body = p.Comment.Body
 		base.author = firstNonEmpty(p.Comment.User.Login, env.Sender.Login)
+		base.speaker(p.Comment.User)
 		base.ts = p.Comment.CreatedAt
 		base.path = p.Comment.Path
 		base.line = p.Comment.Line
@@ -404,6 +456,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.commentID = p.Review.ID
 		base.body = p.Review.Body
 		base.author = firstNonEmpty(p.Review.User.Login, env.Sender.Login)
+		base.speaker(p.Review.User)
 		base.ts = p.Review.SubmittedAt
 		base.mentioned = s.mentioned(p.Review.Body)
 		if base.number == 0 || base.commentID == 0 {

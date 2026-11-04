@@ -86,6 +86,13 @@ type SlackMention struct {
 	// Permalink is the Slack link; the inbound event's URL is the pull request, because
 	// that is the conversation.
 	Permalink string
+	// Login, SpeakerID and SpeakerAvatar are the Slack speaker as the Slack source proved
+	// them: a candidate email and the "<team>/<user>" identities key. A Slack-started review
+	// follows Slack's rule — the conductor resolves the candidate and refuses anybody who
+	// is not in Podium.
+	Login         string
+	SpeakerID     string
+	SpeakerAvatar string
 }
 
 // SourceOptions configures the GitHub review source.
@@ -107,6 +114,9 @@ type SourceOptions struct {
 	Reviews ReviewMemory
 	// Filters is read on every delivery. Nil is the default Filters.
 	Filters FilterLookup
+	// NoteChecker decides whether the note on a review command from somebody outside
+	// Podium may reach the model. Nil is DenyList.
+	NoteChecker NoteChecker
 }
 
 // ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
@@ -119,6 +129,7 @@ type ReviewMemory struct {
 type Source struct {
 	client        *restClient
 	logger        *slog.Logger
+	noteChecker   NoteChecker
 	events        chan conductor.InboundEvent
 	listen        string
 	webhookSecret string
@@ -201,9 +212,14 @@ func NewSource(opts SourceOptions) (*Source, error) {
 	if taskURL == nil {
 		taskURL = func(string) string { return "" }
 	}
+	checker := opts.NoteChecker
+	if checker == nil {
+		checker = DenyList{}
+	}
 	return &Source{
 		client:        client,
 		logger:        logger,
+		noteChecker:   checker,
 		events:        make(chan conductor.InboundEvent, eventBuffer),
 		listen:        opts.Listen,
 		webhookSecret: opts.WebhookSecret,
@@ -321,11 +337,16 @@ func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
 			Owner: m.PR.Owner, Repo: m.PR.Repo, Number: m.PR.Number, InstallID: install,
 			Kind: KindSlack, SlackChan: m.Channel, SlackThread: m.Thread, SlackTS: m.Trigger,
 		}),
-		Author:    m.Author,
-		Text:      text,
-		TS:        m.TS,
-		URL:       m.PR.URL,
-		BriefKind: conductor.SourceGitHub,
+		Author:          m.Author,
+		Login:           m.Login,
+		SpeakerProvider: conductor.SpeakerSlack,
+		SpeakerID:       m.SpeakerID,
+		SpeakerAvatar:   m.SpeakerAvatar,
+		Mentioned:       true,
+		Text:            text,
+		TS:              m.TS,
+		URL:             m.PR.URL,
+		BriefKind:       conductor.SourceGitHub,
 	})
 	return nil
 }
@@ -1153,6 +1174,8 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	case conductor.ReactionWorking:
 		s.reactSeen(ctx, p)
 	case conductor.ReactionDone, conductor.ReactionFailed:
+	case conductor.ReactionRefused:
+		s.reactOn(ctx, p, reactionRefused)
 	case conductor.ReactionAwaiting:
 		return nil
 	default:
@@ -1169,9 +1192,12 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	return nil
 }
 
-// reactSeen puts 👀 on the triggering comment. A review body and a pull request have no
-// comment to react on.
-func (s *Source) reactSeen(ctx context.Context, p Parsed) {
+// reactSeen puts 👀 on the triggering comment.
+func (s *Source) reactSeen(ctx context.Context, p Parsed) { s.reactOn(ctx, p, reactionSeen) }
+
+// reactOn puts one reaction on the triggering comment. A review body and a pull request have
+// no comment to react on.
+func (s *Source) reactOn(ctx context.Context, p Parsed, content string) {
 	if p.CommentID <= 0 || (p.Kind != KindIssueComment && p.Kind != KindReviewComment) {
 		return
 	}
@@ -1179,7 +1205,7 @@ func (s *Source) reactSeen(ctx context.Context, p Parsed) {
 	if err != nil {
 		return
 	}
-	if err := s.client.CreateReaction(ctx, install, p.Owner, p.Repo, p.Kind, p.CommentID, reactionSeen); err != nil {
+	if err := s.client.CreateReaction(ctx, install, p.Owner, p.Repo, p.Kind, p.CommentID, content); err != nil {
 		s.logger.WarnContext(ctx, "github: reacting to the comment failed",
 			"pr", PRURL(p.Owner, p.Repo, p.Number), "comment", p.CommentID, "error", err)
 	}

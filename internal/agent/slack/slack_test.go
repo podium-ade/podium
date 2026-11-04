@@ -11,7 +11,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -402,6 +404,8 @@ func TestInnerResolvesTheChannelName(t *testing.T) {
 	f.reply("conversations.info", `{"ok":true,"channel":{"id":"C1","name":"support"}}`)
 	s := testSource(t, f)
 	s.users["U1"] = "alice"
+	// The account check is fresh, so it does not cost a users.info either.
+	s.accounts = map[string]slackAccount{"U1": {login: "alice@acme.com", externalID: "T1/U1", at: time.Now()}}
 
 	s.inner(t.Context(), slackevents.EventsAPIEvent{
 		InnerEvent: slackevents.EventsAPIInnerEvent{
@@ -417,6 +421,12 @@ func TestInnerResolvesTheChannelName(t *testing.T) {
 	ev := takeInbound(t, s)
 	assert.Equal(t, "C1", ev.Channel)
 	assert.Equal(t, "support", ev.ChannelName)
+	// The speaker as the conductor will resolve them: a candidate email, the account, and
+	// the fact that they addressed the bot.
+	assert.Equal(t, "alice@acme.com", ev.Login)
+	assert.Equal(t, conductor.SpeakerSlack, ev.SpeakerProvider)
+	assert.Equal(t, "T1/U1", ev.SpeakerID)
+	assert.True(t, ev.Mentioned)
 	assert.Equal(t, []string{"conversations.info"}, f.methods())
 }
 
@@ -879,11 +889,62 @@ func TestFetchTranscriptReportsARefusal(t *testing.T) {
 
 func TestASlackEmailBecomesTheSpeakersLogin(t *testing.T) {
 	f := newFakeSlack(t)
-	f.reply("users.info", `{"ok":true,"user":{"id":"U1","name":"alice","profile":{"display_name":"Alice","email":"Alice@Acme.com"}}}`)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","team_id":"T1","name":"alice","is_email_confirmed":true,"profile":{"display_name":"Alice","email":"Alice@Acme.com","image_72":"https://a/72.png"}}}`)
 	s := testSource(t, f)
+	s.botTeamID = "T1"
 
 	assert.Equal(t, "Alice", s.displayName(t.Context(), "U1"))
-	assert.Equal(t, "alice@acme.com", s.loginOf("U1"))
+	acct := s.account(t.Context(), "U1")
+	assert.Equal(t, "alice@acme.com", acct.login)
+	assert.Equal(t, "T1/U1", acct.externalID)
+	assert.Equal(t, "https://a/72.png", acct.avatar)
+}
+
+// Every way somebody could carry an email on our domain without being one of us is refused.
+// A refusal is an empty login, never an error: the message is still heard and mirrored.
+func TestVerifiedEmailRefusesAnybodyWhoCouldBePretending(t *testing.T) {
+	member := func() *slack.User {
+		u := &slack.User{ID: "U1", TeamID: "T1", IsEmailConfirmed: true}
+		u.Profile.Email = "ada@acme.com"
+		return u
+	}
+	require.Equal(t, "ada@acme.com", verifiedEmail(member(), "T1", ""))
+
+	for name, mutate := range map[string]func(*slack.User){
+		"another workspace":    func(u *slack.User) { u.TeamID = "T2" },
+		"slack connect":        func(u *slack.User) { u.IsStranger = true },
+		"multi-channel guest":  func(u *slack.User) { u.IsRestricted = true },
+		"single-channel guest": func(u *slack.User) { u.IsUltraRestricted = true },
+		"deactivated":          func(u *slack.User) { u.Deleted = true },
+		"bot":                  func(u *slack.User) { u.IsBot = true },
+		"app user":             func(u *slack.User) { u.IsAppUser = true },
+		"unconfirmed email":    func(u *slack.User) { u.IsEmailConfirmed = false },
+		"no email":             func(u *slack.User) { u.Profile.Email = "" },
+	} {
+		u := member()
+		mutate(u)
+		assert.Empty(t, verifiedEmail(u, "T1", ""), name)
+	}
+	// A bot that has not learned its own workspace proves nobody.
+	assert.Empty(t, verifiedEmail(member(), "", ""))
+	// Enterprise Grid: another workspace of the same org is the same company.
+	grid := member()
+	grid.TeamID = "T9"
+	grid.Enterprise.EnterpriseID = "E1"
+	assert.Equal(t, "ada@acme.com", verifiedEmail(grid, "T1", "E1"))
+	assert.Empty(t, verifiedEmail(grid, "T1", "E2"))
+}
+
+// The account check is asked again once accountTTL has passed: a member who becomes a guest
+// stops matching without a restart.
+func TestAccountIsCheckedAgainAfterItsTTL(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","team_id":"T1","is_restricted":true,"is_email_confirmed":true,"profile":{"email":"ada@acme.com"}}}`)
+	s := testSource(t, f)
+	s.botTeamID = "T1"
+	s.accounts = map[string]slackAccount{"U1": {login: "ada@acme.com", externalID: "T1/U1", at: time.Now().Add(-accountTTL)}}
+
+	assert.Empty(t, s.account(t.Context(), "U1").login)
 }
 
 func TestPodiumLoginRejectsAnythingButAnEmail(t *testing.T) {

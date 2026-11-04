@@ -60,6 +60,8 @@ const (
 	emojiWorking = "hourglass_flowing_sand"
 	emojiDone    = "white_check_mark"
 	emojiFailed  = "x"
+	// emojiRefused is "I will not act on this": the speaker is not in Podium.
+	emojiRefused = "no_entry_sign"
 )
 
 // Options configures the source.
@@ -92,16 +94,22 @@ type Source struct {
 	// to it as input and are marked as the assistant in a transcript.
 	botUserID string
 	botID     string
-	mentionRE *regexp.Regexp
+	// botTeamID and botEnterpriseID are the workspace (and Enterprise Grid org) the bot is
+	// installed in. A speaker is only ever matched to a Podium login when they are a full
+	// member of THIS workspace: see verifiedEmail.
+	botTeamID       string
+	botEnterpriseID string
+	mentionRE       *regexp.Regexp
 	// archiveBase is the workspace's https://team.slack.com, used to build permalinks
 	// without an extra API call per turn.
 	archiveBase string
 
 	mu    sync.Mutex
 	users map[string]string
-	// emails is the workspace email of a Slack user, lowercased, when Slack shared one.
-	// It is how a turn finds that person's MCP servers. Empty means Slack did not.
-	emails map[string]string
+	// accounts is what users.info proved about each speaker, refreshed every
+	// accountTTL: the workspace email they may be matched to Podium by (empty when they
+	// failed any check), their picture, and the identities key. See account.
+	accounts map[string]slackAccount
 	// ids is users inverted, name to ID, so a reply that says @name can tag them. A name two
 	// people share maps to "" and is left as text.
 	ids      map[string]string
@@ -187,6 +195,10 @@ func (s *Source) Run(ctx context.Context) error {
 	}
 	s.botUserID = auth.UserID
 	s.botID = auth.BotID
+	s.mu.Lock()
+	s.botTeamID = auth.TeamID
+	s.botEnterpriseID = auth.EnterpriseID
+	s.mu.Unlock()
 	s.mentionRE = regexp.MustCompile(`<@` + regexp.QuoteMeta(auth.UserID) + `(\|[^>]*)?>`)
 	s.archiveBase = strings.TrimSuffix(auth.URL, "/")
 	s.logger.InfoContext(ctx, "slack source connected",
@@ -275,8 +287,9 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 	}
 	thread := threadOf(threadTS, ts)
 	author := s.displayName(ctx, user)
+	acct := s.account(ctx, user)
 	stripped := s.resolveMentions(ctx, s.stripMention(text))
-	if s.forwardReview(ctx, channel, thread, ts, author, stripped) {
+	if s.forwardReview(ctx, channel, thread, ts, author, stripped, acct) {
 		return
 	}
 	ev := conductor.InboundEvent{
@@ -286,11 +299,17 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 		Channel:     channel,
 		ChannelName: s.channelName(ctx, channel),
 		Author:      author,
-		Login:       s.loginOf(user),
-		Text:        stripped,
-		TS:          parseTS(ts),
-		URL:         s.permalink(channel, ts),
-		BriefKind:   conductor.SourceSlack,
+		// A candidate: the conductor keeps it only for a login that has signed in.
+		Login:           acct.login,
+		SpeakerProvider: conductor.SpeakerSlack,
+		SpeakerID:       acct.externalID,
+		SpeakerAvatar:   acct.avatar,
+		// Everything that reaches emit is an @mention or a DM: addressed to the bot.
+		Mentioned: true,
+		Text:      stripped,
+		TS:        parseTS(ts),
+		URL:       s.permalink(channel, ts),
+		BriefKind: conductor.SourceSlack,
 	}
 	select {
 	case s.events <- ev:
@@ -301,7 +320,7 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 // forwardReview reports whether this mention is a pull-request review and has been handed
 // to the GitHub source. A thread is one PR: two URLs, or a second PR in an already-bound
 // thread, are refused here rather than becoming a Slack conversation of their own.
-func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author, text string) bool {
+func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author, text string, acct slackAccount) bool {
 	if s.review == nil {
 		return false
 	}
@@ -332,6 +351,7 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 			Channel: channel, Thread: thread, Trigger: ts,
 			Author: author, Text: text, TS: parseTS(ts),
 			Permalink: s.permalink(channel, ts),
+			Login:     acct.login, SpeakerID: acct.externalID, SpeakerAvatar: acct.avatar,
 		}); err != nil {
 			s.logger.WarnContext(ctx, "github: ingesting a slack mention failed", "error", err)
 		}
@@ -371,6 +391,7 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 		Channel: channel, Thread: thread, Trigger: ts,
 		Author: author, Text: text, TS: parseTS(ts),
 		Permalink: s.permalink(channel, ts),
+		Login:     acct.login, SpeakerID: acct.externalID, SpeakerAvatar: acct.avatar,
 	}); err != nil {
 		s.logger.WarnContext(ctx, "github: ingesting a slack mention failed", "error", err)
 	}
@@ -616,6 +637,14 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		add = emojiDone
 	case conductor.ReactionFailed:
 		add = emojiFailed
+	case conductor.ReactionRefused:
+		// Nothing ran, so there is no working reaction to take off.
+		if _, err := s.write(ctx, func() (string, error) {
+			return "", s.api.AddReactionContext(ctx, emojiRefused, item)
+		}); err != nil && !isBenignReactionError(err) {
+			return fmt.Errorf("slack: react %s on %s: %w", emojiRefused, trigger, err)
+		}
+		return nil
 	case conductor.ReactionAwaiting:
 		// The question is in the thread; keep the working emoji so the mention still
 		// looks in-flight rather than done.
@@ -740,26 +769,100 @@ func (s *Source) displayName(ctx context.Context, user string) string {
 		return user
 	}
 	name = firstNonEmpty(info.Profile.DisplayName, info.RealName, info.Name, user)
-	email := podiumLogin(info.Profile.Email)
 	s.mu.Lock()
 	s.users[user] = name
-	if email != "" {
-		if s.emails == nil {
-			s.emails = map[string]string{}
-		}
-		s.emails[user] = email
-	}
+	s.rememberAccountLocked(user, info)
 	s.rememberLocked(name, user)
 	s.mu.Unlock()
 	return name
 }
 
-// loginOf is the Podium login displayName stored for this Slack user, or empty.
-// emit calls displayName first, which is what fills the cache.
-func (s *Source) loginOf(user string) string {
+// accountTTL is how long what users.info said about a speaker is trusted. The display name is
+// cached for the process's life because a stale name is harmless; whether somebody is still a
+// full member of the workspace is not, so it is asked again after this.
+const accountTTL = 10 * time.Minute
+
+// slackAccount is one speaker as the identity check saw them.
+type slackAccount struct {
+	// login is the verified workspace email, the candidate the conductor matches to a
+	// Podium login. Empty when any check failed.
+	login string
+	// externalID is the identities key, "<team>/<user>".
+	externalID string
+	avatar     string
+	at         time.Time
+}
+
+// account is what Slack proves about user: refreshed with users.info once accountTTL has
+// passed. A user Slack will not describe is nobody: no login.
+func (s *Source) account(ctx context.Context, user string) slackAccount {
+	if user == "" {
+		return slackAccount{}
+	}
+	s.mu.Lock()
+	acct, ok := s.accounts[user]
+	team := s.botTeamID
+	s.mu.Unlock()
+	if ok && time.Since(acct.at) < accountTTL {
+		return acct
+	}
+	info, err := s.readUser(ctx, func() (*slack.User, error) { return s.api.GetUserInfoContext(ctx, user) })
+	if err != nil {
+		s.logger.DebugContext(ctx, "checking a slack speaker's account failed", "user", user, "error", err)
+		return slackAccount{externalID: team + "/" + user}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.emails[user]
+	if _, named := s.users[user]; !named {
+		name := firstNonEmpty(info.Profile.DisplayName, info.RealName, info.Name, user)
+		s.users[user] = name
+		s.rememberLocked(name, user)
+	}
+	return s.rememberAccountLocked(user, info)
+}
+
+// rememberAccountLocked records what the identity check makes of info. s.mu must be held.
+func (s *Source) rememberAccountLocked(user string, info *slack.User) slackAccount {
+	team := firstNonEmpty(info.TeamID, s.botTeamID)
+	acct := slackAccount{
+		login:      verifiedEmail(info, s.botTeamID, s.botEnterpriseID),
+		externalID: team + "/" + user,
+		avatar:     info.Profile.Image72,
+		at:         time.Now(),
+	}
+	if s.accounts == nil {
+		s.accounts = map[string]slackAccount{}
+	}
+	s.accounts[user] = acct
+	return acct
+}
+
+// verifiedEmail is the workspace email a Slack user may be matched to a Podium login by, or
+// empty. Every check here is about who could be pretending: a guest, a Slack Connect partner,
+// or another workspace's user can each have an email on our domain, and a match would run a
+// turn with a real person's secrets. So the user must be:
+//
+//   - a member of the bot's own workspace, or of its Enterprise Grid org (unknown
+//     workspace: nobody matches — a bot that has not run auth.test proves nothing);
+//   - not a Slack Connect stranger, not a single- or multi-channel guest, not deactivated,
+//     not a bot or an app;
+//   - holding an email Slack says they confirmed.
+//
+// The conductor then checks the domain and that the email is a login that has signed in.
+func verifiedEmail(info *slack.User, team, enterprise string) string {
+	if info == nil || team == "" {
+		return ""
+	}
+	sameWorkspace := info.TeamID == team ||
+		(enterprise != "" && info.Enterprise.EnterpriseID == enterprise)
+	switch {
+	case !sameWorkspace,
+		info.IsStranger, info.IsRestricted, info.IsUltraRestricted,
+		info.Deleted, info.IsBot, info.IsAppUser,
+		!info.IsEmailConfirmed:
+		return ""
+	}
+	return podiumLogin(info.Profile.Email)
 }
 
 // podiumLogin is a workspace email Podium can match to a Google sign-in. Anything else
