@@ -238,8 +238,8 @@ func TestChatParticipantsMergesAuthorsIntoPeople(t *testing.T) {
 	got, err := s.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []ChatParticipant{
-		{Login: bob, Name: "Bob", JoinedVia: JoinedSlack},
-		{Name: "Mallory"},
+		{Login: bob, Name: "Bob", JoinedVia: JoinedSlack, Via: ViaSlack},
+		{Name: "Mallory", Via: ViaWeb},
 	}, got)
 }
 

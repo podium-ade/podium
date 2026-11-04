@@ -23,17 +23,27 @@ type Chat struct {
 	Channel            string
 	PersonalityID      *string
 	PersonalityDisplay string
+	LastSeq            int64
 }
 
 type ChatMessage struct {
-	ChatID      string
-	Seq         int64
-	Role        string
-	Text        string
-	Attachments []byte
-	Ts          time.Time
-	TaskID      string
-	Author      string
+	ChatID       string
+	Seq          int64
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   *string
+	ExternalUrl  string
+	Addressed    bool
+	EditedAt     *time.Time
+	DeletedAt    *time.Time
 }
 
 type ChatParticipant struct {

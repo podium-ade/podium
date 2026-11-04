@@ -11,25 +11,41 @@ import (
 )
 
 const appendChatMessage = `-- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id, author)
-select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6, $7
-  from chat_messages where chat_id = $1
-returning chat_id, seq, role, text, attachments, ts, task_id, author
+with next as (
+  update chats set last_seq = last_seq + 1 where id = $1 returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+)
+select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11,
+       $12, $13, $14
+  from next
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at
 `
 
 type AppendChatMessageParams struct {
-	ChatID      string
-	Role        string
-	Text        string
-	Attachments []byte
-	Ts          time.Time
-	TaskID      string
-	Author      string
+	ChatID       string
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   *string
+	ExternalUrl  string
+	Addressed    bool
 }
 
-// AppendChatMessage takes the next seq for the chat. It is a single statement so the read
-// of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
-// the primary key would refuse a collision anyway.
+// AppendChatMessage takes the next seq for the chat by bumping chats.last_seq (0032). The
+// update locks the chat row until the insert commits, so concurrent writers to one chat —
+// on this conductor or another — are put in order instead of computing the same max(seq)+1
+// and one of them failing on the primary key. No row back means the chat is not there.
 func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessageParams) (ChatMessage, error) {
 	row := q.db.QueryRow(ctx, appendChatMessage,
 		arg.ChatID,
@@ -39,6 +55,13 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		arg.Ts,
 		arg.TaskID,
 		arg.Author,
+		arg.AuthorLogin,
+		arg.AuthorHandle,
+		arg.AuthorAvatar,
+		arg.Via,
+		arg.ExternalID,
+		arg.ExternalUrl,
+		arg.Addressed,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -50,6 +73,15 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -98,29 +130,41 @@ func (q *Queries) AttachChatPullRequest(ctx context.Context, arg AttachChatPullR
 }
 
 const chatAuthors = `-- name: ChatAuthors :many
-select author from chat_messages
-where chat_id = $1 and role = 'user' and author <> ''
-group by author
-order by min(seq)
+select author,
+       (array_agg(via order by seq))[1]::text           as via,
+       (array_agg(author_avatar order by seq))[1]::text as avatar
+  from chat_messages
+ where chat_id = $1 and role = 'user' and author <> ''
+ group by author
+ order by min(seq)
 `
+
+type ChatAuthorsRow struct {
+	Author string
+	Via    string
+	Avatar string
+}
 
 // ChatAuthors is who has spoken in a conversation by display name, first appearance first:
 // the distinct authors of the human messages. For a mirrored thread that is everyone in it,
 // in Podium or not; for a web chat it is nobody, because a web chat's messages carry no
 // author. store.ChatParticipants merges it with chat_participants, which knows who is who.
-func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]string, error) {
+//
+// via and avatar are the surface and picture of the author's first message, which is what
+// the header draws beside a name that has no Podium identity behind it.
+func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]ChatAuthorsRow, error) {
 	rows, err := q.db.Query(ctx, chatAuthors, chatID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ChatAuthorsRow{}
 	for rows.Next() {
-		var author string
-		if err := rows.Scan(&author); err != nil {
+		var i ChatAuthorsRow
+		if err := rows.Scan(&i.Author, &i.Via, &i.Avatar); err != nil {
 			return nil, err
 		}
-		items = append(items, author)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -156,7 +200,7 @@ values (
   $1, $2, $3, $4, $5, $6, $7, $8,
   $9, $10
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq
 `
 
 type CreateChatParams struct {
@@ -212,6 +256,7 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
 	)
 	return i, err
 }
@@ -241,6 +286,51 @@ func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const deleteChatMessageByExternal = `-- name: DeleteChatMessageByExternal :one
+update chat_messages set deleted_at = coalesce(deleted_at, $1)
+where chat_id = $2 and via = $3 and external_id = $4::text
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at
+`
+
+type DeleteChatMessageByExternalParams struct {
+	DeletedAt  *time.Time
+	ChatID     string
+	Via        string
+	ExternalID string
+}
+
+// DeleteChatMessageByExternal marks a message deleted on its own surface. The text stays
+// (decision 12); the API sends none for it and the transcript leaves it out.
+func (q *Queries) DeleteChatMessageByExternal(ctx context.Context, arg DeleteChatMessageByExternalParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, deleteChatMessageByExternal,
+		arg.DeletedAt,
+		arg.ChatID,
+		arg.Via,
+		arg.ExternalID,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const detachChatPullRequest = `-- name: DetachChatPullRequest :execrows
 update chat_pull_requests set detached_at = $1
 where chat_id = $2 and url = $3 and detached_at is null
@@ -262,8 +352,56 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 	return result.RowsAffected(), nil
 }
 
+const editChatMessageByExternal = `-- name: EditChatMessageByExternal :one
+update chat_messages set text = $1, edited_at = $2
+where chat_id = $3 and via = $4 and external_id = $5::text
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at
+`
+
+type EditChatMessageByExternalParams struct {
+	Text       string
+	EditedAt   *time.Time
+	ChatID     string
+	Via        string
+	ExternalID string
+}
+
+// EditChatMessageByExternal applies an edit made on the message's own surface. The text is
+// replaced and edited_at stamped; nothing else about the row moves, so its place in the
+// conversation is where it was said, not where it was edited.
+func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMessageByExternalParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, editChatMessageByExternal,
+		arg.Text,
+		arg.EditedAt,
+		arg.ChatID,
+		arg.Via,
+		arg.ExternalID,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -284,12 +422,13 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -313,12 +452,49 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+	)
+	return i, err
+}
+
+const getChatMessage = `-- name: GetChatMessage :one
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at from chat_messages where chat_id = $1 and seq = $2
+`
+
+type GetChatMessageParams struct {
+	ChatID string
+	Seq    int64
+}
+
+// GetChatMessage reads one message, which is how a conductor rebuilds a frame another
+// conductor announced.
+func (q *Queries) GetChatMessage(ctx context.Context, arg GetChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, getChatMessage, arg.ChatID, arg.Seq)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
-select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at from chat_messages
 where chat_id = $1 and role = 'assistant'
 order by seq desc limit 1
 `
@@ -335,6 +511,15 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -376,7 +561,7 @@ func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullReque
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at from chat_messages
 where chat_id = $1 and seq > $2::bigint
 order by seq
 `
@@ -404,6 +589,15 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.Ts,
 			&i.TaskID,
 			&i.Author,
+			&i.AuthorLogin,
+			&i.AuthorHandle,
+			&i.AuthorAvatar,
+			&i.Via,
+			&i.ExternalID,
+			&i.ExternalUrl,
+			&i.Addressed,
+			&i.EditedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +648,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -523,6 +717,7 @@ type ListChatsRow struct {
 	Channel            string
 	PersonalityID      *string
 	PersonalityDisplay string
+	LastSeq            int64
 	HasMessage         bool
 	LastMessageAt      time.Time
 	LastText           string
@@ -575,6 +770,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Channel,
 			&i.PersonalityID,
 			&i.PersonalityDisplay,
+			&i.LastSeq,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -591,13 +787,91 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 	return items, nil
 }
 
+const recordChatMessage = `-- name: RecordChatMessage :one
+with next as (
+  update chats set last_seq = last_seq + 1 where id = $1 returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+)
+select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11,
+       $12::text, $13, $14
+  from next
+on conflict (chat_id, via, external_id) where external_id is not null do nothing
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at
+`
+
+type RecordChatMessageParams struct {
+	ChatID       string
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   string
+	ExternalUrl  string
+	Addressed    bool
+}
+
+// RecordChatMessage is AppendChatMessage for a message that has an identity on its own
+// surface. A second arrival of the same message (a retry, a redelivery, another conductor
+// hearing the same event) inserts nothing and returns no row, and that is the whole of the
+// dedupe: the caller starts a turn only for a row this statement actually wrote. The seq the
+// losing insert took is left as a gap, which nothing reads as meaningful.
+func (q *Queries) RecordChatMessage(ctx context.Context, arg RecordChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, recordChatMessage,
+		arg.ChatID,
+		arg.Role,
+		arg.Text,
+		arg.Attachments,
+		arg.Ts,
+		arg.TaskID,
+		arg.Author,
+		arg.AuthorLogin,
+		arg.AuthorHandle,
+		arg.AuthorAvatar,
+		arg.Via,
+		arg.ExternalID,
+		arg.ExternalUrl,
+		arg.Addressed,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and (
    login = $3
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq
 `
 
 type RenameChatParams struct {
@@ -639,6 +913,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
 	)
 	return i, err
 }
@@ -646,7 +921,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq
 `
 
 type SetChatChoiceParams struct {
@@ -684,6 +959,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
 	)
 	return i, err
 }
@@ -691,7 +967,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
-returning chat_id, seq, role, text, attachments, ts, task_id, author
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at
 `
 
 type SetChatMessageAttachmentsParams struct {
@@ -712,6 +988,15 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -719,7 +1004,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq
 `
 
 type SetChatTitleParams struct {
@@ -745,6 +1030,7 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
 	)
 	return i, err
 }

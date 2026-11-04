@@ -100,14 +100,63 @@ where (
 order by c.id desc
 limit @page_limit::int;
 
--- AppendChatMessage takes the next seq for the chat. It is a single statement so the read
--- of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
--- the primary key would refuse a collision anyway.
+-- AppendChatMessage takes the next seq for the chat by bumping chats.last_seq (0032). The
+-- update locks the chat row until the insert commits, so concurrent writers to one chat —
+-- on this conductor or another — are put in order instead of computing the same max(seq)+1
+-- and one of them failing on the primary key. No row back means the chat is not there.
 -- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id, author)
-select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts, @task_id, @author
-  from chat_messages where chat_id = @chat_id
+with next as (
+  update chats set last_seq = last_seq + 1 where id = @chat_id returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+)
+select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
+       sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
+       sqlc.narg('external_id'), @external_url, @addressed
+  from next
 returning *;
+
+-- RecordChatMessage is AppendChatMessage for a message that has an identity on its own
+-- surface. A second arrival of the same message (a retry, a redelivery, another conductor
+-- hearing the same event) inserts nothing and returns no row, and that is the whole of the
+-- dedupe: the caller starts a turn only for a row this statement actually wrote. The seq the
+-- losing insert took is left as a gap, which nothing reads as meaningful.
+-- name: RecordChatMessage :one
+with next as (
+  update chats set last_seq = last_seq + 1 where id = @chat_id returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+)
+select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
+       sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
+       @external_id::text, @external_url, @addressed
+  from next
+on conflict (chat_id, via, external_id) where external_id is not null do nothing
+returning *;
+
+-- EditChatMessageByExternal applies an edit made on the message's own surface. The text is
+-- replaced and edited_at stamped; nothing else about the row moves, so its place in the
+-- conversation is where it was said, not where it was edited.
+-- name: EditChatMessageByExternal :one
+update chat_messages set text = @text, edited_at = @edited_at
+where chat_id = @chat_id and via = @via and external_id = @external_id::text
+returning *;
+
+-- DeleteChatMessageByExternal marks a message deleted on its own surface. The text stays
+-- (decision 12); the API sends none for it and the transcript leaves it out.
+-- name: DeleteChatMessageByExternal :one
+update chat_messages set deleted_at = coalesce(deleted_at, @deleted_at)
+where chat_id = @chat_id and via = @via and external_id = @external_id::text
+returning *;
+
+-- GetChatMessage reads one message, which is how a conductor rebuilds a frame another
+-- conductor announced.
+-- name: GetChatMessage :one
+select * from chat_messages where chat_id = @chat_id and seq = @seq;
 
 -- name: ListChatMessages :many
 select * from chat_messages
@@ -204,8 +253,14 @@ select * from chats where source_key = @source_key;
 -- the distinct authors of the human messages. For a mirrored thread that is everyone in it,
 -- in Podium or not; for a web chat it is nobody, because a web chat's messages carry no
 -- author. store.ChatParticipants merges it with chat_participants, which knows who is who.
+--
+-- via and avatar are the surface and picture of the author's first message, which is what
+-- the header draws beside a name that has no Podium identity behind it.
 -- name: ChatAuthors :many
-select author from chat_messages
-where chat_id = @chat_id and role = 'user' and author <> ''
-group by author
-order by min(seq);
+select author,
+       (array_agg(via order by seq))[1]::text           as via,
+       (array_agg(author_avatar order by seq))[1]::text as avatar
+  from chat_messages
+ where chat_id = @chat_id and role = 'user' and author <> ''
+ group by author
+ order by min(seq);
