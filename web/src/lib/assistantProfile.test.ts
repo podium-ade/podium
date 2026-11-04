@@ -5,6 +5,7 @@ import {
   draftFromProfile,
   isDirty,
   parseGoDuration,
+  tidyDuration,
   updateFromDraft,
   viewFromProfile,
   type AssistantDraft,
@@ -38,8 +39,19 @@ describe("assistantProfile", () => {
   it("reads an empty agent and an unset clock as the values a turn runs", () => {
     const draft = draftFromProfile(view({ agent: "", timeout: "" }));
     expect(draft.agent).toBe("claude");
-    expect(draft.timeout).toBe("15m0s");
+    expect(draft.timeout).toBe("15m");
     expect(parseGoDuration("15m")).toBe(parseGoDuration("15m0s"));
+  });
+
+  it("shows a clock the way a person writes it, without the zero units", () => {
+    expect(tidyDuration("15m0s")).toBe("15m");
+    expect(tidyDuration("1h0m0s")).toBe("1h");
+    expect(tidyDuration("1h30m0s")).toBe("1h30m");
+    expect(tidyDuration("1h0m30s")).toBe("1h30s");
+    expect(tidyDuration("10m0s")).toBe("10m");
+    expect(tidyDuration("45s")).toBe("45s");
+    expect(tidyDuration("0s")).toBe("0s");
+    expect(tidyDuration("soon")).toBe("soon");
   });
 
   it("sends the whole definition, and treats 15m and 15m0s as the same clock", () => {
@@ -94,7 +106,8 @@ describe("assistantProfile", () => {
     expect(assistantSection("/agent/profile/limits")).toBe("limits");
     expect(assistantSection("/agent/profile/source")).toBeNull();
     expect(assistantSection("/agent/profile/nope")).toBeNull();
-    expect(assistantSection("/agent/assistants")).toBe("identity");
+    expect(assistantSection("/agent/assistants")).toBeNull();
+    expect(assistantSection("/agent/assistants/podium")).toBe("identity");
     expect(assistantSection("/agent/assistants/podium/model")).toBe("model");
     expect(assistantSection("/agent/assistants/new")).toBeNull();
   });

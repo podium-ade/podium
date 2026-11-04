@@ -277,10 +277,10 @@ describe("AgentPage", () => {
     expect(screen.getByLabelText("Display name")).toHaveValue("Podium");
     expect(screen.getByRole("link", { name: "Identity" })).toHaveAttribute("aria-current", "page");
     expect(sectionLabels()).toEqual(["Identity", "Instructions", "Model", "Reach", "Limits"]);
-    const assistants = screen.getByRole("navigation", { name: "Assistants" });
-    expect(within(assistants).getByRole("link", { name: /Podium/ })).toHaveAttribute("aria-current", "page");
-    expect(within(assistants).getByText("Built-in")).toBeInTheDocument();
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("href", "/agent/assistants/new");
+    expect(screen.getByRole("heading", { name: "Podium" })).toBeInTheDocument();
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    expect(screen.queryByRole("navigation", { name: "Assistants" })).toBeNull();
     expect(screen.queryByLabelText("Name", { selector: "#assistant-name" })).toBeNull();
     expect(screen.getByLabelText("Name", { selector: "#assistant-git-name" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
@@ -302,7 +302,7 @@ describe("AgentPage", () => {
         systemPrompt: "you are Podium",
         agent: "claude",
         model: "claude-opus-5",
-        timeout: "15m0s",
+        timeout: "15m",
         skills: [],
         mcpServers: [],
         maxTurns: 0,
@@ -375,8 +375,7 @@ describe("AgentPage", () => {
     expect(picker).toHaveTextContent("Podium's model");
     await user.click(picker);
     await user.click(await screen.findByText("grok-4.6"));
-    const assistants = screen.getByRole("navigation", { name: "Assistants" });
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "New assistant" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Instructions" }));
     await user.type(screen.getByLabelText("Instructions"), "Speak briefly.");
     const save = screen.getByRole("button", { name: "Save" });
@@ -398,15 +397,55 @@ describe("AgentPage", () => {
     );
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-    expect(within(screen.getByRole("navigation", { name: "Assistants" })).getByRole("link", { name: "Night Owl" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(await screen.findByRole("heading", { name: "Night Owl" })).toBeInTheDocument();
   });
 
-  it("sends an unknown personal section back to Podium", async () => {
+  it("lists Podium and your own assistants in a table, each opening its own page", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [
+        { id: "pers_01", name: "night-owl", displayName: "Night Owl", instructions: "Speak briefly.", agent: "grok", model: "grok-4.6", effort: "" },
+      ],
+    });
+    const user = userEvent.setup();
+    mount("/agent/assistants");
+    const rows = await screen.findAllByTestId("assistant-row");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByRole("link", { name: "Podium" })).toHaveAttribute("href", "/agent/assistants/podium");
+    expect(within(rows[0]).getByText("Built-in")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Speak briefly.")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("grok-4.6")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "New assistant" })).toHaveAttribute("href", "/agent/assistants/new");
+    // A side-by-side editor is gone: the list carries no form.
+    expect(screen.queryByLabelText("Display name")).toBeNull();
+
+    await user.click(within(rows[1]).getByText("Speak briefly."));
+    expect(await screen.findByRole("heading", { name: "Night Owl" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Display name")).toHaveValue("Night Owl");
+  });
+
+  it("offers Podium's row Talk but not Delete, and a personal row both", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [{ id: "pers_01", name: "night-owl", displayName: "Night Owl", instructions: "", agent: "", model: "", effort: "" }],
+    });
+    const user = userEvent.setup();
+    mount("/agent/assistants");
+    await user.click(await screen.findByRole("button", { name: "Actions for Podium" }));
+    expect(await screen.findByRole("menuitem", { name: "Talk to it" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete assistant" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Actions for Night Owl" }));
+    expect(await screen.findByRole("menuitem", { name: "Delete assistant" })).toBeInTheDocument();
+  });
+
+  it("invites a first assistant of your own when there is none", async () => {
+    mount("/agent/assistants");
+    expect(await screen.findByText("No assistants of your own yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add one" })).toHaveAttribute("href", "/agent/assistants/new");
+  });
+
+  it("sends an unknown personal section back to the list", async () => {
     mount("/agent/assistants/new/reach");
-    expect(await screen.findByLabelText("Display name")).toHaveValue("Podium");
+    expect(await screen.findAllByTestId("assistant-row")).toHaveLength(1);
   });
 
   it("sends an old source address back to the assistant", async () => {
@@ -645,6 +684,90 @@ describe("AgentPage", () => {
     expect(within(globalCard).getByText("Connected")).toBeInTheDocument();
     expect(within(globalCard).queryByRole("button", { name: "Rotate key" })).toBeNull();
     expect(within(globalCard).queryByTestId("provider-key-remove-anthropic")).toBeNull();
+  });
+
+  it("lets an admin sign a subscription in for everyone", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...notSet,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+    });
+    startProviderOAuth.mockResolvedValue({
+      flowId: "flow-1",
+      userCode: "WDJB-MJHT",
+      verificationUri: "https://accounts.x.ai/device",
+      verificationUriComplete: "",
+      interval: 5,
+      codePaste: false,
+    });
+    pollProviderOAuth.mockResolvedValue({ state: "pending", interval: 5 });
+    mount("/agent/settings/models", admin);
+
+    await userEvent.click(await screen.findByRole("tab", { name: /Global/ }));
+    const global = await screen.findByTestId("models-global");
+    const card = within(global).getByTestId("provider-card-xai");
+    await userEvent.click(await within(card).findByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
+    await userEvent.click(screen.getByTestId("provider-oauth-start-xai"));
+    await waitFor(() =>
+      expect(startProviderOAuth).toHaveBeenCalledWith({ provider: "xai", global: true }),
+    );
+  });
+
+  it("keeps a global Claude subscription on a row of its own beside the key", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...connected,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+      claudeSubscription: {
+        provider: "anthropic",
+        keySet: true,
+        authKind: "oauth",
+        account: "team@acme.com",
+        refreshable: true,
+        global: true,
+      },
+    });
+    clearProviderKey.mockResolvedValue({});
+    mount("/agent/settings/models", admin);
+
+    // A person with no Anthropic credential of their own chats on the subscription.
+    const yours = await screen.findByTestId("models-yours");
+    expect(
+      await within(yours).findByTestId("provider-fallback-anthropic"),
+    ).toHaveTextContent("Using the global subscription");
+
+    await userEvent.click(screen.getByRole("tab", { name: /Global, 2 connected/ }));
+    const global = await screen.findByTestId("models-global");
+    const sub = within(global).getByTestId("provider-card-claude-subscription");
+    expect(within(sub).getByText("Connected")).toBeInTheDocument();
+    expect(within(sub).getByText(/team@acme\.com/)).toBeInTheDocument();
+    // The key is still its own row, and the Anthropic key row offers no sign-in.
+    const key = within(global).getByTestId("provider-card-anthropic");
+    expect(within(key).getByText(/abcd/)).toBeInTheDocument();
+
+    await userEvent.click(within(sub).getByRole("button", { name: "Sign out" }));
+    expect(screen.getByText(/go back to the global API key/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(clearProviderKey).toHaveBeenCalledWith({
+        provider: "anthropic",
+        global: true,
+        claudeSubscription: true,
+      }),
+    );
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

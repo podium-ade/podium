@@ -16,6 +16,7 @@
 import { createInterface } from "node:readline";
 
 import { Client, DelegateError, type Delegation } from "./delegate.js";
+import { isEntrypoint } from "./entry.js";
 
 /** ProtocolVersion is what this server speaks when a client asks for nothing else. MCP
  * negotiates by date; a client that names a version it can speak gets its own echoed back,
@@ -374,6 +375,6 @@ async function main(): Promise<number> {
 
 // Only when run as a program. A test importing this module is not argv[1], so it gets the
 // exports and no process of its own.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url)) {
   process.exit(await main());
 }

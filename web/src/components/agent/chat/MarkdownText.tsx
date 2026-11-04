@@ -8,6 +8,8 @@ import {
 } from "@assistant-ui/react-markdown";
 import { createHighlighterCore, type HighlighterCore } from "@shikijs/core";
 import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { cn } from "../../../lib/utils";
@@ -16,20 +18,34 @@ import { Button } from "../../ui/button";
 /**
  * MarkdownText is one text part of a message, as GitHub-flavoured markdown.
  *
- * Agent text is untrusted. react-markdown never renders raw HTML (there is no rehype-raw
- * here, and there must never be one) and its URL transform drops `javascript:` and every
- * other non-web scheme, so `<script>` in an answer is text on a page and a hostile link is
- * inert.
+ * Agent text is untrusted. Agents write HTML inside their markdown too — a `<table>` with
+ * cells that need line breaks, `<details>`, `<sub>` — so raw HTML is parsed (rehype-raw),
+ * but only ever followed by rehype-sanitize, which keeps GitHub's allowlist less images:
+ * structural and inline tags only, no `<script>`, `<style>`, `<iframe>`, `<img>` or event
+ * handlers, no `style` attribute, and no URL but a web or mail one. An image would fetch
+ * whatever the agent names the moment the page opens. rehype-raw must never run without it.
+ * react-markdown's URL transform then drops any non-web scheme that remains.
  */
 export const MarkdownText = memo(function MarkdownText({ className }: { className?: string }) {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
       className={cn("min-w-0 text-base leading-7 text-fg break-words", className)}
       components={components}
     />
   );
 });
+
+/** rehypePlugins parses raw HTML and then sanitizes it; the order is the safety. */
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img" && t !== "picture" && t !== "source"),
+};
+const rehypePlugins: NonNullable<Parameters<typeof MarkdownTextPrimitive>[0]["rehypePlugins"]> = [
+  rehypeRaw,
+  [rehypeSanitize, sanitizeSchema],
+];
 
 /** COPIED_MS is how long the copy button stays in its confirmed state. */
 const COPIED_MS = 1600;

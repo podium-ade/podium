@@ -843,6 +843,7 @@ is a Podium secret, encrypted under the master key:
 |---|---|
 | A model credential: an API key, or the access token of a subscription sign-in | the provider's own `podium.agent.*` secret |
 | A subscription sign-in's refresh token | `podium.agent.oauth.<provider>.refresh_token` |
+| The global Claude subscription's access token, kept beside the global Anthropic key | `podium.agent.oauth.anthropic.access_token` |
 | A bot MCP server's token | `podium.agent.mcp.<name>_token` |
 | A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
 | A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
@@ -888,8 +889,10 @@ What else bounds them:
   is stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later
   by a discovery document that has since changed.
 - Signing out deletes them, and so does pasting a key or a token over the sign-in.
-- A Claude subscription sign-in is one person's and is never the global credential. The
-  conductor spends it only through the chat host's model gateway, and only on a conversation
+- A Claude subscription sign-in is never the global Anthropic credential. A person's own is on
+  their list; one an admin signs in for everyone is kept beside the global key, under
+  `podium.agent.oauth.`, which no playbook may name. Either way the conductor spends it only
+  through the chat host's model gateway, and only on a conversation
   whose provider is opencode's `claude-agent`, which runs Claude Code. The token is not in that
   location's config or in Claude Code's environment: Claude Code is given a placeholder, and the
   gateway swaps in the token. The PKCE verifier stays on the conductor, so the code a person
@@ -1104,8 +1107,8 @@ Everything below is a real hole, not a hypothetical:
 - **A web chat is partitioned by login, not protected by it.** Another login's chat answers
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **A provider credential can be replaced or removed by an admin**, and the only record of who
-  did it is `set_by` on the current one. That includes signing the bot in to somebody's Grok or
-  ChatGPT subscription, and signing it out again. Members can see whether a key is set.
+  did it is `set_by` on the current one. That includes signing everyone in to somebody's Claude,
+  Grok or ChatGPT subscription, and signing it out again. Members can see whether a key is set.
 - **The conductor can read its own credentials back from the secret store**, to refresh a
   sign-in and to run a host turn. A stolen conductor token reads them too. See
   [What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).
