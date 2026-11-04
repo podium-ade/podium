@@ -41,6 +41,38 @@ export interface TaskArgs {
 export interface MessageCustom {
   author?: string;
   attachments?: ChatAttachment[];
+  /** authorLogin is the Podium person who said it; empty for somebody who is not in Podium. */
+  authorLogin?: string;
+  authorHandle?: string;
+  authorAvatar?: string;
+  /** via is the surface it came in through: web, slack, github. */
+  via?: string;
+  /** externalUrl opens the message where it was said. */
+  externalUrl?: string;
+  /** addressed is false for chatter nobody put to Podium. */
+  addressed?: boolean;
+  edited?: boolean;
+  /** deleted is set for a message deleted on its own surface; it carries no text. */
+  deleted?: boolean;
+}
+
+/** userCustom is what a user message carries for the view. */
+function userCustom(m: ChatMessage): MessageCustom {
+  return {
+    author: m.author || undefined,
+    attachments: m.attachments,
+    authorLogin: m.authorLogin || undefined,
+    authorHandle: m.authorHandle || undefined,
+    authorAvatar: m.authorAvatar || undefined,
+    via: m.via || undefined,
+    externalUrl: m.externalUrl || undefined,
+    // A message from a server that predates attribution carries no via, and proto3's
+    // default false would dim every one of them. Only a message that says where it came
+    // from can say it was not put to Podium.
+    addressed: m.via ? m.addressed : true,
+    edited: m.editedAt !== undefined,
+    deleted: m.deleted || undefined,
+  };
 }
 
 export interface ThreadInput {
@@ -97,7 +129,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
         role: "user",
         content: m.text,
         createdAt: toDate(m.ts),
-        metadata: { custom: { author: m.author || undefined, attachments: m.attachments } },
+        metadata: { custom: userCustom(m) as Record<string, unknown> },
       });
       continue;
     }
