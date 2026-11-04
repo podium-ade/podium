@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { ChatMessageSchema, type ChatMessage } from "../gen/podium/agent/v1/agent_pb";
-import { TASK_TOOL, parseActivity, toThread } from "./chatThread";
+import { ChatDeliverySchema, ChatMessageSchema, type ChatMessage } from "../gen/podium/agent/v1/agent_pb";
+import { TASK_TOOL, parseActivity, toThread, type MessageCustom } from "./chatThread";
 
 let seq = 0n;
 function row(role: string, text: string, taskId = ""): ChatMessage {
@@ -200,5 +200,35 @@ describe("toThread attribution", () => {
     const m = create(ChatMessageSchema, { seq: 100n, role: "user", text: "hi" });
     const [u] = toThread({ messages: [m], busy: false, taskRunning: false });
     expect(u.metadata?.custom).toMatchObject({ addressed: true });
+  });
+});
+
+describe("undelivered answers", () => {
+  it("carries a copy that did not land on the answer, and leaves one that did", () => {
+    const answer = row("assistant", "It ran out of disk.");
+    answer.chatId = "chat_1";
+    answer.deliveries = [
+      create(ChatDeliverySchema, { surface: "slack", status: "failed", attempts: 6, error: "channel_not_found" }),
+      create(ChatDeliverySchema, { surface: "github", status: "sent", attempts: 1 }),
+    ];
+    const retrying = row("assistant", "And another thing.");
+    retrying.chatId = "chat_1";
+    retrying.deliveries = [create(ChatDeliverySchema, { surface: "slack", status: "pending", attempts: 2, error: "timeout" })];
+    const onItsWay = row("assistant", "Fresh.");
+    onItsWay.deliveries = [create(ChatDeliverySchema, { surface: "slack", status: "pending", attempts: 0 })];
+
+    const thread = toThread({
+      messages: [row("user", "why?"), answer, retrying, row("user", "and?"), onItsWay],
+      busy: false,
+      taskRunning: false,
+    });
+    const first = thread[1].metadata?.custom as MessageCustom;
+    expect(first.undelivered).toEqual([
+      { chatId: "chat_1", seq: answer.seq, surface: "slack", status: "failed", error: "channel_not_found" },
+      { chatId: "chat_1", seq: retrying.seq, surface: "slack", status: "pending", error: "timeout" },
+    ]);
+    const second = thread[3].metadata?.custom as MessageCustom;
+    // A first attempt still in flight is not news.
+    expect(second.undelivered).toEqual([]);
   });
 });
