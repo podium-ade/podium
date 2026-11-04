@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
@@ -44,6 +45,13 @@ type TurnStopper interface {
 	CancelHostTurn(ref string) bool
 	// CancelDelegationsForRef stops every delegated task of one conversation.
 	CancelDelegationsForRef(ctx context.Context, ref, reason string) (int, error)
+}
+
+// DeliveryRetrier puts a bot answer's failed deliveries back in the outbox and attempts them.
+// The conductor implements it; ErrNothingToRetry-style refusals come back as errors the
+// handler maps to NotFound.
+type DeliveryRetrier interface {
+	RetryDelivery(ctx context.Context, chatID string, seq uint64) error
 }
 
 // TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
@@ -653,6 +661,14 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		ExternalUrl:  m.ExternalURL,
 		Addressed:    m.Addressed,
 	}
+	for _, d := range m.Deliveries {
+		out.Deliveries = append(out.Deliveries, &agentv1.ChatDelivery{
+			Surface:  d.SurfaceKind,
+			Status:   d.Status,
+			Attempts: int32(d.Attempts), //nolint:gosec // a handful of attempts
+			Error:    cutDeliveryError(d.LastError),
+		})
+	}
 	if m.EditedAt != nil {
 		out.EditedAt = timestamppb.New(*m.EditedAt)
 	}
@@ -719,4 +735,56 @@ func participantNames(ps []store.ChatParticipant) []string {
 		out = append(out, p.Name)
 	}
 	return out
+}
+
+// deliveryErrorRunes bounds the failure text a delivery carries to the UI. A Slack or GitHub
+// error is a line; anything longer is a body nobody reading "not delivered" needs.
+const deliveryErrorRunes = 300
+
+func cutDeliveryError(s string) string {
+	r := []rune(s)
+	if len(r) <= deliveryErrorRunes {
+		return s
+	}
+	return string(r[:deliveryErrorRunes]) + "…"
+}
+
+// RetryChatDelivery puts one bot message's failed deliveries back in the queue. Anybody who
+// can read the chat may press it: they are the people who can see that it did not arrive,
+// and retrying only re-sends what the bot already said where it was meant to say it. Phase 5
+// narrows this to editors.
+func (s *AgentService) RetryChatDelivery(
+	ctx context.Context, req *connect.Request[agentv1.RetryChatDeliveryRequest],
+) (*connect.Response[agentv1.RetryChatDeliveryResponse], error) {
+	if s.deliveries == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented,
+			errors.New("retry chat delivery: this conductor has no delivery outbox"))
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID, seq := req.Msg.GetChatId(), req.Msg.GetSeq()
+	if chatID == "" || seq == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("retry chat delivery: chat_id and seq are required"))
+	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	ok, err := s.mayReadChat(ctx, row, login)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	if err := s.deliveries.RetryDelivery(ctx, chatID, seq); err != nil {
+		if errors.Is(err, conductor.ErrNothingToRetry) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, storeError(err)
+	}
+	return connect.NewResponse(&agentv1.RetryChatDeliveryResponse{}), nil
 }

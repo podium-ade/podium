@@ -103,13 +103,16 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is
 	// not the caller, so member is the gate and ownership is the check.
-	agentv1connect.AgentServiceListPersonalitiesProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceCreatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceUpdatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceDeletePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceRenameChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceDeleteChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceSendChatMessageProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceListPersonalitiesProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCreatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceUpdatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceDeletePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceRenameChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceSendChatMessageProcedure:   store.RoleMember,
+	// Retrying a delivery re-sends what the bot already said, where it was owed; the
+	// conductor checks the caller can read the chat.
+	agentv1connect.AgentServiceRetryChatDeliveryProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,

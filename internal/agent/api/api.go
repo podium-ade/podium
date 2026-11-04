@@ -188,6 +188,9 @@ type AgentServiceOptions struct {
 	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
 	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
 	Turns TurnStopper
+	// Deliveries retries a bot answer's failed deliveries to Slack or GitHub. Nil turns
+	// RetryChatDelivery off (Unimplemented).
+	Deliveries DeliveryRetrier
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
 	Slack  SlackDirectory
@@ -240,6 +243,7 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
+	deliveries DeliveryRetrier
 	logger     *slog.Logger
 
 	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
@@ -351,6 +355,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		chat:               opts.Chat,
 		tasks:              opts.Tasks,
 		turns:              opts.Turns,
+		deliveries:         opts.Deliveries,
 		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}
@@ -544,7 +549,18 @@ func (s *AgentService) GetUsage(
 			Unpriced:   int32(b.Unpriced),
 		})
 	}
+	people := make([]*agentv1.UsagePerson, 0, len(u.People))
+	for _, p := range u.People {
+		people = append(people, &agentv1.UsagePerson{
+			StartedBy:  p.StartedBy,
+			CostUsd:    p.CostUSD,
+			Turns:      int32(p.Turns),
+			ModelTurns: int32(p.ModelTurns),
+			Unpriced:   int32(p.Unpriced),
+		})
+	}
 	return connect.NewResponse(&agentv1.GetUsageResponse{
+		People:          people,
 		Days:            days,
 		Costs:           costs,
 		TotalCostUsd:    u.TotalCostUSD,
@@ -571,6 +587,7 @@ func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
 		Model:      c.Backend.Model,
 		Effort:     c.Backend.Effort,
 		Provider:   c.Backend.Provider,
+		StartedBy:  c.StartedBy,
 	}
 	if c.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*c.FinishedAt)

@@ -174,6 +174,9 @@ const (
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
 	// SendChatMessage RPC.
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
+	// AgentServiceRetryChatDeliveryProcedure is the fully-qualified name of the AgentService's
+	// RetryChatDelivery RPC.
+	AgentServiceRetryChatDeliveryProcedure = "/podium.agent.v1.AgentService/RetryChatDelivery"
 	// AgentServiceStreamChatProcedure is the fully-qualified name of the AgentService's StreamChat RPC.
 	AgentServiceStreamChatProcedure = "/podium.agent.v1.AgentService/StreamChat"
 	// AgentServiceAttachChatPullRequestProcedure is the fully-qualified name of the AgentService's
@@ -376,6 +379,10 @@ type AgentServiceClient interface {
 	// awaiting a human reply (an interactive playbook asked a question): then the text is
 	// injected into the running task and no second turn starts.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+	// message has nothing failed to retry.
+	RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error)
@@ -727,6 +734,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 			connect.WithClientOptions(opts...),
 		),
+		retryChatDelivery: connect.NewClient[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse](
+			httpClient,
+			baseURL+AgentServiceRetryChatDeliveryProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RetryChatDelivery")),
+			connect.WithClientOptions(opts...),
+		),
 		streamChat: connect.NewClient[v1.StreamChatRequest, v1.ChatFrame](
 			httpClient,
 			baseURL+AgentServiceStreamChatProcedure,
@@ -837,6 +850,7 @@ type agentServiceClient struct {
 	renameChat                 *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	deleteChat                 *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage            *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	retryChatDelivery          *connect.Client[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse]
 	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
@@ -1103,6 +1117,11 @@ func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.R
 	return c.sendChatMessage.CallUnary(ctx, req)
 }
 
+// RetryChatDelivery calls podium.agent.v1.AgentService.RetryChatDelivery.
+func (c *agentServiceClient) RetryChatDelivery(ctx context.Context, req *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {
+	return c.retryChatDelivery.CallUnary(ctx, req)
+}
+
 // StreamChat calls podium.agent.v1.AgentService.StreamChat.
 func (c *agentServiceClient) StreamChat(ctx context.Context, req *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error) {
 	return c.streamChat.CallServerStream(ctx, req)
@@ -1322,6 +1341,10 @@ type AgentServiceHandler interface {
 	// awaiting a human reply (an interactive playbook asked a question): then the text is
 	// injected into the running task and no second turn starts.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+	// message has nothing failed to retry.
+	RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error
@@ -1669,6 +1692,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceRetryChatDeliveryHandler := connect.NewUnaryHandler(
+		AgentServiceRetryChatDeliveryProcedure,
+		svc.RetryChatDelivery,
+		connect.WithSchema(agentServiceMethods.ByName("RetryChatDelivery")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceStreamChatHandler := connect.NewServerStreamHandler(
 		AgentServiceStreamChatProcedure,
 		svc.StreamChat,
@@ -1827,6 +1856,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceDeleteChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
+		case AgentServiceRetryChatDeliveryProcedure:
+			agentServiceRetryChatDeliveryHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
 			agentServiceStreamChatHandler.ServeHTTP(w, r)
 		case AgentServiceAttachChatPullRequestProcedure:
@@ -2056,6 +2087,10 @@ func (UnimplementedAgentServiceHandler) DeleteChat(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SendChatMessage is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RetryChatDelivery is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error {
