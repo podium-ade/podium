@@ -681,14 +681,13 @@ func (c *Conductor) startDelegatedTask(
 	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
 	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
 ) (*podiumv1.Task, error) {
-	entries, err := g.src.FetchTranscript(ctx, g.ref)
+	entries, err := c.turnTranscript(ctx, g.src, g.ref, sess)
 	if err != nil {
 		// The conversation is context, not the instruction. A task with none is a worse
 		// task and a much better outcome than no task at all.
 		c.logger.WarnContext(ctx, "reading the conversation for a delegated task failed; running it without history",
 			"delegation_id", dlg.ID, "ref", g.ref, "error", err)
 	}
-	entries = c.withSummary(ctx, sess.ID, entries)
 	j := playbookJob(playbook)
 	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
@@ -732,6 +731,7 @@ func (c *Conductor) startDelegatedTask(
 	if persona != nil {
 		brief.Git = persona
 	}
+	c.withRequestedBy(ctx, brief, login, persona)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)

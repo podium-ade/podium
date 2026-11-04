@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
@@ -137,8 +138,12 @@ type Source struct {
 	reviews       ReviewMemory
 	surfaces      Surfaces
 	slack         SlackBridge
-	taskURL       func(string) string
-	now           func() time.Time
+	// deliverer owes each copy fanned out to a bound Slack thread through the conductor's
+	// outbox, so a copy that fails is retried and shown as not delivered. Nil (a source
+	// built without a conductor) posts the copies directly, as before.
+	deliverer atomic.Pointer[conductor.Deliverer]
+	taskURL   func(string) string
+	now       func() time.Time
 
 	filters FilterLookup
 
@@ -1085,11 +1090,28 @@ func (s *Source) fanoutSlack(out conductor.Outbound) bool {
 	}
 }
 
+// SetDeliverer implements the conductor's deliverySetter: the conductor hands itself over so
+// the Slack copies below go through its outbox.
+func (s *Source) SetDeliverer(d conductor.Deliverer) {
+	if d == nil {
+		s.deliverer.Store(nil)
+		return
+	}
+	s.deliverer.Store(&d)
+}
+
 func (s *Source) postSlack(ctx context.Context, p Parsed, out conductor.Outbound) {
 	if s.slack == nil {
 		return
 	}
+	var d conductor.Deliverer
+	if dp := s.deliverer.Load(); dp != nil {
+		d = *dp
+	}
 	for _, ref := range s.slackRefs(ctx, p) {
+		if d != nil && d.DeliverTo(ctx, conductor.SourceSlack, ref, out) {
+			continue
+		}
 		if _, err := s.slack.Post(ctx, ref, out); err != nil {
 			s.logger.WarnContext(ctx, "github: posting to a bound slack thread failed",
 				"ref", ref, "error", err)

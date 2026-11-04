@@ -101,6 +101,17 @@ func (f *fakeStore) ListChatMessages(_ context.Context, chatID string, fromSeq u
 	return out, nil
 }
 
+func (f *fakeStore) GetChatMessage(_ context.Context, chatID string, seq uint64) (store.ChatMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.messages[chatID] {
+		if m.Seq == seq {
+			return m, nil
+		}
+	}
+	return store.ChatMessage{}, store.ErrNotFound
+}
+
 func (f *fakeStore) AttachToLastAssistantMessage(
 	_ context.Context, chatID string, file store.ChatAttachment,
 ) (store.ChatMessage, error) {
@@ -843,4 +854,35 @@ func TestAChatRemembersWhatItIsAnsweredOn(t *testing.T) {
 	got, err = st.GetChat(ctx, "chat_1")
 	require.NoError(t, err)
 	assert.Equal(t, store.ChatChoice{}, got.ChatChoice, "clearing the override is remembered too")
+}
+
+// A delivery that changed (landed after a retry, failed for good, put back in the queue) is
+// sent to a watcher as the message again, under its own seq, read fresh so it carries the
+// deliveries the store attaches. Nobody watching and no relay is nothing to do.
+func TestADeliveryChangeResendsTheMessage(t *testing.T) {
+	st := newFakeStore()
+	src := newSource(t, st)
+	ctx := context.Background()
+	msg, err := st.AppendChatMessage(ctx, store.ChatMessage{ChatID: "chat_1", Role: store.RoleAssistant, Text: "the answer"})
+	require.NoError(t, err)
+
+	src.DeliveryChanged("chat_1", msg.Seq) // nobody watches: a no-op, and no panic
+
+	sub := src.Subscribe(ctx, "chat_1")
+	defer sub.Close()
+	src.DeliveryChanged("chat_1", msg.Seq)
+	select {
+	case f := <-sub.Frames():
+		assert.Equal(t, FrameMessage, f.Kind)
+		assert.Equal(t, msg.Seq, f.Message.Seq)
+		assert.Equal(t, "the answer", f.Message.Text)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the changed message was not resent")
+	}
+	src.DeliveryChanged("chat_1", 999) // a message that is not there is logged, not sent
+	select {
+	case f := <-sub.Frames():
+		t.Fatalf("a missing message was sent: %+v", f)
+	case <-time.After(50 * time.Millisecond):
+	}
 }

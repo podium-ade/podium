@@ -345,3 +345,54 @@ func (c *Conductor) workIsRunning(ctx context.Context, id string) (bool, error) 
 	}
 	return dlg.Status == store.TurnRunning, nil
 }
+
+// requestedBy is how a turn's commits and comments name the person they were for when the
+// turn writes to GitHub as the App rather than as that person: "Dana Smith <dana@acme.com>",
+// or just the login when Podium knows no display name. Empty is a turn with nobody behind it.
+func (c *Conductor) requestedBy(ctx context.Context, login string) (name, who string) {
+	login = turnOwner(login)
+	if login == "" {
+		return "", ""
+	}
+	name = login
+	if c.store != nil {
+		if ids, err := c.store.IdentitiesOf(ctx, []string{login}); err == nil {
+			for _, id := range ids {
+				if strings.TrimSpace(id.DisplayName) != "" {
+					name = strings.TrimSpace(id.DisplayName)
+					break
+				}
+			}
+		}
+	}
+	if name == login {
+		return login, login
+	}
+	return name, fmt.Sprintf("%s <%s>", name, login)
+}
+
+// withRequestedBy tells a turn that writes to GitHub as the App who it is writing for. It
+// applies when the turn can mint App tokens and does not commit as the person themselves
+// (persona == nil): a Slack or web turn by somebody who never connected GitHub, or any turn
+// whose playbook pushes as the App. The App's commits would otherwise say nothing about who
+// asked, and on a pull request "Podium did this" is not an answer a reviewer can act on.
+//
+// It is an instruction rather than a git hook because the runtime owns the clone and its
+// hooks; the brief is the one channel the conductor has into how commits are written.
+func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string, persona *BriefGit) {
+	if b == nil || persona != nil || b.GitCredentials == nil {
+		return
+	}
+	name, who := c.requestedBy(ctx, login)
+	if who == "" {
+		return
+	}
+	b.Instruction = strings.TrimRight(b.Instruction, "\n") + "\n\n" + requestedByNote(name, who)
+}
+
+// requestedByNote is the line withRequestedBy adds. Kept separate so a test pins its words.
+func requestedByNote(name, who string) string {
+	return fmt.Sprintf("(Podium note: you write to GitHub as the Podium App on behalf of %s. "+
+		"End every commit message with the trailer `Requested-by: %s`, and say \"requested by %s\" "+
+		"in any pull request or comment you write.)", name, who, name)
+}

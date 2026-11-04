@@ -12,9 +12,11 @@ import (
 // somewhere else. It exists so a Slack thread can be read in the Podium UI beside the web
 // chats — with the names of the people in it, which the turns table has never held.
 //
-// It is never read back into a brief. FetchTranscript is still what a turn is handed, so
-// Slack remains the one authority on what was said and the mirror cannot drift into
-// disagreeing with the model's own view of the conversation.
+// Since Phase 3 of docs/agent.md it is also THE record: a turn is handed
+// its transcript from here (transcript.go), not from the source, so what was said in Podium
+// beside a thread is in the turn's view of it. Edits and deletes on the surface are applied
+// to the rows (Phase 2), which is what keeps the record and the thread agreeing. (Migration
+// 0014's "never read back into a brief" describes the mirror as it was then.)
 //
 // What it keeps is what the web chat keeps for a conversation it owns: the questions, the
 // answers, the failures, and every progress line — including the "working on this in a task"
@@ -282,6 +284,13 @@ func viaOf(src Source, ev InboundEvent) string {
 // stripped, which is exactly what the web chat stores for its own — so the two kinds of
 // conversation read the same way in the UI.
 func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out Outbound) {
+	c.mirrorSaidRow(ctx, src, ref, out)
+}
+
+// mirrorSaidRow is mirrorSaid returning the row it wrote, which the delivery outbox hangs its
+// rows on. False is nothing written: a source that is not mirrored, a placeholder, or a
+// conversation with no chat yet.
+func (c *Conductor) mirrorSaidRow(ctx context.Context, src Source, ref string, out Outbound) (store.ChatMessage, bool) {
 	role := RoleAssistant
 	text := out.Text
 	if out.Type == OutActivity {
@@ -289,17 +298,17 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 	}
 	if out.Type == OutProgress {
 		if text == Placeholder {
-			return
+			return store.ChatMessage{}, false
 		}
 		role = store.RoleProgress
 		text = strings.TrimPrefix(text, ProgressPrefix)
 		if strings.TrimSpace(text) == "" {
-			return
+			return store.ChatMessage{}, false
 		}
 	}
 	key, ok := c.mirrorKey(src, ref)
 	if !ok {
-		return
+		return store.ChatMessage{}, false
 	}
 	chat, err := c.store.ChatBySourceKey(ctx, key)
 	if err != nil {
@@ -307,13 +316,13 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 		// a thread whose first inbound message never reached the mirror.
 		c.logger.WarnContext(ctx, "mirroring the answer failed; no chat for the conversation",
 			"source_key", key, "error", err)
-		return
+		return store.ChatMessage{}, false
 	}
 	author := ""
 	if p := c.profiles.Current(); p != nil {
 		author = p.DisplayName
 	}
-	c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
+	return c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
 		ChatID: chat.ID,
 		Role:   role,
 		Author: author,
@@ -323,16 +332,17 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 	})
 }
 
-func (c *Conductor) mirrorAppend(ctx context.Context, chatID string, msg store.ChatMessage) {
+func (c *Conductor) mirrorAppend(ctx context.Context, chatID string, msg store.ChatMessage) (store.ChatMessage, bool) {
 	row, err := c.store.AppendChatMessage(ctx, msg)
 	if err != nil {
 		c.logger.WarnContext(ctx, "appending to a mirrored conversation failed",
 			"chat_id", chatID, "role", msg.Role, "error", err)
-		return
+		return store.ChatMessage{}, false
 	}
 	if c.mirror != nil {
 		c.mirror.Mirrored(chatID, row)
 	}
+	return row, true
 }
 
 // metric applies f to the conductor's metrics, which a test may leave unset.

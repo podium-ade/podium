@@ -159,6 +159,13 @@ func (b *Broadcaster) setRelay(out func(chatID string, f Frame)) {
 	b.out = out
 }
 
+// relaying reports whether frames published here also go to other conductors.
+func (b *Broadcaster) relaying() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.out != nil
+}
+
 // ResyncAll tells every subscriber to re-read its chat. A relay calls it when it may have
 // missed frames from another conductor — its LISTEN connection dropped — so a watcher that
 // cannot know what it missed is told to look rather than left showing a stale chat.

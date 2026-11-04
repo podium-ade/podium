@@ -59,6 +59,8 @@ type Store interface {
 	GetChat(ctx context.Context, id string) (store.Chat, error)
 	AppendChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, fromSeq uint64) ([]store.ChatMessage, error)
+	// GetChatMessage re-reads one message whose deliveries changed (DeliveryChanged).
+	GetChatMessage(ctx context.Context, chatID string, seq uint64) (store.ChatMessage, error)
 	AttachToLastAssistantMessage(
 		ctx context.Context, chatID string, file store.ChatAttachment,
 	) (store.ChatMessage, error)
@@ -195,6 +197,26 @@ func (s *Source) Subscribers(chatID string) int { return s.bcast.Subscribers(cha
 // Mirrored implements conductor.MirrorWatcher: a row the conductor wrote into a mirrored
 // thread reaches whoever has that chat open, exactly as this source's own rows do.
 func (s *Source) Mirrored(chatID string, msg store.ChatMessage) {
+	s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: msg})
+}
+
+// DeliveryChanged implements conductor.DeliveryWatcher: one of a message's deliveries to
+// Slack or GitHub landed, failed for good, or was put back in the queue. The message is read
+// again — with its deliveries, which the store attaches — and sent under its own seq, which a
+// client replaces rather than appends. A watcher on another conductor gets it through the
+// relay, which reads the same row.
+func (s *Source) DeliveryChanged(chatID string, seq uint64) {
+	if !s.bcast.watched(chatID) && !s.bcast.relaying() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg, err := s.store.GetChatMessage(ctx, chatID, seq)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading a message whose delivery changed failed",
+			"chat_id", chatID, "seq", seq, "error", err)
+		return
+	}
 	s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: msg})
 }
 

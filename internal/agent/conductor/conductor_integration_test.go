@@ -1447,9 +1447,21 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	assert.Equal(t, "it is a task runner.", msgs[2].Text)
 	assert.Equal(t, msgs[1].TaskID, msgs[2].TaskID)
 
+	// The answer was owed to the thread through the outbox (outbox.go) and landed on the
+	// first attempt: the delivery says so, and the row knows the thread's id for it.
+	require.Len(t, msgs[2].Deliveries, 1, "the answer is owed to the surface the turn started on")
+	assert.Equal(t, conductor.KindDev, msgs[2].Deliveries[0].SurfaceKind)
+	assert.Equal(t, store.OutboxSent, msgs[2].Deliveries[0].Status)
+	assert.Equal(t, 1, msgs[2].Deliveries[0].Attempts)
+	assert.NotEmpty(t, msgs[2].ExternalID, "where the answer landed is recorded on the row")
+
 	// Every row was also announced, in order and with its seq, so a screen with the thread
-	// open saw it land rather than finding it on the next reload.
-	require.Equal(t, msgs, watcher.rows(chat.ID), "what was written is what was announced")
+	// open saw it land rather than finding it on the next reload. The answer is announced as
+	// it was written — before its delivery, which is bookkeeping added afterwards.
+	announced := watcher.rows(chat.ID)
+	written := slices.Clone(msgs)
+	written[2].ExternalID, written[2].Deliveries = "", nil
+	require.Equal(t, written, announced, "what was written is what was announced")
 
 	// A named login does not list it. The dev token does: the thread belongs to the workspace.
 	owned, _, err := st.ListChats(ctx, "whoever", false, 0, "")
@@ -1539,6 +1551,9 @@ func TestAConversationPodiumOwnsIsNotMirrored(t *testing.T) {
 
 	_, err := st.ChatBySourceKey(ctx, ev.SourceKey)
 	require.ErrorIs(t, err, store.ErrNotFound)
+	// Routing: a conversation Podium holds answers where it was asked and owes nothing
+	// anywhere else — no record to hang a delivery on, so the outbox is not involved.
+	require.Len(t, posts(src.Records(), conductor.OutFinal), 1)
 }
 
 // recordingMirror is a conductor.MirrorWatcher that keeps what it was told, per chat.

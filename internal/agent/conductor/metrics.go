@@ -18,6 +18,7 @@ type Metrics struct {
 	RelayedMessages         *prometheus.CounterVec
 	SourceEvents            *prometheus.CounterVec
 	GateDecisions           *prometheus.CounterVec
+	OutboxDeliveries        *prometheus.CounterVec
 	MirrorRecords           *prometheus.CounterVec
 	FollowReconnects        prometheus.Counter
 	MemoryRetains           *prometheus.CounterVec
@@ -89,6 +90,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "podium_agent_gate_decisions_total",
 			Help: "Who may start a turn: inbound events admitted, refused or collapsed, by source and reason.",
 		}, []string{"source", "outcome"}),
+		OutboxDeliveries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_outbox_deliveries_total",
+			Help: "Delivery attempts of answers to Slack and GitHub, by surface and outcome: sent, " +
+				"retry (an attempt failed and another is scheduled) and failed (given up; the web " +
+				"chat shows it as not delivered until somebody retries).",
+		}, []string{"surface", "outcome"}),
 		MirrorRecords: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_mirror_records_total",
 			Help: "What the mirror did with a human message, by source: addressed, unaddressed, " +
@@ -119,7 +126,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
 			m.HostWarmEvictions, m.WarmInjects, m.TurnFirstMessage, m.GatewayRequests, m.Notifications,
 			m.Delegations, m.RelayedMessages,
-			m.SourceEvents, m.GateDecisions, m.MirrorRecords, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
+			m.SourceEvents, m.GateDecisions, m.OutboxDeliveries, m.MirrorRecords, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m
 }
