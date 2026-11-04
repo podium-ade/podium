@@ -95,13 +95,16 @@ func (s *Subscriber) Close() {
 
 // Broadcaster fans a chat's frames out to whoever is watching it, in this process.
 //
-// It is deliberately in-process rather than LISTEN/NOTIFY: the conductor is one process by
-// design, and the store is already the durable half of the story — every frame worth
-// keeping is a row before it is broadcast. A second conductor would see the rows and miss
-// the live frames, which is a reason not to run two, not a reason to build a bus.
+// Conductors that share a database each have one (docs/agent.md, phase
+// 2: two people in one chat may be connected to two conductors). A Relay carries what this
+// one publishes to the others over Postgres LISTEN/NOTIFY and publishes theirs here. Without
+// a relay it is the in-process fan-out it always was. The store stays the durable half of
+// the story either way: every frame worth keeping is a row before it is broadcast.
 type Broadcaster struct {
 	mu   sync.Mutex
 	subs map[string]map[*Subscriber]struct{}
+	// out, when set, is the relay: it is offered every frame published here.
+	out func(chatID string, f Frame)
 }
 
 // NewBroadcaster returns an empty broadcaster.
@@ -140,6 +143,52 @@ func (b *Broadcaster) Subscribe(ctx context.Context, chatID string) *Subscriber 
 // from the store — so a slow subscriber loses its place in the stream but never loses a
 // message.
 func (b *Broadcaster) Publish(chatID string, f Frame) {
+	b.publishLocal(chatID, f)
+	b.mu.Lock()
+	out := b.out
+	b.mu.Unlock()
+	if out != nil {
+		out(chatID, f)
+	}
+}
+
+// setRelay installs the hook every published frame is offered to.
+func (b *Broadcaster) setRelay(out func(chatID string, f Frame)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.out = out
+}
+
+// ResyncAll tells every subscriber to re-read its chat. A relay calls it when it may have
+// missed frames from another conductor — its LISTEN connection dropped — so a watcher that
+// cannot know what it missed is told to look rather than left showing a stale chat.
+func (b *Broadcaster) ResyncAll() {
+	b.mu.Lock()
+	var subs []*Subscriber
+	for _, set := range b.subs {
+		for sub := range set {
+			subs = append(subs, sub)
+		}
+	}
+	b.mu.Unlock()
+	for _, sub := range subs {
+		select {
+		case sub.resync <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// watched reports whether anyone in this process watches the chat. A relay skips the re-read
+// for a chat nobody here is looking at.
+func (b *Broadcaster) watched(chatID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs[chatID]) > 0
+}
+
+// publishLocal offers one frame to this process's subscribers only.
+func (b *Broadcaster) publishLocal(chatID string, f Frame) {
 	b.mu.Lock()
 	subs := make([]*Subscriber, 0, len(b.subs[chatID]))
 	for sub := range b.subs[chatID] {

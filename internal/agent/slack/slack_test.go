@@ -158,8 +158,9 @@ func TestInnerEventsArrivePointerTyped(t *testing.T) {
 }
 
 // A reply in a thread is not a turn unless the bot is @-mentioned. Having already
-// participated is not enough.
-func TestInnerIgnoresAThreadReplyWithoutAMention(t *testing.T) {
+// participated is not enough. It is still conversation: it is offered as RecordOnly, which
+// the conductor records into a thread it already holds and never acts on.
+func TestInnerRecordsAThreadReplyWithoutAMention(t *testing.T) {
 	f := newFakeSlack(t)
 	s := testSource(t, f)
 	s.users["U1"] = "alice"
@@ -177,7 +178,120 @@ func TestInnerIgnoresAThreadReplyWithoutAMention(t *testing.T) {
 		},
 	})
 
+	ev := takeInbound(t, s)
+	assert.True(t, ev.RecordOnly, "chatter is recorded, never a turn")
+	assert.False(t, ev.Mentioned)
+	assert.Equal(t, "slack:C1:100.1", ev.SourceKey)
+	assert.Equal(t, "100.2", ev.ExternalID)
+	assert.Equal(t, "https://podium.slack.com/archives/C1/p1002", ev.ExternalURL)
+	assert.Equal(t, "and then?", ev.Text)
 	assertNoInbound(t, s)
+}
+
+// A message that mentions the bot arrives as app_mention AND as message. The message copy
+// must not be recorded as chatter: the conductor would then find the mention already
+// recorded and drop it as a duplicate, and the turn would never start.
+func TestInnerLeavesAThreadMentionToAppMention(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", User: "U1", Text: "<@UBOT> and then?",
+			TimeStamp: "100.2", ThreadTimeStamp: "100.1", ChannelType: "channel",
+		},
+	}})
+
+	assertNoInbound(t, s)
+}
+
+// A top-level channel message is not part of any thread Podium could hold, and a message
+// from a bot is never conversation input.
+func TestInnerIgnoresChannelChatterAndBots(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	for _, ev := range []*slackevents.MessageEvent{
+		{Channel: "C1", User: "U1", Text: "lunch?", TimeStamp: "100.1", ChannelType: "channel"},
+		{Channel: "C1", BotID: "B9", User: "U9", Text: "deploy done", TimeStamp: "100.3", ThreadTimeStamp: "100.1", ChannelType: "channel"},
+		{Channel: "C1", User: "U1", SubType: "channel_join", TimeStamp: "100.4", ThreadTimeStamp: "100.1", ChannelType: "channel"},
+	} {
+		s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{Data: ev}})
+	}
+
+	assertNoInbound(t, s)
+}
+
+// An edit is offered as a change of the message it edits, with the new text converted.
+// An "edit" that changed nothing a person typed (an unfurl) is not offered at all.
+func TestInnerOffersEditsAndDeletes(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel", EventTimeStamp: "200.0",
+			Message:         &slack.Msg{User: "U1", Text: "now *bold*", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "now bold", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	edit := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeEdited, edit.Change)
+	assert.Equal(t, "100.2", edit.ExternalID)
+	assert.Equal(t, "slack:C1:100.1", edit.SourceKey)
+	assert.Equal(t, "now **bold**", edit.Text)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel",
+			Message:         &slack.Msg{User: "U1", Text: "same", Timestamp: "100.3", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "same", Timestamp: "100.3", ThreadTimestamp: "100.1"},
+		},
+	}})
+	assertNoInbound(t, s)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_deleted", ChannelType: "channel", DeletedTimeStamp: "100.2",
+			PreviousMessage: &slack.Msg{User: "U1", Text: "now *bold*", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	del := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeDeleted, del.Change)
+	assert.Equal(t, "100.2", del.ExternalID)
+	assert.Equal(t, "slack:C1:100.1", del.SourceKey)
+}
+
+// History is the thread before the mention that brought Podium in: people only, in order,
+// and never the mention itself or anything after it.
+func TestHistoryIsTheThreadBeforeTheTrigger(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("conversations.replies", `{"ok":true,"messages":[
+		{"user":"U1","ts":"100.1","text":"the deploy is *stuck*"},
+		{"user":"UBOT","bot_id":"BBOT","ts":"100.2","text":"an older answer"},
+		{"user":"U2","ts":"100.3","text":"same here"},
+		{"user":"U2","ts":"100.4","subtype":"channel_join","text":""},
+		{"user":"U1","ts":"100.5","text":"<@UBOT> help?"},
+		{"user":"U2","ts":"100.6","text":"after"}]}`)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	s.users["U2"] = "bob"
+
+	got, err := s.History(t.Context(), Ref("C1", "100.1", "100.5"))
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "100.1", got[0].ExternalID)
+	assert.Equal(t, "the deploy is **stuck**", got[0].Text)
+	assert.True(t, got[0].RecordOnly)
+	assert.Equal(t, "100.3", got[1].ExternalID)
+
+	none, err := s.History(t.Context(), Ref("C1", "100.1", "100.1"))
+	require.NoError(t, err)
+	assert.Empty(t, none, "a mention that started the thread has nothing before it")
 }
 
 // The same words with an @-mention are a turn, and the reply goes in that thread.

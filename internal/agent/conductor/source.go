@@ -23,6 +23,12 @@ const (
 	ReactionRefused Reaction = "refused"
 )
 
+// The changes an InboundEvent can carry instead of a new message.
+const (
+	ChangeEdited  = "edited"
+	ChangeDeleted = "deleted"
+)
+
 // The account providers a source can name in InboundEvent.SpeakerProvider. They are the
 // store's identity providers, spelled here so a source never imports the store.
 const (
@@ -119,6 +125,30 @@ type InboundEvent struct {
 	// it is safe to hand the review playbook on the App's credentials. Empty for anything
 	// else, and ignored for a speaker who is in Podium, who gets the full comment.
 	ReviewRequest string
+	// ExternalID is the message's identity on its own surface — a Slack ts, or a GitHub
+	// comment, review or delivery id with its kind in front — and ExternalURL is the link to
+	// it. The mirror records one row per ExternalID however many times the event arrives, and
+	// only the arrival that wrote the row goes on to start a turn. Empty means the source
+	// cannot name the message, and then nothing dedupes it here.
+	ExternalID  string
+	ExternalURL string
+	// SpeakerHandle is the account's handle where the surface has one distinct from its
+	// display name: a GitHub login. Empty for Slack.
+	SpeakerHandle string
+	// RecordOnly is a message nobody put to Podium — a reply in a thread it is already in,
+	// a pull-request comment that does not mention it. It is recorded in the conversation's
+	// chat and NEVER starts a turn. It is recorded only into a chat that already exists:
+	// Podium keeps the whole of a conversation it is part of, and nothing of one it is not.
+	RecordOnly bool
+	// Change, when set, makes this event an edit (ChangeEdited) or a delete (ChangeDeleted)
+	// of the message named by ExternalID, made on its own surface. Text is the new text of
+	// an edit. A change updates the record and never starts a turn — not even an edit that
+	// adds a mention (decision 34).
+	Change string
+	// RecordText is what the person actually wrote, when Text is an instruction the source
+	// built around it ("alice commented on #12 …"). The record keeps the person's words;
+	// the turn is handed the instruction. Empty means Text is both.
+	RecordText string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.

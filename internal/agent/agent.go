@@ -238,6 +238,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		DisplayName: profile.DisplayName,
 		UIURL:       cfg.WebURL(),
 		Logger:      logger,
+		// Live frames reach a watcher whichever conductor it is connected to.
+		Bus: st,
 	})
 	if err != nil {
 		st.Close()
@@ -725,6 +727,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// so nothing but this keeps a signed-in provider working past its first hour.
 	go a.svc.RefreshTokens(runCtx)
 
+	go func() {
+		if err := a.chat.RunRelay(runCtx); err != nil {
+			a.logger.ErrorContext(runCtx, "the chat relay stopped", "error", err)
+		}
+	}()
 	if a.chatHost != nil {
 		go func() {
 			if err := a.chatHost.Run(runCtx); err != nil {

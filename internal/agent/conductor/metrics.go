@@ -18,6 +18,7 @@ type Metrics struct {
 	RelayedMessages         *prometheus.CounterVec
 	SourceEvents            *prometheus.CounterVec
 	GateDecisions           *prometheus.CounterVec
+	MirrorRecords           *prometheus.CounterVec
 	FollowReconnects        prometheus.Counter
 	MemoryRetains           *prometheus.CounterVec
 	MemoryExtractionsFailed prometheus.Gauge
@@ -88,6 +89,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "podium_agent_gate_decisions_total",
 			Help: "Who may start a turn: inbound events admitted, refused or collapsed, by source and reason.",
 		}, []string{"source", "outcome"}),
+		MirrorRecords: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_mirror_records_total",
+			Help: "What the mirror did with a human message, by source: addressed, unaddressed, " +
+				"duplicate (a retried or redelivered event, not acted on twice), edited, deleted, " +
+				"no_chat (unaddressed chatter in a conversation Podium is not part of) and " +
+				"change_unknown (an edit of a message never recorded).",
+		}, []string{"source", "outcome"}),
 		FollowReconnects: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "podium_agent_follow_reconnects_total",
 			Help: "Reconnects of the task event stream.",
@@ -111,7 +119,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
 			m.HostWarmEvictions, m.WarmInjects, m.TurnFirstMessage, m.GatewayRequests, m.Notifications,
 			m.Delegations, m.RelayedMessages,
-			m.SourceEvents, m.GateDecisions, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
+			m.SourceEvents, m.GateDecisions, m.MirrorRecords, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m
 }

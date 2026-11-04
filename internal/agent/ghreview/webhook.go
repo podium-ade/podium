@@ -92,6 +92,7 @@ func validSignature(secret string, body []byte, header string) bool {
 
 func (s *Source) handleDelivery(ctx context.Context, event, delivery string, body []byte) {
 	c, ok := s.classify(event, body)
+	c.delivery = delivery
 	if !ok {
 		reason := c.reason
 		if reason == "" {
@@ -108,6 +109,13 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
 	}
+	if c.change != "" {
+		// An edit or a delete updates what was recorded. It is never a turn, whoever made
+		// it and whatever it now says (decision 34), so no filter applies.
+		s.emit(ctx, s.inbound(c, c.body))
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "recorded", c.change)
+		return
+	}
 	f, err := s.currentFilters(ctx)
 	if err != nil {
 		// Without the filters an allowlist could not be honoured, so nothing starts.
@@ -116,6 +124,9 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		return
 	}
 	if ok, why := f.actorAllowed(firstNonEmpty(c.author, c.senderLogin), c.senderType); !ok {
+		// The filters decide what starts a turn, not what was said (phase 2): what a filtered
+		// actor wrote on a pull request Podium holds is still part of its record.
+		s.recordOnly(ctx, c)
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", why)
 		return
 	}
@@ -141,6 +152,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		triggered = s.answersTheApp(ctx, c)
 	}
 	if !triggered {
+		s.recordOnly(ctx, c)
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
 		return
 	}
@@ -157,10 +169,12 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		}
 		if c.base == "" {
 			// Without the base an exclusion could not be honoured, so nothing starts.
+			s.recordOnly(ctx, c)
 			s.logWebhook(ctx, slog.LevelWarn, event, delivery, c, "ignored", "base branch unavailable")
 			return
 		}
 		if f.branchExcluded(c.base) {
+			s.recordOnly(ctx, c)
 			s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "excluded branch")
 			return
 		}
@@ -192,14 +206,29 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	if isCommand {
 		request = s.reviewRequest(ctx, c, cmd, commit, head)
 	}
+	ev := s.inbound(c, text)
+	ev.Mentioned = c.mentioned || isCommand
+	ev.ReviewRequest = request
+	ev.Automatic = c.ready
+	ev.Role = c.role
+	if c.ready {
+		// Nobody said anything: the record keeps the instruction, which says what happened.
+		ev.RecordText = ""
+	}
+	s.emit(ctx, ev)
+	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
+}
+
+// inbound is the event for one classified delivery, with text as what the turn is handed.
+// The record keeps what the person wrote (RecordText), not the instruction built around it.
+func (s *Source) inbound(c classified, text string) conductor.InboundEvent {
 	speakerID := ""
 	if c.authorID != 0 {
 		speakerID = strconv.FormatInt(c.authorID, 10)
 	}
-
-	s.emit(ctx, conductor.InboundEvent{
+	ev := conductor.InboundEvent{
 		SourceKind: Kind,
-		SourceKey:  key,
+		SourceKey:  SourceKey(c.owner, c.repo, c.number),
 		Ref: Ref(Parsed{
 			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID,
 			Kind: c.kind, CommentID: c.commentID,
@@ -208,16 +237,32 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		SpeakerProvider: conductor.SpeakerGitHub,
 		SpeakerID:       speakerID,
 		SpeakerAvatar:   c.authorAvatar,
-		Mentioned:       c.mentioned || isCommand,
-		ReviewRequest:   request,
+		SpeakerHandle:   c.author,
+		ExternalID:      c.externalID(),
+		ExternalURL:     c.htmlURL,
+		RecordText:      strings.TrimSpace(c.body),
+		Change:          c.change,
 		Text:            text,
 		TS:              c.ts,
 		URL:             PRURL(c.owner, c.repo, c.number),
 		BriefKind:       conductor.SourceGitHub,
-		Automatic:       c.ready,
-		Role:            c.role,
-	})
-	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
+	}
+	if c.change != "" {
+		// An edit's text is the comment's new body. A change carries no instruction.
+		ev.Text = strings.TrimSpace(c.body)
+	}
+	return ev
+}
+
+// recordOnly offers what a person wrote on a pull request, which starts nothing, as part of
+// its record. The conductor keeps it only when Podium already holds that pull request.
+func (s *Source) recordOnly(ctx context.Context, c classified) {
+	if c.ready || c.commentID == 0 || strings.TrimSpace(c.body) == "" {
+		return
+	}
+	ev := s.inbound(c, strings.TrimSpace(c.body))
+	ev.RecordOnly = true
+	s.emit(ctx, ev)
 }
 
 // reviewRequest is the review a commenter outside Podium is allowed to have: the fixed
@@ -303,6 +348,27 @@ type classified struct {
 	// login. Zero when GitHub did not say.
 	authorID     int64
 	authorAvatar string
+	// change is an edit (conductor.ChangeEdited) or a delete (conductor.ChangeDeleted) of
+	// the comment or review commentID names, and empty for something newly said.
+	change string
+	// htmlURL is the comment's or review's own link on GitHub.
+	htmlURL string
+	// delivery is the webhook's X-GitHub-Delivery id, which a redelivery keeps.
+	delivery string
+}
+
+// externalID is the message's identity in the pull request's record. Comments, review
+// comments and reviews are numbered independently, so the kind goes in front. An event that
+// is not a comment (a pull request opened or marked ready) is named by its delivery, which
+// is what a redelivery of it repeats.
+func (c classified) externalID() string {
+	if c.commentID != 0 {
+		return c.kind + ":" + strconv.FormatInt(c.commentID, 10)
+	}
+	if c.delivery != "" {
+		return "delivery:" + c.delivery
+	}
+	return ""
 }
 
 // speaker records the account a comment or review came from, when the payload carries it.
@@ -311,6 +377,31 @@ func (c *classified) speaker(u User) {
 		c.authorID = u.ID
 		c.authorAvatar = u.AvatarURL
 	}
+}
+
+// commentAction accepts what a comment can do: be created, edited or deleted. An edit and a
+// delete become a change of the recorded message; they never start anything.
+func (c *classified) commentAction() bool {
+	switch c.action {
+	case "created":
+	case "edited":
+		c.change = conductor.ChangeEdited
+	case "deleted":
+		c.change = conductor.ChangeDeleted
+	default:
+		c.reason = "unsupported action"
+		return false
+	}
+	return true
+}
+
+// changedAt is when a comment event happened: its creation, or its last update for a change.
+// Zero for a change GitHub did not stamp, which the conductor reads as now.
+func changedAt(change string, created, updated time.Time) time.Time {
+	if change == "" {
+		return created
+	}
+	return updated
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -349,8 +440,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 
 	switch event {
 	case "issue_comment":
-		if env.Action != "created" {
-			base.reason = "unsupported action"
+		if !base.commentAction() {
 			return base, false
 		}
 		var p struct {
@@ -358,6 +448,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				ID        int64     `json:"id"`
 				Body      string    `json:"body"`
 				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				HTMLURL   string    `json:"html_url"`
 				User      User      `json:"user"`
 			} `json:"comment"`
 			Issue struct {
@@ -378,7 +470,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.body = p.Comment.Body
 		base.author = firstNonEmpty(p.Comment.User.Login, env.Sender.Login)
 		base.speaker(p.Comment.User)
-		base.ts = p.Comment.CreatedAt
+		base.ts = changedAt(base.change, p.Comment.CreatedAt, p.Comment.UpdatedAt)
+		base.htmlURL = p.Comment.HTMLURL
 		base.mentioned = s.mentioned(p.Comment.Body)
 		if base.number == 0 || base.commentID == 0 {
 			base.reason = "unhandled"
@@ -387,8 +480,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return base, true
 
 	case "pull_request_review_comment":
-		if env.Action != "created" {
-			base.reason = "unsupported action"
+		if !base.commentAction() {
 			return base, false
 		}
 		var p struct {
@@ -396,6 +488,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				ID        int64     `json:"id"`
 				Body      string    `json:"body"`
 				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				HTMLURL   string    `json:"html_url"`
 				Path      string    `json:"path"`
 				Line      int       `json:"line"`
 				DiffHunk  string    `json:"diff_hunk"`
@@ -417,7 +511,8 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.body = p.Comment.Body
 		base.author = firstNonEmpty(p.Comment.User.Login, env.Sender.Login)
 		base.speaker(p.Comment.User)
-		base.ts = p.Comment.CreatedAt
+		base.ts = changedAt(base.change, p.Comment.CreatedAt, p.Comment.UpdatedAt)
+		base.htmlURL = p.Comment.HTMLURL
 		base.path = p.Comment.Path
 		base.line = p.Comment.Line
 		base.diffHunk = p.Comment.DiffHunk
@@ -431,7 +526,12 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return base, true
 
 	case "pull_request_review":
-		if env.Action != "submitted" {
+		// A review has no delete; its body can be edited.
+		switch env.Action {
+		case "submitted":
+		case "edited":
+			base.change = conductor.ChangeEdited
+		default:
 			base.reason = "unsupported action"
 			return base, false
 		}
@@ -440,6 +540,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 				ID          int64     `json:"id"`
 				Body        string    `json:"body"`
 				SubmittedAt time.Time `json:"submitted_at"`
+				HTMLURL     string    `json:"html_url"`
 				User        User      `json:"user"`
 			} `json:"review"`
 			PullRequest struct {
@@ -458,12 +559,16 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.author = firstNonEmpty(p.Review.User.Login, env.Sender.Login)
 		base.speaker(p.Review.User)
 		base.ts = p.Review.SubmittedAt
+		if base.change != "" {
+			base.ts = time.Time{}
+		}
+		base.htmlURL = p.Review.HTMLURL
 		base.mentioned = s.mentioned(p.Review.Body)
 		if base.number == 0 || base.commentID == 0 {
 			base.reason = "unhandled"
 			return base, false
 		}
-		if strings.TrimSpace(base.body) == "" {
+		if strings.TrimSpace(base.body) == "" && base.change == "" {
 			base.reason = "empty review"
 			return base, false
 		}

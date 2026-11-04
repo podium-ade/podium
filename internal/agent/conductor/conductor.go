@@ -465,9 +465,30 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.rememberSlackChannel(ctx, ev)
-	// Who said it, and whether they may start anything at all. A refused event has already
-	// been recorded and reacted to by admit.
+	// Who said it.
 	c.resolveSpeaker(ctx, src, &ev)
+	// An edit, a delete, or chatter nobody put to Podium is recorded and is never a turn.
+	switch {
+	case ev.Change != "":
+		c.mirrorChanged(ctx, src, ev)
+		return
+	case ev.RecordOnly:
+		c.mirrorRecordOnly(ctx, src, ev)
+		return
+	}
+	// Recorded before anything is decided about it, and whoever answers it: a conversation
+	// whose first turn fails, or that the speaker may not start a turn in at all, is still a
+	// conversation somebody can read. The recording is also the dedupe — a Slack retry, a
+	// GitHub redelivery or a second conductor hearing the same event finds its message
+	// already written and stops here, so one message is never two turns. A no-op that reports
+	// fresh for the web chat, which stores its own messages, and for a source that is not
+	// mirrored at all.
+	if !c.mirrorHeard(ctx, src, ev) {
+		c.logger.InfoContext(ctx, "an inbound message was already recorded; not acting on it twice",
+			"source", src.Kind(), "source_key", ev.SourceKey, "external_id", ev.ExternalID)
+		return
+	}
+	// Whether they may start anything at all. A refused event is reacted to by admit.
 	if !c.admit(ctx, src, &ev) {
 		return
 	}
@@ -520,11 +541,6 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	if !ok {
 		return
 	}
-	// Recorded before any turn runs, and whoever answers it: a conversation whose first
-	// turn fails is still a conversation somebody can read, and whether the assistant or a
-	// playbook takes it does not change who said what. A no-op for the web chat, which
-	// stores its own messages, and for a source that is not mirrored at all.
-	c.mirrorHeard(ctx, src, ev)
 
 	c.mu.Lock()
 	st := c.sessions[sess.ID]
@@ -787,7 +803,6 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	if !ok {
 		return
 	}
-	c.mirrorHeard(ctx, src, ev)
 	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
 	if err == nil {
 		// A turn with no task, possibly for hours while it queues behind a writer: the lease
