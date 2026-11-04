@@ -610,6 +610,8 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		StartedBy:          c.StartedBy,
 		Login:              c.Login,
 		Participants:       participantNames(c.Participants),
+		People:             peopleToProto(c.Participants),
+		Surfaces:           surfacesOf(c),
 		Channel:            c.Channel,
 		PersonalityId:      c.PersonalityID,
 		PersonalityDisplay: c.PersonalityDisplay,
@@ -637,13 +639,29 @@ func pullRequestsToProto(prs []store.ChatPullRequest) []*agentv1.ChatPullRequest
 
 func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 	out := &agentv1.ChatMessage{
-		ChatId: m.ChatID,
-		Seq:    m.Seq,
-		Role:   m.Role,
-		Text:   m.Text,
-		Ts:     timestamppb.New(m.TS),
-		TaskId: m.TaskID,
-		Author: m.Author,
+		ChatId:       m.ChatID,
+		Seq:          m.Seq,
+		Role:         m.Role,
+		Text:         m.Text,
+		Ts:           timestamppb.New(m.TS),
+		TaskId:       m.TaskID,
+		Author:       m.Author,
+		AuthorLogin:  m.AuthorLogin,
+		AuthorHandle: m.AuthorHandle,
+		AuthorAvatar: m.AuthorAvatar,
+		Via:          m.Via,
+		ExternalUrl:  m.ExternalURL,
+		Addressed:    m.Addressed,
+	}
+	if m.EditedAt != nil {
+		out.EditedAt = timestamppb.New(*m.EditedAt)
+	}
+	if m.DeletedAt != nil {
+		// Deleted on its own surface: the row stays in the store with its text (decision
+		// 12), and none of it leaves the API. The UI draws a placeholder.
+		out.Deleted = true
+		out.Text = ""
+		return out
 	}
 	for _, a := range m.Attachments {
 		out.Attachments = append(out.Attachments, &agentv1.ChatAttachment{
@@ -654,6 +672,40 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		})
 	}
 	return out
+}
+
+// peopleToProto is the participants as the header draws them.
+func peopleToProto(ps []store.ChatParticipant) []*agentv1.ChatPerson {
+	if len(ps) == 0 {
+		return nil
+	}
+	out := make([]*agentv1.ChatPerson, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, &agentv1.ChatPerson{Login: p.Login, Name: p.Name, Avatar: p.Avatar, Via: p.Via})
+	}
+	return out
+}
+
+// surfacesOf is where a mirrored conversation lives, read from the session it records. The
+// key is the conductor's, and its two mirrored shapes are fixed: slack:<channel>:<thread>
+// and github:<owner>/<repo>#<n>. A web chat lives nowhere else.
+func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
+	switch {
+	case strings.HasPrefix(c.SourceKey, "slack:"):
+		label := "Slack thread"
+		if c.Channel != "" {
+			label = "#" + c.Channel
+		}
+		return []*agentv1.ChatSurface{{Kind: store.ViaSlack, Label: label}}
+	case strings.HasPrefix(c.SourceKey, "github:"):
+		ref := strings.TrimPrefix(c.SourceKey, "github:")
+		url := ""
+		if slash, hash := strings.IndexByte(ref, '/'), strings.LastIndexByte(ref, '#'); slash > 0 && hash > slash {
+			url = "https://github.com/" + ref[:hash] + "/pull/" + ref[hash+1:]
+		}
+		return []*agentv1.ChatSurface{{Kind: store.ViaGitHub, Label: ref, Url: url}}
+	}
+	return nil
 }
 
 // participantNames is the participants as the existing proto field carries them: one name

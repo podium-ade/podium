@@ -972,6 +972,11 @@ message Chat {
   // personality_display is that assistant's display name at the moment the chat was
   // opened, so a deleted assistant's threads stay labeled.
   string personality_display = 18;
+  // people is participants with what the header draws for each: an avatar, the surface,
+  // and whether they are in Podium. Set where participants is.
+  repeated ChatPerson people = 19;
+  // surfaces is where a mirrored conversation lives. Empty for a web chat.
+  repeated ChatSurface surfaces = 20;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1015,6 +1020,46 @@ message ChatMessage {
   // including the bot's, because a thread has as many people in it as care to join and
   // "who said this" is not answerable from the role alone.
   string author = 8;
+  // author_login is the Podium person who said it. Empty for somebody who is not in Podium
+  // — the UI marks them External — and for the bot.
+  string author_login = 9;
+  // author_handle is the account's handle where it differs from the display name: a
+  // GitHub login. author_avatar is the account's picture URL. Both may be empty.
+  string author_handle = 10;
+  string author_avatar = 11;
+  // via is the surface the message came in through: "web", "slack", "github", or "bot"
+  // for what the conductor wrote.
+  string via = 12;
+  // external_url links to the message on its own surface. Empty for a web message.
+  string external_url = 13;
+  // addressed is whether the message was put to Podium. An unaddressed message is the
+  // conversation around the bot — a reply nobody tagged it in — and never started a turn.
+  bool addressed = 14;
+  // edited_at is set once the message was edited on its own surface.
+  google.protobuf.Timestamp edited_at = 15;
+  // deleted is true once the message was deleted on its own surface. text and attachments
+  // are then empty: Podium keeps the row, and the UI shows that it was deleted.
+  bool deleted = 16;
+}
+
+// ChatPerson is one participant of a chat, for the header's avatar row.
+message ChatPerson {
+  // login is the Podium person. Empty for somebody who is not in Podium.
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+  // via is where they took part: "web", "slack" or "github".
+  string via = 4;
+}
+
+// ChatSurface is one place a conversation lives besides Podium, for the header's chips.
+message ChatSurface {
+  // kind is "slack" or "github".
+  string kind = 1;
+  // label is what the chip says: "#eng-review", "podium-ade/podium#247".
+  string label = 2;
+  // url opens it there, when Podium knows the link.
+  string url = 3;
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
