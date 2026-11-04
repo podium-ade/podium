@@ -46,6 +46,22 @@ type ChatMessage struct {
 	DeletedAt    *time.Time
 }
 
+type ChatOutbox struct {
+	ID          string
+	ChatID      string
+	MessageSeq  int64
+	SurfaceKind string
+	SurfaceRef  string
+	Payload     []byte
+	Status      string
+	Attempts    int32
+	NextAt      time.Time
+	LastError   string
+	ExternalID  *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type ChatParticipant struct {
 	ChatID    string
 	Login     string
@@ -192,6 +208,7 @@ type Turn struct {
 	Model      *string
 	Effort     *string
 	Provider   *string
+	StartedBy  string
 }
 
 type WorkLease struct {
