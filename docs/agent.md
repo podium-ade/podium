@@ -1689,15 +1689,29 @@ cannot widen its own view. See [`security.md`](security.md).
   goes into that thread. A mention **inside an existing thread** is the only way a thread
   reply starts a turn.
 - **A DM** is a conversation of its own, keyed the same way.
-- Everything else is ignored: anything from a bot (this one included), anything with a subtype
-  (`message_changed`, `message_deleted`, `channel_join`, …), and any channel message that does
-  not mention the bot — including a reply in a thread the bot already participated in.
+- **A reply in a thread Podium is already in**, without a mention, is *recorded* — it shows up
+  in the Podium chat for that thread, labelled with who said it — and never starts a turn. A
+  reply in a thread Podium is not in, and any top-level channel message that does not mention
+  the bot, is not stored at all.
+- **An edit or a delete** (`message_changed`, `message_deleted`) of a recorded message updates
+  the Podium copy. A deleted message keeps its row and shows as deleted; an edit never starts
+  a turn, even one that adds a mention.
+- When a mention lands in a thread that already had replies, the replies before it are read
+  once (`conversations.replies`) so Podium's record starts where the thread did.
+- Everything else is ignored: anything from a bot (this one included), and every other subtype
+  (`channel_join`, topic changes, pins, …).
 
-Slack delivers a channel mention twice — once as `app_mention`, once as `message` — so
-`(channel, ts)` is deduplicated for a few minutes and one message starts one turn.
+Slack delivers a channel mention twice — once as `app_mention`, once as `message`. The
+`message` copy of a mention is skipped, so the mention is the copy recorded and acted on. Every
+recorded message is stored once by its `ts`: a Slack retry, or a second conductor hearing the
+same event, finds it already recorded and starts nothing.
 
-Text is posted as **plain text**. `mrkdwn` conversion and Block Kit are out of scope, so the
-model's Markdown arrives as the model wrote it.
+What people type arrives as Slack mrkdwn and is stored as Markdown — `*bold*`, `_italic_`,
+`~strike~`, `<url|label>` links and `<#C…|channel>` references are converted, and code is left
+alone — so a Slack thread reads in the web chat the way it read in Slack.
+
+What the bot posts is the model's Markdown converted to mrkdwn (bold, links, headings); Block
+Kit is out of scope.
 
 ### Rate limits
 
