@@ -261,19 +261,207 @@ func (s *Source) inner(ctx context.Context, api slackevents.EventsAPIEvent) {
 		}
 		s.emit(ctx, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, ev.User, ev.Text)
 	case *slackevents.MessageEvent:
-		// Anything with a subtype is an edit, a deletion, a join or a file share notice,
-		// not somebody talking. Anything from a bot — this one included — is never input.
-		if ev.SubType != "" || ev.BotID != "" || ev.User == "" || ev.User == s.botUserID {
-			return
-		}
-		// A DM is always input. A channel message that mentions the bot arrives as
-		// app_mention above; a reply in a thread is not enough on its own.
-		if ev.ChannelType != "im" {
-			return
-		}
-		s.emit(ctx, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, ev.User, ev.Text)
+		s.message(ctx, ev)
 	default:
 	}
+}
+
+// message handles a message event. Three kinds of it matter:
+//
+//   - a DM to the bot, which is always input;
+//   - an edit or a delete (message_changed, message_deleted), which updates what Podium
+//     recorded and never starts anything;
+//   - a reply in a thread, which is recorded as conversation (RecordOnly) and never starts
+//     anything either. The conductor drops it unless Podium already holds that thread, so a
+//     channel's chatter is never stored for a thread Podium is not part of.
+//
+// A message that mentions the bot also arrives as app_mention, and that is the copy that
+// starts a turn. It is skipped here: recorded first as chatter, it would be found already
+// recorded when the mention arrived, and the mention would be dropped as a duplicate.
+// Anything from a bot — this one included — is never input.
+func (s *Source) message(ctx context.Context, ev *slackevents.MessageEvent) {
+	switch ev.SubType {
+	case "message_changed":
+		s.changed(ctx, ev)
+		return
+	case "message_deleted":
+		s.deleted(ctx, ev)
+		return
+	case "", "thread_broadcast", "file_share":
+		// Somebody talking. A broadcast reply and a message with a file are still that.
+	default:
+		// A join, a topic change, a pin: not conversation.
+		return
+	}
+	if ev.BotID != "" || ev.User == "" || ev.User == s.botUserID {
+		return
+	}
+	if ev.ChannelType == "im" {
+		s.emit(ctx, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, ev.User, ev.Text)
+		return
+	}
+	if ev.ThreadTimeStamp == "" || ev.ThreadTimeStamp == ev.TimeStamp || s.mentionsBot(ev.Text) {
+		return
+	}
+	s.record(ctx, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, ev.User, ev.Text)
+}
+
+// mentionsBot reports whether text @mentions this bot.
+func (s *Source) mentionsBot(text string) bool {
+	return s.mentionRE != nil && s.mentionRE.MatchString(text)
+}
+
+// record offers a thread reply nobody put to Podium as conversation. It is not deduplicated
+// here: the conductor's record is, by the message's ts.
+func (s *Source) record(ctx context.Context, channel, ts, threadTS, user, text string) {
+	if channel == "" || ts == "" {
+		return
+	}
+	ev := s.said(ctx, channel, ts, threadTS, user, text)
+	ev.RecordOnly = true
+	ev.Mentioned = false
+	s.offer(ctx, ev)
+}
+
+// changed is an edit. Slack also sends message_changed when nothing a person typed moved —
+// a link unfurled, a reply count went up — and those are not edits.
+func (s *Source) changed(ctx context.Context, ev *slackevents.MessageEvent) {
+	msg := ev.Message
+	if msg == nil || msg.BotID != "" || msg.User == "" || msg.User == s.botUserID {
+		return
+	}
+	if ev.PreviousMessage != nil && ev.PreviousMessage.Text == msg.Text {
+		return
+	}
+	out := s.said(ctx, ev.Channel, msg.Timestamp, msg.ThreadTimestamp, msg.User, msg.Text)
+	out.Change = conductor.ChangeEdited
+	out.TS = parseTS(firstNonEmpty(ev.EventTimeStamp, ev.TimeStamp))
+	s.offer(ctx, out)
+}
+
+// deleted is a message removed from Slack. Podium keeps what it recorded and marks it.
+func (s *Source) deleted(ctx context.Context, ev *slackevents.MessageEvent) {
+	ts := ev.DeletedTimeStamp
+	prev := ev.PreviousMessage
+	if ts == "" && prev != nil {
+		ts = prev.Timestamp
+	}
+	if ts == "" {
+		return
+	}
+	threadTS := ""
+	if prev != nil {
+		threadTS = prev.ThreadTimestamp
+	}
+	thread := threadOf(threadTS, ts)
+	s.offer(ctx, conductor.InboundEvent{
+		SourceKind: Kind,
+		SourceKey:  sourceKey(ev.Channel, thread),
+		Ref:        Ref(ev.Channel, thread, ts),
+		Channel:    ev.Channel,
+		ExternalID: ts,
+		Change:     conductor.ChangeDeleted,
+		TS:         parseTS(firstNonEmpty(ev.EventTimeStamp, ev.TimeStamp)),
+		BriefKind:  conductor.SourceSlack,
+	})
+}
+
+// said is one person's message as an inbound event, before anything decides what it is.
+func (s *Source) said(ctx context.Context, channel, ts, threadTS, user, text string) conductor.InboundEvent {
+	thread := threadOf(threadTS, ts)
+	acct := s.account(ctx, user)
+	return conductor.InboundEvent{
+		SourceKind:  Kind,
+		SourceKey:   sourceKey(channel, thread),
+		Ref:         Ref(channel, thread, ts),
+		Channel:     channel,
+		ChannelName: s.channelName(ctx, channel),
+		Author:      s.displayName(ctx, user),
+		// A candidate: the conductor keeps it only for a login that has signed in.
+		Login:           acct.login,
+		SpeakerProvider: conductor.SpeakerSlack,
+		SpeakerID:       acct.externalID,
+		SpeakerAvatar:   acct.avatar,
+		ExternalID:      ts,
+		ExternalURL:     s.permalink(channel, ts),
+		Text:            s.inbound(ctx, text),
+		TS:              parseTS(ts),
+		URL:             s.permalink(channel, ts),
+		BriefKind:       conductor.SourceSlack,
+	}
+}
+
+// inbound is what a person typed, as Podium keeps it: the bot's mention gone, other people's
+// mentions turned into their names, and Slack's mrkdwn turned into Markdown, which is what
+// every other surface and the web chat store (decision 19).
+func (s *Source) inbound(ctx context.Context, text string) string {
+	return fromMrkdwn(s.resolveMentions(ctx, s.stripMention(text)))
+}
+
+func (s *Source) offer(ctx context.Context, ev conductor.InboundEvent) {
+	select {
+	case s.events <- ev:
+	case <-ctx.Done():
+	}
+}
+
+// History is what the thread said before ref's message, oldest first, as conversation: every
+// human message, none of the bot's, and never the message ref names. The conductor reads it
+// once, when a mention in a thread that already had replies opens Podium's record of it, so
+// the record starts where the thread did.
+func (s *Source) History(ctx context.Context, ref string) ([]conductor.InboundEvent, error) {
+	channel, thread, trigger, err := ParseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	if thread == trigger {
+		// The mention started the thread: there is nothing before it.
+		return nil, nil
+	}
+	var out []conductor.InboundEvent
+	cursor := ""
+	for {
+		params := &slack.GetConversationRepliesParameters{
+			ChannelID: channel,
+			Timestamp: thread,
+			Cursor:    cursor,
+			Limit:     repliesPageLimit,
+			Inclusive: true,
+		}
+		msgs, hasMore, next, err := s.readPage(ctx, func() ([]slack.Message, bool, string, error) {
+			return s.api.GetConversationRepliesContext(ctx, params)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("slack: read thread %s/%s: %w", channel, thread, err)
+		}
+		for i := range msgs {
+			m := msgs[i]
+			if !beforeTS(m.Timestamp, trigger) {
+				return out, nil
+			}
+			if m.BotID != "" || m.User == "" || m.User == s.botUserID {
+				continue
+			}
+			switch m.SubType {
+			case "", "thread_broadcast", "file_share":
+			default:
+				continue
+			}
+			ev := s.said(ctx, channel, m.Timestamp, thread, m.User, m.Text)
+			ev.RecordOnly = true
+			out = append(out, ev)
+		}
+		if !hasMore || next == "" {
+			return out, nil
+		}
+		cursor = next
+	}
+}
+
+// beforeTS reports whether Slack timestamp a is earlier than b. Slack timestamps are
+// "seconds.micros" with a fixed six-digit fraction, so comparing them as times is exact.
+func beforeTS(a, b string) bool {
+	return parseTS(a).Before(parseTS(b))
 }
 
 // emit normalises one message and offers it to the conductor. A mention in a channel
@@ -286,35 +474,14 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 		return
 	}
 	thread := threadOf(threadTS, ts)
-	author := s.displayName(ctx, user)
+	ev := s.said(ctx, channel, ts, threadTS, user, text)
 	acct := s.account(ctx, user)
-	stripped := s.resolveMentions(ctx, s.stripMention(text))
-	if s.forwardReview(ctx, channel, thread, ts, author, stripped, acct) {
+	if s.forwardReview(ctx, channel, thread, ts, ev.Author, ev.Text, acct) {
 		return
 	}
-	ev := conductor.InboundEvent{
-		SourceKind:  Kind,
-		SourceKey:   sourceKey(channel, thread),
-		Ref:         Ref(channel, thread, ts),
-		Channel:     channel,
-		ChannelName: s.channelName(ctx, channel),
-		Author:      author,
-		// A candidate: the conductor keeps it only for a login that has signed in.
-		Login:           acct.login,
-		SpeakerProvider: conductor.SpeakerSlack,
-		SpeakerID:       acct.externalID,
-		SpeakerAvatar:   acct.avatar,
-		// Everything that reaches emit is an @mention or a DM: addressed to the bot.
-		Mentioned: true,
-		Text:      stripped,
-		TS:        parseTS(ts),
-		URL:       s.permalink(channel, ts),
-		BriefKind: conductor.SourceSlack,
-	}
-	select {
-	case s.events <- ev:
-	case <-ctx.Done():
-	}
+	// Everything that reaches emit is an @mention or a DM: addressed to the bot.
+	ev.Mentioned = true
+	s.offer(ctx, ev)
 }
 
 // forwardReview reports whether this mention is a pull-request review and has been handed

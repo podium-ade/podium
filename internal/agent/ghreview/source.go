@@ -342,11 +342,16 @@ func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
 		SpeakerProvider: conductor.SpeakerSlack,
 		SpeakerID:       m.SpeakerID,
 		SpeakerAvatar:   m.SpeakerAvatar,
-		Mentioned:       true,
-		Text:            text,
-		TS:              m.TS,
-		URL:             m.PR.URL,
-		BriefKind:       conductor.SourceGitHub,
+		// The Slack message is its own identity in the pull request's record: a Slack retry
+		// of the mention is the same row, and never a second review.
+		ExternalID:  m.Trigger,
+		ExternalURL: m.Permalink,
+		RecordText:  strings.TrimSpace(m.Text),
+		Mentioned:   true,
+		Text:        text,
+		TS:          m.TS,
+		URL:         m.PR.URL,
+		BriefKind:   conductor.SourceGitHub,
 	})
 	return nil
 }

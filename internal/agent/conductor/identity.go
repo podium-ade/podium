@@ -196,9 +196,10 @@ func (c *Conductor) domainAllowed(email string) bool {
 	return false
 }
 
-// admit decides whether ev may start a turn, after resolveSpeaker. A refused event is still
-// recorded in the mirror — the conversation is the whole thread, not only the parts Podium
-// acted on — and a speaker who addressed the bot is told, by a reaction, that it will not.
+// admit decides whether ev may start a turn, after resolveSpeaker. The event is already
+// recorded in the mirror by then (accept records first) — the conversation is the whole
+// thread, not only the parts Podium acted on — and a refused speaker who addressed the bot
+// is told, by a reaction, that it will not.
 //
 // A review command from somebody outside Podium is rewritten here into the review it is
 // allowed to be: ev.Text becomes ev.ReviewRequest and the event becomes Automatic, which runs
@@ -231,14 +232,12 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 				c.logger.InfoContext(ctx, "a review command from outside podium was rate limited",
 					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
 				c.gateDecision(kind, "review_rate_limited")
-				c.mirrorHeard(ctx, src, *ev)
 				return false
 			}
 			if c.reviewRunning(ctx, ev.SourceKey) {
 				c.logger.InfoContext(ctx, "a review command from outside podium joined the review already running",
 					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
 				c.gateDecision(kind, "review_collapsed")
-				c.mirrorHeard(ctx, src, *ev)
 				return false
 			}
 			ev.Text = ev.ReviewRequest
@@ -284,7 +283,6 @@ func (c *Conductor) refuse(ctx context.Context, src Source, ev InboundEvent, rea
 	c.logger.InfoContext(ctx, "an inbound message was not acted on", "source", src.Kind(),
 		"source_key", ev.SourceKey, "reason", reason)
 	c.gateDecision(src.Kind(), "refused")
-	c.mirrorHeard(ctx, src, ev)
 	if !ev.Mentioned {
 		return
 	}

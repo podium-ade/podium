@@ -1470,7 +1470,8 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []store.ChatParticipant{{Name: "alice"}}, people, "the humans, and not the bot")
+	assert.Equal(t, []store.ChatParticipant{{Name: "alice", Via: conductor.KindDev}}, people,
+		"the humans, and not the bot, each on the surface they spoke through")
 }
 
 // A second person in the thread is a second participant, and the copy says who said what.
@@ -1512,7 +1513,9 @@ func TestAMirroredConversationRemembersEveryoneInIt(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []store.ChatParticipant{{Name: "alice"}, {Name: "bob"}}, people)
+	assert.Equal(t, []store.ChatParticipant{
+		{Name: "alice", Via: conductor.KindDev}, {Name: "bob", Via: conductor.KindDev},
+	}, people)
 }
 
 // The web chat must not be mirrored: it already stores its own messages, and a second

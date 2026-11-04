@@ -84,6 +84,10 @@ type Options struct {
 	// nowhere.
 	UIURL  string
 	Logger *slog.Logger
+	// Bus, when set, relays this chat's live frames to and from the other conductors that
+	// share the database (Relay). Store must then also be a RelayStore. Unset is one
+	// conductor's in-process fan-out, which is all a single conductor needs.
+	Bus Bus
 }
 
 // SendRequest is one human message arriving from the browser.
@@ -126,6 +130,7 @@ type Source struct {
 	uiURL  string
 	logger *slog.Logger
 	events chan conductor.InboundEvent
+	relay  *Relay
 
 	mu   sync.Mutex
 	live map[string]*live
@@ -143,7 +148,7 @@ func New(opts Options) (*Source, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Source{
+	src := &Source{
 		store:  opts.Store,
 		bcast:  NewBroadcaster(),
 		name:   opts.DisplayName,
@@ -151,7 +156,24 @@ func New(opts Options) (*Source, error) {
 		logger: logger,
 		events: make(chan conductor.InboundEvent, eventBuffer),
 		live:   map[string]*live{},
-	}, nil
+	}
+	if opts.Bus != nil {
+		rs, ok := opts.Store.(RelayStore)
+		if !ok {
+			return nil, errors.New("chat: a relay needs a store that can re-read a message")
+		}
+		src.relay = NewRelay(src.bcast, opts.Bus, rs, logger)
+	}
+	return src, nil
+}
+
+// RunRelay carries live frames to and from the other conductors until ctx ends. It returns
+// at once when no Bus was configured.
+func (s *Source) RunRelay(ctx context.Context) error {
+	if s.relay == nil {
+		return nil
+	}
+	return s.relay.Run(ctx)
 }
 
 // Kind implements conductor.Source. It is "chat", not "dev": the two share the brief's
@@ -230,6 +252,10 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		Role:   store.RoleUser,
 		Text:   req.Text,
 		TS:     time.Now().UTC(),
+		// Who typed it. A web chat has had one human so far, but its record is the same
+		// shape as a mirrored one's, and from phase 4 it may hold more than one person.
+		AuthorLogin: req.Login,
+		Via:         store.ViaWeb,
 	})
 	if err != nil {
 		if !reply {
