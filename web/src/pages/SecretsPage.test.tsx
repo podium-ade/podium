@@ -99,7 +99,7 @@ describe("SecretsPage", () => {
     expect(await screen.findByText("DB_PASSWORD")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
-    expect(screen.getByText("k_01abc")).toBeInTheDocument();
+    expect(screen.queryByText("k_01abc")).toBeNull();
     expect(
       screen.getByText(/once a value is saved, nobody can view it again/i),
     ).toBeInTheDocument();
@@ -260,6 +260,10 @@ describe("SecretsPage", () => {
     });
     mount();
     expect(await screen.findByText(/rotation stopped part way/i)).toBeInTheDocument();
+    // No key column: only the odd one out is marked, beside its name.
+    expect(screen.queryByRole("columnheader", { name: "Key" })).toBeNull();
+    expect(screen.queryByText("k_01abc")).toBeNull();
+    expect(screen.getAllByText("Old key").length).toBeGreaterThan(0);
   });
 
   it("shows Global and Yours, and a member cannot write a global secret", async () => {

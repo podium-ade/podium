@@ -101,7 +101,7 @@ export type PlaybookEditorProps = {
   /** Deletes the playbook being edited. Absent while creating: there is nothing to delete. */
   onDelete?: () => void;
   onCancel: () => void;
-  /** Sit in a two-pane layout: no back link, the list is the other pane. */
+  /** Sit under a page bar that already names the playbook and links back: no back link, no heading. */
   embedded?: boolean;
 };
 
@@ -290,6 +290,7 @@ export function PlaybookEditor({
         submit();
       }}
     >
+      {embedded && !locked ? null : (
       <header className="space-y-3">
         {embedded ? null : (
         <button
@@ -302,9 +303,11 @@ export function PlaybookEditor({
         </button>
         )}
         <div className="min-w-0 space-y-1.5">
+          {embedded ? null : (
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">
             {creating ? "New playbook" : `/${playbook.name}`}
           </h1>
+          )}
           {locked ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted">
                 Defined by <code className="font-mono">playbooks/{playbook?.name}.yaml</code> on the
@@ -313,6 +316,7 @@ export function PlaybookEditor({
             ) : null}
         </div>
       </header>
+      )}
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "form" | "yaml")}>
         <TabsList>
@@ -496,7 +500,7 @@ export function PlaybookEditor({
                     className="tabular"
                   />
                 </Field>
-                <Field id={`${uid}-timeout`} label="Timeout" hint="A Go duration: 30m, 900s, 2h.">
+                <Field id={`${uid}-timeout`} label="Timeout" hint="Minutes or hours, such as 30m or 2h.">
                   <Input
                     id={`${uid}-timeout`}
                     value={timeoutText}

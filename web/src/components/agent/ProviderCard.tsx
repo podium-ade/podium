@@ -73,6 +73,12 @@ export type ProviderCardProps = {
   scope?: "personal" | "global";
   /** On a personal row: a global key is set, so chats run on it while this row is unset. */
   fallbackSet?: boolean;
+  /** What the unset row says it runs on instead. "Using the global key" by default. */
+  fallbackLabel?: string;
+  /** A row that is only ever signed in to, never keyed: the global Claude subscription. */
+  subscriptionOnly?: boolean;
+  /** Replaces the sentence the removal dialog opens with: what removing this one means. */
+  clearNote?: string;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
@@ -103,6 +109,9 @@ export function ProviderCard({
   readOnly,
   scope = "global",
   fallbackSet,
+  fallbackLabel = "Using the global key",
+  subscriptionOnly,
+  clearNote,
   onSave,
   onClear,
   onStartOAuth,
@@ -110,7 +119,9 @@ export function ProviderCard({
   onSignedIn,
 }: ProviderCardProps) {
   const toast = useToast();
-  const [mode, setMode] = useState<"key" | "subscription">("key");
+  const [mode, setMode] = useState<"key" | "subscription">(
+    subscriptionOnly ? "subscription" : "key",
+  );
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -335,7 +346,7 @@ export function ProviderCard({
             </span>
           ) : !loading && fallbackSet ? (
             <span data-testid={tid("provider-fallback")} className="text-sm text-muted">
-              Using the global key
+              {fallbackLabel}
             </span>
           ) : (
             <span className="text-muted">—</span>
@@ -422,7 +433,7 @@ export function ProviderCard({
           </DialogHeader>
           {showWork ? (
             <div className="space-y-3">
-              {oauth ? (
+              {oauth && !subscriptionOnly ? (
                 <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
                   {(["key", "subscription"] as const).map((m) => (
                     <button
@@ -446,6 +457,11 @@ export function ProviderCard({
               {oauth && mode === "subscription" ? (
                 <SubscriptionPanel
                   provider={provider}
+                  hint={
+                    scope === "global"
+                      ? (provider.subscription?.globalHint ?? provider.subscription?.hint)
+                      : provider.subscription?.hint
+                  }
                   signing={signing}
                   starting={starting}
                   finishing={finishing}
@@ -560,11 +576,12 @@ export function ProviderCard({
               {subscriptionStored ? "Sign out?" : "Remove key?"}
             </DialogTitle>
             <DialogDescription className="text-base text-soft">
-              {scope === "personal"
-                ? fallbackSet
-                  ? `Your ${provider.models} chats go back to the global key.`
-                  : `${provider.models} chats you start will fail until a credential is set again.`
-                : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`}{" "}
+              {clearNote ??
+                (scope === "personal"
+                  ? fallbackSet
+                    ? `Your ${provider.models} chats go back to the global key.`
+                    : `${provider.models} chats you start will fail until a credential is set again.`
+                  : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`)}{" "}
               Podium deletes the secret; nothing already running is stopped, and every session
               that has already answered keeps its history.
             </DialogDescription>
@@ -635,6 +652,7 @@ function ProviderResult({
 
 function SubscriptionPanel({
   provider,
+  hint,
   signing,
   starting,
   finishing,
@@ -644,6 +662,7 @@ function SubscriptionPanel({
   tid,
 }: {
   provider: Provider;
+  hint?: string;
   signing?: Signing;
   starting: boolean;
   finishing: boolean;
@@ -670,7 +689,7 @@ function SubscriptionPanel({
           {starting ? "Asking for a code…" : provider.subscription?.label}
         </Button>
         <p className="text-xs leading-relaxed text-muted">
-          {provider.subscription?.hint} You approve it on {provider.name}&apos;s own site; this
+          {hint} You approve it on {provider.name}&apos;s own site; this
           host never sees your password. The access token it issues is refreshed here in the
           background, so you sign in once.
         </p>

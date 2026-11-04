@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { Ban, ChevronRight, FileCode, Hourglass, MessagesSquare, RotateCw, ScrollText } from "lucide-react";
+import { Ban, ChevronRight, FileCode, GitPullRequest, Hourglass, MessagesSquare, RotateCw, ScrollText } from "lucide-react";
 import { ArtifactsPanel } from "../components/ArtifactsPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
@@ -38,6 +38,7 @@ import type { Task } from "../gen/podium/v1/task_pb";
 import { useTaskEvents } from "../hooks/useTaskEvents";
 import { errorMessage, tasks } from "../lib/client";
 import { accountingOf, hasStory, type Accounting } from "../lib/entries";
+import { taskPullRequests, type PullRequest } from "../lib/pullRequests";
 import {
   absolute,
   durationMs,
@@ -126,6 +127,7 @@ function TaskDetail({ id }: { id: string }) {
     }
     return last;
   }, [entries]);
+  const pullRequests = useMemo(() => taskPullRequests(entries), [entries]);
 
   useEffect(() => {
     if (query.error) toast(`GetTask: ${errorMessage(query.error)}`);
@@ -181,6 +183,7 @@ function TaskDetail({ id }: { id: string }) {
           <>
             <Badge tone={taskStatusTone(task.status)}>{taskStatusLabel(task.status)}</Badge>
             {cancelling && !terminal ? <Badge tone="warn">cancelling…</Badge> : null}
+            <PullRequestLinks pullRequests={pullRequests} />
           </>
         }
         actions={
@@ -217,7 +220,7 @@ function TaskDetail({ id }: { id: string }) {
       <ResultCard task={task} entries={entries} onJump={openInLogs} />
 
       <Card>
-        <div className="grid divide-y divide-hairline xl:grid-cols-[1.5fr_1fr_1fr] xl:divide-x xl:divide-y-0">
+        <div className="grid divide-y divide-hairline xl:grid-cols-3 xl:divide-x xl:divide-y-0">
           <FactGroup title="Task">
             <Fact label="Image">
               {image ? (
@@ -236,6 +239,26 @@ function TaskDetail({ id }: { id: string }) {
               )}
             </Fact>
             <Fact label="Requester">{task.requestedBy || <Unknown>unknown</Unknown>}</Fact>
+            {/* A phone's top bar has no room for the links, so they are a fact there. */}
+            {pullRequests.length > 0 ? (
+              <div className="sm:hidden">
+                <Fact label="Pull requests">
+                  <span className="flex flex-col gap-1">
+                    {pullRequests.map((pr) => (
+                      <a
+                        key={pr.url}
+                        href={pr.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="truncate text-accent underline underline-offset-2"
+                      >
+                        {pr.owner}/{pr.repo}#{pr.number}
+                      </a>
+                    ))}
+                  </span>
+                </Fact>
+              </div>
+            ) : null}
           </FactGroup>
 
           <FactGroup title="Placement">
@@ -271,6 +294,13 @@ function TaskDetail({ id }: { id: string }) {
                 </span>
               </Fact>
             ) : null}
+            {task.spec?.resources ? (
+              <Fact label="Requested">
+                <span className="tabular">
+                  {task.spec.resources.cpu} CPU · {String(task.spec.resources.memoryMb)} MB
+                </span>
+              </Fact>
+            ) : null}
             <Fact label="Labels">
               {task.spec && task.spec.labels.length > 0 ? (
                 <span className="flex flex-wrap gap-1">
@@ -284,13 +314,6 @@ function TaskDetail({ id }: { id: string }) {
                 <Unknown>any node</Unknown>
               )}
             </Fact>
-            {task.spec?.resources ? (
-              <Fact label="Requested">
-                <span className="tabular">
-                  {task.spec.resources.cpu} CPU · {String(task.spec.resources.memoryMb)} MB
-                </span>
-              </Fact>
-            ) : null}
           </FactGroup>
 
           <FactGroup title="Timing">
@@ -327,7 +350,7 @@ function TaskDetail({ id }: { id: string }) {
               value={view}
               onValueChange={(v) => setLink({ view: v }, true)}
             >
-              <TabsList className="border-hairline px-2">
+              <TabsList className="border-hairline px-1.5">
                 <TabsTrigger value="logs">
                   <ScrollText />
                   Logs
@@ -490,7 +513,9 @@ function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
     });
   }
   if (usage) {
-    items.push({ label: "CPU", value: `${usage.cpuSeconds.toFixed(2)}s` });
+    // Zero is "not measured", not "idle": a process task (every Modal sandbox) reports only
+    // its wall time, and a reading of 0.00s would say it did no work.
+    if (usage.cpuSeconds > 0) items.push({ label: "CPU", value: `${usage.cpuSeconds.toFixed(2)}s` });
     if (usage.peakMemoryMb) {
       items.push({
         label: "Peak memory",
@@ -506,7 +531,7 @@ function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-x-10 gap-y-3 border-t border-hairline px-4 py-3">
+    <div className="flex flex-wrap gap-x-10 gap-y-3 border-t border-hairline px-5 py-3.5">
       {items.map((item) => (
         <div key={item.label}>
           <dt className="text-2xs text-faint">{item.label}</dt>
@@ -520,11 +545,50 @@ function Usage({ task, accounting }: { task: Task; accounting?: Accounting }) {
   );
 }
 
+/** MAX_PR_LINKS is how many pull requests the top bar names before it counts the rest. */
+const MAX_PR_LINKS = 2;
+
+/**
+ * PullRequestLinks is the pull requests the task's agent named, as owner/repo#number links
+ * in the top bar beside the status: the first thing a reader of a task that opened one
+ * wants is to go and look at it. More than a couple collapse into a count whose tooltip
+ * lists them, so the bar keeps its one row.
+ */
+function PullRequestLinks({ pullRequests }: { pullRequests: PullRequest[] }) {
+  if (pullRequests.length === 0) return null;
+  const shown = pullRequests.slice(0, MAX_PR_LINKS);
+  const rest = pullRequests.slice(MAX_PR_LINKS);
+  return (
+    <span data-testid="task-pull-requests" className="hidden items-center gap-1.5 sm:flex">
+      {shown.map((pr) => (
+        <a
+          key={pr.url}
+          href={pr.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={pr.url}
+          className="inline-flex max-w-56 items-center gap-1 rounded-sm bg-raised px-2 py-1 text-xs font-semibold text-soft hover:bg-hairline hover:text-fg"
+        >
+          <GitPullRequest className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">
+            {pr.owner}/{pr.repo}#{pr.number}
+          </span>
+        </a>
+      ))}
+      {rest.length > 0 ? (
+        <span className="text-xs text-muted" title={rest.map((pr) => pr.url).join("\n")}>
+          +{rest.length}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function FactGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="min-w-0 space-y-3 p-4">
+    <section className="min-w-0 space-y-3 px-5 py-4">
       <h3 className="text-2xs font-medium tracking-wide text-faint uppercase">{title}</h3>
-      <dl className="space-y-2">{children}</dl>
+      <dl className="space-y-2.5">{children}</dl>
     </section>
   );
 }
@@ -565,32 +629,99 @@ function waiting(task: Task): string {
   return created ? durationMs(Date.now() - created.getTime()) : "-";
 }
 
+/**
+ * DetailSkeleton is the page's shape while the task loads: the same frame (top bar and
+ * gutter) and the same blocks in the same order — phase strip, result, facts, logs,
+ * artifacts, spec — so nothing jumps when the task arrives.
+ */
 function DetailSkeleton() {
   return (
-    <div aria-busy="true" aria-label="Loading task" className="space-y-5">
-      <div className="space-y-3">
-        <Skeleton className="h-3 w-14" />
-        <Skeleton className="h-6 w-80" />
-        <Skeleton className="h-4 w-64" />
-        <Skeleton className="h-5 w-20" />
-      </div>
-      <Card>
-        <div className="grid gap-6 p-4 md:grid-cols-3">
-          {[0, 1, 2].map((c) => (
-            <div key={c} className="space-y-3">
-              <Skeleton className="h-2.5 w-16" />
-              {[0, 1, 2].map((r) => (
-                <Skeleton key={r} className="h-3.5" style={{ width: `${88 - r * 18}%` }} />
-              ))}
-            </div>
-          ))}
+    <PageFrame
+      back={{ to: "/tasks", label: "Tasks" }}
+      title={<Skeleton className="h-5 w-56" />}
+      meta={<Skeleton className="h-5 w-20 rounded-full" />}
+      actions={<Skeleton className="h-8 w-24" />}
+    >
+      <div aria-busy="true" aria-label="Loading task" className="space-y-5">
+        {/* Phase strip */}
+        <div className="space-y-2.5 rounded-xl border border-border bg-panel px-5 py-3">
+          <Skeleton className="h-1.5 w-full rounded-full" />
+          <div className="flex gap-4">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-3 w-24" />
+            ))}
+          </div>
         </div>
-      </Card>
-      <Skeleton className="h-[30rem] rounded-xl" />
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Skeleton className="h-64 rounded-xl" />
-        <Skeleton className="h-64 rounded-xl" />
+
+        {/* Result */}
+        <Card className="overflow-hidden">
+          <div className="border-b border-hairline px-5 py-3.5">
+            <Skeleton className="h-4 w-14" />
+          </div>
+          <div className="space-y-2.5 px-5 py-4">
+            {[92, 84, 70, 48].map((w) => (
+              <Skeleton key={w} className="h-3.5" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+        </Card>
+
+        {/* Facts: task, placement, timing */}
+        <Card>
+          <div className="grid divide-y divide-hairline xl:grid-cols-3 xl:divide-x xl:divide-y-0">
+            {[3, 3, 4].map((rows, c) => (
+              <div key={c} className="space-y-3 px-5 py-4">
+                <Skeleton className="h-2.5 w-16" />
+                <div className="space-y-2.5">
+                  {Array.from({ length: rows }, (_, r) => (
+                    <div key={r} className="grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-3">
+                      <Skeleton className="h-3 w-14" />
+                      <Skeleton className="h-3" style={{ width: `${80 - r * 15}%` }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Logs and transcript */}
+        <Card className="overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-hairline px-1.5">
+            <div className="flex min-h-11 items-center border-b-[3px] border-border px-3.5">
+              <Skeleton className="h-3.5 w-12" />
+            </div>
+            <div className="flex min-h-11 items-center px-3.5">
+              <Skeleton className="h-3.5 w-20" />
+            </div>
+          </div>
+          <div className="space-y-2 px-5 py-4">
+            <Skeleton className="mb-3 h-8 w-full max-w-sm" />
+            {Array.from({ length: 10 }, (_, r) => (
+              <div key={r} className="flex items-center gap-3">
+                <Skeleton className="h-3 w-16 shrink-0" />
+                <Skeleton className="h-3" style={{ width: `${85 - ((r * 23) % 50)}%` }} />
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Artifacts */}
+        <Card>
+          <div className="space-y-3 p-5">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </Card>
+
+        {/* Spec, collapsed */}
+        <Card>
+          <div className="flex items-center gap-2.5 px-5 py-3.5">
+            <Skeleton className="size-4" />
+            <Skeleton className="h-4 w-10" />
+            <Skeleton className="hidden h-3 w-56 sm:block" />
+          </div>
+        </Card>
       </div>
-    </div>
+    </PageFrame>
   );
 }
