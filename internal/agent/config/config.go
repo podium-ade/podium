@@ -284,6 +284,12 @@ type Config struct {
 	// Server. It is used only to build the fallback link to a task page when an
 	// attachment cannot be uploaded into the conversation.
 	UIURL string
+	// AllowedDomains is PODIUM_ALLOWED_DOMAINS, a comma-separated list of the Google
+	// Workspace domains a Slack speaker's email must be on before it is matched to a
+	// Podium login. Empty skips that one check: the email must still be a login that has
+	// signed in through podium-server. Defence in depth for a server that admits only its
+	// own workspace anyway.
+	AllowedDomains []string
 	// GitHubAppID is the numeric id of the GitHub App turns clone and push with, and that
 	// the review source talks as. It is saved under Settings → Connections. Empty turns
 	// the App off and leaves the older path — a playbook naming podium.agent.github_token
@@ -414,6 +420,7 @@ func FromEnv() Config {
 		// every other bad value is reported too.
 		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
 		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
+		AllowedDomains:     domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
 		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
 		HostIsolation:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
 		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
@@ -999,4 +1006,15 @@ func (c Config) Replica() string {
 // ReplicaIDFor is the default replica id of a conductor on host listening on listen.
 func ReplicaIDFor(host, listen string) string {
 	return host + "/" + listen
+}
+
+// domainList is a comma-separated list of domains, trimmed and lowercased, empties dropped.
+func domainList(v string) []string {
+	var out []string
+	for _, d := range strings.Split(v, ",") {
+		if d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "@"))); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }

@@ -397,6 +397,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		SkillsDir:           a.cfg.SkillsDir,
 		Host:                host,
 		HostMaxTurns:        a.cfg.HostMaxTurns,
+		AllowedDomains:      a.cfg.AllowedDomains,
 		Mirror:              a.chat,
 		GitHub:              gh,
 		GitTaskURL:          a.cfg.TaskURL,

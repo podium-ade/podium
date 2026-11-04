@@ -163,6 +163,7 @@ func startWith(
 	tweak func(*conductor.Options),
 ) *running {
 	t.Helper()
+	seedTestSpeaker(t, st)
 	opts := conductor.Options{
 		Store:    st,
 		Podium:   podium.New(fake.URL(), "devtoken"),
@@ -225,7 +226,39 @@ func threadInbound(ref, text string) conductor.InboundEvent {
 	ev.BriefKind = conductor.SourceSlack
 	// Only the dev source may ask for task environment, and this one is not it.
 	ev.Env = nil
+	return asSlackSpeaker(ev)
+}
+
+// The person every Slack and GitHub test event comes from. startWith records them as in
+// Podium, so a Slack or GitHub event from them passes the gate (identity.go) the way a real
+// member's would; a test about the gate itself sends from somebody else.
+const (
+	testSpeaker       = "alice@acme.com"
+	testSlackAccount  = "T1/U1"
+	testGitHubAccount = "1001"
+)
+
+// asSlackSpeaker makes ev come from testSpeaker's Slack account, as the Slack source would
+// hand it over: a candidate email and the account it was proven for.
+func asSlackSpeaker(ev conductor.InboundEvent) conductor.InboundEvent {
+	ev.Login = testSpeaker
+	ev.SpeakerProvider = conductor.SpeakerSlack
+	ev.SpeakerID = testSlackAccount
+	ev.Mentioned = true
 	return ev
+}
+
+// seedTestSpeaker records testSpeaker as somebody who has signed in to Podium and connected
+// GitHub.
+func seedTestSpeaker(t *testing.T, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: testSpeaker, Provider: store.ProviderWeb, ExternalID: testSpeaker,
+	}))
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: testSpeaker, Provider: store.ProviderGitHub, ExternalID: testGitHubAccount, Handle: "alice",
+	}))
 }
 
 // decodeBrief reads back what the conductor put on a task spec, which is the only way to
@@ -805,7 +838,7 @@ func TestOnlyTheDevSourceMayAskForTaskEnvironment(t *testing.T) {
 	t.Cleanup(src.Close)
 
 	start(t, st, fake, src)
-	ev := inbound("C1/1.1", "hello")
+	ev := asSlackSpeaker(inbound("C1/1.1", "hello"))
 	ev.SourceKind = "slack"
 	ev.Env = map[string]string{"PODIUM_AGENT_DRY_RUN": "1", "ANTHROPIC_API_KEY": "stolen"}
 	require.NoError(t, src.Send(context.Background(), ev))
@@ -894,6 +927,10 @@ func githubInbound(text string) conductor.InboundEvent {
 		Text:       text,
 		TS:         time.Now().UTC(),
 		BriefKind:  conductor.SourceGitHub,
+		// testSpeaker's connected GitHub account: a linked commenter.
+		SpeakerProvider: conductor.SpeakerGitHub,
+		SpeakerID:       testGitHubAccount,
+		Mentioned:       true,
 	}
 }
 
@@ -1433,7 +1470,7 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice"}, people, "the humans, and not the bot")
+	assert.Equal(t, []store.ChatParticipant{{Name: "alice"}}, people, "the humans, and not the bot")
 }
 
 // A second person in the thread is a second participant, and the copy says who said what.
@@ -1475,7 +1512,7 @@ func TestAMirroredConversationRemembersEveryoneInIt(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, people)
+	assert.Equal(t, []store.ChatParticipant{{Name: "alice"}, {Name: "bob"}}, people)
 }
 
 // The web chat must not be mirrored: it already stores its own messages, and a second

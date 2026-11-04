@@ -56,8 +56,9 @@ func (c *Conductor) mirrorKey(src Source, ref string) (string, bool) {
 }
 
 // mirrorHeard records one thing a human said, opening the mirror on the first message. The
-// person who asked first becomes the conversation's attribution: a mirrored thread has no
-// Podium login to own it, and "who started this" is the useful thing to show instead.
+// person who asked first becomes the conversation's attribution (started_by), and a speaker
+// who resolved to a Podium login becomes a participant — which is what lets them see the
+// conversation — and the chat's owner when it has none yet.
 func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent) {
 	key, ok := c.mirrorKey(src, ev.Ref)
 	if !ok {
@@ -74,6 +75,7 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 		c.logger.WarnContext(ctx, "mirroring what was said failed", "source_key", key, "error", err)
 		return
 	}
+	c.recordParticipant(ctx, chat, ev)
 	if ev.ChannelName != "" && chat.Channel != ev.ChannelName {
 		if err := c.store.SetChatChannel(ctx, chat.ID, ev.ChannelName); err != nil {
 			c.logger.WarnContext(ctx, "recording a mirrored chat's channel name failed",

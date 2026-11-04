@@ -463,6 +463,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
+| `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
@@ -2707,6 +2708,30 @@ engine features Podium does not surface.
 
 ---
 
+## Who is who
+
+One person is one identity across every surface, and a Slack or GitHub account counts as a
+person only once it has been **proven** to be a Podium login (`identities` in
+`podium_agent`):
+
+| Account | Proven by |
+|---|---|
+| Podium (web) | signing in through podium-server; the first proxied call records it |
+| Slack | a full member of the bot's own workspace (or Enterprise Grid org) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
+
+What that decides:
+
+- **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
+  🚫; nothing runs. On GitHub, a commenter who has not connected GitHub may ask for exactly
+  one thing — a review, with `@podium review [note]` or `/review [note]` at the start of a
+  line. It runs the review playbook on the App's credentials, read-only; the note is cut to
+  280 characters, stripped of code, markup, links and mentions, dropped if it reads like an
+  instruction, and handed to the model as a quoted topic hint. One per person per pull
+  request every ten minutes. Anything else from them gets a confused reaction.
+- **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
+  servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
+
 ## Chat
 
 `/agent/chat` in the web UI is the third place a turn can start from, and the only one whose
@@ -2726,6 +2751,12 @@ task it delegates, and may choose several while answering once.
   started stay — they are the audit of the work, not the transcript. A task still answering
   the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
   is gone immediately. The web UI says so in the confirm before it acts.
+- **Slack threads and pull requests appear for the people in them.** A Slack thread or a
+  pull request the bot was in is mirrored into a read-only chat. It is listed — in Chat and
+  in Sessions — for every Podium person who spoke in it, and for nobody else except the dev
+  token; a thread only people outside Podium spoke in stays hidden. The first Podium person
+  to speak in it becomes its owner, who can rename or delete the copy (never the thread).
+  "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.

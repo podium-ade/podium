@@ -16,6 +16,7 @@ package conductor
 // A turn that has already finished is not needed for any of that — it is only what asked.
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -78,9 +79,9 @@ type turnGrant struct {
 	ref       string
 	src       Source
 	playbooks []string
-	// login is the Slack speaker's email, when Slack could read one. It chooses MCP
-	// servers for a delegated task. Personal secrets still follow asker, which is empty
-	// for Slack.
+	// login is the Podium person who started the turn, resolved on any surface. A delegated
+	// task's personal secrets and MCP servers are theirs. Empty for a turn nobody in Podium
+	// started.
 	login string
 }
 
@@ -705,11 +706,12 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	// The person this conversation's personal secrets belong to. A Slack thread has none,
-	// so a playbook that names personal secrets fails here, before a task exists. MCP
-	// servers are chosen separately: a Slack speaker's email, stored on the turn grant,
-	// uses that person's rows.
-	login := c.asker(ctx, g.src, sess)
+	// The person this delegation's personal secrets belong to: whoever started the turn that
+	// asked for it, which the turn grant carries (turnLogin). A grant with nobody on it — an
+	// automatic review, a review command from outside Podium, Linear — falls back to asker,
+	// which is nobody outside a web chat, so a playbook that names personal secrets fails
+	// here, before a task exists.
+	login := cmp.Or(g.login, c.asker(ctx, g.src, sess))
 	persona, err := c.githubPersona(ctx, login, playbook)
 	if err != nil {
 		return nil, err
