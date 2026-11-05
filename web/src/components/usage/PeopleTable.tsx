@@ -14,7 +14,7 @@ const NOT_A_PERSON: Record<string, { label: string; hint: string }> = {
   },
 };
 
-export function personLabel(startedBy: string): string {
+function personLabel(startedBy: string): string {
   return NOT_A_PERSON[startedBy]?.label ?? startedBy;
 }
 
