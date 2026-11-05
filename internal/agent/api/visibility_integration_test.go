@@ -20,7 +20,7 @@ import (
 
 // A Slack thread bob spoke in is his to read through every RPC that reads a conversation —
 // the chat list, the sessions list, the session and its turns — and nobody else's but the
-// dev token's. Sending into it from the web is refused: it is answered in Slack.
+// dev token's. Its participants may write it from the web too (phase 4).
 func TestAParticipantReadsAMirroredThreadThroughTheService(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -75,11 +75,23 @@ func TestAParticipantReadsAMirroredThreadThroughTheService(t *testing.T) {
 		})
 	}
 
-	_, err = f.clientAs("bob").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+	// Phase 4: a participant may write the thread from the web too. It is multiplayer, so a
+	// message has to mention Podium to be put to it; what does not is recorded and starts
+	// nothing. Somebody who has not taken part cannot write it at all.
+	said, err := f.clientAs("bob").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: thread.ID, Text: "from the web",
 	}))
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err), "a mirrored thread is answered where it lives")
+	require.NoError(t, err)
+	assert.False(t, said.Msg.GetAddressed())
+	asked, err := f.clientAs("bob").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+		ChatId: thread.ID, Text: "@Podium from the web",
+	}))
+	require.NoError(t, err)
+	assert.True(t, asked.Msg.GetAddressed())
+	_, err = f.clientAs("carol").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+		ChatId: thread.ID, Text: "@Podium let me in",
+	}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 // RecordWebIdentities records each proxied login once, and never the dev token or a call

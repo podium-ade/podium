@@ -112,7 +112,13 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceSendChatMessageProcedure:   store.RoleMember,
 	// Retrying a delivery re-sends what the bot already said, where it was owed; the
 	// conductor checks the caller can read the chat.
-	agentv1connect.AgentServiceRetryChatDeliveryProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceRetryChatDeliveryProcedure: store.RoleMember,
+	// Phase 4: a member takes back their own queued turn (the store matches the login),
+	// stops the answer in a chat they may write (the handler checks), and looks people up
+	// for the composer's @-mention list.
+	agentv1connect.AgentServiceCancelQueuedTurnProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceCancelChatTurnProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceSearchMembersProcedure:         store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,

@@ -36,6 +36,7 @@ type RelayStore interface {
 	GetChat(ctx context.Context, id string) (store.Chat, error)
 	GetChatMessage(ctx context.Context, chatID string, seq uint64) (store.ChatMessage, error)
 	ListChatPullRequests(ctx context.Context, chatID string) ([]store.ChatPullRequest, error)
+	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
 }
 
 // relayQueue is how many frames may wait to be announced. Publish never blocks on the
@@ -92,7 +93,7 @@ func (r *Relay) offer(chatID string, f Frame) {
 		w.State, w.TaskID = f.State, f.TaskID
 	case FrameProgress:
 		w.Text, w.TaskID = cutRunes(f.Progress, progressRunes), f.TaskID
-	case FrameChat, FramePullRequests:
+	case FrameChat, FramePullRequests, FrameQueue:
 	default:
 		return
 	}
@@ -179,6 +180,12 @@ func (r *Relay) rebuild(ctx context.Context, w wire) (Frame, error) {
 			return Frame{}, err
 		}
 		return Frame{Kind: FramePullRequests, PullRequests: prs}, nil
+	case FrameQueue:
+		q, err := r.store.ListQueuedTurnsForChat(ctx, w.Chat)
+		if err != nil {
+			return Frame{}, err
+		}
+		return Frame{Kind: FrameQueue, Queue: q}, nil
 	case FrameStatus:
 		return Frame{Kind: FrameStatus, State: w.State, TaskID: w.TaskID}, nil
 	case FrameProgress:

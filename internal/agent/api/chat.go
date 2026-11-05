@@ -28,7 +28,9 @@ const maxChatMessageBytes = 32 << 10
 // the frame: every browser watching the conversation has to see the list change, not only
 // the one that pressed the button.
 type ChatSource interface {
-	Send(ctx context.Context, req chat.SendRequest) (store.ChatMessage, error)
+	SendMessage(ctx context.Context, req chat.SendRequest) (chat.SendResult, error)
+	// QueueChanged redraws a chat's queue on every screen showing it.
+	QueueChanged(chatID string)
 	Subscribe(ctx context.Context, chatID string) *chat.Subscriber
 	Running(ctx context.Context, chatID string) (bool, error)
 	Awaiting(chatID string) bool
@@ -45,6 +47,12 @@ type TurnStopper interface {
 	CancelHostTurn(ref string) bool
 	// CancelDelegationsForRef stops every delegated task of one conversation.
 	CancelDelegationsForRef(ctx context.Context, ref, reason string) (int, error)
+}
+
+// ChatTurnCanceller stops the turn answering a chat right now, on whichever conductor runs
+// it (phase 4). The conductor implements it.
+type ChatTurnCanceller interface {
+	CancelChatTurn(ctx context.Context, chatID string) (bool, error)
 }
 
 // DeliveryRetrier puts a bot answer's failed deliveries back in the outbox and attempts them.
@@ -163,7 +171,9 @@ func (s *AgentService) ListChats(
 	}
 	out := make([]*agentv1.Chat, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, chatToProto(r))
+		c := chatToProto(r)
+		c.SharedWithMe = sharedWithMe(r, login, SeesAll(ctx))
+		out = append(out, c)
 	}
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
 }
@@ -298,23 +308,108 @@ func (s *AgentService) SendChatMessage(
 	if err := s.checkOverride(override); err != nil {
 		return nil, err
 	}
-	msg, err := s.chat.Send(ctx, chat.SendRequest{
+	res, err := s.chat.SendMessage(ctx, chat.SendRequest{
 		ChatID:   req.Msg.GetChatId(),
 		Login:    login,
 		Text:     req.Msg.GetText(),
 		Override: override,
 	})
 	switch {
-	case errors.Is(err, chat.ErrTurnRunning), errors.Is(err, chat.ErrPersonalityGone),
-		errors.Is(err, chat.ErrMirrored):
-		// The UI disables the composer while a turn runs, and it says so when the
-		// assistant this chat was bound to has been deleted. Either way the message
-		// was not stored.
+	case errors.Is(err, chat.ErrPersonalityGone):
+		// The UI says so when the assistant this chat was bound to has been deleted. The
+		// message was not stored.
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	case err != nil:
 		return nil, storeError(err)
 	}
-	return connect.NewResponse(&agentv1.SendChatMessageResponse{Message: chatMessageToProto(msg)}), nil
+	return connect.NewResponse(&agentv1.SendChatMessageResponse{
+		Message:        chatMessageToProto(res.Message),
+		Addressed:      res.Addressed,
+		QueuedPosition: int32(res.Ahead), //nolint:gosec // a queue of a few turns
+	}), nil
+}
+
+// CancelQueuedTurn takes back the caller's own waiting turn.
+func (s *AgentService) CancelQueuedTurn(
+	ctx context.Context, req *connect.Request[agentv1.CancelQueuedTurnRequest],
+) (*connect.Response[agentv1.CancelQueuedTurnResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" || req.Msg.GetSeq() == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("cancel queued turn: chat_id and seq are required"))
+	}
+	if err := s.store.RemoveQueuedTurn(ctx, chatID, req.Msg.GetSeq(), login); err != nil {
+		return nil, storeError(err)
+	}
+	s.chat.QueueChanged(chatID)
+	s.logger.InfoContext(ctx, "a queued turn was taken back", "chat_id", chatID, "seq", req.Msg.GetSeq())
+	return connect.NewResponse(&agentv1.CancelQueuedTurnResponse{}), nil
+}
+
+// CancelChatTurn stops the turn answering a chat, for anybody who may write it. Who started
+// the turn does not matter: in a shared conversation, stopping an answer that is going wrong
+// is everybody's to do, and the person whose turn it was can ask again.
+func (s *AgentService) CancelChatTurn(
+	ctx context.Context, req *connect.Request[agentv1.CancelChatTurnRequest],
+) (*connect.Response[agentv1.CancelChatTurnResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cancel chat turn: chat_id is required"))
+	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	ok, err := s.mayReadChat(ctx, row, login)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	if s.canceller == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel chat turn: no conductor is wired in"))
+	}
+	stopped, err := s.canceller.CancelChatTurn(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if stopped {
+		s.logger.InfoContext(ctx, "a chat's turn was stopped", "chat_id", chatID, "login", login)
+	}
+	return connect.NewResponse(&agentv1.CancelChatTurnResponse{Stopped: stopped}), nil
+}
+
+// SearchMembers lists Podium people for the composer's @-mention list.
+func (s *AgentService) SearchMembers(
+	ctx context.Context, req *connect.Request[agentv1.SearchMembersRequest],
+) (*connect.Response[agentv1.SearchMembersResponse], error) {
+	if _, err := requireLogin(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.store.SearchMembers(ctx, req.Msg.GetQuery(), int(req.Msg.GetLimit()))
+	if err != nil {
+		return nil, storeError(err)
+	}
+	out := make([]*agentv1.Member, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, &agentv1.Member{Login: m.Login, Name: m.Name, Avatar: m.Avatar})
+	}
+	return connect.NewResponse(&agentv1.SearchMembersResponse{Members: out}), nil
 }
 
 // maxPullRequestURLBytes is the longest URL the attach and detach RPCs will look at. A
@@ -462,7 +557,7 @@ func (s *AgentService) StreamChat(
 	}
 	// Who has spoken, for a conversation with more than one person in it. Loaded here and
 	// not in ListChats, which would need a query per row and only shows started_by.
-	if row.Origin != store.OriginWeb {
+	if row.Origin != store.OriginWeb || row.Multiplayer {
 		if row.Participants, err = s.store.ChatParticipants(ctx, chatID); err != nil {
 			return storeError(err)
 		}
@@ -489,11 +584,14 @@ func (s *AgentService) StreamChat(
 	}
 	// The chat row itself — title and playbook — so a deep link does not wait for ListChats
 	// to learn which playbook this conversation already chose.
+	head := chatToProto(row)
+	head.SharedWithMe = sharedWithMe(row, login, SeesAll(ctx))
 	if err := stream.Send(&agentv1.ChatFrame{
-		Frame: &agentv1.ChatFrame_Chat{Chat: chatToProto(row)},
+		Frame: &agentv1.ChatFrame_Chat{Chat: head},
 	}); err != nil {
 		return err
 	}
+
 	// The pull requests, before the transcript. They are the answer to "what did this
 	// conversation produce", and a reader who has that in front of them before the replay
 	// arrives does not have to read the transcript to find out.
@@ -507,6 +605,18 @@ func (s *AgentService) StreamChat(
 		}},
 	}); err != nil {
 		return err
+	}
+
+	// The turns waiting behind the one in flight, so a screen that opens mid-queue shows it.
+	// Nothing is sent for an empty queue, which is what a client starts from.
+	queued, err := s.store.ListQueuedTurnsForChat(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	if len(queued) > 0 {
+		if err := stream.Send(frameToProto(chat.Frame{Kind: chat.FrameQueue, Queue: queued})); err != nil {
+			return err
+		}
 	}
 
 	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq())
@@ -573,6 +683,8 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_PullRequests{
 			PullRequests: &agentv1.ChatPullRequests{PullRequests: pullRequestsToProto(f.PullRequests)},
 		}}
+	case chat.FrameQueue:
+		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Queue{Queue: queueToProto(f.Queue)}}
 	default:
 		// An unknown kind is a programming error, and an empty frame is what a client can
 		// safely ignore.
@@ -623,6 +735,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		Channel:            c.Channel,
 		PersonalityId:      c.PersonalityID,
 		PersonalityDisplay: c.PersonalityDisplay,
+		Multiplayer:        c.Multiplayer,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
@@ -660,6 +773,7 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		Via:          m.Via,
 		ExternalUrl:  m.ExternalURL,
 		Addressed:    m.Addressed,
+		Mentions:     m.Mentions,
 	}
 	for _, d := range m.Deliveries {
 		out.Deliveries = append(out.Deliveries, &agentv1.ChatDelivery{
@@ -688,6 +802,36 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		})
 	}
 	return out
+}
+
+// sharedWithMe is whether a chat the caller can see is somebody else's.
+func sharedWithMe(c store.Chat, login string, all bool) bool {
+	return !all && c.Login != "" && c.Login != login
+}
+
+// queueToProto is the turns waiting, oldest first.
+func queueToProto(q []store.QueuedTurn) *agentv1.ChatQueue {
+	out := &agentv1.ChatQueue{}
+	for _, t := range q {
+		out.Turns = append(out.Turns, &agentv1.QueuedTurn{
+			Login:    t.Login,
+			Author:   t.Author,
+			Via:      queuedVia(t.SourceKind),
+			Seq:      t.MessageSeq,
+			QueuedAt: timestamppb.New(t.CreatedAt),
+		})
+	}
+	return out
+}
+
+// queuedVia is a queued turn's surface in the words the UI uses.
+func queuedVia(sourceKind string) string {
+	switch sourceKind {
+	case conductor.SourceChat, "":
+		return store.ViaWeb
+	default:
+		return sourceKind
+	}
 }
 
 // peopleToProto is the participants as the header draws them.

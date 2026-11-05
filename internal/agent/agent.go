@@ -463,6 +463,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Tasks:                      a.podium,
 		Turns:                      a.conductor,
 		Deliveries:                 a.conductor,
+		Canceller:                  a.conductor,
 		Slack:                      slackDir,
 		Connections:                a.live,
 		Logger:                     a.logger,

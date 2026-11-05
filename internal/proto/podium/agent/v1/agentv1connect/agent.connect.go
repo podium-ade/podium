@@ -174,6 +174,15 @@ const (
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
 	// SendChatMessage RPC.
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
+	// AgentServiceCancelQueuedTurnProcedure is the fully-qualified name of the AgentService's
+	// CancelQueuedTurn RPC.
+	AgentServiceCancelQueuedTurnProcedure = "/podium.agent.v1.AgentService/CancelQueuedTurn"
+	// AgentServiceCancelChatTurnProcedure is the fully-qualified name of the AgentService's
+	// CancelChatTurn RPC.
+	AgentServiceCancelChatTurnProcedure = "/podium.agent.v1.AgentService/CancelChatTurn"
+	// AgentServiceSearchMembersProcedure is the fully-qualified name of the AgentService's
+	// SearchMembers RPC.
+	AgentServiceSearchMembersProcedure = "/podium.agent.v1.AgentService/SearchMembers"
 	// AgentServiceRetryChatDeliveryProcedure is the fully-qualified name of the AgentService's
 	// RetryChatDelivery RPC.
 	AgentServiceRetryChatDeliveryProcedure = "/podium.agent.v1.AgentService/RetryChatDelivery"
@@ -374,11 +383,22 @@ type AgentServiceClient interface {
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
-	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running, unless that turn is
-	// awaiting a human reply (an interactive playbook asked a question): then the text is
-	// injected into the running task and no second turn starts.
+	// SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+	// it — or queues one behind the turn already running, to run as the sender (phase 4 of
+	// docs/agent.md). In a multiplayer chat a message has to mention
+	// Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+	// reply from the same person takes the text instead of a new turn starting. A mirrored
+	// conversation may be written here too; its messages and their answers stay in Podium.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+	// is not queued any more, or is somebody else's.
+	CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error)
+	// CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+	// who may write the chat. The tasks it delegated keep running: they belong to the
+	// conversation, and stopping one is its own decision.
+	CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error)
+	// SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+	SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error)
 	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
 	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
 	// message has nothing failed to retry.
@@ -734,6 +754,24 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 			connect.WithClientOptions(opts...),
 		),
+		cancelQueuedTurn: connect.NewClient[v1.CancelQueuedTurnRequest, v1.CancelQueuedTurnResponse](
+			httpClient,
+			baseURL+AgentServiceCancelQueuedTurnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelQueuedTurn")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelChatTurn: connect.NewClient[v1.CancelChatTurnRequest, v1.CancelChatTurnResponse](
+			httpClient,
+			baseURL+AgentServiceCancelChatTurnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelChatTurn")),
+			connect.WithClientOptions(opts...),
+		),
+		searchMembers: connect.NewClient[v1.SearchMembersRequest, v1.SearchMembersResponse](
+			httpClient,
+			baseURL+AgentServiceSearchMembersProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SearchMembers")),
+			connect.WithClientOptions(opts...),
+		),
 		retryChatDelivery: connect.NewClient[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse](
 			httpClient,
 			baseURL+AgentServiceRetryChatDeliveryProcedure,
@@ -850,6 +888,9 @@ type agentServiceClient struct {
 	renameChat                 *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	deleteChat                 *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage            *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	cancelQueuedTurn           *connect.Client[v1.CancelQueuedTurnRequest, v1.CancelQueuedTurnResponse]
+	cancelChatTurn             *connect.Client[v1.CancelChatTurnRequest, v1.CancelChatTurnResponse]
+	searchMembers              *connect.Client[v1.SearchMembersRequest, v1.SearchMembersResponse]
 	retryChatDelivery          *connect.Client[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse]
 	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
@@ -1117,6 +1158,21 @@ func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.R
 	return c.sendChatMessage.CallUnary(ctx, req)
 }
 
+// CancelQueuedTurn calls podium.agent.v1.AgentService.CancelQueuedTurn.
+func (c *agentServiceClient) CancelQueuedTurn(ctx context.Context, req *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error) {
+	return c.cancelQueuedTurn.CallUnary(ctx, req)
+}
+
+// CancelChatTurn calls podium.agent.v1.AgentService.CancelChatTurn.
+func (c *agentServiceClient) CancelChatTurn(ctx context.Context, req *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error) {
+	return c.cancelChatTurn.CallUnary(ctx, req)
+}
+
+// SearchMembers calls podium.agent.v1.AgentService.SearchMembers.
+func (c *agentServiceClient) SearchMembers(ctx context.Context, req *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error) {
+	return c.searchMembers.CallUnary(ctx, req)
+}
+
 // RetryChatDelivery calls podium.agent.v1.AgentService.RetryChatDelivery.
 func (c *agentServiceClient) RetryChatDelivery(ctx context.Context, req *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {
 	return c.retryChatDelivery.CallUnary(ctx, req)
@@ -1336,11 +1392,22 @@ type AgentServiceHandler interface {
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
-	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running, unless that turn is
-	// awaiting a human reply (an interactive playbook asked a question): then the text is
-	// injected into the running task and no second turn starts.
+	// SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+	// it — or queues one behind the turn already running, to run as the sender (phase 4 of
+	// docs/agent.md). In a multiplayer chat a message has to mention
+	// Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+	// reply from the same person takes the text instead of a new turn starting. A mirrored
+	// conversation may be written here too; its messages and their answers stay in Podium.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+	// is not queued any more, or is somebody else's.
+	CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error)
+	// CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+	// who may write the chat. The tasks it delegated keep running: they belong to the
+	// conversation, and stopping one is its own decision.
+	CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error)
+	// SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+	SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error)
 	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
 	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
 	// message has nothing failed to retry.
@@ -1692,6 +1759,24 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceCancelQueuedTurnHandler := connect.NewUnaryHandler(
+		AgentServiceCancelQueuedTurnProcedure,
+		svc.CancelQueuedTurn,
+		connect.WithSchema(agentServiceMethods.ByName("CancelQueuedTurn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCancelChatTurnHandler := connect.NewUnaryHandler(
+		AgentServiceCancelChatTurnProcedure,
+		svc.CancelChatTurn,
+		connect.WithSchema(agentServiceMethods.ByName("CancelChatTurn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSearchMembersHandler := connect.NewUnaryHandler(
+		AgentServiceSearchMembersProcedure,
+		svc.SearchMembers,
+		connect.WithSchema(agentServiceMethods.ByName("SearchMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceRetryChatDeliveryHandler := connect.NewUnaryHandler(
 		AgentServiceRetryChatDeliveryProcedure,
 		svc.RetryChatDelivery,
@@ -1856,6 +1941,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceDeleteChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
+		case AgentServiceCancelQueuedTurnProcedure:
+			agentServiceCancelQueuedTurnHandler.ServeHTTP(w, r)
+		case AgentServiceCancelChatTurnProcedure:
+			agentServiceCancelChatTurnHandler.ServeHTTP(w, r)
+		case AgentServiceSearchMembersProcedure:
+			agentServiceSearchMembersHandler.ServeHTTP(w, r)
 		case AgentServiceRetryChatDeliveryProcedure:
 			agentServiceRetryChatDeliveryHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
@@ -2087,6 +2178,18 @@ func (UnimplementedAgentServiceHandler) DeleteChat(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SendChatMessage is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelQueuedTurn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelChatTurn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SearchMembers is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {

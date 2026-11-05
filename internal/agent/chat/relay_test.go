@@ -71,6 +71,10 @@ func (r relayRows) ListChatPullRequests(context.Context, string) ([]store.ChatPu
 	return nil, nil
 }
 
+func (r relayRows) ListQueuedTurnsForChat(context.Context, string) ([]store.QueuedTurn, error) {
+	return []store.QueuedTurn{{Login: "bob", Author: "bob", SourceKind: "chat", MessageSeq: 7}}, nil
+}
+
 func relayPair(t *testing.T, rows relayRows) (a, b *Broadcaster, bus *memBus) {
 	t.Helper()
 	bus = &memBus{}
@@ -132,6 +136,14 @@ func TestRelayCarriesFramesToTheOtherConductor(t *testing.T) {
 	a.Publish("c1", Frame{Kind: FrameChat})
 	next(t, onA)
 	assert.Equal(t, "re-read", next(t, onB).Chat.Title)
+
+	// A queue crosses as a pointer too: B re-reads the turns waiting.
+	a.Publish("c1", Frame{Kind: FrameQueue})
+	next(t, onA)
+	q := next(t, onB)
+	assert.Equal(t, FrameQueue, q.Kind)
+	require.Len(t, q.Queue, 1)
+	assert.Equal(t, "bob", q.Queue[0].Login)
 }
 
 // A progress line crosses whole, cut to fit a NOTIFY.

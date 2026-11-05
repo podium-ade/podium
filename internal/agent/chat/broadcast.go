@@ -35,6 +35,10 @@ const (
 	// order to reconcile: a subscriber that takes the newest frame as the truth is right,
 	// and a browser that missed one is corrected by the next.
 	FramePullRequests FrameKind = "pull_requests"
+	// FrameQueue is the whole set of turns waiting in the chat's session, oldest first, sent
+	// again every time it changes (phase 4). Like the pull requests it is the set rather than
+	// the change, so the newest one received is the truth.
+	FrameQueue FrameKind = "queue"
 )
 
 // Turn states a status frame carries. They are the source's three reactions in the words
@@ -60,6 +64,8 @@ type Frame struct {
 	Chat store.Chat
 	// PullRequests is set for FramePullRequests.
 	PullRequests []store.ChatPullRequest
+	// Queue is set for FrameQueue.
+	Queue []store.QueuedTurn
 }
 
 // durable reports whether losing this frame would lose something a reload could not

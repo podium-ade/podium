@@ -145,6 +145,12 @@ type InboundEvent struct {
 	// an edit. A change updates the record and never starts a turn — not even an edit that
 	// adds a mention (decision 34).
 	Change string
+	// ChatID and ChatSeq are the message in a chat's record that this event is, once it is
+	// recorded: the web chat sets them as it stores the message, the mirror as it records
+	// one. The turn queue keeps them so the person who asked can take their turn back, and
+	// so the chat can show whose turns are waiting.
+	ChatID  string `json:",omitempty"`
+	ChatSeq uint64 `json:",omitempty"`
 	// RecordText is what the person actually wrote, when Text is an instruction the source
 	// built around it ("alice commented on #12 …"). The record keeps the person's words;
 	// the turn is handed the instruction. Empty means Text is both.
