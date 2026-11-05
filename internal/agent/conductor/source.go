@@ -36,6 +36,15 @@ const (
 	SpeakerGitHub = "github"
 )
 
+// The privacies a source can name in InboundEvent.ChannelPrivacy: the store's, spelled here
+// for the same reason.
+const (
+	ChannelPublic  = "public"
+	ChannelPrivate = "private"
+	ChannelIM      = "im"
+	ChannelMPIM    = "mpim"
+)
+
 // Outbound types. Type is what the source may use to style a post; nothing branches on it
 // in the conductor except to decide whether a post replaces the placeholder.
 const (
@@ -91,6 +100,10 @@ type InboundEvent struct {
 	// has no name, or when Slack has not resolved one yet. Display and briefing only —
 	// routing still uses Channel.
 	ChannelName string
+	// ChannelPrivacy is whether Channel is public, as the source knows it: store.ChannelPublic,
+	// ChannelPrivate, ChannelIM or ChannelMPIM. Empty is not known. The mirror records it so
+	// sharing a chat of a private conversation is warned about with the source's own word.
+	ChannelPrivacy string
 	// Author is the display name of the human who spoke.
 	Author string
 	// Login is the Podium login of the speaker. Who may set it differs, and the conductor

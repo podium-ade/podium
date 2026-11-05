@@ -29,3 +29,7 @@ where id = @id;
 
 -- name: SetChatChannel :exec
 update chats set channel = @channel where id = @id;
+
+-- SetChatChannelPrivacy records what Slack says about a mirrored chat's channel (0037).
+-- name: SetChatChannelPrivacy :exec
+update chats set channel_privacy = @channel_privacy where id = @id;

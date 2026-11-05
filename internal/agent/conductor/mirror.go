@@ -100,6 +100,14 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 			chat.Channel = ev.ChannelName
 		}
 	}
+	if ev.ChannelPrivacy != "" && chat.ChannelPrivacy != ev.ChannelPrivacy {
+		if err := c.store.SetChatChannelPrivacy(ctx, chat.ID, ev.ChannelPrivacy); err != nil {
+			c.logger.WarnContext(ctx, "recording a mirrored chat's channel privacy failed",
+				"chat_id", chat.ID, "error", err)
+		} else {
+			chat.ChannelPrivacy = ev.ChannelPrivacy
+		}
+	}
 	if created {
 		c.seedHistory(ctx, src, chat, ev)
 	}

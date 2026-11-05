@@ -104,6 +104,26 @@ func (s *Store) SetChatChannel(ctx context.Context, id, channel string) error {
 	return nil
 }
 
+// The privacy of a Slack conversation, as the Slack source reports it (0037). Empty is not
+// known.
+const (
+	ChannelPublic  = "public"
+	ChannelPrivate = "private"
+	ChannelIM      = "im"
+	ChannelMPIM    = "mpim"
+)
+
+// SetChatChannelPrivacy records whether a mirrored chat's Slack conversation is public.
+func (s *Store) SetChatChannelPrivacy(ctx context.Context, id, privacy string) error {
+	if id == "" {
+		return fmt.Errorf("set chat channel privacy: an id is required")
+	}
+	if err := s.q.SetChatChannelPrivacy(ctx, db.SetChatChannelPrivacyParams{ID: id, ChannelPrivacy: privacy}); err != nil {
+		return fmt.Errorf("set channel privacy of chat %s: %w", id, err)
+	}
+	return nil
+}
+
 // SlackChannelID is the C…/G…/D… inside a slack:<channel>:<thread> source key.
 func SlackChannelID(sourceKey string) (string, bool) {
 	kind, rest, ok := strings.Cut(sourceKey, ":")

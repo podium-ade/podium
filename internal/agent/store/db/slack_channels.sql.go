@@ -73,6 +73,21 @@ func (q *Queries) SetChatChannel(ctx context.Context, arg SetChatChannelParams) 
 	return err
 }
 
+const setChatChannelPrivacy = `-- name: SetChatChannelPrivacy :exec
+update chats set channel_privacy = $1 where id = $2
+`
+
+type SetChatChannelPrivacyParams struct {
+	ChannelPrivacy string
+	ID             string
+}
+
+// SetChatChannelPrivacy records what Slack says about a mirrored chat's channel (0037).
+func (q *Queries) SetChatChannelPrivacy(ctx context.Context, arg SetChatChannelPrivacyParams) error {
+	_, err := q.db.Exec(ctx, setChatChannelPrivacy, arg.ChannelPrivacy, arg.ID)
+	return err
+}
+
 const setSlackChannelDescription = `-- name: SetSlackChannelDescription :execrows
 update slack_channels
 set description = $1,

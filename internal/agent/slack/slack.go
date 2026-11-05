@@ -114,7 +114,9 @@ type Source struct {
 	// people share maps to "" and is left as text.
 	ids      map[string]string
 	channels map[string]string
-	seen     map[string]time.Time
+	// privacy is each channel's conductor.Channel* privacy, resolved with its name.
+	privacy map[string]string
+	seen    map[string]time.Time
 
 	// review is the GitHub App source, nil when GitHub is not configured. A mention that
 	// names a pull-request URL (or that lands in a thread already bound to one) is
@@ -157,6 +159,7 @@ func New(opts Options) (*Source, error) {
 		users:    map[string]string{},
 		ids:      map[string]string{},
 		channels: map[string]string{},
+		privacy:  map[string]string{},
 		seen:     map[string]time.Time{},
 	}, nil
 }
@@ -393,12 +396,13 @@ func (s *Source) said(ctx context.Context, channel, ts, threadTS, user, text str
 	thread := threadOf(threadTS, ts)
 	acct := s.account(ctx, user)
 	return conductor.InboundEvent{
-		SourceKind:  Kind,
-		SourceKey:   sourceKey(channel, thread),
-		Ref:         Ref(channel, thread, ts),
-		Channel:     channel,
-		ChannelName: s.channelName(ctx, channel),
-		Author:      s.displayName(ctx, user),
+		SourceKind:     Kind,
+		SourceKey:      sourceKey(channel, thread),
+		Ref:            Ref(channel, thread, ts),
+		Channel:        channel,
+		ChannelName:    s.channelName(ctx, channel),
+		ChannelPrivacy: s.channelPrivacy(ctx, channel),
+		Author:         s.displayName(ctx, user),
 		// A candidate: the conductor keeps it only for a login that has signed in.
 		Login:           acct.login,
 		SpeakerProvider: conductor.SpeakerSlack,
@@ -894,11 +898,12 @@ func (s *Source) ListChannels(ctx context.Context) ([]ChannelInfo, error) {
 			}
 			name := ch.Name
 			out = append(out, ChannelInfo{ID: ch.ID, Name: name})
+			s.mu.Lock()
 			if name != "" {
-				s.mu.Lock()
 				s.channels[ch.ID] = name
-				s.mu.Unlock()
 			}
+			s.privacy[ch.ID] = privacyOf(ch)
+			s.mu.Unlock()
 		}
 		if next == "" {
 			return out, nil
@@ -927,6 +932,9 @@ func (s *Source) channelName(ctx context.Context, channel string) string {
 		s.logger.DebugContext(ctx, "resolving a slack channel name failed", "channel", channel, "error", err)
 		return ""
 	}
+	s.mu.Lock()
+	s.privacy[channel] = privacyOf(*info)
+	s.mu.Unlock()
 	name = info.Name
 	if name == "" && info.IsIM {
 		name = s.displayName(ctx, info.User)
@@ -938,6 +946,47 @@ func (s *Source) channelName(ctx context.Context, channel string) string {
 	s.channels[channel] = name
 	s.mu.Unlock()
 	return name
+}
+
+// channelPrivacy is what Slack says about whether channel is public, cached with its name for
+// the process's life. "" when Slack did not say: the share dialog then guesses from the id.
+func (s *Source) channelPrivacy(ctx context.Context, channel string) string {
+	if channel == "" {
+		return ""
+	}
+	s.mu.Lock()
+	p, ok := s.privacy[channel]
+	s.mu.Unlock()
+	if ok {
+		return p
+	}
+	info, err := s.readConversation(ctx, func() (*slack.Channel, error) {
+		return s.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{ChannelID: channel})
+	})
+	if err != nil {
+		s.logger.DebugContext(ctx, "resolving a slack channel's privacy failed", "channel", channel, "error", err)
+		return ""
+	}
+	p = privacyOf(*info)
+	s.mu.Lock()
+	s.privacy[channel] = p
+	s.mu.Unlock()
+	return p
+}
+
+// privacyOf reads a conversation's privacy off what conversations.info and
+// conversations.list return. A DM and a group DM are private by nature; is_private is the rest.
+func privacyOf(ch slack.Channel) string {
+	switch {
+	case ch.IsIM:
+		return conductor.ChannelIM
+	case ch.IsMpIM:
+		return conductor.ChannelMPIM
+	case ch.IsPrivate:
+		return conductor.ChannelPrivate
+	default:
+		return conductor.ChannelPublic
+	}
 }
 
 // displayName resolves a user ID to something a human wrote, cached for the process's life.

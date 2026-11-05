@@ -357,16 +357,22 @@ func TestNotificationsAndReadMarksThroughTheService(t *testing.T) {
 // possibly private for a channel Podium cannot tell.
 func TestSourcePrivacy(t *testing.T) {
 	for _, tc := range []struct {
-		origin, key      string
-		private, unknown bool
+		origin, key, privacy string
+		private, unknown     bool
 	}{
-		{store.OriginWeb, "chat:x", false, false},
-		{store.OriginSlack, "slack:D123:1.1", true, false},
-		{store.OriginSlack, "slack:G123:1.1", true, false},
-		{store.OriginSlack, "slack:C123:1.1", false, true},
-		{store.OriginGitHub, "github:acme/repo#1", false, false},
+		{store.OriginWeb, "chat:x", "", false, false},
+		// What Slack said about the channel wins.
+		{store.OriginSlack, "slack:C123:1.1", store.ChannelPublic, false, false},
+		{store.OriginSlack, "slack:C123:1.1", store.ChannelPrivate, true, false},
+		{store.OriginSlack, "slack:D123:1.1", store.ChannelIM, true, false},
+		{store.OriginSlack, "slack:C123:1.1", store.ChannelMPIM, true, false},
+		// A chat recorded before it knew falls back to the id.
+		{store.OriginSlack, "slack:D123:1.1", "", true, false},
+		{store.OriginSlack, "slack:G123:1.1", "", true, false},
+		{store.OriginSlack, "slack:C123:1.1", "", false, true},
+		{store.OriginGitHub, "github:acme/repo#1", "", false, false},
 	} {
-		p, u := sourcePrivacy(store.Chat{Origin: tc.origin, SourceKey: tc.key})
+		p, u := sourcePrivacy(store.Chat{Origin: tc.origin, SourceKey: tc.key, ChannelPrivacy: tc.privacy})
 		assert.Equal(t, tc.private, p, tc.key)
 		assert.Equal(t, tc.unknown, u, tc.key)
 	}
