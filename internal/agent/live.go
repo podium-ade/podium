@@ -68,7 +68,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 	var gh *ghreview.Source
 	if cfg.GitHubSourceEnabled() {
 		var err error
-		gh, err = newGitHubSource(cfg, l.store, slack, l.logger)
+		gh, err = newGitHubSource(cfg, l.store, slack, l.noteChecker(cfg), l.logger)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -237,7 +237,7 @@ func (l *liveConnections) githubSource() *ghreview.Source {
 
 // newGitHubSource is the pull-request review source: the App's webhooks, and the threads in
 // Slack bound to a review.
-func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Source, logger *slog.Logger) (*ghreview.Source, error) {
+func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Source, notes ghreview.NoteChecker, logger *slog.Logger) (*ghreview.Source, error) {
 	pem, err := cfg.GitHubAppPrivateKey()
 	if err != nil {
 		return nil, err
@@ -257,6 +257,7 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 		WebhookSecret: cfg.GitHubWebhookSecret,
 		Listen:        cfg.GitHubWebhookListen,
 		Slack:         bridge,
+		NoteChecker:   notes,
 		Logger:        logger,
 		TaskURL: func(taskID string) string {
 			if taskID == "" {
@@ -344,4 +345,23 @@ func (l *liveConnections) slackSource() *agentslack.Source {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.slack
+}
+
+// noteChecker is what screens the note on a review command from somebody outside Podium: the
+// deny-list, then a Haiku classifier spending the company's Anthropic key. With no key stored
+// the classifier has nothing to call with, and every note that got past the deny-list is
+// dropped — the review still runs. One checker per build, so its verdict cache lives as long
+// as the source does.
+func (l *liveConnections) noteChecker(cfg config.Config) ghreview.NoteChecker {
+	c := &ghreview.ModelNoteChecker{BaseURL: cfg.AnthropicBaseURL}
+	if l.svc != nil {
+		svc := l.svc
+		c.Key = func(ctx context.Context) (string, error) {
+			return svc.HostCredential(ctx, api.ProviderAnthropic)
+		}
+	}
+	if l.conductor != nil {
+		c.Observe = l.conductor.ObserveReviewNote
+	}
+	return c
 }
