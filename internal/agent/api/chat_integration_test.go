@@ -616,33 +616,37 @@ func TestStreamChatSaysATurnIsAlreadyRunning(t *testing.T) {
 	require.NoError(t, stream.Close())
 }
 
-func TestASecondSendWhileATurnRunsIsFailedPrecondition(t *testing.T) {
+func TestASecondSendWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
 	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
 	require.NoError(t, err)
 	chatID := created.Msg.GetChat().GetId()
 
-	_, err = f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+	first, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: chatID, Text: "first",
 	}))
 	require.NoError(t, err)
+	assert.True(t, first.Msg.GetAddressed())
+	assert.Zero(t, first.Msg.GetQueuedPosition())
 
-	_, err = f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+	// Phase 4: nothing is refused for a turn in flight. The second message is stored and
+	// reported as waiting behind the first; the conductor runs it as its own turn.
+	second, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: chatID, Text: "second",
 	}))
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.NoError(t, err)
+	assert.True(t, second.Msg.GetAddressed())
+	assert.Equal(t, int32(1), second.Msg.GetQueuedPosition())
 
 	stored, err := f.store.ListChatMessages(ctx, chatID, 0)
 	require.NoError(t, err)
-	assert.Len(t, stored, 1, "a refused send stores nothing")
+	assert.Len(t, stored, 2, "both are stored")
 
-	// The chat list agrees with the refusal, so a reload disables the composer too.
 	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, listed.Msg.GetChats(), 1)
-	assert.Equal(t, "first", listed.Msg.GetChats()[0].GetPreview())
+	assert.Equal(t, "second", listed.Msg.GetChats()[0].GetPreview())
 }
 
 func TestSendChatMessageValidatesItsInput(t *testing.T) {

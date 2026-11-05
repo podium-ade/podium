@@ -31,6 +31,10 @@ type fakeStore struct {
 	// failAppend makes the next AppendChatMessage fail, to prove the turn slot is given
 	// back when the write does not land.
 	failAppend bool
+	// participants is chat_participants: who may write a chat besides its owner.
+	participants map[string][]string
+	// queued is turn_queue, by chat, as the conductor would have written it.
+	queued map[string][]store.QueuedTurn
 }
 
 // fakePull is one row of chat_pull_requests, tombstone and all.
@@ -44,7 +48,63 @@ func newFakeStore() *fakeStore {
 		chats:    map[string]store.Chat{},
 		messages: map[string][]store.ChatMessage{},
 		running:  map[string]bool{},
+
+		participants: map[string][]string{},
+		queued:       map[string][]store.QueuedTurn{},
 	}
+}
+
+func (f *fakeStore) RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error) {
+	row, err := f.AppendChatMessage(ctx, msg)
+	return row, err == nil, err
+}
+
+func (f *fakeStore) ChatVisibleTo(_ context.Context, chatID, viewer string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[chatID]
+	if !ok {
+		return false, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID)
+	}
+	if c.Login == viewer {
+		return true, nil
+	}
+	for _, p := range f.participants[chatID] {
+		if p == viewer {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeStore) AddChatParticipant(_ context.Context, chatID, login, _ string, _ time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.participants[chatID] {
+		if p == login {
+			return false, nil
+		}
+	}
+	f.participants[chatID] = append(f.participants[chatID], login)
+	return true, nil
+}
+
+func (f *fakeStore) MarkChatMultiplayer(_ context.Context, chatID string, force bool) (store.Chat, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[chatID]
+	if !ok || c.Multiplayer || (!force && len(f.participants[chatID]) < 2) {
+		return store.Chat{}, false, nil
+	}
+	c.Multiplayer = true
+	f.chats[chatID] = c
+	return c, true, nil
+}
+
+func (f *fakeStore) ListQueuedTurnsForChat(_ context.Context, chatID string) ([]store.QueuedTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.QueuedTurn(nil), f.queued[chatID]...), nil
 }
 
 func (f *fakeStore) add(id, login string) store.Chat {
@@ -381,30 +441,28 @@ func TestAnotherLoginsChatIsNotThere(t *testing.T) {
 	assert.Empty(t, msgs)
 }
 
-func TestASecondMessageWhileATurnRunsIsRefused(t *testing.T) {
+func TestASecondMessageWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	src := newSource(t, st)
 	ctx := context.Background()
 
-	_, err := src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "first"})
+	first, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "first"})
 	require.NoError(t, err)
+	assert.True(t, first.Addressed)
+	assert.Zero(t, first.Ahead, "nothing was running, so it starts now")
 
-	// The turn row does not exist yet — the conductor has not even read the event — and
-	// the second send is still refused. That window is exactly what the in-process claim
-	// is for.
+	// The turn row does not exist yet — the conductor has not even read the event — and a
+	// second send is accepted and reported as waiting behind the first, never refused.
 	require.False(t, st.running["chat_1"])
-	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
-	assert.ErrorIs(t, err, ErrTurnRunning)
+	second, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Ahead, "one turn ahead: the one in flight")
 
 	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
 	require.NoError(t, err)
-	assert.Len(t, msgs, 1, "a refused send stores nothing")
-
-	// The outcome of the turn gives the slot back.
-	require.NoError(t, src.React(ctx, "chat_1", conductor.ReactionDone))
-	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
-	require.NoError(t, err)
+	assert.Len(t, msgs, 2, "both are stored")
+	assert.Len(t, src.Events(), 2, "and both are turns the conductor queues in order")
 }
 
 func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
@@ -426,15 +484,16 @@ func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
 	assert.Equal(t, "the answer", msgs[1].Text)
 }
 
-func TestATurnLeftRunningByADeadProcessStillRefusesASend(t *testing.T) {
+func TestATurnLeftRunningByADeadProcessCountsAsAhead(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	st.running["chat_1"] = true
 	// A fresh process: nothing in memory, and the turns table is the only witness.
 	src := newSource(t, st)
 
-	_, err := src.Send(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
-	assert.ErrorIs(t, err, ErrTurnRunning)
+	res, err := src.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Ahead)
 }
 
 func TestAFailedWriteGivesTheTurnSlotBack(t *testing.T) {
@@ -451,27 +510,27 @@ func TestAFailedWriteGivesTheTurnSlotBack(t *testing.T) {
 	assert.NoError(t, err, "a chat must not be wedged by a write that failed")
 }
 
-func TestConcurrentSendsProduceExactlyOneTurn(t *testing.T) {
+func TestConcurrentSendsAreEachATurn(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	src := newSource(t, st)
 
 	const senders = 8
 	var wg sync.WaitGroup
-	accepted := make(chan struct{}, senders)
 	for i := range senders {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if _, err := src.Send(context.Background(), SendRequest{
+			_, err := src.Send(context.Background(), SendRequest{
 				ChatID: "chat_1", Login: "alice", Text: fmt.Sprintf("message %d", i),
-			}); err == nil {
-				accepted <- struct{}{}
-			}
+			})
+			assert.NoError(t, err)
 		}(i)
 	}
 	wg.Wait()
-	assert.Len(t, accepted, 1, "one turn at a time per conversation, whatever the race")
+	// Each is a turn for the conductor; it is the queue there, not a refusal here, that makes
+	// them one at a time (conductor/queue.go).
+	assert.Len(t, src.Events(), senders)
 }
 
 func TestProgressIsStoredAsTheTaskTalking(t *testing.T) {

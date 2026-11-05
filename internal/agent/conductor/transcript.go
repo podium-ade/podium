@@ -193,7 +193,8 @@ func (c *Conductor) botName() string {
 func recordLines(msgs []store.ChatMessage, chat store.Chat, bot string) []transcriptLine {
 	out := make([]transcriptLine, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Role == store.RoleProgress || m.Role == store.RoleActivity || m.DeletedAt != nil {
+		if m.Role == store.RoleProgress || m.Role == store.RoleActivity || m.Role == store.RoleNotice ||
+			m.DeletedAt != nil {
 			continue
 		}
 		line := transcriptLine{BriefEntry: BriefEntry{

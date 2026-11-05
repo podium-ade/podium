@@ -176,11 +176,22 @@ service AgentService {
   // somebody else's conversation is not this caller's to learn. Sessions and turns the
   // chat started are kept — they are the audit, not the transcript.
   rpc DeleteChat(DeleteChatRequest) returns (DeleteChatResponse);
-  // SendChatMessage stores one human message and starts a turn on it. It is refused with
-  // FailedPrecondition while a turn for that chat is already running, unless that turn is
-  // awaiting a human reply (an interactive playbook asked a question): then the text is
-  // injected into the running task and no second turn starts.
+  // SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+  // it — or queues one behind the turn already running, to run as the sender (phase 4 of
+  // docs/agent.md). In a multiplayer chat a message has to mention
+  // Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+  // reply from the same person takes the text instead of a new turn starting. A mirrored
+  // conversation may be written here too; its messages and their answers stay in Podium.
   rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+  // is not queued any more, or is somebody else's.
+  rpc CancelQueuedTurn(CancelQueuedTurnRequest) returns (CancelQueuedTurnResponse);
+  // CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+  // who may write the chat. The tasks it delegated keep running: they belong to the
+  // conversation, and stopping one is its own decision.
+  rpc CancelChatTurn(CancelChatTurnRequest) returns (CancelChatTurnResponse);
+  // SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+  rpc SearchMembers(SearchMembersRequest) returns (SearchMembersResponse);
   // RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
   // queue and attempts them at once. NotFound when the caller cannot read the chat, or the
   // message has nothing failed to retry.
@@ -255,6 +266,9 @@ message Turn {
   optional double cost_usd = 9;
   // final_text is what the bot said, as it was relayed. It is content, never instructions.
   string final_text = 10;
+  // started_by is whose turn this was: the Podium login whose credentials it ran with,
+  // "github-app" for a review nobody in Podium asked for, and empty for older turns.
+  string started_by = 11;
 }
 
 // Page is the same cursor shape podium.v1 uses: an opaque cursor and a bounded limit.
@@ -997,6 +1011,14 @@ message Chat {
   repeated ChatPerson people = 19;
   // surfaces is where a mirrored conversation lives. Empty for a web chat.
   repeated ChatSurface surfaces = 20;
+  // multiplayer is true once the chat has had more than one person in it, is shared, or
+  // mirrors a conversation that lives elsewhere. A message must then mention Podium to start
+  // a turn. It never goes back to false.
+  bool multiplayer = 21;
+  // shared_with_me is true when the chat is somebody else's and the caller takes part in it.
+  // A chat with somebody else's personal assistant is listed under Podium with this set,
+  // labelled with personality_display: the assistant itself stays its owner's.
+  bool shared_with_me = 22;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1064,6 +1086,25 @@ message ChatMessage {
   // pull request the turn started on, and Slack threads bound to it) and how that went.
   // Empty for every other message.
   repeated ChatDelivery deliveries = 17;
+  // mentions is the Podium logins the message named with the composer's person chip.
+  repeated string mentions = 18;
+}
+
+// QueuedTurn is one turn waiting behind the one in flight, oldest first.
+message QueuedTurn {
+  // login is who asked, empty for somebody outside Podium; author is how they are shown.
+  string login = 1;
+  string author = 2;
+  // via is the surface they asked on: "web", "slack" or "github".
+  string via = 3;
+  // seq is the message that asked, in this chat; 0 when it is not in the record.
+  uint64 seq = 4;
+  google.protobuf.Timestamp queued_at = 5;
+}
+
+// ChatQueue is the whole set of turns waiting in a chat's session.
+message ChatQueue {
+  repeated QueuedTurn turns = 1;
 }
 
 // ChatDelivery is one surface a bot message was owed to.
@@ -1153,6 +1194,8 @@ message ChatFrame {
     bool resync = 4;
     Chat chat = 5;
     ChatPullRequests pull_requests = 6;
+    // queue is the turns waiting, sent at the start of the stream and whenever it changes.
+    ChatQueue queue = 7;
   }
 }
 
@@ -1228,6 +1271,45 @@ message SendChatMessageRequest {
 message SendChatMessageResponse {
   // message is the stored human message, with the seq it was given.
   ChatMessage message = 1;
+  // addressed is false for a message in a multiplayer chat that did not mention Podium: it
+  // was recorded and starts nothing.
+  bool addressed = 2;
+  // queued_position is how many turns run before this one, as the send saw them. 0 means it
+  // starts now. The queue frame that follows is the truth.
+  int32 queued_position = 3;
+}
+
+message CancelQueuedTurnRequest {
+  string chat_id = 1;
+  // seq is the caller's message whose turn is waiting.
+  uint64 seq = 2;
+}
+
+message CancelQueuedTurnResponse {}
+
+message CancelChatTurnRequest {
+  string chat_id = 1;
+}
+
+message CancelChatTurnResponse {
+  // stopped is false when nothing was running.
+  bool stopped = 1;
+}
+
+message SearchMembersRequest {
+  // query matches a name or a login, case-insensitively. Empty lists the first few.
+  string query = 1;
+  int32 limit = 2;
+}
+
+message Member {
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+}
+
+message SearchMembersResponse {
+  repeated Member members = 1;
 }
 
 message StreamChatRequest {

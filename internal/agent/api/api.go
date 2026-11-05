@@ -191,6 +191,8 @@ type AgentServiceOptions struct {
 	// Deliveries retries a bot answer's failed deliveries to Slack or GitHub. Nil turns
 	// RetryChatDelivery off (Unimplemented).
 	Deliveries DeliveryRetrier
+	// Canceller stops the turn answering a chat (CancelChatTurn). Nil refuses that RPC.
+	Canceller ChatTurnCanceller
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
 	Slack  SlackDirectory
@@ -244,6 +246,7 @@ type AgentService struct {
 	tasks      TaskCanceller
 	turns      TurnStopper
 	deliveries DeliveryRetrier
+	canceller  ChatTurnCanceller
 	logger     *slog.Logger
 
 	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
@@ -356,6 +359,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		tasks:              opts.Tasks,
 		turns:              opts.Turns,
 		deliveries:         opts.Deliveries,
+		canceller:          opts.Canceller,
 		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}
@@ -643,6 +647,7 @@ func turnToProto(t store.Turn) *agentv1.Turn {
 		Status:     t.Status,
 		StartedAt:  timestamppb.New(t.StartedAt),
 		FinalText:  t.FinalText,
+		StartedBy:  t.StartedBy,
 	}
 	if t.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*t.FinishedAt)

@@ -322,10 +322,14 @@ type Conductor struct {
 // no in-flight turn this process owns, and the recovery pass rebuilds what matters.
 type sessionState struct {
 	running bool
-	pending bool
-	// next is the latest thing said while a turn was running. Only the latest becomes the
-	// next turn's instruction; the earlier ones are in the transcript.
-	next InboundEvent
+	// turnLogin and turnKind are whose turn this session last ran, and on which surface. A
+	// message is injected into a turn that is still up only when it is from the same person
+	// on the same surface; anything else is a turn of its own (queue.go).
+	turnLogin string
+	turnKind  string
+	// local is turns queued in this process because the database refused to queue them.
+	// They are served after the durable queue.
+	local []InboundEvent
 	// awaitingTaskID is the running task that posted a question and is waiting for a
 	// human reply. Empty means this session is not parked. It outlives the host turn
 	// that started a delegated task, which is why a reply can land after the assistant
@@ -456,6 +460,11 @@ func (c *Conductor) Run(ctx context.Context) error {
 		defer c.wg.Done()
 		c.deliverOutbox(ctx)
 	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.listenCancels(ctx)
+	}()
 	if c.chatHost != nil {
 		c.wg.Add(1)
 		go func() {
@@ -576,13 +585,13 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		return
 	}
 
+	// A turn that is still up takes the message when it is from the same person on the same
+	// surface: a warm host turn, a running chat-host turn, a task that asked a question or is
+	// waiting for a follow-up. Anybody else's message is a turn of its own (queue.go).
 	c.mu.Lock()
-	st := c.sessions[sess.ID]
-	if st == nil {
-		st = &sessionState{}
-		c.sessions[sess.ID] = st
-	}
-	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" {
+	st := c.state(sess.ID)
+	same := c.sameAsker(st, src, ev)
+	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" && same {
 		// The host turn that answered this conversation is still up: the message goes into
 		// it, and it is working again, so it is no longer a candidate to give its slot up.
 		st.warmHost = nil
@@ -592,16 +601,12 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			c.logger.InfoContext(ctx, "injected a message into a warm host turn", "session_id", sess.ID)
 			return
 		}
-		// Its inbox closed as it exited. The message is in the transcript; it becomes the
-		// next turn once the one exiting has finished.
+		// Its inbox closed as it exited. The message becomes the next turn once the one
+		// exiting has finished.
 		c.mu.Lock()
-		st = c.sessions[sess.ID]
-		if st == nil {
-			st = &sessionState{}
-			c.sessions[sess.ID] = st
-		}
+		st = c.state(sess.ID)
 	}
-	if st.running && c.chatHost != nil {
+	if st.running && c.chatHost != nil && same {
 		// A chat-host turn is answering this conversation: the message goes into it, and is
 		// answered as part of that turn rather than after it.
 		c.mu.Unlock()
@@ -610,87 +615,33 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			return
 		}
 		c.mu.Lock()
-		st = c.sessions[sess.ID]
-		if st == nil {
-			st = &sessionState{}
-			c.sessions[sess.ID] = st
-		}
+		st = c.state(sess.ID)
 	}
 	injectID := st.awaitingTaskID
 	if injectID == "" {
 		injectID = st.warmTaskID
 	}
-	if injectID != "" {
-		taskID := injectID
-		c.mu.Unlock()
-		if err := c.podium.InjectTask(ctx, taskID, ev.Text); err != nil {
-			c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
-				"session_id", sess.ID, "task_id", taskID, "error", err)
-			c.mu.Lock()
-			st = c.sessions[sess.ID]
-			if st == nil {
-				st = &sessionState{}
-				c.sessions[sess.ID] = st
-			}
-			if st.running {
-				st.pending = true
-				st.next = ev
-				c.mu.Unlock()
-				return
-			}
-			st.running = true
-			c.mu.Unlock()
-			c.wg.Add(1)
-			go func() {
-				defer c.wg.Done()
-				c.serve(ctx, src, sess, j, ev)
-			}()
-			return
-		}
-		c.logger.InfoContext(ctx, "injected a message into a running task",
-			"session_id", sess.ID, "task_id", taskID)
-		return
-	}
-	if st.running {
-		// Nothing is lost and nothing runs twice: the message is in the thread, so it will
-		// be in the next turn's transcript, and the next turn starts from it.
-		st.pending = true
-		st.next = ev
-		c.mu.Unlock()
-		c.logger.InfoContext(ctx, "a turn is already running for this session; queued the message",
-			"session_id", sess.ID)
-		return
-	}
-	st.running = true
 	c.mu.Unlock()
-
-	// Another conductor may be serving this conversation. Then the message is its to answer:
-	// handed over, or injected into its warm task. Twice, because the owner may let go
-	// between the two questions, and then the session is this conductor's to take.
-	for attempt := 0; ; attempt++ {
-		if c.acquire(ctx, store.SessionLease(sess.ID)) {
-			break
-		}
-		if c.handOff(ctx, sess.ID, ev) || attempt == 1 {
-			c.mu.Lock()
-			st.running = false
-			// A message for this session that arrived locally meanwhile went into st.next;
-			// it is the owner's too.
-			next, pending := st.next, st.pending
-			st.pending = false
-			c.mu.Unlock()
-			if pending {
-				c.handOff(ctx, sess.ID, next)
-			}
+	if injectID != "" && same {
+		err := c.podium.InjectTask(ctx, injectID, ev.Text)
+		if err == nil {
+			c.logger.InfoContext(ctx, "injected a message into a running task",
+				"session_id", sess.ID, "task_id", injectID)
 			return
 		}
+		c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
+			"session_id", sess.ID, "task_id", injectID, "error", err)
+	}
+	// Another conductor may be serving this conversation, with a warm task answering this
+	// same person: then the message goes straight into it.
+	if c.injectIntoOwner(ctx, src, sess.ID, ev) {
+		return
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.serve(ctx, src, sess, j, ev)
-	}()
+	// Otherwise it is a turn: queued first, then served by whoever serves the session. Nothing
+	// is lost and nothing runs twice — the row is the turn, and only one conductor takes it.
+	c.enqueue(ctx, src, sess, ev)
+	c.kick(ctx, src, sess, j)
 }
 
 // runningDelegations is what this conversation already has in flight, for the brief. A
@@ -930,70 +881,31 @@ func (c *Conductor) acceptTask(
 	return playbookJob(playbook), sess, true
 }
 
-// serve runs turns for one session until nothing is pending. It holds the session's
+// serve runs turns for one session until nothing is queued. It holds the session's
 // "running" flag for its whole life, which is what serialises turns within a session while
-// leaving different sessions free to run at once.
+// leaving different sessions free to run at once. Each queued turn answers through its own
+// source: a web message in a mirrored conversation answers in the web chat.
 func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	key := store.SessionLease(sess.ID)
 	for {
+		c.setTurnAsker(sess.ID, src, ev)
 		c.runTurn(ctx, src, sess, j, ev)
 
-		if next, ok := c.nextFor(ctx, sess.ID, key); ok {
-			ev = next
-			continue
-		}
-		return
-	}
-}
-
-// nextFor is the session's next message once a turn has ended: one said here while it ran,
-// or one another conductor handed over. With neither, the session is let go of, and ok is
-// false.
-func (c *Conductor) nextFor(ctx context.Context, sessionID, key string) (InboundEvent, bool) {
-	stop := func() {
-		if st := c.sessions[sessionID]; st != nil {
-			st.running = false
-			st.warmTaskID = ""
-			st.warmHost = nil
-		}
-	}
-	c.mu.Lock()
-	st := c.sessions[sessionID]
-	if st != nil && st.pending && ctx.Err() == nil {
-		st.pending = false
-		ev := st.next
-		c.mu.Unlock()
-		return ev, true
-	}
-	if st == nil || ctx.Err() != nil {
-		// Shutting down: the lease is left to this replica's next start, or to expire.
-		stop()
-		c.mu.Unlock()
-		return InboundEvent{}, false
-	}
-	c.mu.Unlock()
-
-	if handed := c.release(ctx, key); handed != nil {
-		return *handed, true
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if st.pending {
-		// Said here while the lease was being let go of. Take the session back; if another
-		// conductor got there first, the message is its to answer.
-		st.pending = false
-		ev := st.next
-		c.mu.Unlock()
-		if c.acquire(ctx, key) {
+		if ctx.Err() != nil {
+			// Shutting down: the lease is left to this replica's next start, or to expire,
+			// and the queue to whoever serves the session then.
 			c.mu.Lock()
-			return ev, true
+			c.state(sess.ID).running = false
+			c.mu.Unlock()
+			return
 		}
-		c.handOff(ctx, sessionID, ev)
-		c.mu.Lock()
+		next, nsrc, nj, ok := c.popNext(ctx, src, sess, j)
+		if !ok {
+			c.letGo(ctx, sess.ID, key)
+			return
+		}
+		ev, src, j = next, nsrc, nj
 	}
-	stop()
-	return InboundEvent{}, false
 }
 
 // runTurn is one inbound message, end to end.
@@ -2041,6 +1953,8 @@ func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Rea
 // thing to keep in sync, and progress is superseded by the final anyway.
 func (c *Conductor) recover(ctx context.Context) {
 	c.recoverWork(ctx, true)
+	// Turns that were queued when this conductor (or another) stopped are still turns.
+	c.adoptQueues(ctx)
 }
 
 // recoverWork resumes what was in flight. At startup that is this conductor's own work from
