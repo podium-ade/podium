@@ -1,13 +1,15 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Ellipsis,
+  LogOut,
   Pencil,
   Plus,
   Search,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react";
-import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { markChatSeen } from "../../lib/chatSeen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -23,6 +25,7 @@ import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
+import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
 import { Skeleton } from "../Skeleton";
@@ -48,6 +51,7 @@ import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ChatPeople } from "./chat/ChatPeople";
+import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
 
@@ -114,6 +118,14 @@ export function ChatPanel() {
     // A turn started in another tab, or by somebody else's browser on the same login,
     // changes turn_running and the preview. Nothing else here would notice.
     refetchInterval: 10_000,
+  });
+  // Chats shared with every member and not opened yet (phase 5). They are the workspace's,
+  // not an assistant's, so they are listed with Podium's chats only.
+  const workspace = useQuery({
+    queryKey: ["agent", "chats", "workspace"],
+    queryFn: () => agent.listChats({ section: "workspace" }),
+    enabled: personalityId === "",
+    refetchInterval: 30_000,
   });
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -196,6 +208,19 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  // Leaving takes the viewer out of somebody else's chat (phase 5). Speaking in it again,
+  // from any surface, brings them back, so there is nothing to confirm.
+  const leave = useMutation({
+    mutationFn: (chat: Chat) => agent.leaveChat({ chatId: chat.id }),
+    onSuccess: async (_res, chat) => {
+      toast(`You left ${chat.title}.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      await qc.invalidateQueries({ queryKey: ["agent", "sessions"] });
+      if (active === chat.id) navigate(blank);
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
@@ -245,6 +270,10 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  // The rail shows both: what is in the viewer's lists, and what the workspace shares that
+  // they have not opened. A chat in both (just opened) is shown once, from their own list.
+  const own = new Set(list.map((c) => c.id));
+  const railChats = [...list, ...(workspace.data?.chats ?? []).filter((c) => !own.has(c.id))];
   // What the assistant may delegate to. It is shown, never picked: the turn chooses a
   // playbook per piece of work, and naming them is how a reader learns the conversation can
   // reach a machine at all.
@@ -273,7 +302,7 @@ export function ChatPanel() {
 
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <ChatRail
-          chats={list}
+          chats={railChats}
           active={active}
           loading={chats.isPending}
           onNew={openBlank}
@@ -282,6 +311,7 @@ export function ChatPanel() {
           onOpen={(id) => navigate(chatPath(personalityId, id))}
           onRename={renameChat}
           onDelete={setPendingDelete}
+          onLeave={(c) => leave.mutate(c)}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -309,12 +339,12 @@ export function ChatPanel() {
             <Conversation
               key={active}
               chatId={active}
-              title={list.find((c) => c.id === active)?.title ?? ""}
-              remembered={storedChoice(list.find((c) => c.id === active))}
-              listedOrigin={list.find((c) => c.id === active)?.origin}
-              listedChannel={list.find((c) => c.id === active)?.channel}
-              listedLogin={list.find((c) => c.id === active)?.login}
-              listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
+              title={railChats.find((c) => c.id === active)?.title ?? ""}
+              remembered={storedChoice(railChats.find((c) => c.id === active))}
+              listedOrigin={railChats.find((c) => c.id === active)?.origin}
+              listedChannel={railChats.find((c) => c.id === active)?.channel}
+              listedLogin={railChats.find((c) => c.id === active)?.login}
+              listedEmpty={(railChats.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
               onLeave={() => navigate(blank)}
               assistant={answeredBy}
@@ -411,12 +441,13 @@ function originKey(origin: string | undefined): string {
 function originLabel(key: string): string {
   if (key === "web") return "Web";
   if (key === "shared") return "Shared with me";
+  if (key === "workspace") return "Workspace";
   if (key === "slack") return "Slack";
   if (key === "github") return "GitHub";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "shared", "slack", "github"];
+const ORIGIN_ORDER = ["web", "shared", "slack", "github", "workspace"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {
@@ -424,7 +455,16 @@ function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat
   for (const c of chats) {
     // A web chat somebody else owns and the viewer takes part in — a chat with somebody
     // else's personal assistant among them — is its own list, labelled with that assistant.
-    const key = c.sharedWithMe && originKey(c.origin) === "web" ? "shared" : originKey(c.origin);
+    //
+    // Phase 5: a chat somebody shared with the viewer (by name, or that they opened from a
+    // link) is "Shared with me" wherever it lives, and a members-shared chat they have not
+    // opened is "Workspace". A Slack thread or PR they spoke in stays under its surface.
+    const key =
+      c.accessReason === "workspace"
+        ? "workspace"
+        : c.accessReason === "shared" || (c.sharedWithMe && originKey(c.origin) === "web")
+          ? "shared"
+          : originKey(c.origin);
     const list = by.get(key);
     if (list) list.push(c);
     else by.set(key, [c]);
@@ -462,6 +502,7 @@ function ChatRail({
   onOpen,
   onRename,
   onDelete,
+  onLeave,
   deletingId,
   viewerLogin,
   voices,
@@ -477,6 +518,7 @@ function ChatRail({
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
+  onLeave: (chat: Chat) => void;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -619,7 +661,7 @@ function ChatRail({
                 </option>
               ))}
         </select>
-        {activeChat ? (
+        {activeChat && (roleOf(activeChat) === "" || roleOf(activeChat) === "owner") ? (
           <Tooltip label={`Delete ${activeChat.title}`}>
             <Button
               type="button"
@@ -681,6 +723,7 @@ function ChatRail({
                         onOpen={onOpen}
                         onRename={onRename}
                         onDelete={onDelete}
+                        onLeave={onLeave}
                         deleting={deletingId === c.id}
                         viewerLogin={viewerLogin}
                       />
@@ -702,6 +745,7 @@ function ChatRow({
   onOpen,
   onRename,
   onDelete,
+  onLeave,
   deleting,
   viewerLogin,
 }: {
@@ -710,6 +754,7 @@ function ChatRow({
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
+  onLeave: (chat: Chat) => void;
   deleting: boolean;
   viewerLogin: string;
 }) {
@@ -719,10 +764,22 @@ function ChatRow({
   const ignoreBlur = useRef(false);
   // Someone else's web chat is readable by the dev token and not writable. A mirrored
   // thread has no login, so its rename and delete stay.
-  const foreign = chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
+  //
+  // Phase 5: the server says the viewer's role, and the menu follows it — the owner renames
+  // and deletes, an editor renames and leaves, a viewer leaves, and a Workspace chat nobody
+  // opened yet has nothing to do but open. An older server says no role; the old rule stands.
+  const role = roleOf(chat);
+  const foreign = role === "" && chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
+  const workspaceOnly = chat.accessReason === "workspace";
+  const mayRename = role === "" ? !foreign : canWrite(role) && !workspaceOnly;
+  const mayDelete = role === "" ? !foreign : role === "owner";
+  const mayLeave = !workspaceOnly && (role === "editor" || role === "viewer");
+  const menu = mayRename || mayDelete || mayLeave;
+  const unreadCount = active ? 0 : unread(chat);
+  const shared = sharedByLabel(chat);
 
   const start = () => {
-    if (foreign) return;
+    if (!mayRename) return;
     ignoreBlur.current = false;
     setDraft(chat.title);
     setEditing(true);
@@ -840,18 +897,32 @@ function ChatRow({
             {foreign && !chat.sharedWithMe ? (
               <span className="block truncate text-2xs text-muted">{chat.login}</span>
             ) : null}
-            {chat.sharedWithMe && !mirrored ? (
+            {shared ? (
+              <span data-testid="chat-row-shared" className="block truncate text-2xs text-muted">
+                {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}
+                {shared}
+              </span>
+            ) : chat.sharedWithMe && !mirrored ? (
               <span data-testid="chat-row-shared" className="block truncate text-2xs text-muted">
                 {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}shared by {chat.login}
               </span>
             ) : null}
           </span>
+          {unreadCount > 0 ? (
+            <span
+              data-testid="chat-row-unread"
+              className="shrink-0 rounded-full bg-accent px-1.5 text-2xs font-semibold text-accent-ink"
+            >
+              {unreadCount > 99 ? "99+" : unreadCount}
+              <span className="sr-only"> unread</span>
+            </span>
+          ) : null}
           {running ? <span className="sr-only">running</span> : null}
           {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
           {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
         </button>
       </Tooltip>
-      {foreign ? null : (
+      {!menu ? null : (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -866,20 +937,30 @@ function ChatRow({
         {/* Rename swaps the row for an input; handing focus back to the trigger would blur
             it the moment it appears. */}
         <DropdownMenuContent align="start" className="min-w-36" onCloseAutoFocus={(e) => e.preventDefault()}>
-          <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
-            <Pencil />
-            Rename
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="danger"
-            data-testid="chat-delete"
-            aria-label={`Delete ${chat.title}`}
-            disabled={deleting}
-            onSelect={() => onDelete(chat)}
-          >
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
+          {mayRename ? (
+            <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
+              <Pencil />
+              Rename
+            </DropdownMenuItem>
+          ) : null}
+          {mayLeave ? (
+            <DropdownMenuItem data-testid="chat-leave" aria-label={`Leave ${chat.title}`} onSelect={() => onLeave(chat)}>
+              <LogOut />
+              Leave
+            </DropdownMenuItem>
+          ) : null}
+          {mayDelete ? (
+            <DropdownMenuItem
+              variant="danger"
+              data-testid="chat-delete"
+              aria-label={`Delete ${chat.title}`}
+              disabled={deleting}
+              onSelect={() => onDelete(chat)}
+            >
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       )}
@@ -892,10 +973,16 @@ function ConversationTitle({
   channel,
   onRename,
   fallback = "Chat",
+  canRename = true,
+  actions,
 }: {
   title: string;
   channel?: string;
   onRename: (title: string) => Promise<void>;
+  /** canRename is false for a viewer: the title is shown, not editable. */
+  canRename?: boolean;
+  /** actions sit at the right end of the bar: the Share button. */
+  actions?: ReactNode;
   /** fallback is the title slot when the chat has no name yet. */
   fallback?: string;
 }) {
@@ -905,7 +992,7 @@ function ConversationTitle({
   const ignoreBlur = useRef(false);
 
   const start = () => {
-    if (!title) return;
+    if (!title || !canRename) return;
     ignoreBlur.current = false;
     setDraft(title);
     setEditing(true);
@@ -986,6 +1073,7 @@ function ConversationTitle({
           {title || fallback}
         </button>
       )}
+      {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -1031,7 +1119,10 @@ function Conversation({
   const toast = useToast();
   const viewer = useViewer();
   const location = useLocation();
-  const stream = useChatStream(chatId);
+  // k= is a share link's token (phase 5). It is only needed for the first open — that writes
+  // the viewer a row of their own — and harmless after.
+  const [search] = useSearchParams();
+  const stream = useChatStream(chatId, search.get("k") ?? "");
   const botName = assistant?.displayName ?? "Podium";
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
@@ -1048,8 +1139,18 @@ function Conversation({
   // Somebody else's chat is writable by the people taking part in it (phase 4): the server
   // marks those shared_with_me. Anybody else reading it — the dev token — gets the note.
   const sharedWithMe = stream.chat?.sharedWithMe === true;
+  // Phase 5: the server says what this viewer may do. A viewer reads; an editor and the owner
+  // write. The dev token is "owner" of everything but writes nobody's chat but its own, so the
+  // note for somebody else's chat still stands for it.
+  const role = roleOf(stream.chat);
+  const viewOnly = role === "viewer";
   const foreign =
-    owner !== "" && (viewer?.login ?? "") !== "" && owner !== viewer?.login && !sharedWithMe;
+    owner !== "" &&
+    (viewer?.login ?? "") !== "" &&
+    owner !== viewer?.login &&
+    !sharedWithMe &&
+    role !== "editor" &&
+    role !== "viewer";
   const multiplayer = stream.chat?.multiplayer === true || mirrored;
   const personalityName = stream.chat?.personalityDisplay ?? "";
   const me = viewer?.login ?? "";
@@ -1071,6 +1172,23 @@ function Conversation({
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
   }, [qc, stream.chat]);
+
+  // Reading the chat moves the viewer's read mark to the newest message (phase 5), so its
+  // unread count clears here and on every other screen that lists it. Only forward, and only
+  // once per new message.
+  const newestSeq = stream.messages.length > 0 ? stream.messages[stream.messages.length - 1].seq : 0n;
+  const markedSeq = useRef(0n);
+  useEffect(() => {
+    if (newestSeq === 0n || newestSeq <= markedSeq.current || role === "") return;
+    markedSeq.current = newestSeq;
+    void agent
+      .markChatRead({ chatId, seq: newestSeq })
+      .then(() => qc.invalidateQueries({ queryKey: ["agent", "chats"] }))
+      .catch(() => {
+        // A read mark that did not land is retried by the next message.
+        markedSeq.current = 0n;
+      });
+  }, [chatId, newestSeq, role, qc]);
 
   // What answers this conversation. Picked once and then remembered: the chat row stores the
   // override, so a reload, another tab and coming back tomorrow all open on the model this
@@ -1192,7 +1310,13 @@ function Conversation({
 
   return (
     <>
-      <ConversationTitle title={title} channel={channel} onRename={onRename} />
+      <ConversationTitle
+        title={title || stream.chat?.title || ""}
+        channel={channel}
+        onRename={onRename}
+        canRename={role === "" || canWrite(role)}
+        actions={role !== "" ? <ShareButton chatId={chatId} title={title || stream.chat?.title || ""} /> : null}
+      />
       <ChatPeople people={stream.chat?.people ?? []} surfaces={stream.chat?.surfaces ?? []} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
       <Suspense fallback={<div className="min-h-0 flex-1" />}>
@@ -1227,7 +1351,15 @@ function Conversation({
         />
       </Suspense>
 
-      {foreign ? (
+      {viewOnly ? (
+        <div
+          data-testid="chat-view-only"
+          className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+        >
+          <Users className="size-4 shrink-0" aria-hidden />
+          You have view access. Ask {owner || "the owner"} to make you an editor to post here.
+        </div>
+      ) : foreign ? (
         <div
           data-testid="chat-foreign-note"
           className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"

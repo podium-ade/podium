@@ -75,7 +75,7 @@ const empty: ChatStreamState = {
  *   The stream is torn down and reopened from the last seq seen, and the replay delivers
  *   whatever was missed.
  */
-export function useChatStream(chatId: string): ChatStreamState {
+export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
   const [state, setState] = useState<Keyed>({ ...empty, chatId });
 
   useEffect(() => {
@@ -96,7 +96,9 @@ export function useChatStream(chatId: string): ChatStreamState {
       while (!ctrl.signal.aborted) {
         try {
           for await (const frame of agent.streamChat(
-            { chatId, fromSeq: lastSeq },
+            // linkToken is a share link's k= (phase 5): with it the server lets a signed-in
+            // person open a chat shared by link, and writes them a row so they keep it.
+            linkToken ? { chatId, fromSeq: lastSeq, linkToken } : { chatId, fromSeq: lastSeq },
             { signal: ctrl.signal },
           )) {
             backoff = BASE_BACKOFF_MS;
@@ -155,12 +157,15 @@ export function useChatStream(chatId: string): ChatStreamState {
                   ...prev,
                   phase: "streaming",
                   error: undefined,
-                  // shared_with_me is per viewer, and only the stream's first chat frame is
-                  // built for this viewer; a later one (a rename, a title) keeps what it said.
-                  chat:
-                    prev.chat?.sharedWithMe && !row.sharedWithMe
-                      ? { ...row, sharedWithMe: true }
-                      : row,
+                  // shared_with_me and my_role are per viewer; the server works both out
+                  // again for this viewer on every chat frame (phase 5), so a share or an
+                  // unshare reaches this screen. An older server left them off later frames,
+                  // so an empty value keeps what the first frame said.
+                  chat: {
+                    ...row,
+                    sharedWithMe: row.sharedWithMe || (prev.chat?.sharedWithMe ?? false),
+                    myRole: row.myRole || (prev.chat?.myRole ?? ""),
+                  },
                 }));
                 break;
               }
@@ -195,7 +200,7 @@ export function useChatStream(chatId: string): ChatStreamState {
     })();
 
     return () => ctrl.abort();
-  }, [chatId]);
+  }, [chatId, linkToken]);
 
   return state.chatId === chatId ? state : empty;
 }
