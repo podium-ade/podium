@@ -431,6 +431,43 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   that assistant under their own name and credentials; the assistant itself stays private — it is
   in nobody else's picker, and their chat list shows the chat under Podium, as shared.
 
+### Sharing a chat
+
+From phase 5 a chat is shared the way a document is. **Share** in the chat header opens the
+dialog; the rules live in `podium_agent` (`0035_chat_sharing.sql`), so every list, stream and
+write agrees.
+
+| Role | How you get it | May |
+|---|---|---|
+| owner | you made the chat, or were the first Podium person in a mirrored one | everything, and the only one who changes who has access or deletes the chat for everyone |
+| editor | shared with you as one, opened from an editor link, or you **spoke in it** from any surface | read, post, tag Podium, rename, retry a delivery, stop a turn, leave |
+| viewer | shared with you as one, opened from a viewer link or Workspace, or a participant the 0031 backfill only guessed from a name | read, leave |
+
+- **General access** widens a chat beyond the named grants: *Restricted* (the default),
+  *Podium members* (everybody who has signed in; listed for them under **Workspace** until
+  they open it), or *Anyone with the link* (signed in, with `/agent/chat/<id>?k=<token>`).
+  Opening a chat either way writes the opener an access row, so it stays in their lists even
+  if general access is narrowed later. **Reset link** makes a new 128-bit token: the old link
+  stops letting anybody in; people who joined keep access. Narrowing to Restricted stops the
+  link working at all. Only the owner is ever shown the link.
+- **Sharing makes a chat multiplayer** (a mention starts a turn), and a share notifies the
+  person in their inbox. A `@`-mention of somebody who can open the chat notifies them too.
+  Both are toasted once in the web UI and shown in the bell; opening the chat marks them read.
+- **Lists:** Chat and Sessions show *Shared with me* (shared by name or opened from a link,
+  wherever it lives) and *Workspace* sections, who shared each one, your role, and unread
+  counts — what somebody else said after your read mark, which opening the chat moves.
+- **Leave** takes you out of somebody else's chat; speaking in it again rejoins you. **Delete**
+  is the owner's alone, and removes Podium's record only — never the Slack thread or the PR.
+- **A stream follows access.** A share, unshare or change of general access is re-checked for
+  every open screen; a viewer promoted to editor gets the composer, and somebody unshared is
+  shown nothing more.
+- **Mirrored private conversations can be shared**, with a warning in the dialog: a Slack DM
+  or `G…` channel is known to be private; a `C…` channel may be, and is warned about as such.
+- **Audit:** share, unshare, general-access changes, link resets, joins, leaves and deletes
+  are written to podium-server's `audit_log` (`AuditService.RecordAudit`, which only the
+  conductor's credential may call, and only for `chat.*` actions). An audit write that fails
+  is logged; the action stands.
+
 ### Cancelling a turn
 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees
@@ -2826,11 +2863,10 @@ composer therefore offers exactly one choice — which model answers — and no 
 playbook, because there is nothing per message to pick: the turn chooses a playbook for each
 task it delegates, and may choose several while answering once.
 
-- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. That
-  is a partition, not a role, and it is free. Knowing
-  another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
-  are the same partition: only the owner can change the title or remove a chat, and
-  another login's id is `not_found`. The messages go with a delete. Sessions and turns it
+- **A chat belongs to the login that created it**, and is anybody else's only as far as it
+  was shared with them or they took part in it (see [Sharing a chat](#sharing-a-chat)).
+  Knowing a chat id you have no access to gets you `not_found`, not access; a viewer writing
+  gets `permission_denied`. An editor may rename; only the owner may delete. The messages go with a delete. Sessions and turns it
   started stay — they are the audit of the work, not the transcript. A task still answering
   the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
   is gone immediately. The web UI says so in the confirm before it acts.
@@ -2840,9 +2876,8 @@ task it delegates, and may choose several while answering once.
   token; a thread only people outside Podium spoke in stays hidden. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
-- **One turn at a time per chat.** The composer is disabled while a turn runs and
-  `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
-  turn-based rule as everywhere else: a turn ends with an answer and exits.
+- **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
+  of its own (see [Several people, one conversation](#several-people-one-conversation)).
 - **Progress is a message.** Every `progress` message is stored under the role `progress` and
   rendered in the transcript the way an answer is, because a chat is the one conversation
   Podium holds itself and there is nowhere else to keep it. Reload and the trail is still
