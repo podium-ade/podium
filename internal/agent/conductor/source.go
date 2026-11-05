@@ -169,6 +169,12 @@ type InboundEvent struct {
 	// so the chat can show whose turns are waiting.
 	ChatID  string `json:",omitempty"`
 	ChatSeq uint64 `json:",omitempty"`
+	// Placed, when set, is told where the message went once the conductor has decided: the
+	// number of turns that run before it (0: it is being answered now — it started a turn,
+	// or went into the turn already answering this person). The web chat sets it so a send
+	// can say how far back in the queue it is, exactly rather than by guessing. It is not
+	// called for a message nothing will answer, and it is never part of a queued event.
+	Placed func(ahead int) `json:"-"`
 	// RecordText is what the person actually wrote, when Text is an instruction the source
 	// built around it ("alice commented on #12 …"). The record keeps the person's words;
 	// the turn is handed the instruction. Empty means Text is both.

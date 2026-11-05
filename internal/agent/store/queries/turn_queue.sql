@@ -70,3 +70,13 @@ select distinct q.session_id from turn_queue q
 -- name: OwnerWarm :one
 select warm_task_id, warm_login, warm_kind from work_leases
 where key = @key and owner <> @caller and expires_at >= now();
+
+-- QueuePosition is how many turns run before a queued one: the rows queued ahead of it in its
+-- session, and the turn running there, if one is — whichever conductor runs it.
+-- name: QueuePosition :one
+select (
+  (select count(*) from turn_queue q where q.session_id = @session_id and q.id < @id)
+  + (case when exists (
+      select 1 from turns t where t.session_id = @session_id and t.status = 'running'
+    ) then 1 else 0 end)
+)::int as ahead;

@@ -599,6 +599,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		if err := wh.inbox.inject(ev.Text); err == nil {
 			c.metrics.WarmInjects.WithLabelValues(profiles.RunsOnHost).Inc()
 			c.logger.InfoContext(ctx, "injected a message into a warm host turn", "session_id", sess.ID)
+			placed(ev, 0)
 			return
 		}
 		// Its inbox closed as it exited. The message becomes the next turn once the one
@@ -612,6 +613,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		c.mu.Unlock()
 		if c.chatSteer(ctx, sess.ID, ev.Text) {
 			c.logger.InfoContext(ctx, "steered a message into a running chat-host turn", "session_id", sess.ID)
+			placed(ev, 0)
 			return
 		}
 		c.mu.Lock()
@@ -627,6 +629,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		if err == nil {
 			c.logger.InfoContext(ctx, "injected a message into a running task",
 				"session_id", sess.ID, "task_id", injectID)
+			placed(ev, 0)
 			return
 		}
 		c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
@@ -635,6 +638,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// Another conductor may be serving this conversation, with a warm task answering this
 	// same person: then the message goes straight into it.
 	if c.injectIntoOwner(ctx, src, sess.ID, ev) {
+		placed(ev, 0)
 		return
 	}
 

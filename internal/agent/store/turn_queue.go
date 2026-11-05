@@ -167,3 +167,13 @@ func (s *Store) MarkChatMultiplayer(ctx context.Context, chatID string, force bo
 	}
 	return chatFromRow(row), true, nil
 }
+
+// QueuePosition is how many turns run before the queued turn id: those queued ahead of it in
+// its session, and the one running there, if any.
+func (s *Store) QueuePosition(ctx context.Context, sessionID string, id int64) (int, error) {
+	n, err := s.q.QueuePosition(ctx, db.QueuePositionParams{SessionID: sessionID, ID: id})
+	if err != nil {
+		return 0, fmt.Errorf("read the queue position of turn %d in session %s: %w", id, sessionID, err)
+	}
+	return int(n), nil
+}

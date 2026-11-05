@@ -263,3 +263,37 @@ func TestAWebMessageInAMirroredThreadStaysInTheWeb(t *testing.T) {
 		assert.Empty(t, m.Deliveries, "nothing is owed to Slack for seq %d", m.Seq)
 	}
 }
+
+// TestTheConductorSaysExactlyWhereAMessageWent: an event that asks (InboundEvent.Placed) is
+// told how many turns run before it, read back from the queue: behind a running turn the next
+// person is one back and the one after two. The web chat's send answers with this.
+func TestTheConductorSaysExactlyWhereAMessageWent(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	ctx := context.Background()
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+	key := conductor.KindDev + ":C1:1.1"
+
+	hold := asker("C1/1.1", "a long one", "alice@podium.test")
+	hold.Env = hostEnv(map[string]string{hostFakeHangEnv: "1"})
+	require.NoError(t, src.Send(ctx, hold))
+	waitFor(t, 30*time.Second, "alice's turn to be running", func() bool {
+		return turnStatus(st, key) == store.TurnRunning
+	})
+
+	where := make(chan int, 2)
+	for i, who := range []string{"bob@podium.test", "carol@podium.test"} {
+		ev := asker("C1/1.1", "mine", who)
+		ev.Env = hostEnv(nil)
+		ev.Placed = func(n int) { where <- n }
+		require.NoError(t, src.Send(ctx, ev))
+		select {
+		case n := <-where:
+			assert.Equal(t, i+1, n, "%s: the running turn and everybody queued before them", who)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("the conductor never said where %s's message went", who)
+		}
+	}
+}

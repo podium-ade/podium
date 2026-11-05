@@ -298,7 +298,7 @@ func (f *fakeStore) ListChatPullRequests(_ context.Context, chatID string) ([]st
 
 func newSource(t *testing.T, st Store) *Source {
 	t.Helper()
-	src, err := New(Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	src, err := New(Options{PlacedWait: -1, Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
 	require.NoError(t, err)
 	return src
 }
@@ -850,13 +850,13 @@ func TestAnEmptyMessageIsRefused(t *testing.T) {
 func TestWithNoUIURLThereIsNoDeepLink(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
-	src, err := New(Options{Store: st, DisplayName: "Podium"})
+	src, err := New(Options{PlacedWait: -1, Store: st, DisplayName: "Podium"})
 	require.NoError(t, err)
 	assert.Empty(t, src.URL("chat_1"), "a link to nowhere is worse than none")
 }
 
 func TestASourceNeedsAStore(t *testing.T) {
-	_, err := New(Options{})
+	_, err := New(Options{PlacedWait: -1})
 	assert.ErrorContains(t, err, "a store is required")
 }
 
@@ -953,4 +953,31 @@ func TestADeliveryChangeResendsTheMessage(t *testing.T) {
 		t.Fatalf("a missing message was sent: %+v", f)
 	case <-time.After(50 * time.Millisecond):
 	}
+}
+
+// A send answers with where the conductor put the message, when the conductor says in time,
+// and with its own estimate when it does not.
+func TestSendAnswersWithWhereTheConductorPutIt(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src, err := New(Options{PlacedWait: 2 * time.Second, Store: st, DisplayName: "Podium"})
+	require.NoError(t, err)
+
+	go func() {
+		ev := <-src.Events()
+		require.NotNil(t, ev.Placed, "a web message asks where it went")
+		ev.Placed(3)
+	}()
+	res, err := src.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hi"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, res.Ahead)
+
+	quiet, err := New(Options{PlacedWait: 20 * time.Millisecond, Store: st, DisplayName: "Podium"})
+	require.NoError(t, err)
+	start := time.Now()
+	res, err = quiet.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "again"})
+	require.NoError(t, err)
+	assert.Zero(t, res.Ahead, "the estimate: nothing running, nothing queued")
+	assert.Less(t, time.Since(start), time.Second)
+	drainEvent(t, quiet)
 }
