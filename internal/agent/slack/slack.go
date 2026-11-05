@@ -71,6 +71,12 @@ type Options struct {
 	// BotToken is the xoxb-… bot token. SENSITIVE.
 	BotToken string
 	Logger   *slog.Logger
+	// TeamIDs are workspaces (T…) and Enterprise Grid orgs (E…) whose full members may also be
+	// matched to a Podium login, beside the bot's own workspace from auth.test:
+	// PODIUM_SLACK_TEAM_IDS, for a company whose people are in several workspaces the bot is
+	// not installed in. A Slack Connect stranger, a guest and everything else verifiedEmail
+	// refuses is still refused whatever team they are in.
+	TeamIDs []string
 
 	// apiURL points the Web API at somewhere other than Slack. It is unexported because
 	// the only caller that has any business setting it is this package's own test: every
@@ -99,6 +105,8 @@ type Source struct {
 	// member of THIS workspace: see verifiedEmail.
 	botTeamID       string
 	botEnterpriseID string
+	// teams is Options.TeamIDs.
+	teams []string
 	mentionRE       *regexp.Regexp
 	// archiveBase is the workspace's https://team.slack.com, used to build permalinks
 	// without an extra API call per turn.
@@ -161,6 +169,7 @@ func New(opts Options) (*Source, error) {
 		channels: map[string]string{},
 		privacy:  map[string]string{},
 		seen:     map[string]time.Time{},
+		teams:    opts.TeamIDs,
 	}, nil
 }
 
@@ -1063,7 +1072,7 @@ func (s *Source) account(ctx context.Context, user string) slackAccount {
 func (s *Source) rememberAccountLocked(user string, info *slack.User) slackAccount {
 	team := firstNonEmpty(info.TeamID, s.botTeamID)
 	acct := slackAccount{
-		login:      verifiedEmail(info, s.botTeamID, s.botEnterpriseID),
+		login:      verifiedEmail(info, s.botTeamID, s.botEnterpriseID, s.teams...),
 		externalID: team + "/" + user,
 		avatar:     info.Profile.Image72,
 		at:         time.Now(),
@@ -1080,19 +1089,25 @@ func (s *Source) rememberAccountLocked(user string, info *slack.User) slackAccou
 // or another workspace's user can each have an email on our domain, and a match would run a
 // turn with a real person's secrets. So the user must be:
 //
-//   - a member of the bot's own workspace, or of its Enterprise Grid org (unknown
-//     workspace: nobody matches — a bot that has not run auth.test proves nothing);
+//   - a member of the bot's own workspace, or of its Enterprise Grid org, or of a workspace
+//     or org PODIUM_SLACK_TEAM_IDS names (unknown workspace and no list: nobody matches — a
+//     bot that has not run auth.test proves nothing);
 //   - not a Slack Connect stranger, not a single- or multi-channel guest, not deactivated,
 //     not a bot or an app;
 //   - holding an email Slack says they confirmed.
 //
 // The conductor then checks the domain and that the email is a login that has signed in.
-func verifiedEmail(info *slack.User, team, enterprise string) string {
-	if info == nil || team == "" {
+func verifiedEmail(info *slack.User, team, enterprise string, also ...string) string {
+	if info == nil || (team == "" && len(also) == 0) {
 		return ""
 	}
-	sameWorkspace := info.TeamID == team ||
+	sameWorkspace := (team != "" && info.TeamID == team) ||
 		(enterprise != "" && info.Enterprise.EnterpriseID == enterprise)
+	for _, id := range also {
+		if id != "" && (info.TeamID == id || info.Enterprise.EnterpriseID == id) {
+			sameWorkspace = true
+		}
+	}
 	switch {
 	case !sameWorkspace,
 		info.IsStranger, info.IsRestricted, info.IsUltraRestricted,
