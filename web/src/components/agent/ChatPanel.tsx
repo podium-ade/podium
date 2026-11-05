@@ -410,18 +410,21 @@ function originKey(origin: string | undefined): string {
 
 function originLabel(key: string): string {
   if (key === "web") return "Web";
+  if (key === "shared") return "Shared with me";
   if (key === "slack") return "Slack";
   if (key === "github") return "GitHub";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "slack", "github"];
+const ORIGIN_ORDER = ["web", "shared", "slack", "github"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {
   const by = new Map<string, Chat[]>();
   for (const c of chats) {
-    const key = originKey(c.origin);
+    // A web chat somebody else owns and the viewer takes part in — a chat with somebody
+    // else's personal assistant among them — is its own list, labelled with that assistant.
+    const key = c.sharedWithMe && originKey(c.origin) === "web" ? "shared" : originKey(c.origin);
     const list = by.get(key);
     if (list) list.push(c);
     else by.set(key, [c]);
@@ -834,7 +837,14 @@ function ChatRow({
               {chat.title}
             </span>
             {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
-            {foreign ? <span className="block truncate text-2xs text-muted">{chat.login}</span> : null}
+            {foreign && !chat.sharedWithMe ? (
+              <span className="block truncate text-2xs text-muted">{chat.login}</span>
+            ) : null}
+            {chat.sharedWithMe && !mirrored ? (
+              <span data-testid="chat-row-shared" className="block truncate text-2xs text-muted">
+                {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}shared by {chat.login}
+              </span>
+            ) : null}
           </span>
           {running ? <span className="sr-only">running</span> : null}
           {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
@@ -1035,8 +1045,28 @@ function Conversation({
   const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const owner = stream.chat?.login || listedLogin || "";
-  const foreign = owner !== "" && (viewer?.login ?? "") !== "" && owner !== viewer?.login;
-  const participants = stream.chat?.participants ?? [];
+  // Somebody else's chat is writable by the people taking part in it (phase 4): the server
+  // marks those shared_with_me. Anybody else reading it — the dev token — gets the note.
+  const sharedWithMe = stream.chat?.sharedWithMe === true;
+  const foreign =
+    owner !== "" && (viewer?.login ?? "") !== "" && owner !== viewer?.login && !sharedWithMe;
+  const multiplayer = stream.chat?.multiplayer === true || mirrored;
+  const personalityName = stream.chat?.personalityDisplay ?? "";
+  const me = viewer?.login ?? "";
+  const queue = useMemo(() => {
+    const turns = stream.queue;
+    let firstMine = -1;
+    const mine: bigint[] = [];
+    turns.forEach((t, i) => {
+      if (me !== "" && t.login === me && t.seq > 0n) {
+        if (firstMine < 0) firstMine = i;
+        mine.push(t.seq);
+      }
+    });
+    // Ahead of my first waiting turn: everything queued before it, and the turn running.
+    const ahead = firstMine < 0 ? 0 : firstMine + (stream.running ? 1 : 0);
+    return { ahead, mine, waiting: turns.length };
+  }, [stream.queue, stream.running, me]);
   useEffect(() => {
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
@@ -1082,23 +1112,33 @@ function Conversation({
         before: stream.messages.filter((m) => m.role === "user").length,
       });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      // A message nobody put to Podium is not waiting for an answer.
+      if (!res.addressed) setPendingUser(null);
     },
     onError: (err) => {
       setPendingUser(null);
-      // The composer is disabled while a turn runs, so this is the race rather than the
-      // rule: another tab got there first.
       if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
         if (err.rawMessage === "That assistant was deleted.") {
           toast("That assistant was deleted.");
           return;
         }
-        toast("A turn is already running in this chat. Wait for the answer.");
-        return;
       }
       toast(errorMessage(err));
     },
+  });
+
+  const stop = useMutation({
+    mutationFn: () => agent.cancelChatTurn({ chatId }),
+    onSuccess: (res) => {
+      if (!res.stopped) toast("Nothing was running.");
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+  const takeBack = useMutation({
+    mutationFn: (seq: bigint) => agent.cancelQueuedTurn({ chatId, seq }),
+    onError: (err) => toast(errorMessage(err)),
   });
 
   const userCount = stream.messages.filter((m) => m.role === "user").length;
@@ -1112,6 +1152,9 @@ function Conversation({
     !stream.awaiting &&
     last?.role !== "assistant";
   const busy = (stream.running && !stream.awaiting) || send.isPending || holdBusy;
+  // The composer is only held while a send is in flight. A turn running no longer blocks it:
+  // what is sent meanwhile is queued as a turn of its own (phase 4).
+  const sending = send.isPending;
   const connecting =
     stream.phase === "connecting" &&
     stream.messages.length === 0 &&
@@ -1184,16 +1227,7 @@ function Conversation({
         />
       </Suspense>
 
-      {mirrored ? (
-        <div
-          data-testid="chat-mirrored-note"
-          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
-        >
-          This conversation lives in {origin}. Reply to it there. Podium keeps a copy so it
-          can be read here.
-          {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
-        </div>
-      ) : foreign ? (
+      {foreign ? (
         <div
           data-testid="chat-foreign-note"
           className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
@@ -1202,7 +1236,14 @@ function Conversation({
         </div>
       ) : (
         <ChatComposer
-          disabled={busy}
+          disabled={sending}
+          running={stream.running && !stream.awaiting}
+          onStop={() => stop.mutate()}
+          multiplayer={multiplayer}
+          mirrored={mirrored ? origin : ""}
+          personality={personalityName}
+          queue={queue}
+          onTakeBack={(seq) => takeBack.mutate(seq)}
           agents={agents}
           assistant={assistant}
           choice={choice}

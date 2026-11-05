@@ -377,6 +377,13 @@ function TurnItem({ turn: t }: { turn: Turn }) {
           <span className="text-muted" title={absolute(t.startedAt)}>
             {relative(t.startedAt)}
           </span>
+          {t.startedBy ? (
+            // Whose turn it was: in a conversation several people speak in, each turn runs as
+            // the person who asked it (phase 4).
+            <span data-testid="turn-started-by" className="truncate text-muted">
+              by {t.startedBy === "github-app" ? "the GitHub App" : t.startedBy}
+            </span>
+          ) : null}
           {t.taskId ? (
             <Tooltip label={`Open task ${t.taskId}`}>
               <Link

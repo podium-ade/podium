@@ -91,7 +91,7 @@ export function ChatThread({
             <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5">
               {top}
               <ThreadPrimitive.Empty>{welcome}</ThreadPrimitive.Empty>
-              <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+              <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, SystemMessage }} />
             </div>
             <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex justify-center">
               <ThreadPrimitive.ScrollToBottom asChild>
@@ -117,6 +117,25 @@ export function ChatThread({
 const ts = (d?: Date) => (d ? timestampFromDate(d) : undefined);
 
 const useCustom = () => useAuiState((s) => s.message.metadata.custom as MessageCustom);
+
+/**
+ * SystemMessage is Podium saying something about the chat rather than in it — that it is
+ * multiplayer now, and answers only when mentioned. A quiet divider across the thread.
+ */
+function SystemMessage() {
+  return (
+    <MessagePrimitive.Root
+      data-testid="chat-notice"
+      className="flex items-center gap-3 py-1 text-2xs text-faint"
+    >
+      <span aria-hidden className="h-px flex-1 bg-border" />
+      <span className="max-w-[80%] text-center">
+        <MessagePrimitive.Parts components={{ Text: ({ text }) => <>{text}</> }} />
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-border" />
+    </MessagePrimitive.Root>
+  );
+}
 
 /**
  * UserMessage is a question: short, scanned for, so a bubble on the right. The asker is
