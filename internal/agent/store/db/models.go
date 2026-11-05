@@ -28,6 +28,7 @@ type Chat struct {
 	GeneralAccess      string
 	GeneralRole        string
 	LinkToken          *string
+	DeletedAt          *time.Time
 }
 
 type ChatAccess struct {

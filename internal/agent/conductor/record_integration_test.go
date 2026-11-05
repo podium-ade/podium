@@ -176,6 +176,59 @@ func TestARecordMovesToTheConversationItBelongsTo(t *testing.T) {
 	}
 }
 
+// A mirrored chat its owner deleted is not opened again by the conversation's next message:
+// that message, and every one after it, is recorded into the deleted chat (so a turn's
+// transcript stays whole), and turns from the thread still run.
+func TestADeletedMirroredChatStaysDeleted(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	first := inbound("C1/7.1", "the first question")
+	first.ExternalID = "7.1"
+	require.NoError(t, src.Send(ctx, first))
+	waitFor(t, 30*time.Second, "the first turn", func() bool {
+		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
+	})
+	chat, err := st.ChatBySourceKey(ctx, first.SourceKey)
+	require.NoError(t, err)
+	owner, shared := chat.Login, false
+	if owner == "" {
+		owner, shared = "dev", true
+	}
+	require.NoError(t, st.DeleteChat(ctx, chat.ID, owner, shared))
+
+	second := inbound("C1/7.1", "and a second question")
+	second.ExternalID = "7.2"
+	require.NoError(t, src.Send(ctx, second))
+	waitFor(t, 30*time.Second, "the second turn", func() bool {
+		return len(fake.Specs()) == 2 && turnStatus(st, first.SourceKey) == store.TurnSucceeded
+	})
+	again, err := st.ChatBySourceKey(ctx, first.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, chat.ID, again.ID, "no new chat was opened for the thread")
+	require.NotNil(t, again.DeletedAt, "and the chat is still deleted")
+	waitFor(t, 10*time.Second, "the second message in the deleted chat's record", func() bool {
+		msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
+		if err != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if m.ExternalID == "7.2" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // An edit changes the recorded row in place and starts nothing — even one that now names the
 // bot. A delete marks the row and keeps its text.
 func TestAnEditOrADeleteChangesTheRecordAndStartsNothing(t *testing.T) {

@@ -73,6 +73,7 @@ where (
       and ($3::text = '' or c.login is distinct from $1::text))
   or (c.id is not null and $3::text = 'workspace'
       and c.general_access = 'members'
+      and c.deleted_at is null
       and not chat_visible_to(c.id, c.login, $1::text)
       and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
 )

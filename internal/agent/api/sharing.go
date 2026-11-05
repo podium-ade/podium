@@ -64,7 +64,8 @@ func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string)
 	if SeesAll(ctx) {
 		return store.RoleOwner, nil
 	}
-	if login == "" || login == "unknown" {
+	if login == "" || login == "unknown" || c.DeletedAt != nil {
+		// A deleted mirrored chat (0036) is nobody's, its owner included.
 		return "", nil
 	}
 	if c.Login != "" && c.Login == login {

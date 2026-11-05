@@ -728,9 +728,13 @@ func TestOnlyTheDevTokenMayRenameOrDeleteAMirroredChat(t *testing.T) {
 
 	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "bob", false), ErrNotFound)
 	require.NoError(t, s.DeleteChat(ctx, thread.ID, "local", true))
-	_, err = s.ChatBySourceKey(ctx, slackKey)
-	require.ErrorIs(t, err, ErrNotFound, "the key is free for the thread's next message to reopen")
-	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "local", true), ErrNotFound)
+	// Deleted, not removed (0036): the key still finds the chat, so the thread's next message
+	// is recorded into it rather than opening a new one, and deleting it again is a no-op.
+	kept, err := s.ChatBySourceKey(ctx, slackKey)
+	require.NoError(t, err)
+	assert.Equal(t, thread.ID, kept.ID)
+	assert.NotNil(t, kept.DeletedAt)
+	require.NoError(t, s.DeleteChat(ctx, thread.ID, "local", true))
 }
 
 // The running flag follows the session that owns the conversation, whatever shape its key

@@ -637,6 +637,9 @@ const ChatPreviewChars = 80
 type Chat struct {
 	ID    string
 	Title string
+	// DeletedAt is set on a mirrored chat its owner deleted (0036). It stays in the database
+	// as the conversation's record, and is nobody's but the dev token's.
+	DeletedAt *time.Time
 	// Login owns the chat, and is empty for a MIRRORED conversation: a Slack thread
 	// belongs to the workspace rather than to a Podium identity. Empty is what makes it
 	// readable by every login and renameable and deletable by none, because both of those
@@ -1320,6 +1323,7 @@ func chatFromRow(row db.Chat) Chat {
 		GeneralAccess:      row.GeneralAccess,
 		GeneralRole:        row.GeneralRole,
 		LinkToken:          deref(row.LinkToken),
+		DeletedAt:          row.DeletedAt,
 	}
 }
 
@@ -1373,12 +1377,13 @@ func (s *Store) RunningChatTurn(ctx context.Context, chatID string) (Turn, bool,
 	return turns[0], true, nil
 }
 
-// DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
-// ErrNotFound means it was not there or not theirs: the two are the same answer so the
-// existence of another login's chat is not leaked. shared is the dev token removing a
-// mirrored copy; the thread itself lives in Slack and is mirrored afresh by its next
-// message. Sessions and turns are left alone — they are the audit of the work, not the
-// transcript.
+// DeleteChat deletes one login's chat for everyone. A web chat is removed with every message
+// in it (ON DELETE CASCADE). A mirrored chat is tombstoned instead (0036): Podium's record of a
+// Slack thread or a pull request would otherwise be opened afresh by the conversation's next
+// message, and a delete that comes back is not a delete. ErrNotFound means it was not there or
+// not theirs: the two are the same answer so the existence of another login's chat is not
+// leaked. shared is the dev token deleting a mirrored chat nobody owns. Sessions and turns are
+// left alone — they are the audit of the work, not the transcript.
 func (s *Store) DeleteChat(ctx context.Context, id, login string, shared bool) error {
 	if login == "" {
 		return errors.New("delete chat: a login is required")
@@ -1389,6 +1394,14 @@ func (s *Store) DeleteChat(ctx context.Context, id, login string, shared bool) e
 	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: &login, IncludeShared: shared})
 	if err != nil {
 		return fmt.Errorf("delete chat %s: %w", id, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	n, err = s.q.TombstoneChat(ctx, db.TombstoneChatParams{ID: id, Login: &login, IncludeShared: shared, DeletedAt: &now})
+	if err != nil {
+		return fmt.Errorf("delete mirrored chat %s: %w", id, err)
 	}
 	if n == 0 {
 		return fmt.Errorf("%w: chat %s", ErrNotFound, id)
