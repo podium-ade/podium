@@ -33,3 +33,7 @@ update chats set channel = @channel where id = @id;
 -- SetChatChannelPrivacy records what Slack says about a mirrored chat's channel (0037).
 -- name: SetChatChannelPrivacy :exec
 update chats set channel_privacy = @channel_privacy where id = @id;
+
+-- SetChatSourceURL records the link to a mirrored chat's conversation where it lives (0038).
+-- name: SetChatSourceURL :exec
+update chats set source_url = @source_url where id = @id;

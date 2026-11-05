@@ -124,6 +124,17 @@ func (s *Store) SetChatChannelPrivacy(ctx context.Context, id, privacy string) e
 	return nil
 }
 
+// SetChatSourceURL records the link to a mirrored chat's conversation where it lives.
+func (s *Store) SetChatSourceURL(ctx context.Context, id, url string) error {
+	if id == "" {
+		return fmt.Errorf("set chat source url: an id is required")
+	}
+	if err := s.q.SetChatSourceURL(ctx, db.SetChatSourceURLParams{ID: id, SourceUrl: url}); err != nil {
+		return fmt.Errorf("set source url of chat %s: %w", id, err)
+	}
+	return nil
+}
+
 // SlackChannelID is the C…/G…/D… inside a slack:<channel>:<thread> source key.
 func SlackChannelID(sourceKey string) (string, bool) {
 	kind, rest, ok := strings.Cut(sourceKey, ":")

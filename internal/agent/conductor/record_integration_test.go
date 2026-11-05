@@ -194,6 +194,7 @@ func TestADeletedMirroredChatStaysDeleted(t *testing.T) {
 	first := inbound("C1/7.1", "the first question")
 	first.ExternalID = "7.1"
 	first.ChannelPrivacy = conductor.ChannelPrivate
+	first.ThreadURL = "https://acme.slack.com/archives/C1/p71"
 	require.NoError(t, src.Send(ctx, first))
 	waitFor(t, 30*time.Second, "the first turn", func() bool {
 		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
@@ -201,6 +202,7 @@ func TestADeletedMirroredChatStaysDeleted(t *testing.T) {
 	chat, err := st.ChatBySourceKey(ctx, first.SourceKey)
 	require.NoError(t, err)
 	assert.Equal(t, store.ChannelPrivate, chat.ChannelPrivacy, "the mirror records what the source says about the channel")
+	assert.Equal(t, "https://acme.slack.com/archives/C1/p71", chat.SourceURL, "and the link to the thread")
 	owner, shared := chat.Login, false
 	if owner == "" {
 		owner, shared = "dev", true

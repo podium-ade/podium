@@ -411,6 +411,7 @@ func (s *Source) said(ctx context.Context, channel, ts, threadTS, user, text str
 		Channel:        channel,
 		ChannelName:    s.channelName(ctx, channel),
 		ChannelPrivacy: s.channelPrivacy(ctx, channel),
+		ThreadURL:      s.permalink(channel, thread),
 		Author:         s.displayName(ctx, user),
 		// A candidate: the conductor keeps it only for a login that has signed in.
 		Login:           acct.login,

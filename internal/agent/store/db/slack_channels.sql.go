@@ -88,6 +88,21 @@ func (q *Queries) SetChatChannelPrivacy(ctx context.Context, arg SetChatChannelP
 	return err
 }
 
+const setChatSourceURL = `-- name: SetChatSourceURL :exec
+update chats set source_url = $1 where id = $2
+`
+
+type SetChatSourceURLParams struct {
+	SourceUrl string
+	ID        string
+}
+
+// SetChatSourceURL records the link to a mirrored chat's conversation where it lives (0038).
+func (q *Queries) SetChatSourceURL(ctx context.Context, arg SetChatSourceURLParams) error {
+	_, err := q.db.Exec(ctx, setChatSourceURL, arg.SourceUrl, arg.ID)
+	return err
+}
+
 const setSlackChannelDescription = `-- name: SetSlackChannelDescription :execrows
 update slack_channels
 set description = $1,

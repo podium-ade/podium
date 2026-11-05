@@ -184,6 +184,7 @@ func TestInnerRecordsAThreadReplyWithoutAMention(t *testing.T) {
 	assert.Equal(t, "slack:C1:100.1", ev.SourceKey)
 	assert.Equal(t, "100.2", ev.ExternalID)
 	assert.Equal(t, "https://podium.slack.com/archives/C1/p1002", ev.ExternalURL)
+	assert.Equal(t, "https://podium.slack.com/archives/C1/p1001", ev.ThreadURL, "the thread's own link, for the chat's surface chip")
 	assert.Equal(t, "and then?", ev.Text)
 	assertNoInbound(t, s)
 }
