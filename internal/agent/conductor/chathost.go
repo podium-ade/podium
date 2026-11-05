@@ -193,25 +193,31 @@ func (cr chatRun) run(ctx context.Context) {
 		defer c.revokeTurnToken(h.token)
 	}
 
+	// Registered before the turn waits for a slot, not after: a busy host can hold a turn
+	// in line for a while, and Stop pressed meanwhile must stop it rather than find nothing
+	// registered and let it start once a slot frees up.
+	stopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	c.registerHost(r.ref, stop)
+	defer c.unregisterHost(r.ref)
+
 	// The person's slot first, then the host's: a person at their limit waits without
 	// holding one of the host's.
-	releaseUser, ok := c.acquireUserSlot(ctx, h.who)
+	releaseUser, ok := c.acquireUserSlot(stopCtx, h.who)
 	if !ok {
-		h.giveUp(ctx, hostFailedToStart)
+		cr.notStarted(ctx, stopCtx)
 		return
 	}
 	defer releaseUser()
-	release, ok := c.acquireChatSlot(ctx)
+	release, ok := c.acquireChatSlot(stopCtx)
 	if !ok {
-		h.giveUp(ctx, hostFailedToStart)
+		cr.notStarted(ctx, stopCtx)
 		return
 	}
 	defer release()
 
-	runCtx, cancel := context.WithTimeout(ctx, r.job.assistantTimeout())
+	runCtx, cancel := context.WithTimeout(stopCtx, r.job.assistantTimeout())
 	defer cancel()
-	c.registerHost(r.ref, cancel)
-	defer c.unregisterHost(r.ref)
 
 	// A person spending their own credential needs no global one. A turn Claude Code answers
 	// on the global Claude subscription needs that, and not the global key.
@@ -331,7 +337,11 @@ func (cr chatRun) run(ctx context.Context) {
 			"outcome", res.Outcome, "reason", res.Error)
 	}
 	if !r.said() {
-		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: hostSaidNothing})
+		say := hostSaidNothing
+		if status == store.TurnCancelled {
+			say = chatStopped
+		}
+		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: say})
 	}
 	if status == store.TurnSucceeded && turn.title != "" {
 		if namer, ok := r.src.(autoTitler); ok {
@@ -344,6 +354,26 @@ func (cr chatRun) run(ctx context.Context) {
 	c.noteChatTurn(r.sess.ID, r.src, r.ref)
 	r.finish(done, status)
 }
+
+// notStarted ends a chat-host turn that never got a slot. Stopped while it waited, it is a
+// cancelled turn and says so; the conductor stopping is the old failure to start.
+func (cr chatRun) notStarted(ctx, stopCtx context.Context) {
+	h := cr.h
+	if stopCtx.Err() != nil && ctx.Err() == nil {
+		h.r.c.post(ctx, h.r.src, h.r.ref, Outbound{Type: OutFailure, Text: chatStoppedBeforeStart})
+		h.r.finish(ctx, store.TurnCancelled)
+		return
+	}
+	h.giveUp(ctx, hostFailedToStart)
+}
+
+// chatStoppedBeforeStart is what a conversation is told when it was stopped while its turn was
+// still waiting for room on the chat host.
+const chatStoppedBeforeStart = "Stopped before I started."
+
+// chatStopped is what a conversation is told when it was stopped mid-answer and the answer had
+// not said anything yet.
+const chatStopped = "Stopped."
 
 // chatLocation is the location a turn of cv runs in: its model endpoint and its tools, every
 // URL carrying the conversation's token.
