@@ -370,7 +370,8 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 // answered from the row; everybody else from chat_role (0035), which makes an editor of a
 // participant and of whoever it was shared with as one.
 func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) error {
-	if login == "" {
+	if login == "" || chat.DeletedAt != nil {
+		// A deleted mirrored chat (0036) is nobody's to write, its owner included.
 		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
 	}
 	if chat.Login != "" && chat.Login == login {

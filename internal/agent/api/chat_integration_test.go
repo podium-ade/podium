@@ -303,8 +303,15 @@ func TestDeleteChatRemovesAMirroredThread(t *testing.T) {
 
 	_, err = f.clientAll().DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
 	require.NoError(t, err)
-	_, err = f.store.GetChat(ctx, thread.ID)
-	require.ErrorIs(t, err, store.ErrNotFound)
+	// A mirrored chat is deleted, not removed (0036): the record stays for the thread's next
+	// message to find, and nobody signed in can reach it any more.
+	kept, err := f.store.GetChat(ctx, thread.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, kept.DeletedAt)
+	_, err = f.clientAll().DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
+	require.NoError(t, err, "deleting it again keeps the tombstone")
+	_, err = f.client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{ChatId: thread.ID, Title: "back?"}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "nobody signed in can reach a deleted chat")
 }
 
 // fakeTasks is CancelTask as DeleteChat sees it: record the call, optionally fail it.

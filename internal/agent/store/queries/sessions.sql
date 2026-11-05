@@ -50,6 +50,7 @@ where (
       and (@section::text = '' or c.login is distinct from @viewer::text))
   or (c.id is not null and @section::text = 'workspace'
       and c.general_access = 'members'
+      and c.deleted_at is null
       and not chat_visible_to(c.id, c.login, @viewer::text)
       and exists (select 1 from identities i where i.provider = 'web' and i.external_id = @viewer::text))
 )

@@ -37,11 +37,12 @@ select * from chats where id = @id;
 -- user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
 --
 -- Phase 5: an editor may rename too — the owner and everybody chat_role makes an editor
--- (a participant, or somebody it was shared with as one). A viewer may not.
+-- (a participant, or somebody it was shared with as one). A viewer may not. A deleted
+-- mirrored chat (0036) is nobody's to rename, its owner included.
 -- name: RenameChat :one
 update chats set title = @title, auto_title = false
  where id = @id and (
-   login = @login
+   (deleted_at is null and login = @login)
    or chat_role(id, @login::text) in ('owner', 'editor')
    or (@include_shared::bool and login is null)
  )
@@ -112,6 +113,7 @@ where (
         and (@section::text = '' or c.login is distinct from @viewer::text))
     or (@section::text = 'workspace'
         and c.general_access = 'members'
+        and c.deleted_at is null
         and not chat_visible_to(c.id, c.login, @viewer::text)
         and exists (select 1 from identities i where i.provider = 'web' and i.external_id = @viewer::text))
   )
@@ -243,7 +245,18 @@ returning *;
 -- means it was not there or not theirs. include_shared is the dev token removing a
 -- mirrored copy. It does not let that token delete a web chat it does not own.
 -- name: DeleteChat :execrows
-delete from chats where id = @id and (
+delete from chats where id = @id and origin = 'web' and (
+  login = @login
+  or (@include_shared::bool and login is null)
+);
+
+-- TombstoneChat is DeleteChat for a MIRRORED chat (0036): the row stays, so the conversation's
+-- next message finds it rather than opening a new record, and deleted_at takes it away from
+-- everyone. Deleting a tombstone again is a no-op that still reports the row, so a second
+-- click is not a "not found".
+-- name: TombstoneChat :execrows
+update chats set deleted_at = coalesce(deleted_at, @deleted_at)
+where id = @id and origin <> 'web' and (
   login = @login
   or (@include_shared::bool and login is null)
 );

@@ -206,7 +206,7 @@ values (
   -- A mirrored conversation always has other people in it (decision 33).
   $8::text <> 'web'
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at
 `
 
 type CreateChatParams struct {
@@ -267,12 +267,13 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const deleteChat = `-- name: DeleteChat :execrows
-delete from chats where id = $1 and (
+delete from chats where id = $1 and origin = 'web' and (
   login = $2
   or ($3::bool and login is null)
 )
@@ -413,7 +414,7 @@ func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMes
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -439,12 +440,13 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -473,6 +475,7 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -671,7 +674,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token, c.deleted_at,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -716,6 +719,7 @@ where (
         and ($3::text = '' or c.login is distinct from $1::text))
     or ($3::text = 'workspace'
         and c.general_access = 'members'
+        and c.deleted_at is null
         and not chat_visible_to(c.id, c.login, $1::text)
         and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
   )
@@ -773,6 +777,7 @@ type ListChatsRow struct {
 	GeneralAccess      string
 	GeneralRole        string
 	LinkToken          *string
+	DeletedAt          *time.Time
 	HasMessage         bool
 	LastMessageAt      time.Time
 	LastText           string
@@ -840,6 +845,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.GeneralAccess,
 			&i.GeneralRole,
 			&i.LinkToken,
+			&i.DeletedAt,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -866,7 +872,7 @@ where id = $1 and not multiplayer and (
   $2::bool
   or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at
 `
 
 type MarkChatMultiplayerParams struct {
@@ -900,6 +906,7 @@ func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplay
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -989,11 +996,11 @@ func (q *Queries) RecordChatMessage(ctx context.Context, arg RecordChatMessagePa
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and (
-   login = $3
+   (deleted_at is null and login = $3)
    or chat_role(id, $3::text) in ('owner', 'editor')
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at
 `
 
 type RenameChatParams struct {
@@ -1014,7 +1021,8 @@ type RenameChatParams struct {
 // user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
 //
 // Phase 5: an editor may rename too — the owner and everybody chat_role makes an editor
-// (a participant, or somebody it was shared with as one). A viewer may not.
+// (a participant, or somebody it was shared with as one). A viewer may not. A deleted
+// mirrored chat (0036) is nobody's to rename, its owner included.
 func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, renameChat,
 		arg.Title,
@@ -1043,6 +1051,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -1050,7 +1059,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at
 `
 
 type SetChatChoiceParams struct {
@@ -1093,6 +1102,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -1138,7 +1148,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at
 `
 
 type SetChatTitleParams struct {
@@ -1169,6 +1179,39 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.GeneralAccess,
 		&i.GeneralRole,
 		&i.LinkToken,
+		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const tombstoneChat = `-- name: TombstoneChat :execrows
+update chats set deleted_at = coalesce(deleted_at, $1)
+where id = $2 and origin <> 'web' and (
+  login = $3
+  or ($4::bool and login is null)
+)
+`
+
+type TombstoneChatParams struct {
+	DeletedAt     *time.Time
+	ID            string
+	Login         *string
+	IncludeShared bool
+}
+
+// TombstoneChat is DeleteChat for a MIRRORED chat (0036): the row stays, so the conversation's
+// next message finds it rather than opening a new record, and deleted_at takes it away from
+// everyone. Deleting a tombstone again is a no-op that still reports the row, so a second
+// click is not a "not found".
+func (q *Queries) TombstoneChat(ctx context.Context, arg TombstoneChatParams) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneChat,
+		arg.DeletedAt,
+		arg.ID,
+		arg.Login,
+		arg.IncludeShared,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

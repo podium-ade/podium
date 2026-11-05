@@ -228,6 +228,11 @@ func (s *AgentService) DeleteChat(
 	// delete is for everyone, so it stays the owner's — somebody it was shared with, or who
 	// took part, is told to leave instead, and a chat they cannot see is not found. Deleting a
 	// mirrored chat removes Podium's record only; the Slack thread or pull request is untouched.
+	// A mirrored chat already deleted is gone for its owner too, and deleting it again is
+	// the dev token's alone (a no-op that keeps the tombstone).
+	if row.DeletedAt != nil && !SeesAll(ctx) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
 	if row.Login != login && (!SeesAll(ctx) || row.Login != "") {
 		role, err := s.chatRole(ctx, row, login)
 		if err != nil {
