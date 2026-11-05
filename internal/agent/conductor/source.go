@@ -145,6 +145,11 @@ type InboundEvent struct {
 	// an edit. A change updates the record and never starts a turn — not even an edit that
 	// adds a mention (decision 34).
 	Change string
+	// MirrorKey, when set, is the conversation a RecordOnly event or a Change belongs to when
+	// that is not the one its Ref names: a reply in a Slack thread bound to a pull-request
+	// review is part of the PR's conversation, not of a Slack thread of its own. The conductor
+	// honours it for those two kinds only, so it can move a record and never a turn.
+	MirrorKey string
 	// ChatID and ChatSeq are the message in a chat's record that this event is, once it is
 	// recorded: the web chat sets them as it stores the message, the mirror as it records
 	// one. The turn queue keeps them so the person who asked can take their turn back, and

@@ -188,6 +188,58 @@ func TestInnerRecordsAThreadReplyWithoutAMention(t *testing.T) {
 	assertNoInbound(t, s)
 }
 
+// A thread that asked for a pull-request review is a door into the PR's conversation, so its
+// chatter, edits and deletes are recorded there and not as a Slack thread of their own.
+func TestInnerRecordsABoundThreadIntoThePullRequest(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	s.review = &fakeReview{bound: map[string]string{"C1/100.1": "github:acme/api#12"}}
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", User: "U1", Text: "and then?",
+			TimeStamp: "100.2", ThreadTimeStamp: "100.1", ChannelType: "channel",
+		},
+	}})
+	ev := takeInbound(t, s)
+	assert.True(t, ev.RecordOnly)
+	assert.Equal(t, "github:acme/api#12", ev.MirrorKey)
+	assert.Equal(t, "100.2", ev.ExternalID)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel",
+			Message:         &slack.Msg{User: "U1", Text: "and then what?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "and then?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	edit := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeEdited, edit.Change)
+	assert.Equal(t, "github:acme/api#12", edit.MirrorKey)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_deleted", ChannelType: "channel", DeletedTimeStamp: "100.2",
+			PreviousMessage: &slack.Msg{User: "U1", Text: "and then what?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	del := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeDeleted, del.Change)
+	assert.Equal(t, "github:acme/api#12", del.MirrorKey)
+
+	// A thread that is not bound is its own conversation, as before.
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C2", User: "U1", Text: "elsewhere",
+			TimeStamp: "300.2", ThreadTimeStamp: "300.1", ChannelType: "channel",
+		},
+	}})
+	other := takeInbound(t, s)
+	assert.Empty(t, other.MirrorKey)
+	assertNoInbound(t, s)
+}
+
 // A message that mentions the bot arrives as app_mention AND as message. The message copy
 // must not be recorded as chatter: the conductor would then find the mention already
 // recorded and drop it as a duplicate, and the turn would never start.

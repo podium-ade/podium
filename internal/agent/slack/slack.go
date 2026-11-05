@@ -320,7 +320,27 @@ func (s *Source) record(ctx context.Context, channel, ts, threadTS, user, text s
 	ev := s.said(ctx, channel, ts, threadTS, user, text)
 	ev.RecordOnly = true
 	ev.Mentioned = false
+	ev.MirrorKey = s.boundReview(ctx, channel, threadOf(threadTS, ts))
 	s.offer(ctx, ev)
+}
+
+// boundReview is the pull-request conversation a thread is bound to, or "" when it is not
+// bound to one. A thread that asked for a review is a door into the PR's conversation, so
+// what is said in it afterwards — the replies nobody put to Podium, edits, deletes — is
+// recorded in the PR's chat, where its mentions already are.
+func (s *Source) boundReview(ctx context.Context, channel, thread string) string {
+	if s.review == nil || channel == "" || thread == "" {
+		return ""
+	}
+	key, ok, err := s.review.LookupSlack(ctx, channel+"/"+thread)
+	if err != nil {
+		s.logger.WarnContext(ctx, "slack: looking up a thread's review bind failed", "error", err)
+		return ""
+	}
+	if !ok {
+		return ""
+	}
+	return key
 }
 
 // changed is an edit. Slack also sends message_changed when nothing a person typed moved —
@@ -336,6 +356,7 @@ func (s *Source) changed(ctx context.Context, ev *slackevents.MessageEvent) {
 	out := s.said(ctx, ev.Channel, msg.Timestamp, msg.ThreadTimestamp, msg.User, msg.Text)
 	out.Change = conductor.ChangeEdited
 	out.TS = parseTS(firstNonEmpty(ev.EventTimeStamp, ev.TimeStamp))
+	out.MirrorKey = s.boundReview(ctx, ev.Channel, threadOf(msg.ThreadTimestamp, msg.Timestamp))
 	s.offer(ctx, out)
 }
 
@@ -361,6 +382,7 @@ func (s *Source) deleted(ctx context.Context, ev *slackevents.MessageEvent) {
 		Channel:    ev.Channel,
 		ExternalID: ts,
 		Change:     conductor.ChangeDeleted,
+		MirrorKey:  s.boundReview(ctx, ev.Channel, thread),
 		TS:         parseTS(firstNonEmpty(ev.EventTimeStamp, ev.TimeStamp)),
 		BriefKind:  conductor.SourceSlack,
 	})
