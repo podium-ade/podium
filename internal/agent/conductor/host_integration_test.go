@@ -304,9 +304,13 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	assert.InDelta(t, 0.0125, *turn.CostUSD, 1e-9)
 	assert.Equal(t, finals[0].Text, turn.FinalText)
 
-	// And the jail is gone, so a turn leaves nothing on the host it ran on.
-	_, err = os.Stat(filepath.Dir(report.Home))
-	assert.True(t, os.IsNotExist(err), "the turn's directory is removed when it ends")
+	// And the jail is gone, so a turn leaves nothing on the host it ran on. It is removed as
+	// the turn's goroutine unwinds, just after the turn is recorded as finished, so it is
+	// waited for rather than checked the instant the status flips.
+	waitFor(t, 10*time.Second, "the turn's directory to be removed", func() bool {
+		_, err := os.Stat(filepath.Dir(report.Home))
+		return os.IsNotExist(err)
+	})
 }
 
 func TestAHostTurnThatFailsSaysSoAndRecordsIt(t *testing.T) {
