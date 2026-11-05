@@ -35,10 +35,14 @@ select * from chats where id = @id;
 --
 -- include_shared lets the dev token rename a mirrored thread (login is null). A signed-in
 -- user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
+--
+-- Phase 5: an editor may rename too — the owner and everybody chat_role makes an editor
+-- (a participant, or somebody it was shared with as one). A viewer may not.
 -- name: RenameChat :one
 update chats set title = @title, auto_title = false
  where id = @id and (
    login = @login
+   or chat_role(id, @login::text) in ('owner', 'editor')
    or (@include_shared::bool and login is null)
  )
 returning *;
@@ -71,7 +75,20 @@ select c.*,
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and d.status = 'running'
-  ) as task_running
+  ) as task_running,
+  -- Phase 5: what the caller may do here and why they can see it, for the list's sections
+  -- and its owner/other menus. The dev token is answered by the API (it is the operator, an
+  -- owner of everything), so these are computed for the viewer even then and overridden.
+  chat_role(c.id, @viewer::text)::text as my_role,
+  (case
+    when c.login is not null and c.login = @viewer::text then 'owner'
+    when exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = @viewer::text) then 'participant'
+    when exists (select 1 from chat_access a where a.chat_id = c.id and a.login = @viewer::text) then 'shared'
+    when c.general_access = 'members' then 'workspace'
+    else ''
+  end)::text as access_reason,
+  coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = @viewer::text), '')::text as shared_by,
+  chat_unread(c.id, @viewer::text)::bigint as unread_count
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
@@ -84,9 +101,19 @@ left join (
 -- any other named login) is the other branch and sees what chat_visible_to allows: what
 -- they own, and every conversation they have taken part in from any surface. A mirrored
 -- thread nobody in Podium has spoken in matches neither, and stays hidden.
+--
+-- section narrows a signed-in caller's list (phase 5). '' is their own chats: owned, spoken
+-- in, or shared with them — chat_visible_to. 'shared' is the part of that somebody else owns.
+-- 'workspace' is the chats shared with every member that are NOT already in their own list:
+-- a members-shared chat appears there until they open it, and in their own list after.
 where (
-    @include_all::bool
-    or chat_visible_to(c.id, c.login, @viewer::text)
+    (@include_all::bool and @section::text = '')
+    or (@section::text in ('', 'shared') and chat_visible_to(c.id, c.login, @viewer::text)
+        and (@section::text = '' or c.login is distinct from @viewer::text))
+    or (@section::text = 'workspace'
+        and c.general_access = 'members'
+        and not chat_visible_to(c.id, c.login, @viewer::text)
+        and exists (select 1 from identities i where i.provider = 'web' and i.external_id = @viewer::text))
   )
   and (@after_id::text = '' or c.id < @after_id::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could

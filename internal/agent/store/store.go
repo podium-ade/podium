@@ -97,6 +97,25 @@ type Session struct {
 	LastTurnAt *time.Time
 	// GitHubReviewID is the pull-request review this session submitted. Zero means none.
 	GitHubReviewID int64
+	// Sharing is what a list says about the caller and the chat this session is the record
+	// of (phase 5). Zero for a session read by id, and for one with no chat (Linear, dev).
+	Sharing ChatSharing
+}
+
+// ChatSharing is one caller's relationship to one chat, as a list reports it.
+type ChatSharing struct {
+	// ChatID is the chat a session is the record of. Empty on a chat (it is the chat's ID).
+	ChatID string
+	// MyRole is chat_role: RoleOwner, RoleEditor, RoleViewer, or "" for none.
+	MyRole string
+	// AccessReason is why the caller can see it: AccessOwner, AccessParticipant,
+	// AccessShared or AccessWorkspace.
+	AccessReason string
+	// SharedBy is who shared it with them by name, or "link"/"members" for a row opening it
+	// wrote. Empty when it was not shared with them.
+	SharedBy string
+	// UnreadCount is what somebody else said after their read mark.
+	UnreadCount int64
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -205,11 +224,21 @@ func (s *Store) GetSessionByKey(ctx context.Context, sourceKey string) (Session,
 //
 // all is the dev token: every source. Otherwise the sessions whose chat login may read:
 // their own web chats and every mirrored conversation they took part in.
-func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string) ([]Session, string, error) {
+//
+// section is optional and is one of the Section constants; leaving it out is SectionMine.
+func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string, section ...string) ([]Session, string, error) {
 	limit = clampLimit(limit)
+	sec := ""
+	if len(section) > 0 {
+		sec = section[0]
+	}
+	if !validSection(sec) {
+		return nil, "", fmt.Errorf("list sessions: %w: %q", ErrInvalidSection, sec)
+	}
 	rows, err := s.q.ListSessions(ctx, db.ListSessionsParams{
 		IncludeAll: all,
 		Viewer:     login,
+		Section:    sec,
 		AfterID:    cursor,
 		PageLimit:  int32(limit),
 	})
@@ -218,7 +247,16 @@ func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit 
 	}
 	out := make([]Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionFromRow(r))
+		sess := sessionFromRow(db.Session{
+			ID: r.ID, SourceKind: r.SourceKind, SourceKey: r.SourceKey, Profile: r.Profile,
+			Playbook: r.Playbook, CreatedAt: r.CreatedAt, LastTurnAt: r.LastTurnAt,
+			GithubReviewID: r.GithubReviewID,
+		})
+		sess.Sharing = ChatSharing{
+			ChatID: r.ChatID, MyRole: r.MyRole, AccessReason: r.AccessReason,
+			SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
+		}
+		out = append(out, sess)
 	}
 	next := ""
 	if len(out) == limit {
@@ -648,6 +686,15 @@ type Chat struct {
 	// shared, or mirrors a conversation that lives elsewhere. A web message must then tag
 	// Podium to start a turn.
 	Multiplayer bool
+	// GeneralAccess is who beyond the named grants may open it (0035): AccessRestricted,
+	// AccessMembers or AccessLink. GeneralRole is what they get: RoleViewer or RoleEditor.
+	GeneralAccess string
+	GeneralRole   string
+	// LinkToken is the secret in a link share, or "" before link sharing was first turned
+	// on. Only the owner is ever shown it; the API strips it for everybody else.
+	LinkToken string
+	// Sharing is the caller's relationship to the chat, filled by ListChats (phase 5).
+	Sharing ChatSharing
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -870,9 +917,12 @@ func (s *Store) GetChat(ctx context.Context, id string) (Chat, error) {
 // ListChatsScope narrows a list to one assistant. The zero value lists every chat the
 // caller can already see. FilterPersonality with an empty PersonalityID is Podium:
 // only rows whose personality_id is null. A set id matches that assistant.
+//
+// Section is one of the Section constants (phase 5); empty is SectionMine.
 type ListChatsScope struct {
 	FilterPersonality bool
 	PersonalityID     string
+	Section           string
 }
 
 // ListChats returns chats newest first. all is the dev token and returns every chat,
@@ -888,10 +938,14 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 	if len(scope) > 0 {
 		sc = scope[0]
 	}
+	if !validSection(sc.Section) {
+		return nil, "", fmt.Errorf("list chats: %w: %q", ErrInvalidSection, sc.Section)
+	}
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
 		IncludeAll:        all,
 		Viewer:            login,
+		Section:           sc.Section,
 		AfterID:           cursor,
 		FilterPersonality: sc.FilterPersonality,
 		PersonalityID:     sc.PersonalityID,
@@ -921,6 +975,13 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			PersonalityDisplay: r.PersonalityDisplay,
 			SourceKey:          deref(r.SourceKey),
 			Multiplayer:        r.Multiplayer,
+			GeneralAccess:      r.GeneralAccess,
+			GeneralRole:        r.GeneralRole,
+			LinkToken:          deref(r.LinkToken),
+			Sharing: ChatSharing{
+				MyRole: r.MyRole, AccessReason: r.AccessReason,
+				SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
+			},
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -1256,6 +1317,9 @@ func chatFromRow(row db.Chat) Chat {
 		PersonalityDisplay: row.PersonalityDisplay,
 		SourceKey:          deref(row.SourceKey),
 		Multiplayer:        row.Multiplayer,
+		GeneralAccess:      row.GeneralAccess,
+		GeneralRole:        row.GeneralRole,
+		LinkToken:          deref(row.LinkToken),
 	}
 }
 
