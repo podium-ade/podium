@@ -206,7 +206,7 @@ values (
   -- A mirrored conversation always has other people in it (decision 33).
   $8::text <> 'web'
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
 `
 
 type CreateChatParams struct {
@@ -264,6 +264,9 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
@@ -410,7 +413,7 @@ func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMes
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -433,12 +436,15 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -464,6 +470,9 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
@@ -662,7 +671,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -680,7 +689,20 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and d.status = 'running'
-  ) as task_running
+  ) as task_running,
+  -- Phase 5: what the caller may do here and why they can see it, for the list's sections
+  -- and its owner/other menus. The dev token is answered by the API (it is the operator, an
+  -- owner of everything), so these are computed for the viewer even then and overridden.
+  chat_role(c.id, $1::text)::text as my_role,
+  (case
+    when c.login is not null and c.login = $1::text then 'owner'
+    when exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = $1::text) then 'participant'
+    when exists (select 1 from chat_access a where a.chat_id = c.id and a.login = $1::text) then 'shared'
+    when c.general_access = 'members' then 'workspace'
+    else ''
+  end)::text as access_reason,
+  coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = $1::text), '')::text as shared_by,
+  chat_unread(c.id, $1::text)::bigint as unread_count
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
@@ -689,10 +711,15 @@ left join (
    where cm.role not in ('activity', 'notice')
 ) m on m.chat_id = c.id and m.rn = 1
 where (
-    $1::bool
-    or chat_visible_to(c.id, c.login, $2::text)
+    ($2::bool and $3::text = '')
+    or ($3::text in ('', 'shared') and chat_visible_to(c.id, c.login, $1::text)
+        and ($3::text = '' or c.login is distinct from $1::text))
+    or ($3::text = 'workspace'
+        and c.general_access = 'members'
+        and not chat_visible_to(c.id, c.login, $1::text)
+        and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
   )
-  and ($3::text = '' or c.id < $3::text)
+  and ($4::text = '' or c.id < $4::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
   -- already see, which is what every existing caller asks for. Set, an empty
   -- personality_id is Podium (the column is null) and a set id is that voice only.
@@ -702,23 +729,24 @@ where (
   -- its id, so without this branch a conversation they take part in would be in no list at
   -- all. The UI shows it as shared, labelled with personality_display.
   and (
-    not $4::bool
+    not $5::bool
     or (
-      ($5::text = '' and (
+      ($6::text = '' and (
         c.personality_id is null
-        or (not $1::bool and c.login is distinct from $2::text)
+        or (not $2::bool and c.login is distinct from $1::text)
       ))
-      or ($5::text <> '' and c.personality_id = $5
-          and ($1::bool or c.login = $2::text))
+      or ($6::text <> '' and c.personality_id = $6
+          and ($2::bool or c.login = $1::text))
     )
   )
 order by c.id desc
-limit $6::int
+limit $7::int
 `
 
 type ListChatsParams struct {
-	IncludeAll        bool
 	Viewer            string
+	IncludeAll        bool
+	Section           string
 	AfterID           string
 	FilterPersonality bool
 	PersonalityID     string
@@ -742,11 +770,18 @@ type ListChatsRow struct {
 	PersonalityDisplay string
 	LastSeq            int64
 	Multiplayer        bool
+	GeneralAccess      string
+	GeneralRole        string
+	LinkToken          *string
 	HasMessage         bool
 	LastMessageAt      time.Time
 	LastText           string
 	TurnRunning        bool
 	TaskRunning        bool
+	MyRole             string
+	AccessReason       string
+	SharedBy           string
+	UnreadCount        int64
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -763,10 +798,16 @@ type ListChatsRow struct {
 // any other named login) is the other branch and sees what chat_visible_to allows: what
 // they own, and every conversation they have taken part in from any surface. A mirrored
 // thread nobody in Podium has spoken in matches neither, and stays hidden.
+//
+// section narrows a signed-in caller's list (phase 5). ” is their own chats: owned, spoken
+// in, or shared with them — chat_visible_to. 'shared' is the part of that somebody else owns.
+// 'workspace' is the chats shared with every member that are NOT already in their own list:
+// a members-shared chat appears there until they open it, and in their own list after.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats,
-		arg.IncludeAll,
 		arg.Viewer,
+		arg.IncludeAll,
+		arg.Section,
 		arg.AfterID,
 		arg.FilterPersonality,
 		arg.PersonalityID,
@@ -796,11 +837,18 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.PersonalityDisplay,
 			&i.LastSeq,
 			&i.Multiplayer,
+			&i.GeneralAccess,
+			&i.GeneralRole,
+			&i.LinkToken,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
 			&i.TurnRunning,
 			&i.TaskRunning,
+			&i.MyRole,
+			&i.AccessReason,
+			&i.SharedBy,
+			&i.UnreadCount,
 		); err != nil {
 			return nil, err
 		}
@@ -818,7 +866,7 @@ where id = $1 and not multiplayer and (
   $2::bool
   or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
 `
 
 type MarkChatMultiplayerParams struct {
@@ -849,6 +897,9 @@ func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplay
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
@@ -939,9 +990,10 @@ const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and (
    login = $3
+   or chat_role(id, $3::text) in ('owner', 'editor')
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
 `
 
 type RenameChatParams struct {
@@ -960,6 +1012,9 @@ type RenameChatParams struct {
 //
 // include_shared lets the dev token rename a mirrored thread (login is null). A signed-in
 // user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
+//
+// Phase 5: an editor may rename too — the owner and everybody chat_role makes an editor
+// (a participant, or somebody it was shared with as one). A viewer may not.
 func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, renameChat,
 		arg.Title,
@@ -985,6 +1040,9 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
@@ -992,7 +1050,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
 `
 
 type SetChatChoiceParams struct {
@@ -1032,6 +1090,9 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }
@@ -1077,7 +1138,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token
 `
 
 type SetChatTitleParams struct {
@@ -1105,6 +1166,9 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.PersonalityDisplay,
 		&i.LastSeq,
 		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
 	)
 	return i, err
 }

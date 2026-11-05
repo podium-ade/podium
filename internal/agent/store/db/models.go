@@ -25,6 +25,17 @@ type Chat struct {
 	PersonalityDisplay string
 	LastSeq            int64
 	Multiplayer        bool
+	GeneralAccess      string
+	GeneralRole        string
+	LinkToken          *string
+}
+
+type ChatAccess struct {
+	ChatID    string
+	Login     string
+	Role      string
+	GrantedBy string
+	GrantedAt time.Time
 }
 
 type ChatMessage struct {
@@ -81,6 +92,13 @@ type ChatPullRequest struct {
 	Source     string
 	CreatedAt  time.Time
 	DetachedAt *time.Time
+}
+
+type ChatRead struct {
+	ChatID      string
+	Login       string
+	LastReadSeq int64
+	UpdatedAt   time.Time
 }
 
 type Delegation struct {
@@ -145,6 +163,17 @@ type McpServer struct {
 	Config             string
 	Owner              string
 	Fallback           bool
+}
+
+type Notification struct {
+	ID        int64
+	Login     string
+	Kind      string
+	ChatID    string
+	Seq       int64
+	Actor     string
+	CreatedAt time.Time
+	ReadAt    *time.Time
 }
 
 type Personality struct {
