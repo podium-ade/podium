@@ -392,8 +392,9 @@ Conductors can share one database. Each piece of work one of them does is **leas
 polling Linear.
 
 - A conductor serves a session only while it holds its lease. A message that lands on another
-  conductor is handed over: injected into the owner's warm turn when there is one, and otherwise
-  left on the lease for the owner to take as its next turn.
+  conductor is injected into the owner's warm turn when that turn is answering the **same person
+  on the same surface**, and otherwise queued (`turn_queue`) for the owner's loop to run as a
+  turn of its own.
 - Leases last 30 seconds unrenewed. A conductor that dies stops renewing, and every other
   conductor looks for such work about every half a minute and adopts it: a running task is
   followed from where its relay stopped, and the relayed ledger keeps anything from being said
@@ -406,6 +407,29 @@ its own work up at once — and different for each conductor unless two share a 
 
 A host turn is a process on one machine: a message handed over to a conductor whose turn is on its
 host is injected into it when it is warm, and otherwise waits for that turn to finish.
+
+### Several people, one conversation
+
+A conversation answers one thing at a time, and with multiplayer sessions ([Who is who](#who-is-who)) it may have several people in it.
+What is put to Podium while it is answering is **queued** (`turn_queue`) and becomes a turn of its
+own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
+account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
+
+- **One person's run of messages is one turn**, as it always was: the latest is the instruction
+  and the rest are in the transcript. A message from the same person on the same surface still
+  goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting
+  for its answer); anybody else's never does.
+- **A multiplayer chat answers only a mention.** A web chat becomes multiplayer once a second
+  Podium person is in it or it is shared, and stays so; a Slack thread or pull request always is.
+  A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
+  would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
+- **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
+  conductor runs it. A person can take back their own waiting turn (`CancelQueuedTurn`).
+- **A mirrored conversation can be written from the web**, by the people taking part in it. It is
+  one-way: the message and its answer stay in Podium, and nothing is posted to Slack or GitHub.
+- **A shared chat with a personal assistant keeps its owner's assistant.** Anybody in it talks to
+  that assistant under their own name and credentials; the assistant itself stays private — it is
+  in nobody else's picker, and their chat list shows the chat under Podium, as shared.
 
 ### Cancelling a turn
 
@@ -1663,11 +1687,12 @@ placeholder and the `⏳` progress edits are left out, the same way the source i
 as noise. Each message carries its author, the conversation is attributed to **whoever asked
 first**, and the participants are everyone who has spoken.
 
-It is **read-only, and it is a copy**. Two consequences worth being clear about:
+It is **a copy that its people can also write in**. Two consequences worth being clear about:
 
-- **You cannot reply from Podium.** The conversation lives in Slack and is answered there, so a
-  mirrored chat has no composer. That is not a missing feature of the UI: a mirrored chat has no
-  owning login, and a send filters on one.
+- **What you write from Podium stays in Podium.** The people taking part in a thread may write its
+  chat from the web, and mention `@Podium` there to ask it something, but nothing is posted to
+  Slack: the answer to a web message is in the web chat only (see "Several people, one
+  conversation").
 - **Slack is still the only authority on what was said.** A turn is briefed from
   `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
   leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
