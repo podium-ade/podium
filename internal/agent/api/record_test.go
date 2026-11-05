@@ -57,5 +57,8 @@ func TestSurfacesComeFromTheSessionKey(t *testing.T) {
 	assert.Equal(t, "#eng-review", sl[0].GetLabel())
 
 	assert.Equal(t, "Slack thread", surfacesOf(store.Chat{SourceKey: "slack:C1:1.1"})[0].GetLabel())
+	assert.Empty(t, sl[0].GetUrl(), "no link until the mirror recorded the thread's")
+	linked := surfacesOf(store.Chat{SourceKey: "slack:C1:1.1", SourceURL: "https://acme.slack.com/archives/C1/p11"})
+	assert.Equal(t, "https://acme.slack.com/archives/C1/p11", linked[0].GetUrl())
 	assert.Empty(t, surfacesOf(store.Chat{SourceKey: "chat:chat_1"}), "a web chat lives nowhere else")
 }

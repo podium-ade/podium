@@ -909,7 +909,7 @@ func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
 		if c.Channel != "" {
 			label = "#" + c.Channel
 		}
-		return []*agentv1.ChatSurface{{Kind: store.ViaSlack, Label: label}}
+		return []*agentv1.ChatSurface{{Kind: store.ViaSlack, Label: label, Url: c.SourceURL}}
 	case strings.HasPrefix(c.SourceKey, "github:"):
 		ref := strings.TrimPrefix(c.SourceKey, "github:")
 		url := ""

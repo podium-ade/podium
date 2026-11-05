@@ -637,6 +637,9 @@ const ChatPreviewChars = 80
 type Chat struct {
 	ID    string
 	Title string
+	// SourceURL is the link to a mirrored chat's conversation where it lives (a Slack
+	// thread's permalink), "" when the source gave none (0038).
+	SourceURL string
 	// ChannelPrivacy is what Slack says about a mirrored chat's channel (ChannelPublic, …),
 	// "" when it is not known (0037).
 	ChannelPrivacy string
@@ -1328,6 +1331,7 @@ func chatFromRow(row db.Chat) Chat {
 		LinkToken:          deref(row.LinkToken),
 		DeletedAt:          row.DeletedAt,
 		ChannelPrivacy:     row.ChannelPrivacy,
+		SourceURL:          row.SourceUrl,
 	}
 }
 

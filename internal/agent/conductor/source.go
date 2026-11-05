@@ -100,6 +100,10 @@ type InboundEvent struct {
 	// has no name, or when Slack has not resolved one yet. Display and briefing only —
 	// routing still uses Channel.
 	ChannelName string
+	// ThreadURL is a link to the whole conversation where it lives, when the source can make
+	// one and URL is a link to this message instead: a Slack thread's permalink. The mirror
+	// records it so the chat's surface chip opens the thread.
+	ThreadURL string
 	// ChannelPrivacy is whether Channel is public, as the source knows it: store.ChannelPublic,
 	// ChannelPrivate, ChannelIM or ChannelMPIM. Empty is not known. The mirror records it so
 	// sharing a chat of a private conversation is warned about with the source's own word.

@@ -100,6 +100,13 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 			chat.Channel = ev.ChannelName
 		}
 	}
+	if ev.ThreadURL != "" && chat.SourceURL != ev.ThreadURL {
+		if err := c.store.SetChatSourceURL(ctx, chat.ID, ev.ThreadURL); err != nil {
+			c.logger.WarnContext(ctx, "recording a mirrored chat's link failed", "chat_id", chat.ID, "error", err)
+		} else {
+			chat.SourceURL = ev.ThreadURL
+		}
+	}
 	if ev.ChannelPrivacy != "" && chat.ChannelPrivacy != ev.ChannelPrivacy {
 		if err := c.store.SetChatChannelPrivacy(ctx, chat.ID, ev.ChannelPrivacy); err != nil {
 			c.logger.WarnContext(ctx, "recording a mirrored chat's channel privacy failed",
