@@ -424,7 +424,12 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
   would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
 - **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
-  conductor runs it. A person can take back their own waiting turn (`CancelQueuedTurn`).
+  conductor runs it — a host turn, a task, or a chat-host turn, including one still waiting for
+  room on a busy chat host, which then never starts ("Stopped before I started."). A person can
+  take back their own waiting turn (`CancelQueuedTurn`).
+- **A send says how far back it is.** `SendChatMessage` answers with `queued_position`: the turns
+  that run before it — the one running and those queued ahead — read back from the queue once the
+  conductor has placed the message, so it holds across conductors. 0 is answered now.
 - **A mirrored conversation can be written from the web**, by the people taking part in it. It is
   one-way: the message and its answer stay in Podium, and nothing is posted to Slack or GitHub.
 - **A shared chat with a personal assistant keeps its owner's assistant.** Anybody in it talks to
@@ -457,12 +462,18 @@ write agrees.
   wherever it lives) and *Workspace* sections, who shared each one, your role, and unread
   counts — what somebody else said after your read mark, which opening the chat moves.
 - **Leave** takes you out of somebody else's chat; speaking in it again rejoins you. **Delete**
-  is the owner's alone, and removes Podium's record only — never the Slack thread or the PR.
+  is the owner's alone, and never touches the Slack thread or the PR. A web chat is removed. A
+  mirrored chat is tombstoned (`0036`): it is in nobody's lists and nobody's role reaches it,
+  its owner's included, but the record stays, so the thread's next message is recorded into
+  it rather than opening a new copy — deleted stays deleted — and turns from the thread still
+  run with their whole transcript. Only the dev token still sees it.
 - **A stream follows access.** A share, unshare or change of general access is re-checked for
   every open screen; a viewer promoted to editor gets the composer, and somebody unshared is
   shown nothing more.
-- **Mirrored private conversations can be shared**, with a warning in the dialog: a Slack DM
-  or `G…` channel is known to be private; a `C…` channel may be, and is warned about as such.
+- **Mirrored private conversations can be shared**, with a warning in the dialog. Whether a
+  Slack conversation is private is what `conversations.info` says (`is_private`, `is_im`,
+  `is_mpim`), recorded on the chat (`0037`); a chat recorded before that falls back to the
+  id — a DM or `G…` channel is private, a `C…` channel may be and is warned about as such.
 - **Audit:** share, unshare, general-access changes, link resets, joins, leaves and deletes
   are written to podium-server's `audit_log` (`AuditService.RecordAudit`, which only the
   conductor's credential may call, and only for `chat.*` actions). An audit write that fails
@@ -1731,19 +1742,21 @@ It is **a copy that its people can also write in**. Two consequences worth being
   chat from the web, and mention `@Podium` there to ask it something, but nothing is posted to
   Slack: the answer to a web message is in the web chat only (see "Several people, one
   conversation").
-- **Slack is still the only authority on what was said.** A turn is briefed from
-  `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
-  leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
-  lossy because nothing depends on it being complete.
+- **The record is the transcript.** Every reply in a thread Podium is part of is recorded,
+  tagged or not, with its edits and deletes, and a turn is briefed from that record (see "One
+  record, one transcript"). A thread bound to a pull-request review is part of the PR's
+  conversation: its replies, edits and deletes are recorded in the PR's chat, beside its
+  mentions. The chat's surface chip links to the thread.
 
-A mirrored thread belongs to the workspace rather than to a login. Who sees it depends on how
-they reached Podium:
+Who sees a mirrored thread depends on how they reached Podium:
 
-- **Google Workspace** (and any other named login) sees only the web chats they created, and
-  only the sessions for those chats. Another person's chats, and every Slack thread, are absent.
+- **Google Workspace** (and any other named login) sees the chats they own, took part in from
+  any surface, or were shared, and the sessions behind them (see "Sharing a chat"). A thread
+  nobody in Podium has spoken in is in nobody's list.
 - **The dev token** — the local transport, which has no per-user identity — sees every chat and
-  every session. The chat list and the Sessions screen keep web turns and Slack turns in
-  separate groups. That token may rename or delete a mirrored copy; the thread itself stays in Slack.
+  every session, deleted mirrored chats included. The chat list and the Sessions screen keep web
+  turns and Slack turns in separate groups. That token may rename or delete a mirrored copy;
+  the thread itself stays in Slack.
 
 That is not a role. The proxy tells the conductor which of the two the caller is, and a browser
 cannot widen its own view. See [`security.md`](security.md).
@@ -2805,14 +2818,21 @@ What that decides:
   🚫; nothing runs. On GitHub, a commenter who has not connected GitHub may ask for exactly
   one thing — a review, with `@podium review [note]` or `/review [note]` at the start of a
   line. It runs the review playbook on the App's credentials, read-only; the note is cut to
-  280 characters, stripped of code, markup, links and mentions, dropped if it reads like an
-  instruction, and handed to the model as a quoted topic hint. One per person per pull
-  request every ten minutes. Anything else from them gets a confused reaction.
+  280 characters, stripped of code, markup, links and mentions, and screened twice: a
+  deny-list of instruction shapes, then a `claude-haiku-5-5` classifier on the company's
+  Anthropic key (structured output, a 3-second deadline, verdicts cached by the note's hash
+  for ten minutes). A note either rejects, or that cannot be screened — no key stored, a
+  timeout, a provider error — is dropped and the review still runs without it; a note that
+  passes is handed to the model as a quoted topic hint. One per person per pull request
+  every ten minutes. Anything else from them gets a confused reaction.
+  `podium_agent_review_note_checks_total{outcome}` counts allowed, denied_list,
+  denied_model, no_classifier and error.
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
 - **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`
-  breaks the range down by it (`people`). `github-app` is a review nobody in Podium asked
-  for. A delegated task's spend is its delegating turn's person's.
+  breaks the range down by it (`people`), which **Usage → By person** draws. `github-app`
+  is a review nobody in Podium asked for. A delegated task's spend is its delegating turn's
+  person's.
 - **Writing to GitHub for somebody who has not connected it.** A turn that pushes or
   comments as the App, for a Podium person, is told to end every commit with
   `Requested-by: Name <login>` and to say "requested by Name" in what it writes.
