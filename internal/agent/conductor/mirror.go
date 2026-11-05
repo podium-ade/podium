@@ -57,6 +57,18 @@ func (c *Conductor) mirrorKey(src Source, ref string) (string, bool) {
 	return m.MirrorKey(ref)
 }
 
+// recordKey is the conversation an event that never starts a turn is recorded into: the one
+// the source moved it to (InboundEvent.MirrorKey), or the one its ref names. Only a record or
+// a change may be moved; a message that can start a turn is always its own ref's.
+func (c *Conductor) recordKey(src Source, ev InboundEvent) (string, bool) {
+	if ev.MirrorKey != "" && (ev.RecordOnly || ev.Change != "") {
+		if _, mirrored := src.(mirrorSource); mirrored {
+			return ev.MirrorKey, true
+		}
+	}
+	return c.mirrorKey(src, ev.Ref)
+}
+
 // mirrorHeard records one thing a human said, opening the mirror on the first message. The
 // person who asked first becomes the conversation's attribution (started_by), and a speaker
 // who resolved to a Podium login becomes a participant — which is what lets them see the
@@ -119,7 +131,7 @@ func (c *Conductor) mirrorChat(
 // thread it is part of and nothing of one it is not, which is also what keeps a busy
 // channel's chatter out of the database.
 func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev InboundEvent) {
-	key, ok := c.mirrorKey(src, ev.Ref)
+	key, ok := c.recordKey(src, ev)
 	if !ok {
 		return
 	}
@@ -141,7 +153,7 @@ func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev Inbound
 // starts a turn: an edit that adds a mention is still an edit (decision 34). A change to a
 // message Podium never recorded is nothing to do.
 func (c *Conductor) mirrorChanged(ctx context.Context, src Source, ev InboundEvent) {
-	key, ok := c.mirrorKey(src, ev.Ref)
+	key, ok := c.recordKey(src, ev)
 	if !ok || ev.ExternalID == "" {
 		return
 	}

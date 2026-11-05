@@ -109,6 +109,73 @@ func TestUnaddressedChatterIsRecordedOnlyWherePodiumIs(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound, "a thread Podium is not in is not recorded")
 }
 
+// A source may move a record into another conversation — a Slack thread bound to a pull
+// request records its chatter, edits and deletes in the PR's chat — but never a message that
+// can start a turn.
+func TestARecordMovesToTheConversationItBelongsTo(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	review := inbound("C1/4.1", "what is this?")
+	review.ExternalID = "4.1"
+	require.NoError(t, src.Send(ctx, review))
+	waitFor(t, 30*time.Second, "the review turn", func() bool {
+		return turnStatus(st, review.SourceKey) == store.TurnSucceeded
+	})
+	pr, err := st.ChatBySourceKey(ctx, review.SourceKey)
+	require.NoError(t, err)
+
+	chatter := inbound("C1/5.1", "the bound thread says hi")
+	chatter.RecordOnly = true
+	chatter.ExternalID = "5.2"
+	chatter.MirrorKey = review.SourceKey
+	require.NoError(t, src.Send(ctx, chatter))
+	waitFor(t, 10*time.Second, "the bound chatter in the PR's chat", func() bool {
+		msgs, err := st.ListChatMessages(ctx, pr.ID, 0)
+		return err == nil && len(msgs) > 0 && msgs[len(msgs)-1].ExternalID == "5.2"
+	})
+
+	edit := inbound("C1/5.1", "the bound thread says hello")
+	edit.Change = conductor.ChangeEdited
+	edit.ExternalID = "5.2"
+	edit.MirrorKey = review.SourceKey
+	require.NoError(t, src.Send(ctx, edit))
+	waitFor(t, 10*time.Second, "the edit in the PR's chat", func() bool {
+		msgs, err := st.ListChatMessages(ctx, pr.ID, 0)
+		if err != nil || len(msgs) == 0 {
+			return false
+		}
+		last := msgs[len(msgs)-1]
+		return last.EditedAt != nil && last.Text == "the bound thread says hello"
+	})
+	_, err = st.ChatBySourceKey(ctx, chatter.SourceKey)
+	assert.ErrorIs(t, err, store.ErrNotFound, "the bound thread has no chat of its own")
+
+	// A message that can start a turn ignores the move and is its own conversation.
+	ask := inbound("C1/6.1", "a question of its own")
+	ask.ExternalID = "6.1"
+	ask.MirrorKey = review.SourceKey
+	require.NoError(t, src.Send(ctx, ask))
+	waitFor(t, 30*time.Second, "its own turn", func() bool {
+		return turnStatus(st, ask.SourceKey) == store.TurnSucceeded
+	})
+	_, err = st.ChatBySourceKey(ctx, ask.SourceKey)
+	require.NoError(t, err)
+	msgs, err := st.ListChatMessages(ctx, pr.ID, 0)
+	require.NoError(t, err)
+	for _, m := range msgs {
+		assert.NotEqual(t, "6.1", m.ExternalID, "a turn's message is never moved")
+	}
+}
+
 // An edit changes the recorded row in place and starts nothing — even one that now names the
 // bot. A delete marks the row and keeps its text.
 func TestAnEditOrADeleteChangesTheRecordAndStartsNothing(t *testing.T) {
