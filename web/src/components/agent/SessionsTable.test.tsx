@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -53,6 +53,7 @@ const turn = {
   numTurns: 4,
   costUsd: 0.0123,
   finalText: "the answer",
+  startedBy: "alice@podium.test",
 };
 
 describe("SessionsTable", () => {
@@ -128,6 +129,8 @@ describe("SessionsTable", () => {
     expect(turnRow).toHaveTextContent("$0.0123");
     expect(turnRow).toHaveTextContent("4 model turns");
     expect(turnRow).toHaveTextContent("the answer");
+    // Whose turn it was: each turn runs as the person who asked it.
+    expect(within(turnRow).getByTestId("turn-started-by")).toHaveTextContent("by alice@podium.test");
     expect(screen.getByRole("link", { name: "task_01xyz" })).toHaveAttribute(
       "href",
       "/tasks/task_01xyz",

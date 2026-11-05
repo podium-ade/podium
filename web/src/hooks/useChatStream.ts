@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, ChatPullRequest } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage, ChatPullRequest, QueuedTurn } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
 /** MAX_BACKOFF_MS caps the wait between reconnects. */
@@ -28,6 +28,11 @@ export interface ChatStreamState {
    * and there is nothing to merge.
    */
   pullRequests: ChatPullRequest[];
+  /**
+   * queue is the turns waiting behind the one in flight, oldest first (phase 4). Like the
+   * pull requests, every frame is the whole set.
+   */
+  queue: QueuedTurn[];
   /** taskId is the Podium task the running turn is using, when the stream said so. */
   taskId?: string;
   phase: ChatPhase;
@@ -46,6 +51,7 @@ interface Keyed extends ChatStreamState {
 const empty: ChatStreamState = {
   messages: [],
   pullRequests: [],
+  queue: [],
   running: false,
   awaiting: false,
   phase: "connecting",
@@ -149,8 +155,18 @@ export function useChatStream(chatId: string): ChatStreamState {
                   ...prev,
                   phase: "streaming",
                   error: undefined,
-                  chat: row,
+                  // shared_with_me is per viewer, and only the stream's first chat frame is
+                  // built for this viewer; a later one (a rename, a title) keeps what it said.
+                  chat:
+                    prev.chat?.sharedWithMe && !row.sharedWithMe
+                      ? { ...row, sharedWithMe: true }
+                      : row,
                 }));
+                break;
+              }
+              case "queue": {
+                const turns = frame.frame.value.turns;
+                update((prev) => ({ ...prev, phase: "streaming", error: undefined, queue: turns }));
                 break;
               }
               case "resync":

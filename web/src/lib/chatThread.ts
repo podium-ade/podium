@@ -146,6 +146,18 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   };
 
   for (const m of messages) {
+    if (m.role === "notice") {
+      // Podium saying something about the chat itself (it became multiplayer): a divider
+      // between turns, never part of one.
+      close();
+      out.push({
+        id: `n${m.seq}`,
+        role: "system",
+        content: m.text,
+        createdAt: toDate(m.ts),
+      });
+      continue;
+    }
     if (m.role === "user") {
       close();
       out.push({

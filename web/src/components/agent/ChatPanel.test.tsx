@@ -27,6 +27,8 @@ const renameChat = vi.fn();
 const deleteChat = vi.fn();
 const sendChatMessage = vi.fn();
 const streamChat = vi.fn();
+const cancelChatTurn = vi.fn();
+const searchMembers = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -41,6 +43,8 @@ vi.mock("../../lib/client", async () => {
       deleteChat: (...a: unknown[]) => deleteChat(...a),
       sendChatMessage: (...a: unknown[]) => sendChatMessage(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
+      cancelChatTurn: (...a: unknown[]) => cancelChatTurn(...a),
+      searchMembers: (...a: unknown[]) => searchMembers(...a),
     },
   };
 });
@@ -458,14 +462,19 @@ describe("ChatPanel", () => {
     stream.push(progress("⏳ reading the schema"));
 
     expect(await screen.findByTestId("chat-progress")).toHaveTextContent("reading the schema");
-    // The composer is disabled in between, which is the UI half of one turn at a time.
-    await waitFor(() => expect(screen.getByTestId("chat-composer")).toBeDisabled());
+    // The composer stays open while a turn runs (phase 4): what is sent meanwhile is queued
+    // as a turn of its own. The running answer can be stopped from here.
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
+    cancelChatTurn.mockResolvedValue({ stopped: true });
+    await userEvent.click(await screen.findByTestId("chat-stop"));
+    expect(cancelChatTurn).toHaveBeenCalledWith({ chatId: "chat_01abc" });
 
     stream.push(message(2, "assistant", "Here it is."));
     stream.push(status("finished"));
 
     await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
+    expect(screen.queryByTestId("chat-stop")).toBeNull();
   });
 
   it("waits at the end of the transcript, not above it", async () => {
@@ -609,15 +618,33 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-composer")).toBeDisabled();
   });
 
-  it("says so plainly when the server refuses a concurrent send", async () => {
+  it("queues a message sent while a turn runs, and shows the queue", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
-    sendChatMessage.mockRejectedValue(
-      new ConnectError("a turn is already running for this chat", Code.FailedPrecondition),
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    sendChatMessage.mockResolvedValue({ addressed: true, queuedPosition: 1 });
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started"));
+    await userEvent.type(await screen.findByTestId("chat-composer"), "and then this{Enter}");
+    expect(sendChatMessage).toHaveBeenCalled();
+
+    stream.push(
+      create(ChatFrameSchema, {
+        frame: { case: "queue", value: { turns: [{ login: "alice@x.dev", author: "alice", via: "web", seq: 2n }] } },
+      }),
     );
+    expect(await screen.findByTestId("chat-queue-status")).toHaveTextContent("1 turn waiting");
+  });
+
+  it("says so plainly when a send fails", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    sendChatMessage.mockRejectedValue(new ConnectError("the conductor is unreachable", Code.Unavailable));
     mount("/agent/chat/chat_01abc");
 
     await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");
-    expect(await screen.findByText(/A turn is already running in this chat/)).toBeInTheDocument();
+    expect(await screen.findByText(/the conductor is unreachable/)).toBeInTheDocument();
   });
 
   it("closes the stream when the chat changes", async () => {
@@ -926,19 +953,38 @@ describe("ChatPanel", () => {
     expect(people[1]).toHaveAttribute("aria-label", "octocat (not in Podium) · GitHub");
   });
 
-  it("offers no composer for a conversation that lives somewhere else", async () => {
+  it("lets a participant write a conversation that lives somewhere else, one way", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
 
-    stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"] }));
+    stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"], multiplayer: true }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
 
-    const note = await screen.findByTestId("chat-mirrored-note");
-    expect(note).toHaveTextContent("lives in slack");
-    expect(note).toHaveTextContent("alice, bob");
-    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+    // Messages typed here stay in Podium, and a mirrored conversation is always multiplayer:
+    // a turn takes a mention.
+    expect(await screen.findByTestId("chat-composer-note")).toHaveTextContent(
+      "Messages here stay in Podium — they aren't posted to Slack.",
+    );
+    expect(screen.getByTestId("chat-multiplayer-hint")).toHaveTextContent("mention @Podium");
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
+  });
+
+  it("labels the send button with whether a message will start a turn", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    sendChatMessage.mockResolvedValue({ addressed: false, queuedPosition: 0 });
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(chatRow({ origin: "web", multiplayer: true }));
+    const box = await screen.findByTestId("chat-composer");
+    await userEvent.type(box, "bob, see this");
+    expect(screen.getByTestId("chat-send-label")).toHaveTextContent("Send");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("data-to-podium", "false");
+    await userEvent.type(box, " @Podium");
+    expect(screen.getByTestId("chat-send-label")).toHaveTextContent("Send to Podium");
   });
 
   it("keeps the composer for a conversation Podium owns", async () => {
@@ -959,7 +1005,7 @@ describe("ChatPanel", () => {
   // Opening a mirrored thread used to render the composer and then take it away, because
   // the only source of the origin was a stream frame that lands after the first render. The
   // list row already knows, so there is nothing to flash: no composer at any point.
-  it("never flashes the composer when opening a mirrored thread", async () => {
+  it("says a mirrored thread is one-way before the stream speaks", async () => {
     listChats.mockResolvedValue({
       chats: [{ ...chat, origin: "slack", startedBy: "alice" }],
       nextCursor: "",
@@ -969,15 +1015,17 @@ describe("ChatPanel", () => {
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
 
-    const note = await screen.findByTestId("chat-mirrored-note");
-    expect(note).toHaveTextContent("lives in slack");
-    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+    // The list row already says where it lives: the one-way note is there before the stream
+    // says anything.
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("aren't posted to Slack"),
+    );
 
-    // And it stays gone once the stream confirms what the list already said.
+    // And it stays once the stream confirms what the list already said.
     stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice"] }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
     await screen.findByTestId("chat-author");
-    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("aren't posted to Slack");
   });
 
   it("marks a mirrored thread in the list and says who started it", async () => {
