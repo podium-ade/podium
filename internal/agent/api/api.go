@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/config"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/profiles"
@@ -193,6 +194,8 @@ type AgentServiceOptions struct {
 	Deliveries DeliveryRetrier
 	// Canceller stops the turn answering a chat (CancelChatTurn). Nil refuses that RPC.
 	Canceller ChatTurnCanceller
+	// Auditor writes sharing decisions to the control plane's audit_log. Nil writes nothing.
+	Auditor ChatAuditor
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
 	Slack  SlackDirectory
@@ -247,6 +250,7 @@ type AgentService struct {
 	turns      TurnStopper
 	deliveries DeliveryRetrier
 	canceller  ChatTurnCanceller
+	auditor    ChatAuditor
 	logger     *slog.Logger
 
 	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
@@ -360,6 +364,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		turns:              opts.Turns,
 		deliveries:         opts.Deliveries,
 		canceller:          opts.Canceller,
+		auditor:            opts.Auditor,
 		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}
@@ -400,14 +405,23 @@ func (s *AgentService) ListSessions(
 	ctx context.Context, req *connect.Request[agentv1.ListSessionsRequest],
 ) (*connect.Response[agentv1.ListSessionsResponse], error) {
 	page := req.Msg.GetPage()
-	rows, next, err := s.store.ListSessions(ctx, Login(ctx), SeesAll(ctx), int(page.GetLimit()), page.GetCursor())
+	rows, next, err := s.store.ListSessions(ctx, Login(ctx), SeesAll(ctx), int(page.GetLimit()), page.GetCursor(),
+		req.Msg.GetSection())
+	if errors.Is(err, store.ErrInvalidSection) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	if err != nil {
 		return nil, storeError(err)
 	}
 	names := s.slackNames(ctx)
 	out := make([]*agentv1.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionToProto(r, names))
+		p := sessionToProto(r, names)
+		if SeesAll(ctx) && p.ChatId != "" {
+			// The dev token is the operator: an owner of everything it can see.
+			p.MyRole = store.RoleOwner
+		}
+		out = append(out, p)
 	}
 	return connect.NewResponse(&agentv1.ListSessionsResponse{Sessions: out, NextCursor: next}), nil
 }
@@ -618,6 +632,11 @@ func sessionToProto(s store.Session, names map[string]string) *agentv1.Session {
 	if id, ok := store.SlackChannelID(s.SourceKey); ok && names != nil {
 		out.SourceLabel = names[id]
 	}
+	out.ChatId = s.Sharing.ChatID
+	out.MyRole = s.Sharing.MyRole
+	out.AccessReason = s.Sharing.AccessReason
+	out.SharedBy = s.Sharing.SharedBy
+	out.UnreadCount = s.Sharing.UnreadCount
 	return out
 }
 
@@ -666,6 +685,17 @@ func turnToProto(t store.Turn) *agentv1.Turn {
 func storeError(err error) error {
 	if errors.Is(err, store.ErrNotFound) {
 		return connect.NewError(connect.CodeNotFound, err)
+	}
+	// Phase 5: a viewer writing is refused as such — they can see the chat, so pretending it
+	// is not there would be a lie — and a share with somebody who never signed in, or with a
+	// role the schema does not have, is the caller's to fix.
+	switch {
+	case errors.Is(err, chat.ErrViewOnly):
+		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, store.ErrNoSuchMember):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection):
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("agent store: %w", err))
 }

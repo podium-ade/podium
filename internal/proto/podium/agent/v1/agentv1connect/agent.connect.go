@@ -194,6 +194,28 @@ const (
 	// AgentServiceDetachChatPullRequestProcedure is the fully-qualified name of the AgentService's
 	// DetachChatPullRequest RPC.
 	AgentServiceDetachChatPullRequestProcedure = "/podium.agent.v1.AgentService/DetachChatPullRequest"
+	// AgentServiceGetChatSharingProcedure is the fully-qualified name of the AgentService's
+	// GetChatSharing RPC.
+	AgentServiceGetChatSharingProcedure = "/podium.agent.v1.AgentService/GetChatSharing"
+	// AgentServiceUpdateChatSharingProcedure is the fully-qualified name of the AgentService's
+	// UpdateChatSharing RPC.
+	AgentServiceUpdateChatSharingProcedure = "/podium.agent.v1.AgentService/UpdateChatSharing"
+	// AgentServiceShareChatProcedure is the fully-qualified name of the AgentService's ShareChat RPC.
+	AgentServiceShareChatProcedure = "/podium.agent.v1.AgentService/ShareChat"
+	// AgentServiceUnshareChatProcedure is the fully-qualified name of the AgentService's UnshareChat
+	// RPC.
+	AgentServiceUnshareChatProcedure = "/podium.agent.v1.AgentService/UnshareChat"
+	// AgentServiceLeaveChatProcedure is the fully-qualified name of the AgentService's LeaveChat RPC.
+	AgentServiceLeaveChatProcedure = "/podium.agent.v1.AgentService/LeaveChat"
+	// AgentServiceMarkChatReadProcedure is the fully-qualified name of the AgentService's MarkChatRead
+	// RPC.
+	AgentServiceMarkChatReadProcedure = "/podium.agent.v1.AgentService/MarkChatRead"
+	// AgentServiceListNotificationsProcedure is the fully-qualified name of the AgentService's
+	// ListNotifications RPC.
+	AgentServiceListNotificationsProcedure = "/podium.agent.v1.AgentService/ListNotifications"
+	// AgentServiceMarkNotificationsReadProcedure is the fully-qualified name of the AgentService's
+	// MarkNotificationsRead RPC.
+	AgentServiceMarkNotificationsReadProcedure = "/podium.agent.v1.AgentService/MarkNotificationsRead"
 	// AgentServiceListSlackChannelsProcedure is the fully-qualified name of the AgentService's
 	// ListSlackChannels RPC.
 	AgentServiceListSlackChannelsProcedure = "/podium.agent.v1.AgentService/ListSlackChannels"
@@ -414,6 +436,29 @@ type AgentServiceClient interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+	// way a document is: by name with a role, with every Podium member, or with anybody signed
+	// in who has the link.
+	//
+	// GetChatSharing is the share dialog: who has access, general access, and — for the owner
+	// only — the link. Anybody who can open the chat may read it; only the owner may change it.
+	GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error)
+	// UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+	UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error)
+	// ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+	// login that has never signed in to Podium is failed_precondition.
+	ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error)
+	// UnshareChat removes a named grant. Owner only.
+	UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error)
+	// LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+	// any surface, brings them back. The owner cannot leave; they delete.
+	LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error)
+	// MarkChatRead moves the caller's read mark forward. It never moves it back.
+	MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error)
+	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
+	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
@@ -796,6 +841,54 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 			connect.WithClientOptions(opts...),
 		),
+		getChatSharing: connect.NewClient[v1.GetChatSharingRequest, v1.GetChatSharingResponse](
+			httpClient,
+			baseURL+AgentServiceGetChatSharingProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetChatSharing")),
+			connect.WithClientOptions(opts...),
+		),
+		updateChatSharing: connect.NewClient[v1.UpdateChatSharingRequest, v1.UpdateChatSharingResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateChatSharingProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateChatSharing")),
+			connect.WithClientOptions(opts...),
+		),
+		shareChat: connect.NewClient[v1.ShareChatRequest, v1.ShareChatResponse](
+			httpClient,
+			baseURL+AgentServiceShareChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ShareChat")),
+			connect.WithClientOptions(opts...),
+		),
+		unshareChat: connect.NewClient[v1.UnshareChatRequest, v1.UnshareChatResponse](
+			httpClient,
+			baseURL+AgentServiceUnshareChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UnshareChat")),
+			connect.WithClientOptions(opts...),
+		),
+		leaveChat: connect.NewClient[v1.LeaveChatRequest, v1.LeaveChatResponse](
+			httpClient,
+			baseURL+AgentServiceLeaveChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("LeaveChat")),
+			connect.WithClientOptions(opts...),
+		),
+		markChatRead: connect.NewClient[v1.MarkChatReadRequest, v1.MarkChatReadResponse](
+			httpClient,
+			baseURL+AgentServiceMarkChatReadProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("MarkChatRead")),
+			connect.WithClientOptions(opts...),
+		),
+		listNotifications: connect.NewClient[v1.ListNotificationsRequest, v1.ListNotificationsResponse](
+			httpClient,
+			baseURL+AgentServiceListNotificationsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListNotifications")),
+			connect.WithClientOptions(opts...),
+		),
+		markNotificationsRead: connect.NewClient[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse](
+			httpClient,
+			baseURL+AgentServiceMarkNotificationsReadProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("MarkNotificationsRead")),
+			connect.WithClientOptions(opts...),
+		),
 		listSlackChannels: connect.NewClient[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse](
 			httpClient,
 			baseURL+AgentServiceListSlackChannelsProcedure,
@@ -895,6 +988,14 @@ type agentServiceClient struct {
 	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
+	getChatSharing             *connect.Client[v1.GetChatSharingRequest, v1.GetChatSharingResponse]
+	updateChatSharing          *connect.Client[v1.UpdateChatSharingRequest, v1.UpdateChatSharingResponse]
+	shareChat                  *connect.Client[v1.ShareChatRequest, v1.ShareChatResponse]
+	unshareChat                *connect.Client[v1.UnshareChatRequest, v1.UnshareChatResponse]
+	leaveChat                  *connect.Client[v1.LeaveChatRequest, v1.LeaveChatResponse]
+	markChatRead               *connect.Client[v1.MarkChatReadRequest, v1.MarkChatReadResponse]
+	listNotifications          *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
+	markNotificationsRead      *connect.Client[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
 	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
 	listPersonalities          *connect.Client[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse]
@@ -1193,6 +1294,46 @@ func (c *agentServiceClient) DetachChatPullRequest(ctx context.Context, req *con
 	return c.detachChatPullRequest.CallUnary(ctx, req)
 }
 
+// GetChatSharing calls podium.agent.v1.AgentService.GetChatSharing.
+func (c *agentServiceClient) GetChatSharing(ctx context.Context, req *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error) {
+	return c.getChatSharing.CallUnary(ctx, req)
+}
+
+// UpdateChatSharing calls podium.agent.v1.AgentService.UpdateChatSharing.
+func (c *agentServiceClient) UpdateChatSharing(ctx context.Context, req *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error) {
+	return c.updateChatSharing.CallUnary(ctx, req)
+}
+
+// ShareChat calls podium.agent.v1.AgentService.ShareChat.
+func (c *agentServiceClient) ShareChat(ctx context.Context, req *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error) {
+	return c.shareChat.CallUnary(ctx, req)
+}
+
+// UnshareChat calls podium.agent.v1.AgentService.UnshareChat.
+func (c *agentServiceClient) UnshareChat(ctx context.Context, req *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error) {
+	return c.unshareChat.CallUnary(ctx, req)
+}
+
+// LeaveChat calls podium.agent.v1.AgentService.LeaveChat.
+func (c *agentServiceClient) LeaveChat(ctx context.Context, req *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error) {
+	return c.leaveChat.CallUnary(ctx, req)
+}
+
+// MarkChatRead calls podium.agent.v1.AgentService.MarkChatRead.
+func (c *agentServiceClient) MarkChatRead(ctx context.Context, req *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error) {
+	return c.markChatRead.CallUnary(ctx, req)
+}
+
+// ListNotifications calls podium.agent.v1.AgentService.ListNotifications.
+func (c *agentServiceClient) ListNotifications(ctx context.Context, req *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return c.listNotifications.CallUnary(ctx, req)
+}
+
+// MarkNotificationsRead calls podium.agent.v1.AgentService.MarkNotificationsRead.
+func (c *agentServiceClient) MarkNotificationsRead(ctx context.Context, req *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error) {
+	return c.markNotificationsRead.CallUnary(ctx, req)
+}
+
 // ListSlackChannels calls podium.agent.v1.AgentService.ListSlackChannels.
 func (c *agentServiceClient) ListSlackChannels(ctx context.Context, req *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
 	return c.listSlackChannels.CallUnary(ctx, req)
@@ -1423,6 +1564,29 @@ type AgentServiceHandler interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+	// way a document is: by name with a role, with every Podium member, or with anybody signed
+	// in who has the link.
+	//
+	// GetChatSharing is the share dialog: who has access, general access, and — for the owner
+	// only — the link. Anybody who can open the chat may read it; only the owner may change it.
+	GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error)
+	// UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+	UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error)
+	// ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+	// login that has never signed in to Podium is failed_precondition.
+	ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error)
+	// UnshareChat removes a named grant. Owner only.
+	UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error)
+	// LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+	// any surface, brings them back. The owner cannot leave; they delete.
+	LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error)
+	// MarkChatRead moves the caller's read mark forward. It never moves it back.
+	MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error)
+	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
+	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
@@ -1801,6 +1965,54 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetChatSharingHandler := connect.NewUnaryHandler(
+		AgentServiceGetChatSharingProcedure,
+		svc.GetChatSharing,
+		connect.WithSchema(agentServiceMethods.ByName("GetChatSharing")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateChatSharingHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateChatSharingProcedure,
+		svc.UpdateChatSharing,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateChatSharing")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceShareChatHandler := connect.NewUnaryHandler(
+		AgentServiceShareChatProcedure,
+		svc.ShareChat,
+		connect.WithSchema(agentServiceMethods.ByName("ShareChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUnshareChatHandler := connect.NewUnaryHandler(
+		AgentServiceUnshareChatProcedure,
+		svc.UnshareChat,
+		connect.WithSchema(agentServiceMethods.ByName("UnshareChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceLeaveChatHandler := connect.NewUnaryHandler(
+		AgentServiceLeaveChatProcedure,
+		svc.LeaveChat,
+		connect.WithSchema(agentServiceMethods.ByName("LeaveChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceMarkChatReadHandler := connect.NewUnaryHandler(
+		AgentServiceMarkChatReadProcedure,
+		svc.MarkChatRead,
+		connect.WithSchema(agentServiceMethods.ByName("MarkChatRead")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListNotificationsHandler := connect.NewUnaryHandler(
+		AgentServiceListNotificationsProcedure,
+		svc.ListNotifications,
+		connect.WithSchema(agentServiceMethods.ByName("ListNotifications")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceMarkNotificationsReadHandler := connect.NewUnaryHandler(
+		AgentServiceMarkNotificationsReadProcedure,
+		svc.MarkNotificationsRead,
+		connect.WithSchema(agentServiceMethods.ByName("MarkNotificationsRead")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceListSlackChannelsHandler := connect.NewUnaryHandler(
 		AgentServiceListSlackChannelsProcedure,
 		svc.ListSlackChannels,
@@ -1955,6 +2167,22 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceAttachChatPullRequestHandler.ServeHTTP(w, r)
 		case AgentServiceDetachChatPullRequestProcedure:
 			agentServiceDetachChatPullRequestHandler.ServeHTTP(w, r)
+		case AgentServiceGetChatSharingProcedure:
+			agentServiceGetChatSharingHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateChatSharingProcedure:
+			agentServiceUpdateChatSharingHandler.ServeHTTP(w, r)
+		case AgentServiceShareChatProcedure:
+			agentServiceShareChatHandler.ServeHTTP(w, r)
+		case AgentServiceUnshareChatProcedure:
+			agentServiceUnshareChatHandler.ServeHTTP(w, r)
+		case AgentServiceLeaveChatProcedure:
+			agentServiceLeaveChatHandler.ServeHTTP(w, r)
+		case AgentServiceMarkChatReadProcedure:
+			agentServiceMarkChatReadHandler.ServeHTTP(w, r)
+		case AgentServiceListNotificationsProcedure:
+			agentServiceListNotificationsHandler.ServeHTTP(w, r)
+		case AgentServiceMarkNotificationsReadProcedure:
+			agentServiceMarkNotificationsReadHandler.ServeHTTP(w, r)
 		case AgentServiceListSlackChannelsProcedure:
 			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
 		case AgentServiceSetSlackChannelDescriptionProcedure:
@@ -2206,6 +2434,38 @@ func (UnimplementedAgentServiceHandler) AttachChatPullRequest(context.Context, *
 
 func (UnimplementedAgentServiceHandler) DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DetachChatPullRequest is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetChatSharing is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateChatSharing is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ShareChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UnshareChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.LeaveChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.MarkChatRead is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListNotifications is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.MarkNotificationsRead is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {

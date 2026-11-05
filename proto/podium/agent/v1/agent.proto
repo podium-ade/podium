@@ -207,6 +207,29 @@ service AgentService {
   // in the same chat will not put it back, because a human removing something means it.
   // Attaching it again is how it comes back.
   rpc DetachChatPullRequest(DetachChatPullRequestRequest) returns (DetachChatPullRequestResponse);
+  // The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+  // way a document is: by name with a role, with every Podium member, or with anybody signed
+  // in who has the link.
+  //
+  // GetChatSharing is the share dialog: who has access, general access, and — for the owner
+  // only — the link. Anybody who can open the chat may read it; only the owner may change it.
+  rpc GetChatSharing(GetChatSharingRequest) returns (GetChatSharingResponse);
+  // UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+  rpc UpdateChatSharing(UpdateChatSharingRequest) returns (UpdateChatSharingResponse);
+  // ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+  // login that has never signed in to Podium is failed_precondition.
+  rpc ShareChat(ShareChatRequest) returns (ShareChatResponse);
+  // UnshareChat removes a named grant. Owner only.
+  rpc UnshareChat(UnshareChatRequest) returns (UnshareChatResponse);
+  // LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+  // any surface, brings them back. The owner cannot leave; they delete.
+  rpc LeaveChat(LeaveChatRequest) returns (LeaveChatResponse);
+  // MarkChatRead moves the caller's read mark forward. It never moves it back.
+  rpc MarkChatRead(MarkChatReadRequest) returns (MarkChatReadResponse);
+  // ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  // MarkNotificationsRead marks some, or all, of the caller's notifications read.
+  rpc MarkNotificationsRead(MarkNotificationsReadRequest) returns (MarkNotificationsReadResponse);
   // ListSlackChannels reports every Slack channel this conductor has seen — invited and
   // mentioned, or listed from Slack on this call — with the operator-authored description
   // a turn of that channel is briefed with.
@@ -246,6 +269,13 @@ message Session {
   // one. For Slack it is the channel name without a leading #. Empty when unknown or when
   // the source has no such name — the UI then falls back to source_key.
   string source_label = 8;
+  // The caller's relationship to the chat this session is the record of (phase 5), set by
+  // ListSessions. Empty for a session with no chat (Linear, dev). See Chat for each field.
+  string chat_id = 9;
+  string my_role = 10;
+  string access_reason = 11;
+  string shared_by = 12;
+  int64 unread_count = 13;
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -279,6 +309,9 @@ message Page {
 
 message ListSessionsRequest {
   Page page = 1;
+  // section is "" (the caller's own: owned, spoken in, shared with them), "shared" (the part
+  // of that somebody else owns) or "workspace" (shared with every member, not yet opened).
+  string section = 2;
 }
 
 message ListSessionsResponse {
@@ -1019,6 +1052,21 @@ message Chat {
   // A chat with somebody else's personal assistant is listed under Podium with this set,
   // labelled with personality_display: the assistant itself stays its owner's.
   bool shared_with_me = 22;
+  // my_role is what the caller may do here (phase 5): "owner", "editor", "viewer". The dev
+  // token is "owner" of everything. A viewer is offered no composer.
+  string my_role = 23;
+  // access_reason is why the caller can see it: "owner", "participant" (they spoke in it),
+  // "shared" (somebody shared it with them, or they joined by link), or "workspace" (it is
+  // shared with every member and they have not opened it yet).
+  string access_reason = 24;
+  // shared_by is who shared it with the caller by name, or "link"/"members" when opening it
+  // that way is what put it in their list. Empty otherwise.
+  string shared_by = 25;
+  // unread_count is what somebody else said after the caller's read mark. Set by lists.
+  int64 unread_count = 26;
+  // general_access is "restricted", "members" or "link"; general_role is what it grants.
+  string general_access = 27;
+  string general_role = 28;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1226,6 +1274,8 @@ message ListChatsRequest {
   // already see. Set, an empty personality_id is Podium and a set id is that voice only.
   bool filter_personality = 2;
   string personality_id = 3;
+  // section is as ListSessionsRequest.section.
+  string section = 4;
 }
 
 message ListChatsResponse {
@@ -1317,7 +1367,129 @@ message StreamChatRequest {
   // from_seq is exclusive: everything with a higher seq is replayed before the stream
   // starts following. 0 replays the whole conversation.
   uint64 from_seq = 2;
+  // link_token is the k= of a share link. With it, a signed-in caller may open a chat shared
+  // by link, and is written an access row so it stays in their lists.
+  string link_token = 3;
 }
+
+// ChatGrant is one person with access to a chat, as the share dialog lists them.
+message ChatGrant {
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+  // role is "owner", "editor" or "viewer".
+  string role = 4;
+  // granted_by is the login who shared it, or "link"/"members".
+  string granted_by = 5;
+  google.protobuf.Timestamp granted_at = 6;
+}
+
+// ChatSharing is the share dialog's state.
+message ChatSharing {
+  string chat_id = 1;
+  // owner is first, always. Empty login for a mirrored chat nobody in Podium owns yet.
+  ChatGrant owner = 2;
+  repeated ChatGrant grants = 3;
+  string general_access = 4;
+  string general_role = 5;
+  // link_token is set for the owner only, and only once link sharing has been turned on.
+  string link_token = 6;
+  // my_role is the caller's.
+  string my_role = 7;
+  // origin is where the conversation lives: "web", "slack", "github".
+  string origin = 8;
+  // private_source is true when the chat mirrors a Slack DM or private channel, so sharing it
+  // shows people outside that conversation what was said there. A Slack chat whose privacy
+  // Podium cannot tell from its id is warned about too, with source_privacy_unknown set.
+  bool private_source = 9;
+  bool source_privacy_unknown = 10;
+}
+
+message GetChatSharingRequest {
+  string chat_id = 1;
+}
+
+message GetChatSharingResponse {
+  ChatSharing sharing = 1;
+}
+
+message UpdateChatSharingRequest {
+  string chat_id = 1;
+  // general_access is "restricted", "members" or "link". Empty leaves it.
+  string general_access = 2;
+  // general_role is "viewer" or "editor". Empty leaves it.
+  string general_role = 3;
+  // rotate_link gives the chat a new link; the old one stops letting anybody join.
+  bool rotate_link = 4;
+}
+
+message UpdateChatSharingResponse {
+  ChatSharing sharing = 1;
+}
+
+message ShareChatRequest {
+  string chat_id = 1;
+  string login = 2;
+  // role is "viewer" or "editor".
+  string role = 3;
+}
+
+message ShareChatResponse {
+  ChatSharing sharing = 1;
+}
+
+message UnshareChatRequest {
+  string chat_id = 1;
+  string login = 2;
+}
+
+message UnshareChatResponse {
+  ChatSharing sharing = 1;
+}
+
+message LeaveChatRequest {
+  string chat_id = 1;
+}
+
+message LeaveChatResponse {}
+
+message MarkChatReadRequest {
+  string chat_id = 1;
+  uint64 seq = 2;
+}
+
+message MarkChatReadResponse {}
+
+// Notification is one entry in the caller's inbox.
+message Notification {
+  int64 id = 1;
+  // kind is "share" or "mention".
+  string kind = 2;
+  string chat_id = 3;
+  string chat_title = 4;
+  // seq is the message a mention is in. 0 for a share.
+  uint64 seq = 5;
+  // actor is who shared, or who mentioned.
+  string actor = 6;
+  google.protobuf.Timestamp created_at = 7;
+  bool read = 8;
+}
+
+message ListNotificationsRequest {
+  bool unread_only = 1;
+  int32 limit = 2;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message MarkNotificationsReadRequest {
+  repeated int64 ids = 1;
+  bool all = 2;
+}
+
+message MarkNotificationsReadResponse {}
 
 message AttachChatPullRequestRequest {
   string chat_id = 1;

@@ -164,6 +164,7 @@ func TestCatalogCoversEveryServerProcedure(t *testing.T) {
 		podiumv1.File_podium_v1_admin_proto,
 		podiumv1.File_podium_v1_node_proto,
 		podiumv1.File_podium_v1_secret_proto,
+		podiumv1.File_podium_v1_audit_proto,
 		podiumv1.File_podium_v1_registry_proto,
 		podiumv1.File_podium_v1_sandbox_proto,
 		podiumv1.File_podium_v1_artifact_proto,

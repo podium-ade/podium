@@ -66,6 +66,10 @@ var catalog = map[string]string{
 	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleMember,
 	// The handler refuses everyone but the conductor, which skips this table.
 	podiumv1connect.SecretServiceReadSecretProcedure: store.RoleOwner,
+	// The conductor writing a person's sharing decisions to audit_log. The handler refuses
+	// everyone but the conductor, which skips this table; the owner role only keeps a person
+	// from even reaching it.
+	podiumv1connect.AuditServiceRecordAuditProcedure: store.RoleOwner,
 
 	podiumv1connect.RegistryServiceListRegistriesProcedure: store.RoleMember,
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
@@ -116,9 +120,20 @@ var catalog = map[string]string{
 	// Phase 4: a member takes back their own queued turn (the store matches the login),
 	// stops the answer in a chat they may write (the handler checks), and looks people up
 	// for the composer's @-mention list.
-	agentv1connect.AgentServiceCancelQueuedTurnProcedure:      store.RoleMember,
-	agentv1connect.AgentServiceCancelChatTurnProcedure:        store.RoleMember,
-	agentv1connect.AgentServiceSearchMembersProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceCancelQueuedTurnProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelChatTurnProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceSearchMembersProcedure:    store.RoleMember,
+	// Phase 5: sharing. Any member may share a chat they own, leave one they are in, keep
+	// their own read marks and read their own inbox; the conductor answers who owns what
+	// (chat_role), so the member role here is only "a signed-in person".
+	agentv1connect.AgentServiceGetChatSharingProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateChatSharingProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceShareChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceUnshareChatProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceLeaveChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceMarkChatReadProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
