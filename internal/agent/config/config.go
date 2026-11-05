@@ -290,6 +290,10 @@ type Config struct {
 	// signed in through podium-server. Defence in depth for a server that admits only its
 	// own workspace anyway.
 	AllowedDomains []string
+	// SlackTeamIDs is PODIUM_SLACK_TEAM_IDS, a comma-separated list of Slack workspace (T…)
+	// and Enterprise Grid org (E…) ids whose full members may also be matched to a Podium
+	// login, beside the bot's own workspace. Empty is the bot's own workspace alone.
+	SlackTeamIDs []string
 	// TranscriptBudgetBytes is PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES: how much of the
 	// conversation's text a turn is handed before the older chatter nobody put to Podium is
 	// condensed. Zero is the conductor's default. See conductor/transcript.go.
@@ -428,6 +432,7 @@ func FromEnv() Config {
 		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
 		UIURL:                 os.Getenv("PODIUM_AGENT_UI_URL"),
 		AllowedDomains:        domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
+		SlackTeamIDs:          idList(os.Getenv("PODIUM_SLACK_TEAM_IDS")),
 		TranscriptBudgetBytes: envInt("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES"),
 		TranscriptKeepRecent:  envInt("PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT"),
 		TaskURL:               envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
@@ -1022,6 +1027,21 @@ func ReplicaIDFor(host, listen string) string {
 }
 
 // domainList is a comma-separated list of domains, trimmed and lowercased, empties dropped.
+// idList is a comma-separated list of Slack ids, as Slack spells them (upper case), with
+// blanks and duplicates dropped.
+func idList(v string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range strings.Split(v, ",") {
+		id = strings.ToUpper(strings.TrimSpace(id))
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func domainList(v string) []string {
 	var out []string
 	for _, d := range strings.Split(v, ",") {

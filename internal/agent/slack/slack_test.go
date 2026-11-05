@@ -1131,6 +1131,30 @@ func TestVerifiedEmailRefusesAnybodyWhoCouldBePretending(t *testing.T) {
 	assert.Empty(t, verifiedEmail(grid, "T1", "E2"))
 }
 
+// PODIUM_SLACK_TEAM_IDS adds workspaces and Grid orgs whose members may match, and nothing
+// else: a guest or a Slack Connect stranger in a listed workspace is still nobody.
+func TestVerifiedEmailAcceptsTheListedTeams(t *testing.T) {
+	member := func(team, enterprise string) *slack.User {
+		u := &slack.User{ID: "U1", TeamID: team, IsEmailConfirmed: true}
+		u.Profile.Email = "ada@acme.com"
+		u.Enterprise.EnterpriseID = enterprise
+		return u
+	}
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T2", ""), "T1", "", "T2"), "a listed workspace")
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T7", "E5"), "T1", "", "E5"), "a listed Grid org")
+	assert.Empty(t, verifiedEmail(member("T3", ""), "T1", "", "T2"), "an unlisted workspace")
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T2", ""), "", "", "T2"),
+		"the list alone is enough when auth.test has not run")
+	assert.Empty(t, verifiedEmail(member("T2", ""), "", "", ""), "an empty entry matches nothing")
+
+	guest := member("T2", "")
+	guest.IsRestricted = true
+	assert.Empty(t, verifiedEmail(guest, "T1", "", "T2"), "a guest in a listed workspace")
+	stranger := member("T2", "")
+	stranger.IsStranger = true
+	assert.Empty(t, verifiedEmail(stranger, "T1", "", "T2"), "Slack Connect in a listed workspace")
+}
+
 // The account check is asked again once accountTTL has passed: a member who becomes a guest
 // stops matching without a restart.
 func TestAccountIsCheckedAgainAfterItsTTL(t *testing.T) {

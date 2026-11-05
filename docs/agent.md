@@ -525,6 +525,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
 | `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
+| `PODIUM_SLACK_TEAM_IDS` | no | (none) | comma-separated Slack workspace (`T…`) and Enterprise Grid org (`E…`) ids whose full members may also be matched to a Podium login, beside the bot's own workspace from `auth.test`. Guests, Slack Connect users, deactivated users and bots are refused whatever workspace they are in |
 | `PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES` | no | 32768 | how much of a conversation's text a turn is handed before old chatter nobody put to Podium is condensed into one note (see [One record, one transcript](#one-record-one-transcript)) |
 | `PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT` | no | 20 | how many of the latest messages a turn always gets word for word, budget or not |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
@@ -2795,7 +2796,7 @@ person only once it has been **proven** to be a Podium login (`identities` in
 | Account | Proven by |
 |---|---|
 | Podium (web) | signing in through podium-server; the first proxied call records it |
-| Slack | a full member of the bot's own workspace (or Enterprise Grid org) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
 | GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
 
 What that decides:
