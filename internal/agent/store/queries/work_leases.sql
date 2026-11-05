@@ -6,7 +6,9 @@ values (@key, @owner, now() + make_interval(secs => @ttl_seconds::double precisi
 on conflict (key) do update
     set owner = excluded.owner, expires_at = excluded.expires_at,
         pending = case when work_leases.owner = excluded.owner then work_leases.pending end,
-        warm_task_id = case when work_leases.owner = excluded.owner then work_leases.warm_task_id else '' end
+        warm_task_id = case when work_leases.owner = excluded.owner then work_leases.warm_task_id else '' end,
+        warm_login = case when work_leases.owner = excluded.owner then work_leases.warm_login else '' end,
+        warm_kind = case when work_leases.owner = excluded.owner then work_leases.warm_kind else '' end
     where work_leases.owner = excluded.owner or work_leases.expires_at < now()
 returning owner;
 
@@ -45,5 +47,5 @@ returning taken.pending::jsonb as pending;
 
 -- SetWarmTask records the owner's task that is waiting for a follow-up, or clears it.
 -- name: SetWarmTask :exec
-update work_leases set warm_task_id = @warm_task_id
+update work_leases set warm_task_id = @warm_task_id, warm_login = @warm_login, warm_kind = @warm_kind
 where key = @key and owner = @owner;

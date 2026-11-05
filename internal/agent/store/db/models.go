@@ -24,6 +24,7 @@ type Chat struct {
 	PersonalityID      *string
 	PersonalityDisplay string
 	LastSeq            int64
+	Multiplayer        bool
 }
 
 type ChatMessage struct {
@@ -44,6 +45,7 @@ type ChatMessage struct {
 	Addressed    bool
 	EditedAt     *time.Time
 	DeletedAt    *time.Time
+	Mentions     []string
 }
 
 type ChatOutbox struct {
@@ -211,10 +213,24 @@ type Turn struct {
 	StartedBy  string
 }
 
+type TurnQueue struct {
+	ID         int64
+	SessionID  string
+	SourceKind string
+	Login      string
+	Author     string
+	ChatID     string
+	MessageSeq int64
+	Event      []byte
+	CreatedAt  time.Time
+}
+
 type WorkLease struct {
 	Key        string
 	Owner      string
 	ExpiresAt  time.Time
 	Pending    []byte
 	WarmTaskID string
+	WarmLogin  string
+	WarmKind   string
 }
