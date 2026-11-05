@@ -123,7 +123,7 @@ func TestSharingPermissionMatrix(t *testing.T) {
 	}
 
 	type expect struct {
-		list                                            bool
+		list                                              bool
 		open, send, rename, share, retry, cancel, sharing string
 	}
 	matrix := map[string]expect{
