@@ -164,3 +164,29 @@ describe("SessionsTable", () => {
     expect(screen.getByText(/podium-agent is not reachable/)).toBeInTheDocument();
   });
 });
+
+describe("SessionsTable sharing", () => {
+  it("puts shared conversations and the workspace in sections of their own", async () => {
+    listSessions.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace"
+        ? {
+            sessions: [
+              { ...session, id: "sess_ws", sourceKind: "chat", sourceKey: "chat:c_ws", chatId: "c_ws", accessReason: "workspace", myRole: "viewer" },
+            ],
+          }
+        : {
+            sessions: [
+              { ...session, id: "sess_mine", sourceKind: "chat", sourceKey: "chat:c_mine", chatId: "c_mine", accessReason: "owner", myRole: "owner", unreadCount: 3n },
+              { ...session, id: "sess_shared", sourceKind: "slack", chatId: "c_shared", accessReason: "shared", myRole: "editor", sharedBy: "alice" },
+            ],
+          },
+    );
+    mount();
+    expect(await screen.findByTestId("session-section-shared")).toHaveTextContent("Shared with me");
+    expect(screen.getByTestId("session-section-workspace")).toHaveTextContent("Workspace");
+    expect(screen.getByTestId("session-unread")).toHaveTextContent("3");
+    const shared = screen.getAllByTestId("session-shared").map((e) => e.textContent);
+    expect(shared).toEqual(expect.arrayContaining(["· Shared by alice", "· Workspace · view only"]));
+    expect(screen.getAllByRole("link", { name: "Open chat" })[0]).toHaveAttribute("href", "/agent/chat/c_mine");
+  });
+});

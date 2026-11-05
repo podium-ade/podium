@@ -15,6 +15,7 @@ import {
 import type { Session, Turn } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, conversationLabel, relative, taskDuration, turnCost } from "../../lib/format";
+import { sharedByLabel, unread } from "../../lib/sharing";
 import { ranBy } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Badge, Chip, type Tone } from "../Badge";
@@ -51,17 +52,29 @@ const KIND: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
  * sees the Slack threads and pull requests they took part in beside their own web chats, so
  * GitHub is a section of its own rather than "Other".
  */
-function sessionSections(rows: Session[]): { key: string; label: string; rows: Session[] }[] {
+//
+// Phase 5 puts two sections in front of the surfaces and one after them: "Shared with me" is
+// every conversation somebody shared with the caller (by name, or one they opened from a
+// link), wherever it lives; "Workspace" is what is shared with every member and not opened
+// yet. A Slack thread or PR the caller spoke in stays under its surface: it is theirs.
+function sessionSections(
+  rows: Session[],
+  workspace: Session[] = [],
+): { key: string; label: string; rows: Session[] }[] {
   const known = new Set(["chat", "slack", "github"]);
+  const shared = rows.filter((s) => s.accessReason === "shared");
+  rows = rows.filter((s) => s.accessReason !== "shared");
   const web = rows.filter((s) => s.sourceKind === "chat");
   const slack = rows.filter((s) => s.sourceKind === "slack");
   const github = rows.filter((s) => s.sourceKind === "github");
   const other = rows.filter((s) => !known.has(s.sourceKind));
   const out: { key: string; label: string; rows: Session[] }[] = [];
   if (web.length > 0) out.push({ key: "web", label: "Web", rows: web });
+  if (shared.length > 0) out.push({ key: "shared", label: "Shared with me", rows: shared });
   if (slack.length > 0) out.push({ key: "slack", label: "Slack", rows: slack });
   if (github.length > 0) out.push({ key: "github", label: "GitHub", rows: github });
   if (other.length > 0) out.push({ key: "other", label: "Other", rows: other });
+  if (workspace.length > 0) out.push({ key: "workspace", label: "Workspace", rows: workspace });
   return out;
 }
 
@@ -94,8 +107,18 @@ export function SessionsTable() {
     refetchInterval: POLL_MS,
   });
 
-  const rows = sessions.data?.sessions ?? [];
-  const sections = sessionSections(rows);
+  // What every member was given and the caller has not opened yet (phase 5).
+  const workspace = useQuery({
+    queryKey: ["agent", "sessions", "workspace"],
+    queryFn: () => agent.listSessions({ section: "workspace" }),
+    refetchInterval: 30_000,
+  });
+
+  const own = sessions.data?.sessions ?? [];
+  const ownIDs = new Set(own.map((s) => s.id));
+  const workspaceRows = (workspace.data?.sessions ?? []).filter((s) => !ownIDs.has(s.id));
+  const rows = [...own, ...workspaceRows];
+  const sections = sessionSections(own, workspaceRows);
   const split = sections.length > 1;
   const open = rows.find((s) => s.id === openID);
 
@@ -198,7 +221,32 @@ export function SessionsTable() {
                     <div className="truncate font-mono text-xs text-fg" title={s.sourceKey}>
                       {conversationLabel(s)}
                     </div>
-                    <div className="truncate font-mono text-2xs text-faint">{s.id}</div>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-mono text-2xs text-faint">{s.id}</span>
+                      {sharedByLabel(s) ? (
+                        <span data-testid="session-shared" className="truncate text-2xs text-muted">
+                          · {sharedByLabel(s)}
+                        </span>
+                      ) : null}
+                      {unread(s) > 0 ? (
+                        <span
+                          data-testid="session-unread"
+                          className="shrink-0 rounded-full bg-accent px-1.5 text-2xs font-semibold text-accent-ink"
+                        >
+                          {unread(s) > 99 ? "99+" : unread(s)}
+                          <span className="sr-only"> unread</span>
+                        </span>
+                      ) : null}
+                      {s.chatId ? (
+                        <Link
+                          to={`/agent/chat/${s.chatId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 text-2xs text-accent hover:underline"
+                        >
+                          Open chat
+                        </Link>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Chip>{ranBy(s.playbook)}</Chip>
