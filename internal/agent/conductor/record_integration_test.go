@@ -193,12 +193,14 @@ func TestADeletedMirroredChatStaysDeleted(t *testing.T) {
 
 	first := inbound("C1/7.1", "the first question")
 	first.ExternalID = "7.1"
+	first.ChannelPrivacy = conductor.ChannelPrivate
 	require.NoError(t, src.Send(ctx, first))
 	waitFor(t, 30*time.Second, "the first turn", func() bool {
 		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
 	})
 	chat, err := st.ChatBySourceKey(ctx, first.SourceKey)
 	require.NoError(t, err)
+	assert.Equal(t, store.ChannelPrivate, chat.ChannelPrivacy, "the mirror records what the source says about the channel")
 	owner, shared := chat.Login, false
 	if owner == "" {
 		owner, shared = "dev", true

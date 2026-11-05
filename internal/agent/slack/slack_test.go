@@ -596,6 +596,36 @@ func TestInnerResolvesTheChannelName(t *testing.T) {
 	assert.Equal(t, []string{"conversations.info"}, f.methods())
 }
 
+// Whether a conversation is public is Slack's word, read with its name in the same call and
+// cached with it: the share dialog warns about sharing a private one.
+func TestInnerReportsTheChannelPrivacy(t *testing.T) {
+	for _, tc := range []struct {
+		channel, info, want string
+	}{
+		{"C1", `{"ok":true,"channel":{"id":"C1","name":"support"}}`, conductor.ChannelPublic},
+		{"C2", `{"ok":true,"channel":{"id":"C2","name":"secret","is_private":true}}`, conductor.ChannelPrivate},
+		{"D3", `{"ok":true,"channel":{"id":"D3","is_im":true,"user":"U1"}}`, conductor.ChannelIM},
+		{"G4", `{"ok":true,"channel":{"id":"G4","name":"mpdm-a--b","is_mpim":true,"is_private":true}}`, conductor.ChannelMPIM},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			f := newFakeSlack(t)
+			f.reply("conversations.info", tc.info)
+			s := testSource(t, f)
+			s.users["U1"] = "alice"
+			s.accounts = map[string]slackAccount{"U1": {login: "alice@acme.com", externalID: "T1/U1", at: time.Now()}}
+
+			for _, ts := range []string{"100.1", "100.2"} {
+				s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+					Data: &slackevents.AppMentionEvent{Channel: tc.channel, User: "U1", Text: "<@UBOT> hello", TimeStamp: ts},
+				}})
+				ev := takeInbound(t, s)
+				assert.Equal(t, tc.want, ev.ChannelPrivacy)
+			}
+			assert.Equal(t, []string{"conversations.info"}, f.methods(), "one lookup, cached")
+		})
+	}
+}
+
 func TestInnerLeavesTheChannelNameEmptyWhenSlackWillNotResolveIt(t *testing.T) {
 	f := newFakeSlack(t)
 	f.reply("conversations.info", `{"ok":false,"error":"channel_not_found"}`)

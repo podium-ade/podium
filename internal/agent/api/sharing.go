@@ -168,14 +168,22 @@ func (s *AgentService) ownedChat(ctx context.Context, chatID, login string) (sto
 }
 
 // sourcePrivacy is what the share dialog warns about: sharing a mirrored Slack conversation
-// shows its content to people who may not be in it. A Slack id says enough for a DM (D…) and
-// a legacy private channel or group DM (G…); a C… channel may be either, and Podium does not
-// record which, so it is warned about as possibly private. A pull request is as visible as
-// its repository, which Podium does not know either — GitHub's own access is the boundary,
-// and nobody reaches a PR's chat here without having been in the PR.
+// shows its content to people who may not be in it. What Slack said about the channel (0037)
+// is the answer when the chat has it: a private channel, a DM or a group DM is private, and a
+// public channel is not. A chat recorded before that falls back to the id, which says enough
+// for a DM (D…) and a legacy private channel or group DM (G…); a C… channel may be either and
+// is warned about as possibly private. A pull request is as visible as its repository, which
+// Podium does not know — GitHub's own access is the boundary, and nobody reaches a PR's chat
+// here without having been in the PR.
 func sourcePrivacy(c store.Chat) (private, unknown bool) {
 	if c.Origin != store.OriginSlack {
 		return false, false
+	}
+	switch c.ChannelPrivacy {
+	case store.ChannelPublic:
+		return false, false
+	case store.ChannelPrivate, store.ChannelIM, store.ChannelMPIM:
+		return true, false
 	}
 	id, ok := store.SlackChannelID(c.SourceKey)
 	if !ok || id == "" {

@@ -637,6 +637,9 @@ const ChatPreviewChars = 80
 type Chat struct {
 	ID    string
 	Title string
+	// ChannelPrivacy is what Slack says about a mirrored chat's channel (ChannelPublic, …),
+	// "" when it is not known (0037).
+	ChannelPrivacy string
 	// DeletedAt is set on a mirrored chat its owner deleted (0036). It stays in the database
 	// as the conversation's record, and is nobody's but the dev token's.
 	DeletedAt *time.Time
@@ -1324,6 +1327,7 @@ func chatFromRow(row db.Chat) Chat {
 		GeneralRole:        row.GeneralRole,
 		LinkToken:          deref(row.LinkToken),
 		DeletedAt:          row.DeletedAt,
+		ChannelPrivacy:     row.ChannelPrivacy,
 	}
 }
 
