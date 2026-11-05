@@ -107,10 +107,10 @@ func SanitizeReviewNote(note string) string {
 	return s
 }
 
-// NoteChecker decides whether a sanitized note may reach the model. It is an interface so a
-// model-backed classifier can be plugged in; DenyList is the default and is what ships, since
-// the conductor has no cheap model call of its own yet. A checker that errs is treated as a
-// refusal of the note, not of the review.
+// NoteChecker decides whether a sanitized note may reach the model. The conductor runs
+// ModelNoteChecker (the deny-list, then a model classifier); DenyList alone is the default
+// of a source built without one. A checker that errs is treated as a refusal of the note,
+// not of the review.
 type NoteChecker interface {
 	Allowed(ctx context.Context, note string) (bool, error)
 }

@@ -20,6 +20,7 @@ type Metrics struct {
 	GateDecisions           *prometheus.CounterVec
 	OutboxDeliveries        *prometheus.CounterVec
 	MirrorRecords           *prometheus.CounterVec
+	ReviewNoteChecks        *prometheus.CounterVec
 	FollowReconnects        prometheus.Counter
 	MemoryRetains           *prometheus.CounterVec
 	MemoryExtractionsFailed prometheus.Gauge
@@ -96,6 +97,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 				"retry (an attempt failed and another is scheduled) and failed (given up; the web " +
 				"chat shows it as not delivered until somebody retries).",
 		}, []string{"surface", "outcome"}),
+		ReviewNoteChecks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_review_note_checks_total",
+			Help: "Notes on review commands from people outside Podium, by verdict: allowed, " +
+				"denied_list, denied_model, no_classifier (no Anthropic key, so the note was " +
+				"dropped) and error (the classifier failed, so the note was dropped).",
+		}, []string{"outcome"}),
 		MirrorRecords: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_mirror_records_total",
 			Help: "What the mirror did with a human message, by source: addressed, unaddressed, " +
@@ -126,7 +133,16 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
 			m.HostWarmEvictions, m.WarmInjects, m.TurnFirstMessage, m.GatewayRequests, m.Notifications,
 			m.Delegations, m.RelayedMessages,
-			m.SourceEvents, m.GateDecisions, m.OutboxDeliveries, m.MirrorRecords, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
+			m.SourceEvents, m.GateDecisions, m.OutboxDeliveries, m.MirrorRecords, m.ReviewNoteChecks, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m
+}
+
+// ObserveReviewNote counts one verdict on a review command's note. It is the GitHub source's
+// window onto the conductor's metrics: the source never holds the registry itself.
+func (c *Conductor) ObserveReviewNote(outcome string) {
+	if c == nil || c.metrics == nil {
+		return
+	}
+	c.metrics.ReviewNoteChecks.WithLabelValues(outcome).Inc()
 }
