@@ -187,6 +187,60 @@ func (q *Queries) ListChatParticipants(ctx context.Context, chatID string) ([]Ch
 	return items, nil
 }
 
+const searchMembers = `-- name: SearchMembers :many
+select w.login,
+  coalesce((select i.display_name from identities i
+             where i.login = w.login and i.display_name <> ''
+             order by (i.provider = 'web') desc, i.verified_at desc limit 1), '')::text as name,
+  coalesce((select i.avatar_url from identities i
+             where i.login = w.login and i.avatar_url <> ''
+             order by i.verified_at desc limit 1), '')::text as avatar
+  from identities w
+ where w.provider = 'web'
+   and (
+     $1::text = ''
+     or w.login ilike '%' || $1::text || '%'
+     or exists (select 1 from identities n
+                 where n.login = w.login and n.display_name ilike '%' || $1::text || '%')
+   )
+ order by w.login
+ limit $2::int
+`
+
+type SearchMembersParams struct {
+	Query     string
+	PageLimit int32
+}
+
+type SearchMembersRow struct {
+	Login  string
+	Name   string
+	Avatar string
+}
+
+// SearchMembers is the composer's @-mention list: every login that has signed in to Podium
+// (a web row), named and pictured by whichever of its accounts says so. query is matched
+// against the login and every display name, case-insensitively.
+func (q *Queries) SearchMembers(ctx context.Context, arg SearchMembersParams) ([]SearchMembersRow, error) {
+	rows, err := q.db.Query(ctx, searchMembers, arg.Query, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchMembersRow{}
+	for rows.Next() {
+		var i SearchMembersRow
+		if err := rows.Scan(&i.Login, &i.Name, &i.Avatar); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertIdentity = `-- name: UpsertIdentity :exec
 insert into identities (login, provider, external_id, handle, display_name, avatar_url, verified_at)
 values ($1, $2, $3, $4, $5, $6, $7)

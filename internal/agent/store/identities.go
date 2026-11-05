@@ -250,3 +250,29 @@ func firstNonEmptyString(vs ...string) string {
 	}
 	return ""
 }
+
+// Member is one Podium person, as the composer's @-mention list shows them.
+type Member struct {
+	Login  string
+	Name   string
+	Avatar string
+}
+
+// SearchMembers finds people who have signed in to Podium by login or display name. limit is
+// clamped to 1..50.
+func (s *Store) SearchMembers(ctx context.Context, query string, limit int) ([]Member, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	// LIKE's own wildcards are literal here: somebody typing "a_b" means those characters.
+	query = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.TrimSpace(query))
+	rows, err := s.q.SearchMembers(ctx, db.SearchMembersParams{Query: query, PageLimit: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("search members: %w", err)
+	}
+	out := make([]Member, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Member{Login: r.Login, Name: r.Name, Avatar: r.Avatar})
+	}
+	return out, nil
+}

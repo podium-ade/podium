@@ -15,6 +15,10 @@ import (
 // row and hands it to its own watchers. See chat.Relay.
 const ChatChannel = "podium_chat"
 
+// TurnCancelChannel carries a request to stop a running host turn, by its trigger ref, to the
+// conductor that runs it (phase 4: anybody in a chat may stop its answer, from any conductor).
+const TurnCancelChannel = "podium_turn_cancel"
+
 // MaxNotifyPayload is the largest payload Postgres accepts on a NOTIFY, less a margin for
 // the envelope. Anything that would not fit is announced as a pointer to re-read instead.
 const MaxNotifyPayload = 7900

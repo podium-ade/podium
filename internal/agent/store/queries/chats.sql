@@ -13,11 +13,13 @@
 -- name: CreateChat :one
 insert into chats (
   id, title, login, created_at, auto_title, source_key, started_by, origin,
-  personality_id, personality_display
+  personality_id, personality_display, multiplayer
 )
 values (
   @id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin,
-  sqlc.narg('personality_id'), @personality_display
+  sqlc.narg('personality_id'), @personality_display,
+  -- A mirrored conversation always has other people in it (decision 33).
+  @origin::text <> 'web'
 )
 returning *;
 
@@ -75,7 +77,7 @@ left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
-   where cm.role <> 'activity'
+   where cm.role not in ('activity', 'notice')
 ) m on m.chat_id = c.id and m.rn = 1
 -- include_all is the shared dev token, which has no per-user identity and is the operator
 -- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
@@ -90,11 +92,20 @@ where (
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
   -- already see, which is what every existing caller asks for. Set, an empty
   -- personality_id is Podium (the column is null) and a set id is that voice only.
+  --
+  -- A chat with somebody ELSE's personal assistant is listed under Podium (phase 4). The
+  -- assistant stays private: the viewer has no picker entry for it and could never select
+  -- its id, so without this branch a conversation they take part in would be in no list at
+  -- all. The UI shows it as shared, labelled with personality_display.
   and (
     not @filter_personality::bool
     or (
-      (@personality_id::text = '' and c.personality_id is null)
-      or (@personality_id::text <> '' and c.personality_id = @personality_id)
+      (@personality_id::text = '' and (
+        c.personality_id is null
+        or (not @include_all::bool and c.login is distinct from @viewer::text)
+      ))
+      or (@personality_id::text <> '' and c.personality_id = @personality_id
+          and (@include_all::bool or c.login = @viewer::text))
     )
   )
 order by c.id desc
@@ -110,11 +121,12 @@ with next as (
 )
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
-  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
+  mentions
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       sqlc.narg('external_id'), @external_url, @addressed
+       sqlc.narg('external_id'), @external_url, @addressed, @mentions::text[]
   from next
 returning *;
 
@@ -129,11 +141,12 @@ with next as (
 )
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
-  author_login, author_handle, author_avatar, via, external_id, external_url, addressed
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
+  mentions
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       @external_id::text, @external_url, @addressed
+       @external_id::text, @external_url, @addressed, @mentions::text[]
   from next
 on conflict (chat_id, via, external_id) where external_id is not null do nothing
 returning *;
@@ -179,7 +192,7 @@ returning *;
 select exists (
   select 1 from turns t
     join sessions s on s.id = t.session_id
-   where s.source_key = @source_key
+   where s.source_key = (select c.source_key from chats c where c.id = @chat_id)
      and t.status = 'running'
 )::bool as running;
 
@@ -264,3 +277,14 @@ select author,
  where chat_id = @chat_id and role = 'user' and author <> ''
  group by author
  order by min(seq);
+
+-- MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
+-- call is what changed it, so the caller announces the change once. force is a share or a
+-- mirrored conversation; otherwise it takes a second Podium person among the participants.
+-- name: MarkChatMultiplayer :one
+update chats set multiplayer = true
+where id = @id and not multiplayer and (
+  @force::bool
+  or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
+)
+returning *;

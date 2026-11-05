@@ -562,6 +562,10 @@ const (
 	// wrote. It is for the web chat to draw and is never history: the brief and the chat
 	// list's preview both leave it out.
 	RoleActivity = "activity"
+	// RoleNotice is Podium saying something about the chat itself rather than in it: that it
+	// became multiplayer, and from then on answers only when mentioned. It is drawn as a
+	// divider, and is never history or a preview.
+	RoleNotice = "notice"
 )
 
 // ChatSourceKeyPrefix is what a chat's session key starts with. The chat source builds it
@@ -640,6 +644,10 @@ type Chat struct {
 	// chat, the Slack thread or the pull request for a mirrored one. The API reads the
 	// conversation's surfaces from it.
 	SourceKey string
+	// Multiplayer is sticky (0034): set once a chat has had a second Podium person in it, is
+	// shared, or mirrors a conversation that lives elsewhere. A web message must then tag
+	// Podium to start a turn.
+	Multiplayer bool
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -689,6 +697,9 @@ type ChatMessage struct {
 	// keeps its text in the store; the API and the transcript do not hand it out.
 	EditedAt  *time.Time
 	DeletedAt *time.Time
+	// Mentions is the Podium logins the message named with the composer's person chip
+	// (0034), for phase 5's notifications. Empty for everything but a web message.
+	Mentions []string
 	// Deliveries is where the bot's message was owed beyond the web chat, and how that went:
 	// the chat_outbox rows behind it (0033). Read with the message, never written with it.
 	// Empty for every message that is not the bot's answer in a conversation living elsewhere.
@@ -909,6 +920,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			PersonalityID:      deref(r.PersonalityID),
 			PersonalityDisplay: r.PersonalityDisplay,
 			SourceKey:          deref(r.SourceKey),
+			Multiplayer:        r.Multiplayer,
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -958,6 +970,7 @@ func (s *Store) appendChatMessage(ctx context.Context, msg ChatMessage, addresse
 		ExternalID:   nullable(msg.ExternalID),
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    addressed,
+		Mentions:     nonNilStrings(msg.Mentions),
 	})
 	if noRows(err) {
 		return ChatMessage{}, fmt.Errorf("%w: chat %s", ErrNotFound, msg.ChatID)
@@ -1003,6 +1016,7 @@ func (s *Store) RecordChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		ExternalID:   msg.ExternalID,
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    msg.Addressed,
+		Mentions:     nonNilStrings(msg.Mentions),
 	})
 	if noRows(err) {
 		// Either the message is already here, or the chat is not. The chat is the caller's
@@ -1241,6 +1255,7 @@ func chatFromRow(row db.Chat) Chat {
 		PersonalityID:      deref(row.PersonalityID),
 		PersonalityDisplay: row.PersonalityDisplay,
 		SourceKey:          deref(row.SourceKey),
+		Multiplayer:        row.Multiplayer,
 	}
 }
 
@@ -1248,7 +1263,9 @@ func chatFromRow(row db.Chat) Chat {
 // half of "one turn at a time per conversation": the UI disables the composer, and this is
 // what makes a second send impossible rather than unlikely.
 func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error) {
-	running, err := s.q.ChatTurnRunning(ctx, ChatSourceKey(chatID))
+	// The chat's own session key, not chat:<id>: a mirrored conversation's session is its
+	// Slack thread or pull request, and a turn running there is running in this chat too.
+	running, err := s.q.ChatTurnRunning(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("read whether a turn of chat %s is running: %w", chatID, err)
 	}
@@ -1259,21 +1276,37 @@ func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error
 // in flight, when the chat has never had a turn, and when the turn row exists but
 // CreateTask has not answered yet — there is then nothing to cancel.
 func (s *Store) RunningChatTask(ctx context.Context, chatID string) (string, error) {
-	sess, err := s.GetSessionByKey(ctx, ChatSourceKey(chatID))
+	turn, ok, err := s.RunningChatTurn(ctx, chatID)
+	if err != nil || !ok {
+		return "", err
+	}
+	return turn.TaskID, nil
+}
+
+// RunningChatTurn is the turn currently answering this chat's session, whichever surface
+// started it. ok is false when nothing is running.
+func (s *Store) RunningChatTurn(ctx context.Context, chatID string) (Turn, bool, error) {
+	key := ChatSourceKey(chatID)
+	if chat, err := s.GetChat(ctx, chatID); err == nil && chat.SourceKey != "" {
+		key = chat.SourceKey
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return Turn{}, false, err
+	}
+	sess, err := s.GetSessionByKey(ctx, key)
 	if errors.Is(err, ErrNotFound) {
-		return "", nil
+		return Turn{}, false, nil
 	}
 	if err != nil {
-		return "", err
+		return Turn{}, false, err
 	}
 	turns, err := s.ListTurns(ctx, sess.ID, 1)
 	if err != nil {
-		return "", err
+		return Turn{}, false, err
 	}
 	if len(turns) == 0 || turns[0].Status != TurnRunning {
-		return "", nil
+		return Turn{}, false, nil
 	}
-	return turns[0].TaskID, nil
+	return turns[0], true, nil
 }
 
 // DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
@@ -1431,6 +1464,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Addressed:    r.Addressed,
 		EditedAt:     utcPtr(r.EditedAt),
 		DeletedAt:    utcPtr(r.DeletedAt),
+		Mentions:     r.Mentions,
 	}
 	if r.AuthorLogin != nil {
 		msg.AuthorLogin = *r.AuthorLogin
@@ -1482,4 +1516,13 @@ func nullable(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// nonNilStrings is s, or an empty slice: a nil slice is NULL to Postgres, and an array column
+// that is NOT NULL refuses it.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

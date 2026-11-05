@@ -52,3 +52,25 @@ select * from chat_participants where chat_id = @chat_id order by first_seen, lo
 -- name: ChatVisibleTo :one
 select chat_visible_to(c.id, c.login, @viewer::text)::bool as visible
   from chats c where c.id = @id;
+
+-- SearchMembers is the composer's @-mention list: every login that has signed in to Podium
+-- (a web row), named and pictured by whichever of its accounts says so. query is matched
+-- against the login and every display name, case-insensitively.
+-- name: SearchMembers :many
+select w.login,
+  coalesce((select i.display_name from identities i
+             where i.login = w.login and i.display_name <> ''
+             order by (i.provider = 'web') desc, i.verified_at desc limit 1), '')::text as name,
+  coalesce((select i.avatar_url from identities i
+             where i.login = w.login and i.avatar_url <> ''
+             order by i.verified_at desc limit 1), '')::text as avatar
+  from identities w
+ where w.provider = 'web'
+   and (
+     @query::text = ''
+     or w.login ilike '%' || @query::text || '%'
+     or exists (select 1 from identities n
+                 where n.login = w.login and n.display_name ilike '%' || @query::text || '%')
+   )
+ order by w.login
+ limit @page_limit::int;
