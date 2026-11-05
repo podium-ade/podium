@@ -106,8 +106,8 @@ type Source struct {
 	botTeamID       string
 	botEnterpriseID string
 	// teams is Options.TeamIDs.
-	teams []string
-	mentionRE       *regexp.Regexp
+	teams     []string
+	mentionRE *regexp.Regexp
 	// archiveBase is the workspace's https://team.slack.com, used to build permalinks
 	// without an extra API call per turn.
 	archiveBase string
