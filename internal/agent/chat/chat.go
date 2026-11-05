@@ -94,6 +94,10 @@ type Options struct {
 	// share the database (Relay). Store must then also be a RelayStore. Unset is one
 	// conductor's in-process fan-out, which is all a single conductor needs.
 	Bus Bus
+	// PlacedWait is how long Send waits for the conductor to say where a message went
+	// (InboundEvent.Placed) before it answers with its own estimate. Zero is
+	// DefaultPlacedWait; negative does not wait, for a consumer that never places messages.
+	PlacedWait time.Duration
 }
 
 // SendRequest is one human message arriving from the browser.
@@ -135,6 +139,8 @@ type Source struct {
 	name   string
 	uiURL  string
 	logger *slog.Logger
+	// placed is Options.PlacedWait, defaulted.
+	placed time.Duration
 	events chan conductor.InboundEvent
 	relay  *Relay
 
@@ -162,6 +168,10 @@ func New(opts Options) (*Source, error) {
 		logger: logger,
 		events: make(chan conductor.InboundEvent, eventBuffer),
 		live:   map[string]*live{},
+		placed: opts.PlacedWait,
+	}
+	if src.placed == 0 {
+		src.placed = DefaultPlacedWait
 	}
 	if opts.Bus != nil {
 		rs, ok := opts.Store.(RelayStore)
@@ -239,9 +249,10 @@ type SendResult struct {
 	// Addressed is false for a message in a multiplayer chat that did not tag Podium: it is
 	// the conversation around the bot, recorded and never a turn.
 	Addressed bool
-	// Ahead is how many turns run before this one: the turn in flight and the queue as this
-	// send saw them. Zero means it starts now. It is an estimate the queue frame corrects —
-	// the conductor queues the message a moment after this returns.
+	// Ahead is how many turns run before this one, as the conductor placed it: the turn in
+	// flight and the turns queued ahead of it. Zero means it is being answered now. Only when
+	// the conductor does not say within Options.PlacedWait is it the estimate the send made itself,
+	// which the queue frame corrects.
 	Ahead int
 }
 
@@ -353,6 +364,13 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		ChatID:            req.ChatID,
 		ChatSeq:           msg.Seq,
 	}
+	where := make(chan int, 1)
+	ev.Placed = func(n int) {
+		select {
+		case where <- n:
+		default:
+		}
+	}
 	select {
 	case s.events <- ev:
 	case <-ctx.Done():
@@ -361,8 +379,25 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		s.release(req.ChatID)
 		return SendResult{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
+	// The conductor says where the message went once it has queued it or handed it to the
+	// turn answering this person — normally within milliseconds. A conductor that is slow to
+	// get to it leaves the estimate standing; the queue frame corrects that.
+	if s.placed > 0 {
+		wait := time.NewTimer(s.placed)
+		defer wait.Stop()
+		select {
+		case n := <-where:
+			ahead = n
+		case <-wait.C:
+		case <-ctx.Done():
+		}
+	}
 	return SendResult{Message: msg, Addressed: true, Ahead: ahead}, nil
 }
+
+// DefaultPlacedWait is how long Send waits to hear where its message went before it answers
+// with its own estimate instead.
+const DefaultPlacedWait = time.Second
 
 // mayWrite answers whether login may send in chat: ErrViewOnly for somebody who may only
 // read it, and ErrNotFound for somebody who may not even do that — the existence of a chat

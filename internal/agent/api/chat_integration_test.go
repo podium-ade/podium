@@ -43,7 +43,7 @@ func newChatFixture(t *testing.T) chatFixture {
 func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 	t.Helper()
 	st := newStore(t)
-	src, err := chat.New(chat.Options{
+	src, err := chat.New(chat.Options{PlacedWait: -1,
 		Store: st, DisplayName: "Podium", UIURL: "https://podium.example",
 	})
 	require.NoError(t, err)

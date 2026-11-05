@@ -86,8 +86,9 @@ func (c *Conductor) enqueue(ctx context.Context, src Source, sess store.Session,
 	login, kind := c.askerOf(src, ev)
 	ev.SourceKind = kind
 	raw, err := json.Marshal(ev)
+	var row store.QueuedTurn
 	if err == nil {
-		_, err = c.store.EnqueueTurn(ctx, store.QueuedTurn{
+		row, err = c.store.EnqueueTurn(ctx, store.QueuedTurn{
 			SessionID:  sess.ID,
 			SourceKind: kind,
 			Login:      login,
@@ -104,8 +105,22 @@ func (c *Conductor) enqueue(ctx context.Context, src Source, sess store.Session,
 		st := c.state(sess.ID)
 		st.local = append(st.local, ev)
 		c.mu.Unlock()
+	} else if ev.Placed != nil {
+		// Where it went, read back from the database: the rows queued before it and the
+		// turn running, whichever conductor is running it. Exact at the moment it was
+		// queued; the queue frame keeps it current from then on.
+		if ahead, perr := c.store.QueuePosition(ctx, sess.ID, row.ID); perr == nil {
+			placed(ev, ahead)
+		}
 	}
 	c.queueChanged(ctx, sess)
+}
+
+// placed tells the sender where its message went, when it asked (InboundEvent.Placed).
+func placed(ev InboundEvent, ahead int) {
+	if ev.Placed != nil {
+		ev.Placed(ahead)
+	}
 }
 
 // kick serves the session if nobody is: this conductor if it can take the lease, otherwise

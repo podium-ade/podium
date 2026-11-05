@@ -231,6 +231,29 @@ func (q *Queries) PopQueuedTurnFrom(ctx context.Context, arg PopQueuedTurnFromPa
 	return i, err
 }
 
+const queuePosition = `-- name: QueuePosition :one
+select (
+  (select count(*) from turn_queue q where q.session_id = $1 and q.id < $2)
+  + (case when exists (
+      select 1 from turns t where t.session_id = $1 and t.status = 'running'
+    ) then 1 else 0 end)
+)::int as ahead
+`
+
+type QueuePositionParams struct {
+	SessionID string
+	ID        int64
+}
+
+// QueuePosition is how many turns run before a queued one: the rows queued ahead of it in its
+// session, and the turn running there, if one is — whichever conductor runs it.
+func (q *Queries) QueuePosition(ctx context.Context, arg QueuePositionParams) (int32, error) {
+	row := q.db.QueryRow(ctx, queuePosition, arg.SessionID, arg.ID)
+	var ahead int32
+	err := row.Scan(&ahead)
+	return ahead, err
+}
+
 const removeQueuedTurn = `-- name: RemoveQueuedTurn :execrows
 delete from turn_queue q
  using sessions s, chats c
