@@ -33,6 +33,8 @@ type fakeStore struct {
 	failAppend bool
 	// participants is chat_participants: who may write a chat besides its owner.
 	participants map[string][]string
+	// viewers is who a chat was shared with as a viewer (phase 5): they may read, not write.
+	viewers map[string][]string
 	// queued is turn_queue, by chat, as the conductor would have written it.
 	queued map[string][]store.QueuedTurn
 }
@@ -59,22 +61,29 @@ func (f *fakeStore) RecordChatMessage(ctx context.Context, msg store.ChatMessage
 	return row, err == nil, err
 }
 
-func (f *fakeStore) ChatVisibleTo(_ context.Context, chatID, viewer string) (bool, error) {
+// ChatRole is chat_role for the fake: the owner, an editor for every participant, and a
+// viewer for whoever viewers names (phase 5).
+func (f *fakeStore) ChatRole(_ context.Context, chatID, viewer string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.chats[chatID]
 	if !ok {
-		return false, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID)
+		return "", fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID)
 	}
 	if c.Login == viewer {
-		return true, nil
+		return store.RoleOwner, nil
 	}
 	for _, p := range f.participants[chatID] {
 		if p == viewer {
-			return true, nil
+			return store.RoleEditor, nil
 		}
 	}
-	return false, nil
+	for _, v := range f.viewers[chatID] {
+		if v == viewer {
+			return store.RoleViewer, nil
+		}
+	}
+	return "", nil
 }
 
 func (f *fakeStore) AddChatParticipant(_ context.Context, chatID, login, _ string, _ time.Time) (bool, error) {

@@ -34,6 +34,10 @@ import (
 //nolint:revive,staticcheck // user-facing copy, including the capital and the period
 var ErrPersonalityGone = errors.New("That assistant was deleted.")
 
+// ErrViewOnly is a send, or another write, from somebody a chat was shared with as a viewer.
+// They can see the chat, so unlike a chat they cannot see it is not reported as missing.
+var ErrViewOnly = errors.New("you have view access to this chat")
+
 // eventBuffer is how many inbound messages may be waiting for the turn loop. One human
 // typing cannot outrun this, and a full channel makes Send block rather than lose a
 // message.
@@ -65,12 +69,12 @@ type Store interface {
 	GetPersonality(ctx context.Context, id string) (store.Personality, error)
 
 	// The multiplayer half (phase 4). RecordChatMessage stores a web message with whether it
-	// was put to Podium; ChatVisibleTo is who may write the chat (its owner and everybody
-	// who has taken part — phase 5 narrows this to editors); AddChatParticipant and
+	// was put to Podium; ChatRole is who may write the chat (phase 5: its owner and its
+	// editors — a viewer reads only); AddChatParticipant and
 	// MarkChatMultiplayer are how a chat learns it has more than one person in it; and the
 	// queue is what a send that waits behind a running turn reports.
 	RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error)
-	ChatVisibleTo(ctx context.Context, chatID, viewer string) (bool, error)
+	ChatRole(ctx context.Context, chatID, viewer string) (string, error)
 	AddChatParticipant(ctx context.Context, chatID, login, via string, at time.Time) (bool, error)
 	MarkChatMultiplayer(ctx context.Context, chatID string, force bool) (store.Chat, bool, error)
 	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
@@ -266,10 +270,8 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	if err != nil {
 		return SendResult{}, err
 	}
-	if !s.mayWrite(ctx, chat, req.Login) {
-		// Reported as "no such chat" rather than "not yours": the existence of a chat the
-		// caller cannot see is itself something they have no business learning.
-		return SendResult{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, req.ChatID)
+	if err := s.mayWrite(ctx, chat, req.Login); err != nil {
+		return SendResult{}, err
 	}
 	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)
 	if err != nil {
@@ -362,20 +364,31 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	return SendResult{Message: msg, Addressed: true, Ahead: ahead}, nil
 }
 
-// mayWrite reports whether login may send in chat: its owner, or anybody who can see it.
-func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) bool {
+// mayWrite answers whether login may send in chat: ErrViewOnly for somebody who may only
+// read it, and ErrNotFound for somebody who may not even do that — the existence of a chat
+// the caller cannot see is itself something they have no business learning. The owner is
+// answered from the row; everybody else from chat_role (0035), which makes an editor of a
+// participant and of whoever it was shared with as one.
+func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) error {
 	if login == "" {
-		return false
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
 	}
 	if chat.Login != "" && chat.Login == login {
-		return true
+		return nil
 	}
-	ok, err := s.store.ChatVisibleTo(ctx, chat.ID, login)
+	role, err := s.store.ChatRole(ctx, chat.ID, login)
 	if err != nil {
 		s.logger.WarnContext(ctx, "checking who may write a chat failed", "chat_id", chat.ID, "error", err)
-		return false
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
 	}
-	return ok
+	switch {
+	case store.MayWrite(role):
+		return nil
+	case store.MayRead(role):
+		return fmt.Errorf("%w: chat %s", ErrViewOnly, chat.ID)
+	default:
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
+	}
 }
 
 // joined makes the sender a participant of the chat, and the chat multiplayer once a second
@@ -423,6 +436,18 @@ func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who
 		s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: notice})
 	}
 	s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: updated})
+}
+
+// ChatChanged re-reads a chat and shows the row to every screen watching it, here and on the
+// other conductors: a share, an unshare, a change of general access (phase 5). Each stream
+// works out its own viewer's role from it, and one that has lost access ends.
+func (s *Source) ChatChanged(ctx context.Context, chatID string) {
+	c, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "re-reading a changed chat failed", "chat_id", chatID, "error", err)
+		return
+	}
+	s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: c})
 }
 
 // ahead is how many turns run before a message sent now: the one in flight, and the queue.

@@ -386,6 +386,8 @@ func (s *Server) mux() http.Handler {
 		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewAuditServiceHandler(
+		api.NewAuditService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSandboxProviderServiceHandler(

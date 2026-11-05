@@ -36,6 +36,10 @@ type ChatSource interface {
 	Awaiting(chatID string) bool
 	AttachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
+	// Multiplayer marks a chat multiplayer, force for a share; ChatChanged shows a chat's row
+	// to every screen watching it after its sharing changed (phase 5).
+	Multiplayer(ctx context.Context, chatID string, force bool, who string)
+	ChatChanged(ctx context.Context, chatID string)
 }
 
 // TurnStopper is the conductor, as deleting a chat needs it. Neither of these can be
@@ -138,6 +142,20 @@ func (s *AgentService) RenameChat(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("rename chat: chat_id is required"))
 	}
+	// A viewer is told so; somebody who cannot see the chat is told nothing (the store's
+	// filter answers them NotFound, as it always has).
+	if !SeesAll(ctx) {
+		if cur, err := s.store.GetChat(ctx, req.Msg.GetChatId()); err == nil {
+			role, err := s.chatRole(ctx, cur, login)
+			if err != nil {
+				return nil, storeError(err)
+			}
+			if store.MayRead(role) && !store.MayWrite(role) {
+				return nil, connect.NewError(connect.CodePermissionDenied,
+					fmt.Errorf("chat %s: you have view access", cur.ID))
+			}
+		}
+	}
 	row, err := s.store.RenameChat(ctx, req.Msg.GetChatId(), login, req.Msg.GetTitle(), SeesAll(ctx))
 	switch {
 	case errors.Is(err, store.ErrInvalidChatTitle):
@@ -165,6 +183,7 @@ func (s *AgentService) ListChats(
 	rows, next, err := s.store.ListChats(ctx, login, SeesAll(ctx), int(page.GetLimit()), page.GetCursor(), store.ListChatsScope{
 		FilterPersonality: req.Msg.GetFilterPersonality(),
 		PersonalityID:     req.Msg.GetPersonalityId(),
+		Section:           req.Msg.GetSection(),
 	})
 	if err != nil {
 		return nil, storeError(err)
@@ -173,6 +192,7 @@ func (s *AgentService) ListChats(
 	for _, r := range rows {
 		c := chatToProto(r)
 		c.SharedWithMe = sharedWithMe(r, login, SeesAll(ctx))
+		withSharing(ctx, c, r.Sharing)
 		out = append(out, c)
 	}
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
@@ -203,9 +223,20 @@ func (s *AgentService) DeleteChat(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	// A web chat is its owner's. A mirrored thread has no login; only the dev token, which
-	// is who can see it, may remove the copy. Another person's web chat is not found.
+	// A web chat is its owner's. A mirrored thread has no login until a Podium person speaks
+	// in it; only the dev token, which is who can see it then, may remove the copy. Phase 5:
+	// delete is for everyone, so it stays the owner's — somebody it was shared with, or who
+	// took part, is told to leave instead, and a chat they cannot see is not found. Deleting a
+	// mirrored chat removes Podium's record only; the Slack thread or pull request is untouched.
 	if row.Login != login && (!SeesAll(ctx) || row.Login != "") {
+		role, err := s.chatRole(ctx, row, login)
+		if err != nil {
+			return nil, storeError(err)
+		}
+		if store.MayRead(role) {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				fmt.Errorf("chat %s: only its owner can delete it; leave it instead", chatID))
+		}
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
@@ -215,6 +246,7 @@ func (s *AgentService) DeleteChat(
 	if err := s.store.DeleteChat(ctx, chatID, login, SeesAll(ctx) && row.Login == ""); err != nil {
 		return nil, storeError(err)
 	}
+	s.auditChat(ctx, login, AuditChatDelete, chatID, map[string]any{"origin": row.Origin, "title": row.Title})
 	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
 	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
 }
@@ -374,12 +406,9 @@ func (s *AgentService) CancelChatTurn(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	ok, err := s.mayReadChat(ctx, row, login)
-	if err != nil {
-		return nil, storeError(err)
-	}
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	// Phase 5: stopping a turn is an editor's, like writing the chat; a viewer only watches.
+	if err := s.mayWriteChat(ctx, row, login); err != nil {
+		return nil, err
 	}
 	if s.canceller == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel chat turn: no conductor is wired in"))
@@ -548,11 +577,12 @@ func (s *AgentService) StreamChat(
 	if err != nil {
 		return storeError(err)
 	}
-	visible, err := s.mayReadChat(ctx, row, login)
+	// Opening is where a link, or members access, becomes the opener's own row (phase 5).
+	role, err := s.openChat(ctx, row, login, req.Msg.GetLinkToken())
 	if err != nil {
 		return storeError(err)
 	}
-	if !visible {
+	if !store.MayRead(role) {
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	// Who has spoken, for a conversation with more than one person in it. Loaded here and
@@ -586,6 +616,7 @@ func (s *AgentService) StreamChat(
 	// to learn which playbook this conversation already chose.
 	head := chatToProto(row)
 	head.SharedWithMe = sharedWithMe(row, login, SeesAll(ctx))
+	head.MyRole = role
 	if err := stream.Send(&agentv1.ChatFrame{
 		Frame: &agentv1.ChatFrame_Chat{Chat: head},
 	}); err != nil {
@@ -640,7 +671,23 @@ func (s *AgentService) StreamChat(
 			if f.Kind == chat.FrameMessage && f.Message.Seq > lastSeq {
 				lastSeq = f.Message.Seq
 			}
-			if err := stream.Send(frameToProto(f)); err != nil {
+			out := frameToProto(f)
+			if f.Kind == chat.FrameChat {
+				// The chat's row changed, which is how a share, an unshare or a change of
+				// general access reaches a screen (phase 5). The role is this viewer's, so it
+				// is worked out again here; a viewer who has lost access is shown nothing more.
+				role, err := s.chatRole(ctx, f.Chat, login)
+				if err != nil {
+					return storeError(err)
+				}
+				if !store.MayRead(role) {
+					return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+				}
+				c := out.GetChat()
+				c.MyRole = role
+				c.SharedWithMe = sharedWithMe(f.Chat, login, SeesAll(ctx))
+			}
+			if err := stream.Send(out); err != nil {
 				return err
 			}
 		}
@@ -699,24 +746,25 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 //
 // Sending still requires the owner, and a mirrored thread is answered where it lives.
 func (s *AgentService) mayReadChat(ctx context.Context, c store.Chat, login string) (bool, error) {
-	if SeesAll(ctx) {
-		return true, nil
-	}
-	if login == "" || login == "unknown" {
-		return false, nil
-	}
-	if c.Login != "" && c.Login == login {
-		return true, nil
-	}
-	ok, err := s.store.ChatVisibleTo(ctx, c.ID, login)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	return ok, err
+	role, err := s.chatRole(ctx, c, login)
+	return store.MayRead(role), err
 }
 
+// withSharing puts the caller's relationship to a chat on its proto. The dev token is the
+// operator, an owner of everything it sees, and has no read state of its own.
+func withSharing(ctx context.Context, c *agentv1.Chat, sh store.ChatSharing) {
+	c.MyRole, c.AccessReason, c.SharedBy, c.UnreadCount = sh.MyRole, sh.AccessReason, sh.SharedBy, sh.UnreadCount
+	if SeesAll(ctx) {
+		c.MyRole, c.UnreadCount = store.RoleOwner, 0
+	}
+}
+
+// chatToProto never carries the link token: that is the owner's alone, and only the share
+// dialog (sharingToProto) hands it out.
 func chatToProto(c store.Chat) *agentv1.Chat {
 	out := &agentv1.Chat{
+		GeneralAccess:      c.GeneralAccess,
+		GeneralRole:        c.GeneralRole,
 		Id:                 c.ID,
 		Title:              c.Title,
 		CreatedAt:          timestamppb.New(c.CreatedAt),
@@ -917,12 +965,9 @@ func (s *AgentService) RetryChatDelivery(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	ok, err := s.mayReadChat(ctx, row, login)
-	if err != nil {
-		return nil, storeError(err)
-	}
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	// Phase 5: retrying a delivery is writing to the conversation, so it is an editor's.
+	if err := s.mayWriteChat(ctx, row, login); err != nil {
+		return nil, err
 	}
 	if err := s.deliveries.RetryDelivery(ctx, chatID, seq); err != nil {
 		if errors.Is(err, conductor.ErrNothingToRetry) {
