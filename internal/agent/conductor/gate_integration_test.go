@@ -14,6 +14,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
 	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // Who may start a turn (identity.go): only somebody who resolved to a Podium login, on Slack
@@ -203,6 +204,77 @@ func TestALinkedGitHubCommenterIsAdmitted(t *testing.T) {
 		return len(posts(src.Records(), conductor.OutFailure)) > 0
 	})
 	assert.NotContains(t, reactions(src.Records()), string(conductor.ReactionRefused))
+}
+
+// Disconnecting GitHub takes effect at once, on every conductor: the account's next comment is
+// a stranger's, not the person it used to belong to. Nothing remembers the old answer.
+func TestADisconnectedGitHubAccountIsAStrangerAtOnce(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	require.NoError(t, src.Send(ctx, githubInbound("why is this a race?")))
+	waitFor(t, 30*time.Second, "the comment to be admitted", func() bool {
+		return len(posts(src.Records(), conductor.OutFailure)) > 0
+	})
+	require.NotContains(t, reactions(src.Records()), string(conductor.ReactionRefused))
+
+	require.NoError(t, st.DeleteIdentitiesOf(ctx, store.ProviderGitHub, testSpeaker))
+	again := githubInbound("and now fix it")
+	again.Ref = "acme/repo/12/42/pull_request/9"
+	require.NoError(t, src.Send(ctx, again))
+	waitFor(t, 10*time.Second, "the disconnected account to be refused", func() bool {
+		return contains(reactions(src.Records()), string(conductor.ReactionRefused))
+	})
+}
+
+// A review command that joins the review already running starts nothing, so it does not use
+// up the person's one review in the rate-limit window: once the running review ends, asking
+// again runs one.
+func TestAReviewCommandThatJoinsARunningReviewKeepsItsAllowance(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	ctx := context.Background()
+
+	opened := githubInbound("alice opened https://github.com/acme/repo/pull/12 for review")
+	opened.Automatic = true
+	require.NoError(t, src.Send(ctx, opened))
+	waitFor(t, 30*time.Second, "the automatic review to be running", func() bool { return len(fake.Specs()) == 1 })
+
+	cmd := strangerGitHub("/review")
+	cmd.Ref = "acme/repo/12/42/pull_request/3"
+	cmd.ReviewRequest = "mallory asked for a review of https://github.com/acme/repo/pull/12."
+	require.NoError(t, src.Send(ctx, cmd))
+	time.Sleep(500 * time.Millisecond)
+	assert.Len(t, fake.Specs(), 1, "joined the running review: nothing new started")
+
+	release()
+	waitFor(t, 60*time.Second, "the automatic review to finish", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) >= 1
+	})
+	waitFor(t, 30*time.Second, "the review to stop running", func() bool {
+		sess, err := st.GetSessionByKey(ctx, opened.SourceKey)
+		if err != nil {
+			return false
+		}
+		running, err := st.RunningDelegationsForSession(ctx, sess.ID)
+		return err == nil && len(running) == 0
+	})
+
+	later := cmd
+	later.Ref = "acme/repo/12/42/pull_request/4"
+	require.NoError(t, src.Send(ctx, later))
+	waitFor(t, 30*time.Second, "the second command to run a review", func() bool { return len(fake.Specs()) == 2 })
 }
 
 func contains(xs []string, x string) bool {

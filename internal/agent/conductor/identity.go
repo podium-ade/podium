@@ -26,9 +26,16 @@ import (
 //     through the review command's narrow grammar; anything else gets a confused reaction.
 //   - Linear and the dev source have no accounts and are unchanged.
 
-// Identity resolution is cached: the Slack candidate check is a database read per message,
-// and a busy thread repeats the same speakers. A miss is remembered for less time than a hit
-// so that somebody who has just signed in or connected GitHub is not refused for long.
+// Slack identity resolution is cached: the Slack candidate check is a database read per
+// message, and a busy thread repeats the same speakers. A miss is remembered for less time
+// than a hit so that somebody who has just signed in is not refused for long.
+//
+// GitHub resolution is not cached at all. Connecting and disconnecting GitHub are writes to
+// the identities table, made by whichever conductor served the request, so an in-process
+// cache here could only be invalidated on one of them; a cached hit would keep a
+// disconnected account — or one reconnected under somebody else's login — running as its
+// old person for up to identityHitTTL. A webhook is one indexed read, and the store is the
+// only place that is right about who an account belongs to.
 const (
 	identityHitTTL  = 10 * time.Minute
 	identityMissTTL = time.Minute
@@ -77,6 +84,18 @@ func (ic *identityCache) put(key, login string, now time.Time) {
 		ic.entries = map[string]identityEntry{}
 	}
 	ic.entries[key] = identityEntry{login: login, at: now}
+}
+
+// forget drops what is remembered about one account, so the next resolution reads the store.
+func (ic *identityCache) forget(provider, externalID string) {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+	prefix := provider + "|" + externalID + "|"
+	for k := range ic.entries {
+		if k == provider+"|"+externalID || strings.HasPrefix(k, prefix) {
+			delete(ic.entries, k)
+		}
+	}
 }
 
 // allowReview records one review command and reports whether it is within the rate limit.
@@ -158,11 +177,6 @@ func (c *Conductor) resolveGitHub(ctx context.Context, ev *InboundEvent) string 
 	if ev.SpeakerID == "" || c.store == nil {
 		return ""
 	}
-	key := store.ProviderGitHub + "|" + ev.SpeakerID
-	now := c.now()
-	if login, ok := c.idents.get(key, now); ok {
-		return login
-	}
 	login, err := c.store.IdentityLogin(ctx, store.ProviderGitHub, ev.SpeakerID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -172,7 +186,6 @@ func (c *Conductor) resolveGitHub(ctx context.Context, ev *InboundEvent) string 
 			"github_id", ev.SpeakerID, "error", err)
 		return ""
 	}
-	c.idents.put(key, login, now)
 	return login
 }
 
@@ -228,16 +241,18 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 			c.refuse(ctx, src, *ev, "not in podium")
 			return false
 		case ev.ReviewRequest != "":
-			if !c.idents.allowReview(ev.SourceKey+"|"+ev.SpeakerID, c.now()) {
-				c.logger.InfoContext(ctx, "a review command from outside podium was rate limited",
-					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
-				c.gateDecision(kind, "review_rate_limited")
-				return false
-			}
+			// Joining the review already running first: it starts nothing, so it must not
+			// spend the person's one review in reviewCommandEvery either.
 			if c.reviewRunning(ctx, ev.SourceKey) {
 				c.logger.InfoContext(ctx, "a review command from outside podium joined the review already running",
 					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
 				c.gateDecision(kind, "review_collapsed")
+				return false
+			}
+			if !c.idents.allowReview(ev.SourceKey+"|"+ev.SpeakerID, c.now()) {
+				c.logger.InfoContext(ctx, "a review command from outside podium was rate limited",
+					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
+				c.gateDecision(kind, "review_rate_limited")
 				return false
 			}
 			ev.Text = ev.ReviewRequest
