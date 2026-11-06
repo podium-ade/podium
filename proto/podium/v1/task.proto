@@ -23,6 +23,12 @@ service TaskService {
   // ReleasePreview tears down a finished task's preview before its ttl runs out.
   // Idempotent: releasing one that is already gone succeeds.
   rpc ReleasePreview(ReleasePreviewRequest) returns (ReleasePreviewResponse);
+  // CreateDesktopTicket is a link to a running task's desktop, for the caller: a desktop
+  // playbook's task exposes voxl on a port named "desktop", and podium-server streams it on
+  // its desktop origin (PODIUM_DESKTOP_URL). The link names the task and the caller, is
+  // signed by the server, and expires; it works only while the task runs.
+  // FailedPrecondition when desktops are not configured or the task has none running.
+  rpc CreateDesktopTicket(CreateDesktopTicketRequest) returns (CreateDesktopTicketResponse);
 }
 
 message Task {
@@ -148,6 +154,16 @@ message ReleasePreviewRequest {
 
 message ReleasePreviewResponse {
   Task task = 1;
+}
+
+message CreateDesktopTicketRequest {
+  string task_id = 1;
+}
+
+message CreateDesktopTicketResponse {
+  // url is the desktop, ready to be an iframe's src.
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
 }
 
 message StreamTaskEventsRequest {

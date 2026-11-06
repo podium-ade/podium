@@ -197,3 +197,32 @@ func TestGoogleConfig(t *testing.T) {
 	require.Equal(t, "https://podium.acme.com", cfg.PublicURL)
 	require.True(t, cfg.GoogleEnabled())
 }
+
+func TestDesktopConfig(t *testing.T) {
+	t.Setenv("PODIUM_DESKTOP_URL", "https://podium-desktop.example.com")
+	require.Equal(t, "https://podium-desktop.example.com", ConfigFromEnv().DesktopURL)
+
+	base := Config{DatabaseURL: "postgres://x", Transport: TransportLocal, LocalToken: "t"}
+	require.False(t, base.DesktopEnabled())
+	require.NoError(t, base.Validate(), "desktops are optional")
+
+	for _, ok := range []string{"https://podium-desktop.example.com", "http://desktop.localhost:8080", "https://d.example.com/"} {
+		c := base
+		c.DesktopURL = ok
+		require.NoError(t, c.Validate(), ok)
+		require.True(t, c.DesktopEnabled())
+	}
+	for _, bad := range []string{"podium-desktop.example.com", "ftp://d.example.com", "https://d.example.com/desktops", "https://d.example.com?x=1", "https://"} {
+		c := base
+		c.DesktopURL = bad
+		require.Error(t, c.Validate(), bad)
+	}
+
+	// The UI's own origin is refused: the desktop's page would share it.
+	c := base
+	c.PublicURL = "https://podium.example.com"
+	c.DesktopURL = "https://podium.example.com"
+	require.ErrorContains(t, c.Validate(), "the UI's own origin")
+	c.DesktopURL = "https://podium-desktop.example.com"
+	require.NoError(t, c.Validate())
+}
