@@ -89,6 +89,50 @@ func TestASecondPersonsMessageIsATurnOfTheirOwn(t *testing.T) {
 	assert.Zero(t, queued(t, st, key))
 }
 
+// TestAQueuedMirroredMessageNamesItsPlaceInTheRecord: a turn queued from a mirrored
+// conversation (Slack, GitHub) carries the chat and message it is, so the chat lists it under
+// its asker and the asker can take it back. It used to be queued with no chat and seq 0.
+func TestAQueuedMirroredMessageNamesItsPlaceInTheRecord(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	defer release()
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer from "+taskID)}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	ctx := context.Background()
+	startWith(t, st, fake, src, nil)
+	key := conductor.KindDev + ":C1:1.1"
+
+	require.NoError(t, src.Send(ctx, asker("C1/1.1", "first", "alice@podium.test")))
+	waitFor(t, 30*time.Second, "alice's answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	bob := asker("C1/1.1", "and mine", "bob@podium.test")
+	bob.ExternalID = "2.2"
+	require.NoError(t, src.Send(ctx, bob))
+	waitFor(t, 30*time.Second, "bob's message to be queued", func() bool { return queued(t, st, key) == 1 })
+
+	chat, err := st.ChatBySourceKey(ctx, key)
+	require.NoError(t, err)
+	q, err := st.ListQueuedTurnsForChat(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, q, 1, "the queued turn is listed under its chat")
+	msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
+	require.NoError(t, err)
+	var bobSeq uint64
+	for _, m := range msgs {
+		if m.ExternalID == "2.2" {
+			bobSeq = m.Seq
+		}
+	}
+	require.NotZero(t, bobSeq)
+	assert.Equal(t, bobSeq, q[0].MessageSeq, "it names bob's message in the record")
+}
+
 // TestOnePersonsRunOfMessagesIsStillOneTurn: what one person says while their own turn is
 // answering goes into that turn, as it always did, and nothing queues.
 func TestOnePersonsRunOfMessagesIsStillOneTurn(t *testing.T) {
