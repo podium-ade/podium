@@ -318,6 +318,14 @@ select author,
  group by author
  order by min(seq);
 
+-- NameWebAuthors names who typed each earlier web message of a chat that has just become
+-- multiplayer. A single-player chat leaves author empty (the reader is the asker), so without
+-- this the owner's messages from before the share would be the only unnamed ones in the thread.
+-- name: NameWebAuthors :exec
+update chat_messages set author = author_login
+where chat_id = @chat_id and role = 'user' and via = 'web' and author = ''
+  and coalesce(author_login, '') <> '';
+
 -- MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
 -- call is what changed it, so the caller announces the change once. force is a share or a
 -- mirrored conversation; otherwise it takes a second Podium person among the participants.

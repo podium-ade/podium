@@ -133,3 +133,30 @@ func TestTheTurnQueue(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "bob", next.Login)
 }
+
+// TestBecomingMultiplayerNamesTheOwnersEarlierMessages: a single-player chat leaves author
+// empty, so once it is shared the owner's earlier messages are named too, and the thread does
+// not show the owner as the one person who said things without a name.
+func TestBecomingMultiplayerNamesTheOwnersEarlierMessages(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	web, err := s.CreateChat(ctx, "alice@acme.test", "t")
+	require.NoError(t, err)
+	_, _, err = s.RecordChatMessage(ctx, ChatMessage{
+		ChatID: web.ID, Role: RoleUser, Text: "before the share", TS: time.Now().UTC(),
+		AuthorLogin: "alice@acme.test", Via: ViaWeb, Addressed: true,
+	})
+	require.NoError(t, err)
+	_, err = s.AppendChatMessage(ctx, ChatMessage{ChatID: web.ID, Role: RoleAssistant, Text: "an answer"})
+	require.NoError(t, err)
+
+	_, changed, err := s.MarkChatMultiplayer(ctx, web.ID, true)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	msgs, err := s.ListChatMessages(ctx, web.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "alice@acme.test", msgs[0].Author, "the owner's message is named")
+	assert.Empty(t, msgs[1].Author, "the assistant's is not a person's")
+}

@@ -929,6 +929,20 @@ func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplay
 	return i, err
 }
 
+const nameWebAuthors = `-- name: NameWebAuthors :exec
+update chat_messages set author = author_login
+where chat_id = $1 and role = 'user' and via = 'web' and author = ''
+  and coalesce(author_login, '') <> ''
+`
+
+// NameWebAuthors names who typed each earlier web message of a chat that has just become
+// multiplayer. A single-player chat leaves author empty (the reader is the asker), so without
+// this the owner's messages from before the share would be the only unnamed ones in the thread.
+func (q *Queries) NameWebAuthors(ctx context.Context, chatID string) error {
+	_, err := q.db.Exec(ctx, nameWebAuthors, chatID)
+	return err
+}
+
 const recordChatMessage = `-- name: RecordChatMessage :one
 with next as (
   update chats set last_seq = last_seq + 1 where id = $1 returning last_seq
