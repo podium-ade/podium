@@ -1066,8 +1066,11 @@ func (x *CreateDesktopTicketRequest) GetTaskId() string {
 type CreateDesktopTicketResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// url is the desktop, ready to be an iframe's src.
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	Url       string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// terminal_url is a terminal in the task's workspace, ready to be an iframe's src; empty
+	// when the task exposes none. It expires with url.
+	TerminalUrl   string `protobuf:"bytes,3,opt,name=terminal_url,json=terminalUrl,proto3" json:"terminal_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1114,6 +1117,13 @@ func (x *CreateDesktopTicketResponse) GetExpiresAt() *timestamppb.Timestamp {
 		return x.ExpiresAt
 	}
 	return nil
+}
+
+func (x *CreateDesktopTicketResponse) GetTerminalUrl() string {
+	if x != nil {
+		return x.TerminalUrl
+	}
+	return ""
 }
 
 type StreamTaskEventsRequest struct {
@@ -1254,11 +1264,12 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x16ReleasePreviewResponse\x12#\n" +
 	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"5\n" +
 	"\x1aCreateDesktopTicketRequest\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\tR\x06taskId\"j\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\"\x8d\x01\n" +
 	"\x1bCreateDesktopTicketResponse\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"M\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12!\n" +
+	"\fterminal_url\x18\x03 \x01(\tR\vterminalUrl\"M\n" +
 	"\x17StreamTaskEventsRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\x85\x05\n" +

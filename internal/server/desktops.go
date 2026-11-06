@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,7 +21,8 @@ import (
 // token), which is far too slow for every request a page makes.
 const desktopEndpointTTL = 5 * time.Minute
 
-// desktopUpstreams finds a running task's desktop: the "desktop" port its preview published.
+// desktopUpstreams finds a running task's desktop, or its terminal: the "desktop" or "terminal"
+// port its preview published.
 //
 //   - A cloud sandbox's port is behind the provider's proxy, and the URL the preview records
 //     carries none of the provider's credentials (Modal's connect token is a cookie). The
@@ -56,7 +58,7 @@ func newDesktopUpstreams(st *store.Store, sec *secrets.Service) *desktopUpstream
 	}
 }
 
-func (d *desktopUpstreams) Resolve(ctx context.Context, taskID string) (desktop.Upstream, error) {
+func (d *desktopUpstreams) Resolve(ctx context.Context, taskID, portName string) (desktop.Upstream, error) {
 	task, err := d.store.GetTask(ctx, taskID)
 	if errors.Is(err, store.ErrNotFound) {
 		return desktop.Upstream{}, desktop.ErrNoDesktop
@@ -69,11 +71,12 @@ func (d *desktopUpstreams) Resolve(ctx context.Context, taskID string) (desktop.
 		d.forget(taskID)
 		return desktop.Upstream{}, desktop.ErrNoDesktop
 	}
-	port, ok := task.Spec.Expose.Ports[desktop.PortName]
+	port, ok := task.Spec.Expose.Ports[portName]
 	if !ok || port.Port == 0 {
 		return desktop.Upstream{}, desktop.ErrNoDesktop
 	}
-	if up, ok := d.cached(taskID); ok {
+	key := taskID + "/" + portName
+	if up, ok := d.cached(key); ok {
 		return up, nil
 	}
 	p, err := d.store.GetPreview(ctx, taskID)
@@ -91,33 +94,38 @@ func (d *desktopUpstreams) Resolve(ctx context.Context, taskID string) (desktop.
 	case spec.ExposeViaSandbox:
 		up, err = d.sandboxUpstream(ctx, task, port.Port)
 	case spec.ExposeViaLAN:
-		up, err = plainUpstream(p.URLs[desktop.PortName])
+		up, err = plainUpstream(p.URLs[portName])
 	default:
-		err = fmt.Errorf("task %s published its desktop on %q, which podium-server cannot reach: tailnet previews refuse tagged devices, and the server is one", taskID, p.Via)
+		err = fmt.Errorf("task %s published its %s on %q, which podium-server cannot reach: tailnet previews refuse tagged devices, and the server is one", taskID, portName, p.Via)
 	}
 	if err != nil {
 		return desktop.Upstream{}, err
 	}
 	d.mu.Lock()
-	d.cache[taskID] = cachedUpstream{up: up, expires: d.now().Add(desktopEndpointTTL)}
+	d.cache[key] = cachedUpstream{up: up, expires: d.now().Add(desktopEndpointTTL)}
 	d.mu.Unlock()
 	return up, nil
 }
 
-func (d *desktopUpstreams) cached(taskID string) (desktop.Upstream, bool) {
+func (d *desktopUpstreams) cached(key string) (desktop.Upstream, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	c, ok := d.cache[taskID]
+	c, ok := d.cache[key]
 	if !ok || !d.now().Before(c.expires) {
-		delete(d.cache, taskID)
+		delete(d.cache, key)
 		return desktop.Upstream{}, false
 	}
 	return c.up, true
 }
 
+// forget drops every port of a task that stopped.
 func (d *desktopUpstreams) forget(taskID string) {
 	d.mu.Lock()
-	delete(d.cache, taskID)
+	for k := range d.cache {
+		if strings.HasPrefix(k, taskID+"/") {
+			delete(d.cache, k)
+		}
+	}
 	d.mu.Unlock()
 }
 
@@ -131,11 +139,11 @@ func (d *desktopUpstreams) sandboxUpstream(ctx context.Context, task store.Task,
 	}
 	ep, err := p.Expose(ctx, task.SandboxID, port)
 	if err != nil {
-		return desktop.Upstream{}, fmt.Errorf("the %s sandbox's desktop port: %w", task.SandboxProvider, err)
+		return desktop.Upstream{}, fmt.Errorf("the %s sandbox's port %d: %w", task.SandboxProvider, port, err)
 	}
 	u, err := url.Parse(ep.URL)
 	if err != nil || u.Host == "" {
-		return desktop.Upstream{}, fmt.Errorf("the %s sandbox's desktop port has no usable URL", task.SandboxProvider)
+		return desktop.Upstream{}, fmt.Errorf("the %s sandbox's port %d has no usable URL", task.SandboxProvider, port)
 	}
 	return desktop.Upstream{URL: u, Apply: ep.Apply}, nil
 }

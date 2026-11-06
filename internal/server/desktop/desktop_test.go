@@ -77,36 +77,43 @@ func (f *fakeVoxl) lastHeaders() http.Header {
 	return f.headers.Clone()
 }
 
-type resolverFunc func(ctx context.Context, taskID string) (Upstream, error)
+type resolverFunc func(ctx context.Context, taskID, port string) (Upstream, error)
 
-func (f resolverFunc) Resolve(ctx context.Context, taskID string) (Upstream, error) {
-	return f(ctx, taskID)
+func (f resolverFunc) Resolve(ctx context.Context, taskID, port string) (Upstream, error) {
+	return f(ctx, taskID, port)
 }
 
-// harness is a desktop Service in front of a fake voxl for task_1, served on its own
-// test server the way podium-server serves the desktop origin.
+// harness is a desktop Service in front of a fake voxl and a fake ttyd for task_1, served on
+// its own test server the way podium-server serves the desktop origin.
 type harness struct {
 	svc   *Service
 	voxl  *fakeVoxl
+	tty   *fakeVoxl
 	front *httptest.Server
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	v := newFakeVoxl(t)
+	v, tty := newFakeVoxl(t), newFakeVoxl(t)
 	upURL, err := url.Parse(v.srv.URL)
 	require.NoError(t, err)
-	h := &harness{voxl: v}
+	ttyURL, err := url.Parse(tty.srv.URL)
+	require.NoError(t, err)
+	h := &harness{voxl: v, tty: tty}
 	front := httptest.NewUnstartedServer(nil)
 	front.Start()
 	t.Cleanup(front.Close)
 	base, err := url.Parse(front.URL)
 	require.NoError(t, err)
-	svc, err := New(base, "https://podium.example", resolverFunc(func(_ context.Context, taskID string) (Upstream, error) {
+	svc, err := New(base, "https://podium.example", resolverFunc(func(_ context.Context, taskID, port string) (Upstream, error) {
 		if taskID != "task_1" {
 			return Upstream{}, ErrNoDesktop
 		}
-		return Upstream{URL: upURL, Apply: func(r *http.Request) {
+		u := upURL
+		if port == TerminalPortName {
+			u = ttyURL
+		}
+		return Upstream{URL: u, Apply: func(r *http.Request) {
 			r.AddCookie(&http.Cookie{Name: "_modal_connect_token", Value: "provider-secret"})
 		}}, nil
 	}), nil)
@@ -118,7 +125,12 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) link(t *testing.T, task string) string {
 	t.Helper()
-	link, exp, err := h.svc.Mint(task, "alice@example.com")
+	return h.linkTo(t, task, PortName)
+}
+
+func (h *harness) linkTo(t *testing.T, task, port string) string {
+	t.Helper()
+	link, exp, err := h.svc.Mint(task, port, "alice@example.com")
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now().Add(TokenTTL), exp, 2*time.Second)
 	return link
@@ -222,9 +234,41 @@ func TestOnlyTheDesktopOriginIsTheDesktops(t *testing.T) {
 func TestMintRefusesWhatIsNotATaskID(t *testing.T) {
 	h := newHarness(t)
 	for _, id := range []string{"", "a/b", "a?b", "a#b"} {
-		_, _, err := h.svc.Mint(id, "alice")
+		_, _, err := h.svc.Mint(id, PortName, "alice")
 		require.Error(t, err, id)
 	}
+	// Only the desktop and the terminal are served here, whatever else a task exposes.
+	_, _, err := h.svc.Mint("task_1", "web", "alice")
+	require.Error(t, err)
+}
+
+func TestATerminalLinkServesTheTerminalAndItsSocket(t *testing.T) {
+	h := newHarness(t)
+	link := h.linkTo(t, "task_1", TerminalPortName)
+	require.NotEqual(t, h.link(t, "task_1"), link, "each port has a link of its own")
+
+	res := get(t, link, map[string]string{"Cookie": "podium_session=the-persons"})
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	body, _ := io.ReadAll(res.Body)
+	require.Equal(t, "voxl page at /", string(body))
+	require.Empty(t, h.voxl.lastHeaders(), "a terminal link reaches the terminal, not the desktop")
+	require.Equal(t, "_modal_connect_token=provider-secret", h.tty.lastHeaders().Get("Cookie"))
+	require.Equal(t, "frame-ancestors https://podium.example", res.Header.Get("Content-Security-Policy"))
+
+	// The socket is piped through as it is, from the terminal's own page.
+	c := dial(t, h, link)
+	send(t, c, "0ls\r")
+	require.Eventually(t, func() bool { return len(h.tty.received()) == 1 }, 3*time.Second, 10*time.Millisecond)
+	require.Equal(t, []string{"0ls\r"}, h.tty.received())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, refused, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(link, "http")+"ws", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{"https://evil.example"}},
+	})
+	require.Error(t, err)
+	require.NotNil(t, refused)
+	require.Equal(t, http.StatusForbidden, refused.StatusCode)
 }
 
 // dial opens a viewer's socket the way voxl's page does: from the desktop origin.
@@ -294,11 +338,12 @@ func TestTheSocketMustComeFromTheDesktopsOwnPage(t *testing.T) {
 func TestTokensAreBoundToTheirTask(t *testing.T) {
 	s, err := newSigner()
 	require.NoError(t, err)
-	tok, _, err := s.sign("task_1", "alice")
+	tok, _, err := s.sign("task_1", PortName, "alice")
 	require.NoError(t, err)
 	c, err := s.verify(tok, "task_1")
 	require.NoError(t, err)
 	require.Equal(t, "alice", c.Login)
+	require.Equal(t, PortName, c.Port)
 	_, err = s.verify(tok, "task_2")
 	require.ErrorIs(t, err, errBadToken)
 

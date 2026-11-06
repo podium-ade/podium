@@ -17,6 +17,14 @@ import (
 // PortName is the exposed port a desktop playbook's task names voxl's port by.
 const PortName = "desktop"
 
+// TerminalPortName is the exposed port a desktop playbook's task names ttyd's port by: a
+// terminal in the turn's workspace, beside its desktop.
+const TerminalPortName = "terminal"
+
+// servable is whether port is one this origin serves. Nothing else a task exposes is reached
+// through it: a link names one of these, and only these.
+func servable(port string) bool { return port == PortName || port == TerminalPortName }
+
 // pathPrefix is where every desktop is served on the desktop origin: /t/<task>/<token>/.
 const pathPrefix = "/t/"
 
@@ -31,9 +39,9 @@ type Upstream struct {
 // not a desktop playbook's, or exposed somewhere this server cannot route to.
 var ErrNoDesktop = errors.New("desktop: no desktop to show")
 
-// Resolver finds a running task's desktop.
+// Resolver finds a running task's desktop, or its terminal: the exposed port named port.
 type Resolver interface {
-	Resolve(ctx context.Context, taskID string) (Upstream, error)
+	Resolve(ctx context.Context, taskID, port string) (Upstream, error)
 }
 
 // Service mints desktop links and serves the desktop origin.
@@ -73,13 +81,17 @@ func New(base *url.URL, uiOrigin string, resolver Resolver, logger *slog.Logger)
 // Origin is the desktop origin, scheme://host[:port], which the UI's CSP must let it frame.
 func (s *Service) Origin() string { return s.base.Scheme + "://" + s.base.Host }
 
-// Mint is a link to a task's desktop for login. The caller has already decided login may see
-// the task and that it is a running desktop; the link is refused again at use if it is not.
-func (s *Service) Mint(taskID, login string) (string, time.Time, error) {
+// Mint is a link to a task's desktop (PortName) or terminal (TerminalPortName) for login. The
+// caller has already decided login may see the task and that it is a running desktop; the
+// link is refused again at use if it is not.
+func (s *Service) Mint(taskID, port, login string) (string, time.Time, error) {
 	if taskID == "" || strings.ContainsAny(taskID, "/?#") {
 		return "", time.Time{}, fmt.Errorf("desktop: %q is not a task id", taskID)
 	}
-	tok, exp, err := s.signer.sign(taskID, login)
+	if !servable(port) {
+		return "", time.Time{}, fmt.Errorf("desktop: %q is not a port this origin serves", port)
+	}
+	tok, exp, err := s.signer.sign(taskID, port, login)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -92,7 +104,7 @@ func (s *Service) Handles(r *http.Request) bool {
 	return strings.EqualFold(r.Host, s.base.Host)
 }
 
-// ServeHTTP serves /t/<task>/<token>/<rest>: <rest> is voxl's own path.
+// ServeHTTP serves /t/<task>/<token>/<rest>: <rest> is voxl's, or ttyd's, own path.
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
@@ -103,7 +115,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rest == "" && !strings.HasSuffix(r.URL.Path, "/") {
-		// voxl's page loads everything relative to itself, so it must end in a slash.
+		// voxl's and ttyd's pages load everything relative to themselves, so it must end in a
+		// slash.
 		http.Redirect(w, r, r.URL.Path+"/", http.StatusFound)
 		return
 	}
@@ -114,7 +127,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	up, err := s.resolver.Resolve(r.Context(), task)
+	up, err := s.resolver.Resolve(r.Context(), task, c.Port)
 	if err != nil {
 		if errors.Is(err, ErrNoDesktop) {
 			http.Error(w, "this desktop is not running any more", http.StatusGone)
@@ -124,11 +137,28 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the desktop could not be reached", http.StatusBadGateway)
 		return
 	}
-	if rest == "ws" {
+	if c.Port == PortName && rest == "ws" {
 		s.bridge(w, r, task, c.Login, up)
 		return
 	}
+	if isUpgrade(r) && !s.sameOrigin(r) {
+		// A terminal's socket is piped as it is: it must come from the terminal's own page,
+		// served from this origin, as the desktop's must (bridge).
+		http.Error(w, "the socket must come from this origin", http.StatusForbidden)
+		return
+	}
 	s.proxy(up).ServeHTTP(w, r.WithContext(withRest(r.Context(), rest)))
+}
+
+// isUpgrade is a WebSocket handshake. httputil.ReverseProxy carries one through as it is.
+func isUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// sameOrigin is a request whose Origin is this origin.
+func (s *Service) sameOrigin(r *http.Request) bool {
+	o, err := url.Parse(r.Header.Get("Origin"))
+	return err == nil && o.Host != "" && strings.EqualFold(o.Host, s.base.Host)
 }
 
 // splitPath takes /t/<task>/<token>/<rest> apart. rest is "" for the page itself.
@@ -170,7 +200,8 @@ func (s *Service) proxy(up Upstream) *httputil.ReverseProxy {
 				pr.Out.Header.Del(h)
 			}
 			if pr.In.Header.Get("Origin") != "" {
-				// voxl answers its own page; through this proxy, its page is ours.
+				// voxl answers its own page; through this proxy, its page is ours. ttyd checks
+				// no origin, and is told the same.
 				pr.Out.Header.Set("Origin", up.URL.Scheme+"://"+up.URL.Host)
 			}
 			if up.Apply != nil {

@@ -1534,7 +1534,9 @@ func (c *Conductor) taskSpec(
 		if s.Expose.Ports == nil {
 			s.Expose.Ports = map[string]spec.ExposedPort{}
 		}
-		s.Expose.Ports[profiles.DesktopPortName] = spec.ExposedPort{Port: profiles.DesktopPort}
+		for name, port := range profiles.DesktopPorts {
+			s.Expose.Ports[name] = spec.ExposedPort{Port: port}
+		}
 	}
 	s.ApplyDefaults()
 	switch {

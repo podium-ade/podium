@@ -6,11 +6,14 @@
 // someone else's JavaScript, and on the UI's origin it could call Podium's API as the person
 // watching. The UI's session cookie is host-only, so the desktop origin never sees it.
 //
+// The same task's terminal — ttyd on the exposed port "terminal", a shell in the workspace —
+// is served the same way, with a link of its own.
+//
 // A person gets in with a link, not a cookie: TaskService.CreateDesktopTicket mints
-// /t/<task>/<token>/ for a member who may see the task, and everything voxl loads is relative
-// to that path, so every request carries the token. A cookie would have to cross from the UI's
+// /t/<task>/<token>/ for a member who may see the task, one per port, and everything voxl or
+// ttyd loads is relative to that path, so every request carries the token. A cookie would have to cross from the UI's
 // site into an iframe on another, which third-party cookie blocking refuses. The token is
-// signed by this process, names the task and the login, and expires; the task must still be
+// signed by this process, names the task, the port and the login, and expires; the task must still be
 // running for any request it makes to be answered.
 package desktop
 
@@ -33,6 +36,7 @@ const TokenTTL = 12 * time.Hour
 // claims is what a token says. Short keys: it is in every request's path.
 type claims struct {
 	Task    string `json:"t"`
+	Port    string `json:"p"`
 	Login   string `json:"l"`
 	Expires int64  `json:"e"`
 }
@@ -54,9 +58,9 @@ func newSigner() (*signer, error) {
 
 var errBadToken = errors.New("desktop: the link is not valid")
 
-func (s *signer) sign(task, login string) (string, time.Time, error) {
+func (s *signer) sign(task, port, login string) (string, time.Time, error) {
 	exp := s.now().Add(TokenTTL).Truncate(time.Second)
-	body, err := json.Marshal(claims{Task: task, Login: login, Expires: exp.Unix()})
+	body, err := json.Marshal(claims{Task: task, Port: port, Login: login, Expires: exp.Unix()})
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -76,7 +80,7 @@ func (s *signer) verify(token, task string) (claims, error) {
 		return claims{}, errBadToken
 	}
 	var c claims
-	if err := json.Unmarshal(body, &c); err != nil || c.Task != task {
+	if err := json.Unmarshal(body, &c); err != nil || c.Task != task || !servable(c.Port) {
 		return claims{}, errBadToken
 	}
 	if !s.now().Before(time.Unix(c.Expires, 0)) {
