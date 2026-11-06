@@ -90,6 +90,62 @@ func (q *Queries) ClaimOutbox(ctx context.Context, arg ClaimOutboxParams) ([]Cha
 	return items, nil
 }
 
+const claimOutboxFor = `-- name: ClaimOutboxFor :many
+update chat_outbox o
+   set attempts = o.attempts + 1,
+       next_at = now() + make_interval(secs => $1::double precision),
+       updated_at = now()
+ where o.id in (
+   select d.id from chat_outbox d
+    where d.chat_id = $2 and d.message_seq = $3
+      and d.status = 'pending' and d.next_at <= now()
+    for update skip locked
+ )
+returning o.id, o.chat_id, o.message_seq, o.surface_kind, o.surface_ref, o.payload, o.status, o.attempts, o.next_at, o.last_error, o.external_id, o.created_at, o.updated_at
+`
+
+type ClaimOutboxForParams struct {
+	LeaseSeconds float64
+	ChatID       string
+	MessageSeq   int64
+}
+
+// ClaimOutboxFor is ClaimOutbox for one message's deliveries only: what a person's Retry
+// attempts at once, without taking up (and holding the lease on) anybody else's.
+func (q *Queries) ClaimOutboxFor(ctx context.Context, arg ClaimOutboxForParams) ([]ChatOutbox, error) {
+	rows, err := q.db.Query(ctx, claimOutboxFor, arg.LeaseSeconds, arg.ChatID, arg.MessageSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatOutbox{}
+	for rows.Next() {
+		var i ChatOutbox
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.MessageSeq,
+			&i.SurfaceKind,
+			&i.SurfaceRef,
+			&i.Payload,
+			&i.Status,
+			&i.Attempts,
+			&i.NextAt,
+			&i.LastError,
+			&i.ExternalID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOutbox = `-- name: GetOutbox :one
 select id, chat_id, message_seq, surface_kind, surface_ref, payload, status, attempts, next_at, last_error, external_id, created_at, updated_at from chat_outbox where id = $1
 `

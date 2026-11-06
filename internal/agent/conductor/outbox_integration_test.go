@@ -121,6 +121,33 @@ func TestADeliveryThatKeepsFailingIsShownAsFailedUntilSomebodyRetries(t *testing
 	assert.ErrorIs(t, r.cond.RetryDelivery(ctx, chat.ID, answer.Seq), conductor.ErrNothingToRetry)
 }
 
+// A Retry is attempted on its own clock, not the request's: the browser going away the moment
+// it pressed Retry does not cancel the attempt, and no worker poll is needed for it to land.
+func TestARetryOutlivesTheRequestThatAskedForIt(t *testing.T) {
+	st := newStore(t)
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	src.FailPosts(1000)
+
+	r, chat, answer := mirroredTurn(t, st, src, atOnce)
+	ctx := context.Background()
+	waitFor(t, 20*time.Second, "the outbox to give up", func() bool {
+		r.cond.DeliverDueForTest(ctx)
+		a := answerRow(t, st, chat.ID)
+		return len(a.Deliveries) == 1 && a.Deliveries[0].Status == store.OutboxFailed
+	})
+
+	src.FailPosts(0)
+	reqCtx, cancel := context.WithCancel(ctx)
+	require.NoError(t, r.cond.RetryDelivery(reqCtx, chat.ID, answer.Seq))
+	cancel() // the browser is gone
+	waitFor(t, 4*time.Second, "the retried delivery to land on its own", func() bool {
+		a := answerRow(t, st, chat.ID)
+		return a.Deliveries[0].Status == store.OutboxSent
+	})
+}
+
 // Two conductors working the same outbox take disjoint rows: SKIP LOCKED is what makes a
 // delivery attempted by one of them, never both.
 func TestTwoConductorsClaimDisjointDeliveries(t *testing.T) {

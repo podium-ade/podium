@@ -290,6 +290,12 @@ func (c *Conductor) deliverDue(ctx context.Context) int {
 		}
 		return 0
 	}
+	c.deliverClaimed(ctx, items)
+	return len(items)
+}
+
+// deliverClaimed attempts deliveries this conductor has claimed.
+func (c *Conductor) deliverClaimed(ctx context.Context, items []store.OutboxItem) {
 	for _, it := range items {
 		src := c.sourceOfKind(it.SurfaceKind)
 		if src == nil {
@@ -310,8 +316,12 @@ func (c *Conductor) deliverDue(ctx context.Context) int {
 		dctx := withDelivery(ctx, delivery{chatID: it.ChatID, seq: it.MessageSeq, retry: true})
 		_, _ = c.attemptDelivery(dctx, src, it, outboundOf(it.Payload), false)
 	}
-	return len(items)
 }
+
+// retryAttemptTimeout bounds the attempt a Retry starts. It is the request's no longer: the
+// person who pressed Retry is told it was queued, and the attempt runs on whatever the
+// browser does next.
+const retryAttemptTimeout = time.Minute
 
 // RetryDelivery puts one message's failed deliveries back in the queue and attempts them now,
 // rather than at the worker's next poll, so the person who pressed Retry sees it land. It
@@ -328,7 +338,23 @@ func (c *Conductor) RetryDelivery(ctx context.Context, chatID string, seq uint64
 		return ErrNothingToRetry
 	}
 	c.announceDelivery(ctx, chatID, seq)
-	c.deliverDue(ctx)
+	// Only this message's deliveries, and not on the request: a browser that cancels must
+	// not fail the attempt half way (burning an attempt, or leaving the row claimed for the
+	// lease), and a Retry must not post other chats' answers on its own clock. The chat hears
+	// the outcome through announceDelivery as each attempt ends.
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryAttemptTimeout)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		defer cancel()
+		items, err := c.store.ClaimOutboxFor(actx, chatID, seq, outboxLease)
+		if err != nil {
+			c.logger.WarnContext(actx, "claiming a retried delivery failed",
+				"chat_id", chatID, "seq", seq, "error", err)
+			return
+		}
+		c.deliverClaimed(actx, items)
+	}()
 	return nil
 }
 
