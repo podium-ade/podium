@@ -176,6 +176,27 @@ func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]ChatAuthors
 	return items, nil
 }
 
+const chatTaskRunning = `-- name: ChatTaskRunning :one
+select exists (
+  select 1 from delegations d
+    join turns t on t.id = d.turn_id
+    join sessions s on s.id = t.session_id
+   where s.source_key = (select c.source_key from chats c where c.id = $1)
+     and d.status = 'running'
+)::bool as running
+`
+
+// ChatTaskRunning is whether a task this conversation delegated is still running. A
+// delegated task outlives the turn that started it (an automatic review's turn ends the
+// moment it hands the work over), and it is the conversation's work for as long as it runs:
+// the same rule ListChats' task_running answers for the list.
+func (q *Queries) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRow(ctx, chatTaskRunning, chatID)
+	var running bool
+	err := row.Scan(&running)
+	return running, err
+}
+
 const chatTurnRunning = `-- name: ChatTurnRunning :one
 select exists (
   select 1 from turns t

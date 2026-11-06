@@ -225,6 +225,19 @@ select exists (
      and t.status = 'running'
 )::bool as running;
 
+-- ChatTaskRunning is whether a task this conversation delegated is still running. A
+-- delegated task outlives the turn that started it (an automatic review's turn ends the
+-- moment it hands the work over), and it is the conversation's work for as long as it runs:
+-- the same rule ListChats' task_running answers for the list.
+-- name: ChatTaskRunning :one
+select exists (
+  select 1 from delegations d
+    join turns t on t.id = d.turn_id
+    join sessions s on s.id = t.session_id
+   where s.source_key = (select c.source_key from chats c where c.id = @chat_id)
+     and d.status = 'running'
+)::bool as running;
+
 -- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
 -- (auto_title = false) is left alone.
 -- SetChatChoice records what this chat is answered on: the override a person picked, empty
