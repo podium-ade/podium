@@ -2834,8 +2834,14 @@ What that decides:
   is a review nobody in Podium asked for. A delegated task's spend is its delegating turn's
   person's.
 - **Writing to GitHub for somebody who has not connected it.** A turn that pushes or
-  comments as the App, for a Podium person, is told to end every commit with
-  `Requested-by: Name <login>` and to say "requested by Name" in what it writes.
+  comments as the App for a Podium person carries `requested_by` in its brief, and every
+  commit it makes gets a `Requested-by: Name <login>` trailer. The runtime points every git it
+  starts at a hook directory of its own (`core.hooksPath`, set through `GIT_CONFIG_COUNT`), so
+  this covers repositories the agent clones itself. The repository's own hooks still run:
+  each Podium hook hands on to them, and `commit-msg` adds the trailer after the repository's
+  hook, so a hook that rewrites the message cannot drop it. Only `git commit --no-verify`
+  skips it. The turn is also told to say "requested by Name" in pull requests and comments,
+  which no hook can reach.
 
 ## One record, one transcript
 
