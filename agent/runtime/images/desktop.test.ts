@@ -223,11 +223,13 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     ].join("\n");
     const run = docker([
       "run", "--rm", "-e", `TERM_CLIENT=${client}`, "--entrypoint", "sh", DesktopImage, "-c",
-      `podium-desktop -- sh -c 'node -e "$TERM_CLIENT" && echo "SESSIONS: $(tmux list-sessions -F "#S" | tr "\\n" " ")"'`,
+      `podium-desktop -- sh -c 'node -e "$TERM_CLIENT" && echo "SESSIONS: $(tmux list-sessions -F "#S" | tr "\\n" " ")"; tmux show-options -g status-style'`,
     ]);
     expect(run.status, show(run)).toBe(0);
     expect(run.stdout).toContain("SHARED: yes");
     expect(run.stdout).toContain("SESSIONS: podium ");
+    // The status line is the panel's quiet grey, not tmux's green.
+    expect(run.stdout).toContain('status-style "bg=#151517,fg=#8a8a93"');
   });
 
   it("fails the turn at the start, saying why, when the desktop cannot come up", () => {
