@@ -70,14 +70,18 @@ type TaskService struct {
 
 // DesktopMinter is internal/server/desktop.Service, as the task API needs it.
 type DesktopMinter interface {
-	Mint(taskID, login string) (string, time.Time, error)
+	Mint(taskID, port, login string) (string, time.Time, error)
 }
 
 // SetDesktops turns CreateDesktopTicket on.
 func (s *TaskService) SetDesktops(m DesktopMinter) { s.desktops = m }
 
-// desktopPort is the exposed port a desktop playbook names voxl's port (desktop.PortName).
-const desktopPort = "desktop"
+// desktopPort and terminalPort are the exposed ports a desktop playbook names voxl's and ttyd's
+// ports (desktop.PortName, desktop.TerminalPortName).
+const (
+	desktopPort  = "desktop"
+	terminalPort = "terminal"
+)
 
 // NewTaskService returns the task API. injector may be the same object as canceller
 // (the node registry implements both); nil means InjectTask is unavailable.
@@ -105,7 +109,8 @@ func (s *TaskService) SetMaxPreviewTTL(d time.Duration) {
 	}
 }
 
-// CreateDesktopTicket is a link to a running task's desktop for the caller. It asks what
+// CreateDesktopTicket is a link to a running task's desktop for the caller, and to its terminal
+// when the task exposes one. It asks what
 // GetTask asks — a member may see any task — plus that the task is running and is a desktop
 // playbook's. The link is checked again on every request it makes, against the task as it
 // is then.
@@ -124,11 +129,18 @@ func (s *TaskService) CreateDesktopTicket(
 	if err := desktopProblem(task); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
-	link, exp, err := s.desktops.Mint(task.ID, login(ctx))
+	link, exp, err := s.desktops.Mint(task.ID, desktopPort, login(ctx))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&podiumv1.CreateDesktopTicketResponse{Url: link, ExpiresAt: timestamppb.New(exp)}), nil
+	res := &podiumv1.CreateDesktopTicketResponse{Url: link, ExpiresAt: timestamppb.New(exp)}
+	if task.Spec.Expose.Ports[terminalPort].Port != 0 {
+		// The terminal's link is minted with the desktop's, so they expire together.
+		if res.TerminalUrl, _, err = s.desktops.Mint(task.ID, terminalPort, login(ctx)); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return connect.NewResponse(res), nil
 }
 
 // desktopProblem is why a task has no desktop to show, or nil.

@@ -23,14 +23,14 @@ func desktopSpec(t *testing.T, pb profiles.Playbook) *spec.TaskSpec {
 }
 
 // A desktop playbook's turn runs its command under podium-desktop, on every placement — the
-// image's CMD is never what Podium runs — publishes voxl's port as "desktop" for the server to
-// stream, holds nothing afterwards worth holding, and gets no headless browser beside it.
+// image's CMD is never what Podium runs — publishes voxl's port as "desktop" and ttyd's as
+// "terminal" for the server to serve, holds nothing afterwards worth holding, and gets no headless browser beside it.
 func TestADesktopTurnRunsUnderPodiumDesktopWithItsPortExposed(t *testing.T) {
 	sp := desktopSpec(t, profiles.Playbook{Image: profiles.LocalDesktopImage, Desktop: true})
 
 	assert.Equal(t, []string{"podium-desktop", "--", "node", "/opt/podium-agent/dist/main.js"}, sp.Command)
 	require.NotNil(t, sp.Expose)
-	assert.Equal(t, map[string]spec.ExposedPort{"desktop": {Port: 6901}}, sp.Expose.Ports)
+	assert.Equal(t, map[string]spec.ExposedPort{"desktop": {Port: 6901}, "terminal": {Port: 7681}}, sp.Expose.Ports)
 	assert.Equal(t, spec.Duration(desktopHold), sp.Expose.TTL,
 		"the desktop goes with its command: nothing is left to look at after it")
 	assert.Empty(t, sp.Expose.Via, "the placement chooses: a sandbox's proxy or a LAN address")
@@ -49,7 +49,7 @@ func TestADesktopPlaybooksOwnExposeIsKept(t *testing.T) {
 			"web": {Port: 3000},
 		}},
 	})
-	assert.Equal(t, map[string]spec.ExposedPort{"web": {Port: 3000}, "desktop": {Port: 6901}}, sp.Expose.Ports)
+	assert.Equal(t, map[string]spec.ExposedPort{"web": {Port: 3000}, "desktop": {Port: 6901}, "terminal": {Port: 7681}}, sp.Expose.Ports)
 	assert.Equal(t, spec.Duration(20*time.Minute), sp.Expose.TTL)
 	require.NoError(t, sp.Validate())
 }
@@ -72,22 +72,25 @@ func TestADesktopTurnWaitsLongerForTheNextMessage(t *testing.T) {
 	assert.Equal(t, spec.Duration(2*time.Hour), s.WorkspaceWarm)
 }
 
-// The desktop's port is the server's to stream: its raw URL is no use to a person, so it is
-// left out of what the thread and the brief are told.
+// The desktop's and the terminal's ports are the server's to serve: their raw URLs are no use
+// to a person, so they are left out of what the thread and the brief are told.
 func TestThePreviewNoteLeavesTheDesktopPortOut(t *testing.T) {
 	expires := timestamppb.New(time.Date(2026, 11, 5, 18, 5, 0, 0, time.UTC))
 	only := &podiumv1.Task{Id: "task_1", Preview: &podiumv1.TaskPreview{
-		ExpiresAt: expires, Urls: map[string]string{"desktop": "https://sandbox.modal.host"},
+		ExpiresAt: expires,
+		Urls:      map[string]string{"desktop": "https://sandbox.modal.host", "terminal": "https://tty.modal.host"},
 	}}
 	assert.Empty(t, previewNote(only, false), "a desktop alone leaves nothing to announce")
 
 	both := &podiumv1.Task{Id: "task_1", Preview: &podiumv1.TaskPreview{
 		ExpiresAt: expires,
-		Urls:      map[string]string{"desktop": "https://sandbox.modal.host", "web": "http://10.0.0.5:3000"},
+		Urls: map[string]string{"desktop": "https://sandbox.modal.host", "terminal": "https://tty.modal.host",
+			"web": "http://10.0.0.5:3000"},
 	}}
 	note := previewNote(both, false)
 	assert.Contains(t, note, "web: http://10.0.0.5:3000")
 	assert.NotContains(t, note, "desktop")
+	assert.NotContains(t, note, "terminal")
 	assert.NotContains(t, note, "modal.host")
 }
 

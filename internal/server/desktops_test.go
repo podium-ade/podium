@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/sandbox"
+	"github.com/podium-ade/podium/internal/server/desktop"
 	"github.com/podium-ade/podium/internal/server/store"
 )
 
@@ -71,7 +73,7 @@ func TestAProviderThatCannotExposeThePortSaysWhich(t *testing.T) {
 	}}
 	_, err := d.sandboxUpstream(context.Background(),
 		store.Task{ID: "task_1", SandboxProvider: "modal", SandboxID: "sb-123"}, 6901)
-	require.ErrorContains(t, err, "the modal sandbox's desktop port: sandbox is gone")
+	require.ErrorContains(t, err, "the modal sandbox's port 6901: sandbox is gone")
 }
 
 func TestALANDesktopIsItsPreviewAddress(t *testing.T) {
@@ -82,4 +84,19 @@ func TestALANDesktopIsItsPreviewAddress(t *testing.T) {
 
 	_, err = plainUpstream("")
 	require.Error(t, err)
+}
+
+func TestATaskThatStoppedIsForgottenOnEveryPort(t *testing.T) {
+	now := time.Now()
+	d := &desktopUpstreams{cache: map[string]cachedUpstream{}, now: func() time.Time { return now }}
+	for _, k := range []string{"task_1/desktop", "task_1/terminal", "task_10/desktop"} {
+		d.cache[k] = cachedUpstream{up: desktop.Upstream{}, expires: now.Add(time.Minute)}
+	}
+	d.forget("task_1")
+	_, desk := d.cached("task_1/desktop")
+	_, term := d.cached("task_1/terminal")
+	_, other := d.cached("task_10/desktop")
+	require.False(t, desk)
+	require.False(t, term)
+	require.True(t, other, "a task whose id starts with another's is its own")
 }

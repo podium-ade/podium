@@ -164,6 +164,9 @@ message CreateDesktopTicketResponse {
   // url is the desktop, ready to be an iframe's src.
   string url = 1;
   google.protobuf.Timestamp expires_at = 2;
+  // terminal_url is a terminal in the task's workspace, ready to be an iframe's src; empty
+  // when the task exposes none. It expires with url.
+  string terminal_url = 3;
 }
 
 message StreamTaskEventsRequest {

@@ -629,6 +629,16 @@ const DesktopPort = 6901
 // DesktopPortName is the exposed port's name; podium-server streams the port by it.
 const DesktopPortName = "desktop"
 
+// TerminalPort is the port a desktop playbook's turn serves its terminal on (ttyd, a tmux
+// session in the workspace), exposed as "terminal".
+const TerminalPort = 7681
+
+// TerminalPortName is the terminal's exposed port's name; podium-server serves it by it.
+const TerminalPortName = "terminal"
+
+// DesktopPorts is every port a desktop playbook's turn exposes for podium-server, by name.
+var DesktopPorts = map[string]int{DesktopPortName: DesktopPort, TerminalPortName: TerminalPort}
+
 // releaseVersion matches a version that came from a v* tag, which is the only kind that has a
 // published runtime image behind it. GoReleaser sets internal/version.Version to the tag
 // without its leading v, so a release reads `0.1.0` or `0.1.0-rc.1`.
@@ -681,10 +691,14 @@ func (s Playbook) validateDesktop() []error {
 	}
 	if s.Expose != nil {
 		for name, p := range s.Expose.Ports {
-			if name == DesktopPortName {
+			if _, ours := DesktopPorts[name]; ours {
 				errs = append(errs, fmt.Errorf("expose.ports.%s is the desktop's own port when desktop is true", name))
-			} else if p.Port == DesktopPort && p.From == "" {
-				errs = append(errs, fmt.Errorf("expose.ports.%s uses port %d, which is the desktop's", name, DesktopPort))
+				continue
+			}
+			for own, port := range DesktopPorts {
+				if p.Port == port && p.From == "" {
+					errs = append(errs, fmt.Errorf("expose.ports.%s uses port %d, which is the desktop's %s", name, port, own))
+				}
 			}
 		}
 	}

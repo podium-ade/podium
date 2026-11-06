@@ -430,13 +430,16 @@ certificate for it; that is the path to HTTPS, and it is not built yet.
 ## Desktops
 
 A [desktop playbook](agent.md#desktop-true)'s task streams a desktop — a virtual display, XFCE
-and a Chromium the agent drives — that a person watches and takes over in the chat. The stream is
+and a Chromium the agent drives — that a person watches and takes over in the chat, and a terminal in its workspace beside it.
+The stream is
 [voxl](https://github.com/tembo/voxl): H.264 over **one WebSocket**, which is what reaches a cloud
-sandbox through its provider's HTTPS proxy and through a tunnel like Cloudflare's. podium-server
-is the only way in: it serves the desktop on an origin of its own, `PODIUM_DESKTOP_URL`.
+sandbox through its provider's HTTPS proxy and through a tunnel like Cloudflare's; the terminal
+is [ttyd](https://github.com/tsl0922/ttyd), the same shape. podium-server is the only way in to
+either: it serves them on an origin of its own, `PODIUM_DESKTOP_URL`.
 
 ```
-browser ──HTTPS──► podium-desktop.example.com ──► podium-server ──► the task's "desktop" port
+browser ──HTTPS──► podium-desktop.example.com ──► podium-server ──► the task's "desktop" or
+                                                                     "terminal" port
          (the UI frames it)                       (the same process  (Modal: its proxy + a connect
                                                    as the UI, by Host) token the server mints)
 ```
@@ -448,8 +451,8 @@ nothing else, and on any other host it never answers that. The UI's CSP allows f
 that origin (`frame-src`). The setting refuses the UI's own origin.
 
 **Signed in by the link.** The chat's desktop panel calls `TaskService.CreateDesktopTicket`, a
-member's call like `GetTask`, for a running desktop task. The link it returns names the task and
-the person, is signed by this process with a key that is not stored anywhere, and expires after
+member's call like `GetTask`, for a running desktop task. It returns two links, the desktop's
+and the terminal's; each names the task, its port and the person, is signed by this process with a key that is not stored anywhere, and expires after
 12 hours; every request it makes is checked again against the task, which must still be running.
 It is a path, not a cookie, because a cookie would have to cross from the UI's site into a frame
 on another, and third-party cookie blocking refuses that. A server restart ends every link; the
@@ -462,6 +465,9 @@ panel asks for a new one.
 | `via: sandbox` (Modal, boat) | builds the provider from the Sandboxes screen's configuration and asks it for the port's endpoint, credentials included — Modal's URL needs a connect token, which the preview URL does not carry |
 | `via: lan` | connects to the preview's address |
 | `via: tailnet` | refuses: a preview device turns tagged callers away, and the server is one |
+
+**The terminal's socket is piped as it is**, once the server has checked it comes from the
+terminal's own page on the desktop origin. ttyd runs one tmux session, so viewers share a shell.
 
 **One viewer resizes.** voxl fits the desktop to the viewer's window, and two viewers of
 different sizes would take turns resizing it for ever. The server reads the client's side of

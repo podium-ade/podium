@@ -40,18 +40,18 @@ func previewNote(task *podiumv1.Task, askable bool) string {
 	return b.String()
 }
 
-// peopleURLs is a preview's URLs minus a desktop playbook's desktop port. That port is
-// podium-server's to stream (the chat's desktop panel), and its raw URL is no use to a
-// person: a cloud sandbox's needs the provider's token, which it does not carry.
+// peopleURLs is a preview's URLs minus a desktop playbook's desktop and terminal ports. Those
+// are podium-server's to serve (the chat's desktop panel), and their raw URLs are no use to a
+// person: a cloud sandbox's needs the provider's token, which they do not carry.
 func peopleURLs(urls map[string]string) map[string]string {
-	if _, ok := urls[profiles.DesktopPortName]; !ok {
-		return urls
-	}
 	out := make(map[string]string, len(urls))
 	for name, u := range urls {
-		if name != profiles.DesktopPortName {
+		if _, ours := profiles.DesktopPorts[name]; !ours {
 			out[name] = u
 		}
+	}
+	if len(out) == len(urls) {
+		return urls
 	}
 	return out
 }

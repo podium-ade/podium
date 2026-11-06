@@ -171,6 +171,12 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"a desktop exposing the desktop's port number", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {web: {port: 6901}}}\n"
 		}, []string{"playbooks/general.yaml", "expose.ports.web uses port 6901"}},
+		{"a desktop exposing the terminal's port name", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {terminal: {port: 3000}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.terminal is the desktop's own port"}},
+		{"a desktop exposing the terminal's port number", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {web: {port: 7681}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.web uses port 7681, which is the desktop's terminal"}},
 		{"a boat machine type boat does not have", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "sandbox: {boat: {type: huge}}\n"
 		}, []string{"playbooks/general.yaml", "sandbox.boat.type"}},
