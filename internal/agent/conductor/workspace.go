@@ -13,6 +13,11 @@ import (
 // PODIUM_WORKSPACE_WARM to change it, including 0s to leave as soon as the turn ends.
 const DefaultWorkspaceWarm = 5 * time.Minute
 
+// DefaultDesktopWarm is a desktop playbook's: a desktop is something a person keeps working
+// with between messages, and what it shows is gone when the turn's command exits. The wait
+// counts against the playbook's timeout, so a desktop playbook wants a timeout well past it.
+const DefaultDesktopWarm = 30 * time.Minute
+
 // workspaceWarmEnv is the playbook env that overrides DefaultWorkspaceWarm. It is a Go
 // duration. The node turns the result into PODIUM_WORKSPACE_WARM_SECONDS for the runtime.
 const workspaceWarmEnv = "PODIUM_WORKSPACE_WARM"
@@ -64,6 +69,9 @@ func applyWorkspace(s *spec.TaskSpec, sess store.Session, playbook profiles.Play
 		s.WorkspacePublishBase = true
 	}
 	warm := DefaultWorkspaceWarm
+	if playbook.Desktop {
+		warm = DefaultDesktopWarm
+	}
 	if raw, ok := playbook.Env[workspaceWarmEnv]; ok {
 		d, err := time.ParseDuration(raw)
 		if err == nil {

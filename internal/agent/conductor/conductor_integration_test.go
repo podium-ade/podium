@@ -138,6 +138,11 @@ allowed_tools: [read, bash]
 browser: true
 `), 0o600))
 
+	require.NoError(t, os.WriteFile(dir+"/playbooks/desk.yaml", []byte(`system_prompt: work on the desktop
+allowed_tools: [read, bash]
+desktop: true
+`), 0o600))
+
 	p, err := profiles.Load(dir)
 	require.NoError(t, err)
 	return p
@@ -804,6 +809,34 @@ func TestABrowserPlaybookGetsAHeadlessChromeBesideIt(t *testing.T) {
 	b := decodeBrief(t, got)
 	require.NotNil(t, b.Browser, "the brief carries the address, or the tools have nothing to drive")
 	assert.Equal(t, "http://chrome:9222", b.Browser.CDPURL)
+}
+
+// A `desktop: true` playbook's turn runs under podium-desktop in the desktop image, exposes
+// the desktop's port, and its browser tools reach the Chromium on that desktop — the one the
+// person sees — rather than a headless one beside it.
+func TestADesktopPlaybookRunsOnItsDesktop(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done on the desktop")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "/desk open the page")))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	got := fake.Specs()[0]
+	assert.Equal(t, profiles.LocalDesktopImage, got.GetImage(), "no image: the desktop image")
+	assert.Equal(t, []string{"podium-desktop", "--", "node", "/opt/podium-agent/dist/main.js"}, got.GetCommand())
+	assert.Empty(t, got.GetSidecars(), "no headless browser beside the one on the desktop")
+	require.NotNil(t, got.GetExpose())
+	assert.EqualValues(t, 6901, got.GetExpose().GetPorts()["desktop"].GetPort())
+
+	b := decodeBrief(t, got)
+	require.NotNil(t, b.Browser)
+	assert.Equal(t, "http://127.0.0.1:9222", b.Browser.CDPURL)
 }
 
 // The flag is the whole switch: a playbook without it is unchanged, and pays nothing.

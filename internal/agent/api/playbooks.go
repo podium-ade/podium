@@ -196,6 +196,7 @@ func protoToPlaybook(in *agentv1.PlaybookDefinition) (profiles.Playbook, error) 
 		Interactive:    in.Interactive,
 		Docker:         in.Docker,
 		Browser:        in.Browser,
+		Desktop:        in.Desktop,
 		Skills:         append([]string(nil), in.Skills...),
 		MCPServers:     append([]string(nil), in.McpServers...),
 		Env:            in.Env,

@@ -1298,6 +1298,10 @@ func (c *Conductor) brief(
 		// no tool can reach, is worse than a turn with neither.
 		b.Browser = &BriefBrowser{CDPURL: browserCDPURL}
 	}
+	if j.playbook.Desktop {
+		// The same tools, pointed at the desktop's own Chromium: the one the person sees.
+		b.Browser = &BriefBrowser{CDPURL: desktopCDPURL}
+	}
 	for _, r := range j.playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
@@ -1448,6 +1452,21 @@ func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) prof
 // either way. An image of your own built FROM the runtime keeps this path.
 var runtimeCommand = []string{"node", "/opt/podium-agent/dist/main.js"}
 
+// desktopCommand is a desktop playbook's: podium-desktop starts the desktop, waits until its
+// browser and its stream answer, and execs the runtime, so the desktop lives as long as the
+// turn. Set explicitly on every placement, because nothing else in the image would run it.
+var desktopCommand = append([]string{"podium-desktop", "--"}, runtimeCommand...)
+
+// desktopHold is how long a desktop turn's containers stay up after its command exits. A
+// desktop needs its port published while the turn runs; expose is the only way to publish
+// one, and expose always holds afterwards. Nothing is left to look at once the turn has
+// gone — the desktop went with its command — so the hold is as short as a ttl can be.
+const desktopHold = time.Second
+
+// desktopCDPURL is where a desktop turn's browser tools find its Chromium: in the turn's own
+// container, on loopback, where podium-desktop started it.
+const desktopCDPURL = "http://127.0.0.1:9222"
+
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
 	servers []mcp.Server, choice profiles.Choice, capabilitySecret, login string,
@@ -1507,8 +1526,20 @@ func (c *Conductor) taskSpec(
 		x.Ports = maps.Clone(x.Ports)
 		s.Expose = &x
 	}
+	if playbook.Desktop {
+		if s.Expose == nil {
+			s.Expose = &spec.Expose{TTL: spec.Duration(desktopHold)}
+		}
+		if s.Expose.Ports == nil {
+			s.Expose.Ports = map[string]spec.ExposedPort{}
+		}
+		s.Expose.Ports[profiles.DesktopPortName] = spec.ExposedPort{Port: profiles.DesktopPort}
+	}
 	s.ApplyDefaults()
-	if s.UsesSandbox() {
+	switch {
+	case playbook.Desktop:
+		s.Command = slices.Clone(desktopCommand)
+	case s.UsesSandbox():
 		s.Command = slices.Clone(runtimeCommand)
 	}
 	return s

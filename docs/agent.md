@@ -903,6 +903,48 @@ Two things a playbook using it has to know:
   loopback is reachable by nothing else; the browser is somewhere else. `http://task:8080` is
   what it should be told to open.
 
+#### `desktop: true`
+
+The turn runs on a desktop a person shares with it: a virtual display, XFCE, and one Chromium
+that the turn's `browser*` tools drive — the one the person watches, in the chat's desktop
+panel, and can take the mouse and keyboard of. The stream is [voxl](https://github.com/tembo/voxl),
+H.264 over one WebSocket, through podium-server ([networking.md](networking.md#desktops)).
+
+```yaml
+desktop: true
+timeout: 2h                  # the wait between messages counts against it
+resources: { cpu: 4, memory_mb: 8192 }
+```
+
+What the flag does:
+
+- **The command runs under `podium-desktop`**, in the desktop image: it starts the display,
+  the desktop, the browser and the stream, waits until the browser and the stream both
+  answer, and runs the runtime in its place. A desktop that cannot come up fails the turn at
+  the start with the log that says why. The desktop lives exactly as long as the turn's
+  command.
+- **The image.** With no `image:`, the turn runs `podium-agent-runtime-desktop:dev`, which
+  `make agent-runtime && make agent-runtime-desktop` builds on the node. Nobody publishes it:
+  as built it carries voxl, which links x264 and is GPL-2+ (see
+  `agent/runtime/desktop/THIRD_PARTY.md`). A worker elsewhere or a cloud sandbox needs an
+  `image:` it can pull — on Modal, one published with `examples/modal/publish_image.py`.
+- **Port 6901 is exposed as `desktop`**, for podium-server to stream; the thread is never
+  told its raw address. Set `PODIUM_DESKTOP_URL` on podium-server, or the panel says
+  desktops are off. A node publishes it on a LAN address; a tailnet preview cannot be
+  streamed, because preview devices refuse the server.
+- **The browser tools point at the desktop's own Chromium** (`127.0.0.1:9222`). Not with
+  `browser: true`, which would add a second, headless one nobody sees. Pages get WebGL,
+  rendered on the CPU.
+- **The turn waits 30 minutes for the next message** (`PODIUM_WORKSPACE_WARM` still wins). A
+  desktop is something a person keeps working with, and the wait counts against `timeout`, so
+  give the playbook one well past it.
+
+Mind what it costs. A desktop turn holds its slot, its CPU and its memory while it waits —
+voxl encodes on the CPU, and Chromium is not small — and **the browser is in the turn's own
+container**: a page it opens is one process away from the workspace and the turn's secrets,
+which `browser: true` keeps in another container. Point a desktop playbook at what a person is
+going to watch, not at untrusted sites.
+
 #### `interactive:` — ask and wait in the same container
 
 Off by default. When on, a turn of this playbook gets a `human_ask` tool: the model posts a
