@@ -251,6 +251,9 @@ func (s *AgentService) DeleteChat(
 	if err := s.store.DeleteChat(ctx, chatID, login, SeesAll(ctx) && row.Login == ""); err != nil {
 		return nil, storeError(err)
 	}
+	// Every screen still showing it is told, so its stream ends: a mirrored chat's tombstone,
+	// or for a web chat, the tombstone ChatChanged publishes for a row that is gone.
+	s.chat.ChatChanged(ctx, chatID)
 	s.auditChat(ctx, login, AuditChatDelete, chatID, map[string]any{"origin": row.Origin, "title": row.Title})
 	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
 	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
@@ -673,8 +676,17 @@ func (s *AgentService) StreamChat(
 				return err
 			}
 		case f := <-sub.Frames():
-			if f.Kind == chat.FrameMessage && f.Message.Seq > lastSeq {
-				lastSeq = f.Message.Seq
+			if f.Kind == chat.FrameMessage {
+				// Access is checked again before every message, not only when a chat frame
+				// says it changed: a path that changes who may read a chat and forgets to
+				// announce it must not leave a stream showing what comes next. It is one
+				// read of the chat and one of the viewer's role, per message.
+				if err := s.stillReadable(ctx, chatID, login); err != nil {
+					return err
+				}
+				if f.Message.Seq > lastSeq {
+					lastSeq = f.Message.Seq
+				}
 			}
 			out := frameToProto(f)
 			if f.Kind == chat.FrameChat {
@@ -697,6 +709,23 @@ func (s *AgentService) StreamChat(
 			}
 		}
 	}
+}
+
+// stillReadable is nil while login may still read the chat, and the not-found error a stream
+// ends with once they may not: the chat is gone, tombstoned, or no longer shared with them.
+func (s *AgentService) stillReadable(ctx context.Context, chatID, login string) error {
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	role, err := s.chatRole(ctx, row, login)
+	if err != nil {
+		return storeError(err)
+	}
+	if !store.MayRead(role) {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	return nil
 }
 
 // replay sends everything stored after fromSeq and returns the highest seq it sent.

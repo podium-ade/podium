@@ -308,6 +308,61 @@ func TestUnshareEndsAWatchingStream(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(stream.Err()))
 }
 
+// Deleting a chat somebody is watching ends their stream: the owner's delete announces a
+// tombstone, so the stream is not left open on a chat that is gone.
+func TestDeletingAChatEndsAWatchingStream(t *testing.T) {
+	f := newSharingFixture(t)
+	ctx := context.Background()
+	created, err := f.clientAs("alice").CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	_, err = f.clientAs("alice").ShareChat(ctx, connect.NewRequest(&agentv1.ShareChatRequest{ChatId: chatID, Login: "bob", Role: store.RoleViewer}))
+	require.NoError(t, err)
+
+	sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	stream := f.streamAs(sctx, t, "bob", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
+
+	_, err = f.clientAs("alice").DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.NoError(t, err)
+	for stream.Receive() {
+	}
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(stream.Err()),
+		"the stream ends on the delete, not when the client gives up")
+}
+
+// A path that takes somebody's access away without announcing it still cannot leave their
+// stream showing what is said next: every message is checked against the viewer's role.
+func TestAMessageAfterAccessIsGoneEndsTheStream(t *testing.T) {
+	f := newSharingFixture(t)
+	ctx := context.Background()
+	created, err := f.clientAs("alice").CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	_, err = f.clientAs("alice").ShareChat(ctx, connect.NewRequest(&agentv1.ShareChatRequest{ChatId: chatID, Login: "bob", Role: store.RoleViewer}))
+	require.NoError(t, err)
+
+	sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	stream := f.streamAs(sctx, t, "bob", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
+
+	// Straight to the store: nothing announces this.
+	_, err = f.store.UnshareChat(ctx, chatID, "bob")
+	require.NoError(t, err)
+	_, err = f.clientAs("alice").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{ChatId: chatID, Text: "after bob left"}))
+	require.NoError(t, err)
+	for stream.Receive() {
+		if m := stream.Msg().GetMessage(); m != nil {
+			assert.NotEqual(t, "after bob left", m.GetText(), "a viewer without access is shown nothing more")
+		}
+	}
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(stream.Err()))
+}
+
 // Shares and mentions reach the person through their inbox; read marks clear unread counts.
 func TestNotificationsAndReadMarksThroughTheService(t *testing.T) {
 	f := newSharingFixture(t)

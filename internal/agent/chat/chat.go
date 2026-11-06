@@ -477,13 +477,27 @@ func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who
 // ChatChanged re-reads a chat and shows the row to every screen watching it, here and on the
 // other conductors: a share, an unshare, a change of general access (phase 5). Each stream
 // works out its own viewer's role from it, and one that has lost access ends.
+//
+// A chat that is no longer there — a web chat its owner deleted — is shown as a tombstone, so
+// a stream watching it ends instead of waiting for a frame that never comes.
 func (s *Source) ChatChanged(ctx context.Context, chatID string) {
 	c, err := s.store.GetChat(ctx, chatID)
+	if errors.Is(err, store.ErrNotFound) {
+		s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: Tombstone(chatID)})
+		return
+	}
 	if err != nil {
 		s.logger.WarnContext(ctx, "re-reading a changed chat failed", "chat_id", chatID, "error", err)
 		return
 	}
 	s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: c})
+}
+
+// Tombstone is the row a chat frame carries for a chat that no longer exists: deleted, so
+// every role worked out from it is none.
+func Tombstone(chatID string) store.Chat {
+	now := time.Now().UTC()
+	return store.Chat{ID: chatID, DeletedAt: &now}
 }
 
 // ahead is how many turns run before a message sent now: the one in flight, and the queue.
