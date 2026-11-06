@@ -1,4 +1,4 @@
-import type { Chat, ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, Notification, ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
 import type { ChatSeen } from "./chatSeen";
 import { PROVIDERS } from "./agents";
 import { oauthExpired } from "./providerCredential";
@@ -90,6 +90,30 @@ export function alertsFromChats(chats: readonly Chat[], seen: ChatSeen, openChat
       title: `New in “${chat.title || "a chat"}”`,
       body: chat.preview,
       href: `/agent/chat/${chat.id}`,
+      action: "Open",
+    });
+  }
+  return drafts;
+}
+
+/**
+ * alertsFromInbox is the conductor's own inbox (phase 5): a chat shared with this person, or
+ * a message that mentioned them. Unlike everything else here these are the SERVER's rows, so
+ * every browser the person uses agrees; an unread one is an open alert, and it resolves when
+ * it is marked read — which opening the chat does. The chat on screen is not announced.
+ */
+export function alertsFromInbox(rows: readonly Notification[], openChatId: string): AlertDraft[] {
+  const drafts: AlertDraft[] = [];
+  for (const n of rows) {
+    if (n.read || n.chatId === openChatId) continue;
+    const chat = `“${n.chatTitle || "a chat"}”`;
+    const who = n.actor || "Somebody";
+    drafts.push({
+      key: `inbox:${n.id}`,
+      level: "standard",
+      title: n.kind === "mention" ? `${who} mentioned you in ${chat}` : `${who} shared ${chat} with you`,
+      body: n.kind === "mention" ? "Open the chat to see the message." : "It is in your chats under Shared with me.",
+      href: `/agent/chat/${n.chatId}`,
       action: "Open",
     });
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, ChatPullRequest } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage, ChatPullRequest, QueuedTurn } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
 /** MAX_BACKOFF_MS caps the wait between reconnects. */
@@ -28,6 +28,11 @@ export interface ChatStreamState {
    * and there is nothing to merge.
    */
   pullRequests: ChatPullRequest[];
+  /**
+   * queue is the turns waiting behind the one in flight, oldest first (phase 4). Like the
+   * pull requests, every frame is the whole set.
+   */
+  queue: QueuedTurn[];
   /** taskId is the Podium task the running turn is using, when the stream said so. */
   taskId?: string;
   phase: ChatPhase;
@@ -46,6 +51,7 @@ interface Keyed extends ChatStreamState {
 const empty: ChatStreamState = {
   messages: [],
   pullRequests: [],
+  queue: [],
   running: false,
   awaiting: false,
   phase: "connecting",
@@ -69,7 +75,7 @@ const empty: ChatStreamState = {
  *   The stream is torn down and reopened from the last seq seen, and the replay delivers
  *   whatever was missed.
  */
-export function useChatStream(chatId: string): ChatStreamState {
+export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
   const [state, setState] = useState<Keyed>({ ...empty, chatId });
 
   useEffect(() => {
@@ -90,7 +96,9 @@ export function useChatStream(chatId: string): ChatStreamState {
       while (!ctrl.signal.aborted) {
         try {
           for await (const frame of agent.streamChat(
-            { chatId, fromSeq: lastSeq },
+            // linkToken is a share link's k= (phase 5): with it the server lets a signed-in
+            // person open a chat shared by link, and writes them a row so they keep it.
+            linkToken ? { chatId, fromSeq: lastSeq, linkToken } : { chatId, fromSeq: lastSeq },
             { signal: ctrl.signal },
           )) {
             backoff = BASE_BACKOFF_MS;
@@ -149,8 +157,21 @@ export function useChatStream(chatId: string): ChatStreamState {
                   ...prev,
                   phase: "streaming",
                   error: undefined,
-                  chat: row,
+                  // shared_with_me and my_role are per viewer; the server works both out
+                  // again for this viewer on every chat frame (phase 5), so a share or an
+                  // unshare reaches this screen. An older server left them off later frames,
+                  // so an empty value keeps what the first frame said.
+                  chat: {
+                    ...row,
+                    sharedWithMe: row.sharedWithMe || (prev.chat?.sharedWithMe ?? false),
+                    myRole: row.myRole || (prev.chat?.myRole ?? ""),
+                  },
                 }));
+                break;
+              }
+              case "queue": {
+                const turns = frame.frame.value.turns;
+                update((prev) => ({ ...prev, phase: "streaming", error: undefined, queue: turns }));
                 break;
               }
               case "resync":
@@ -179,7 +200,7 @@ export function useChatStream(chatId: string): ChatStreamState {
     })();
 
     return () => ctrl.abort();
-  }, [chatId]);
+  }, [chatId, linkToken]);
 
   return state.chatId === chatId ? state : empty;
 }

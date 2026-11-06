@@ -68,9 +68,10 @@ secrets:
 	assert.True(t, sawAda, "the company secret is still attached, as a global")
 }
 
-// A Slack mention runs the playbook as a task. Personal secrets have no person to belong
-// to, so the turn stops before CreateTask and says so.
-func TestASlackTurnThatNamesAPersonalSecretCreatesNoTask(t *testing.T) {
+// A Slack mention from somebody who resolved to a Podium login is that person's turn: their
+// personal secrets are attached with them as the owner, exactly as a web chat's would be.
+// (Somebody who did not resolve never gets this far — gate_integration_test.go.)
+func TestASlackTurnFromAPodiumPersonAttachesTheirPersonalSecrets(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	src := fakesource.New(conductor.SourceSlack)
@@ -88,20 +89,15 @@ func TestASlackTurnThatNamesAPersonalSecretCreatesNoTask(t *testing.T) {
 
 	ev := threadInbound("C1/40.1", "use my linear key")
 	require.NoError(t, src.Send(context.Background(), ev))
-	waitFor(t, 30*time.Second, "the turn to refuse the personal secret", func() bool {
-		for _, rec := range posts(src.Records(), conductor.OutFailure) {
-			if strings.Contains(rec.Text, "there is no person") {
-				return true
-			}
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	var owner string
+	for _, ref := range fake.Specs()[0].GetSecrets() {
+		if ref.GetName() == "linear_key" {
+			owner = ref.GetOwner()
 		}
-		return false
-	})
-	assert.Empty(t, fake.Specs(), "no task is created when the turn has no person")
-	joined := ""
-	for _, rec := range src.Records() {
-		joined += rec.Text + "\n"
 	}
-	assert.Contains(t, joined, "there is no person")
+	assert.Equal(t, testSpeaker, owner, "the speaker's own secret, not a company one")
 }
 
 // A playbook that names a server nobody registered fails in the conductor, by name, and
@@ -133,16 +129,17 @@ func TestAMissingMCPServerFailsTheTurnBeforeATask(t *testing.T) {
 	assert.Empty(t, fake.Specs())
 }
 
-// Slack keeps the unowned row when the same server name also belongs to a person.
-func TestASlackTurnUsesTheUnownedMCPServer(t *testing.T) {
+// A Slack speaker who is a Podium person gets their own MCP server over the unowned row of
+// the same name, the way their web chat does.
+func TestASlackTurnUsesTheSpeakersOwnMCPServer(t *testing.T) {
 	st := newStore(t)
 	ctx := context.Background()
 	require.NoError(t, st.InsertMcpServer(ctx, mcp.Server{
 		Name: "linear", URL: "https://bot.example/mcp", Enabled: true, Config: "{}",
 	}, "local"))
 	require.NoError(t, st.InsertMcpServer(ctx, mcp.Server{
-		Owner: "alice@acme.com", Name: "linear", URL: "https://alice.example/mcp", Enabled: true, Config: "{}",
-	}, "alice@acme.com"))
+		Owner: testSpeaker, Name: "linear", URL: "https://alice.example/mcp", Enabled: true, Config: "{}",
+	}, testSpeaker))
 
 	fake := newFakePodium(t)
 	src := fakesource.New(conductor.SourceSlack)
@@ -162,13 +159,5 @@ func TestASlackTurnUsesTheUnownedMCPServer(t *testing.T) {
 
 	brief := decodeBrief(t, fake.Specs()[0])
 	require.Len(t, brief.Playbook.MCPServers, 1)
-	assert.Equal(t, "https://bot.example/mcp", brief.Playbook.MCPServers[0].URL)
-	assert.NotContains(t, brief.Playbook.MCPServers[0].URL, "alice")
-
-	var names []string
-	for _, ref := range fake.Specs()[0].GetSecrets() {
-		names = append(names, ref.GetName())
-		assert.Empty(t, ref.GetOwner(), "a slack turn attaches no personal secret")
-	}
-	assert.NotContains(t, names, mcp.PersonalTokenSecret("linear"))
+	assert.Equal(t, "https://alice.example/mcp", brief.Playbook.MCPServers[0].URL)
 }

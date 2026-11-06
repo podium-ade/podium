@@ -211,6 +211,10 @@ const briefSchema = z.strictObject({
       email: z.string().min(1),
     })
     .optional(),
+  // "Name <login>" when this turn writes to GitHub as the App for someone. Every commit the
+  // turn makes carries it as a Requested-by trailer (requestedby.ts). Absent when the turn
+  // commits as the person themselves.
+  requested_by: z.string().min(1).optional(),
   // Where this turn redeems its minting capability for a GitHub token, when the conductor
   // has a GitHub App. An address and the NAME of the variable the capability arrives in —
   // never the capability — exactly as memory below. Absent means the older path: a

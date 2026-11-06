@@ -41,6 +41,61 @@ export interface TaskArgs {
 export interface MessageCustom {
   author?: string;
   attachments?: ChatAttachment[];
+  /** authorLogin is the Podium person who said it; empty for somebody who is not in Podium. */
+  authorLogin?: string;
+  authorHandle?: string;
+  authorAvatar?: string;
+  /** via is the surface it came in through: web, slack, github. */
+  via?: string;
+  /** externalUrl opens the message where it was said. */
+  externalUrl?: string;
+  /** addressed is false for chatter nobody put to Podium. */
+  addressed?: boolean;
+  edited?: boolean;
+  /** deleted is set for a message deleted on its own surface; it carries no text. */
+  deleted?: boolean;
+  /**
+   * undelivered is every copy of the bot's answer that has not reached its surface (a Slack
+   * thread, a pull request): still being retried, or given up on. Empty when every copy
+   * landed, and for a conversation Podium holds itself.
+   */
+  undelivered?: Undelivered[];
+}
+
+/** Undelivered is one answer's copy that did not reach where it was owed. */
+export interface Undelivered {
+  chatId: string;
+  seq: bigint;
+  surface: string;
+  /** status is "pending" (being retried) or "failed" (given up; a person can retry). */
+  status: string;
+  error: string;
+}
+
+/** undeliveredOf is a row's deliveries that have not landed. */
+export function undeliveredOf(m: ChatMessage): Undelivered[] {
+  return (m.deliveries ?? [])
+    .filter((d) => d.status === "failed" || (d.status === "pending" && d.attempts > 0 && d.error !== ""))
+    .map((d) => ({ chatId: m.chatId, seq: m.seq, surface: d.surface, status: d.status, error: d.error }));
+}
+
+/** userCustom is what a user message carries for the view. */
+function userCustom(m: ChatMessage): MessageCustom {
+  return {
+    author: m.author || undefined,
+    attachments: m.attachments,
+    authorLogin: m.authorLogin || undefined,
+    authorHandle: m.authorHandle || undefined,
+    authorAvatar: m.authorAvatar || undefined,
+    via: m.via || undefined,
+    externalUrl: m.externalUrl || undefined,
+    // A message from a server that predates attribution carries no via, and proto3's
+    // default false would dim every one of them. Only a message that says where it came
+    // from can say it was not put to Podium.
+    addressed: m.via ? m.addressed : true,
+    edited: m.editedAt !== undefined,
+    deleted: m.deleted || undefined,
+  };
 }
 
 export interface ThreadInput {
@@ -71,6 +126,7 @@ interface Assistant {
   /** tasks maps a task id to its block in this message. */
   tasks: Map<string, TaskBlock>;
   attachments: ChatAttachment[];
+  undelivered: Undelivered[];
 }
 
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
@@ -90,6 +146,18 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   };
 
   for (const m of messages) {
+    if (m.role === "notice") {
+      // Podium saying something about the chat itself (it became multiplayer): a divider
+      // between turns, never part of one.
+      close();
+      out.push({
+        id: `n${m.seq}`,
+        role: "system",
+        content: m.text,
+        createdAt: toDate(m.ts),
+      });
+      continue;
+    }
     if (m.role === "user") {
       close();
       out.push({
@@ -97,12 +165,20 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
         role: "user",
         content: m.text,
         createdAt: toDate(m.ts),
-        metadata: { custom: { author: m.author || undefined, attachments: m.attachments } },
+        metadata: { custom: userCustom(m) as Record<string, unknown> },
       });
       continue;
     }
-    current ??= { id: `a${m.seq}`, createdAt: toDate(m.ts), parts: [], tasks: new Map(), attachments: [] };
+    current ??= {
+      id: `a${m.seq}`,
+      createdAt: toDate(m.ts),
+      parts: [],
+      tasks: new Map(),
+      attachments: [],
+      undelivered: [],
+    };
     current.attachments.push(...m.attachments);
+    current.undelivered.push(...undeliveredOf(m));
 
     if (m.taskId === "") {
       const part = rowPart(m);
@@ -211,7 +287,7 @@ function finish(a: Assistant, live: boolean): ThreadMessageLike {
       isError: status.type === "incomplete",
     };
   }
-  const custom: MessageCustom = { attachments: a.attachments };
+  const custom: MessageCustom = { attachments: a.attachments, undelivered: a.undelivered };
   return {
     id: a.id,
     role: "assistant",

@@ -140,6 +140,12 @@ const usageResponse = {
   totalModelTurns: 105,
   unpriced: 1,
   backends,
+  // Out of order on purpose: the table ranks them itself.
+  people: [
+    { startedBy: "github-app", costUsd: 1, turns: 2, modelTurns: 5, unpriced: 0 },
+    { startedBy: "alice@example.com", costUsd: 3, turns: 4, modelTurns: 30, unpriced: 1 },
+    { startedBy: "", costUsd: 0.5, turns: 1, modelTurns: 2, unpriced: 0 },
+  ],
 };
 
 describe("UsagePage", () => {
@@ -315,6 +321,32 @@ describe("UsagePage", () => {
 
     // The overview is gone while the models tab is open.
     expect(screen.queryByTestId("usage-row")).toBeNull();
+  });
+
+  it("ranks spend by the person who started each turn, on its own tab", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+
+    await user.click(screen.getByRole("link", { name: /by person/i }));
+
+    const rows = await screen.findAllByTestId("person-row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getByText("alice@example.com")).toBeVisible();
+    expect(within(rows[0]).getByText("$3.0000")).toBeVisible();
+    // Share of the total, as text beside the bar: identity and value never ride on colour.
+    expect(within(rows[0]).getByText("67%")).toBeVisible();
+    expect(within(rows[0]).getByRole("img")).toHaveAccessibleName(/alice@example\.com: \$3\.0000/);
+    // What is not a person is named for what it is.
+    expect(within(rows[1]).getByText("GitHub App")).toBeVisible();
+    expect(within(rows[2]).getByText("Unattributed")).toBeVisible();
+    expect(screen.queryByTestId("usage-row")).toBeNull();
+  });
+
+  it("says so when nobody spent anything in the range", async () => {
+    getUsage.mockResolvedValue({ ...usageResponse, people: [] });
+    mount(VIEWER, "/usage/people");
+    expect(await screen.findByText(/nobody to attribute spend to/i)).toBeVisible();
   });
 
   it("summarises only what is attributed, never the unrecorded bucket", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { AssistantSchema } from "../../gen/podium/agent/v1/agent_pb";
@@ -16,16 +17,19 @@ const assistant = create(AssistantSchema, {
 
 function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
   const onSend = vi.fn();
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <ChatComposer
-      disabled={false}
-      agents={catalogue()}
-      assistant={assistant}
-      choice={INHERIT}
-      onChoiceChange={vi.fn()}
-      onSend={onSend}
-      {...over}
-    />,
+    <QueryClientProvider client={qc}>
+      <ChatComposer
+        disabled={false}
+        agents={catalogue()}
+        assistant={assistant}
+        choice={INHERIT}
+        onChoiceChange={vi.fn()}
+        onSend={onSend}
+        {...over}
+      />
+    </QueryClientProvider>,
   );
   return { onSend };
 }
@@ -62,7 +66,7 @@ describe("ChatComposer", () => {
     expect(onSend).toHaveBeenCalledWith("a question", INHERIT);
   });
 
-  it("is disabled while a turn runs and says what it is doing", () => {
+  it("is disabled while a send is in flight and says what it is doing", () => {
     mount({ disabled: true });
     const box = screen.getByTestId("chat-composer");
     expect(box).toBeDisabled();
@@ -170,5 +174,47 @@ describe("ChatComposer", () => {
     await userEvent.click(screen.getByTestId("chat-send"));
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend.mock.calls[0][0]).toContain("Attached image `shot.png`");
+  });
+
+  it("stays open while a turn runs, and offers to stop it", async () => {
+    const onStop = vi.fn();
+    mount({ running: true, onStop });
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
+    await userEvent.click(screen.getByTestId("chat-stop"));
+    expect(onStop).toHaveBeenCalled();
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("gets its own turn");
+  });
+
+  it("says a shared chat answers only a mention, and suggests @Podium", async () => {
+    mount({ multiplayer: true });
+    expect(screen.getByTestId("chat-multiplayer-hint")).toHaveTextContent("mention @Podium");
+    const box = screen.getByTestId("chat-composer");
+    await userEvent.type(box, "hey @Po");
+    const option = await screen.findByTestId("chat-mention-option");
+    expect(option).toHaveTextContent("Podium");
+    await userEvent.type(box, "{Enter}");
+    expect(box).toHaveValue("hey @Podium ");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to Podium");
+  });
+
+  it("answers to the chat's assistant by name in a shared chat", async () => {
+    mount({ multiplayer: true, personality: "Researcher" });
+    await userEvent.type(screen.getByTestId("chat-composer"), "@Researcher dig in");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to Podium");
+  });
+
+  it("shows this person's place in the queue and takes a turn back", async () => {
+    const onTakeBack = vi.fn();
+    mount({ queue: { ahead: 2, mine: [7n], waiting: 2 }, onTakeBack });
+    expect(screen.getByTestId("chat-queue-status")).toHaveTextContent("Queued — 2 turns ahead");
+    await userEvent.click(screen.getByTestId("chat-queue-take-back"));
+    expect(onTakeBack).toHaveBeenCalledWith(7n);
+  });
+
+  it("says a mirrored conversation is one-way", () => {
+    mount({ mirrored: "github", multiplayer: true });
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent(
+      "Messages here stay in Podium — they aren't posted to GitHub.",
+    );
   });
 });

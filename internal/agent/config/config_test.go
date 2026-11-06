@@ -458,3 +458,18 @@ func TestTurnSurfaceValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestIDList(t *testing.T) {
+	assert.Equal(t, []string{"T0123", "E0456"}, idList(" t0123, ,E0456,T0123 "))
+	assert.Empty(t, idList(""))
+}
+
+func TestSlackTeamIDsFromTheEnvironment(t *testing.T) {
+	t.Setenv("PODIUM_SLACK_TEAM_IDS", "T1,e2")
+	assert.Equal(t, []string{"T1", "E2"}, FromEnv().SlackTeamIDs)
+}
+
+func TestDomainList(t *testing.T) {
+	assert.Equal(t, []string{"acme.com", "example.org"}, domainList(" Acme.com, ,@example.org "))
+	assert.Empty(t, domainList(""))
+}

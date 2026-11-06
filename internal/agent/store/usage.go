@@ -42,6 +42,19 @@ type TurnCost struct {
 	CostUSD    *float64
 	// Backend is what ran it. Zero for a turn recorded before it was written down.
 	Backend Backend
+	// StartedBy is whose turn it was (Turn.StartedBy). A delegation reports the login of the
+	// turn that delegated it.
+	StartedBy string
+}
+
+// UsagePerson is what one person's turns cost over the range. StartedBy is a login,
+// TurnStartedByApp, or empty for turns with nobody recorded behind them.
+type UsagePerson struct {
+	StartedBy  string
+	CostUSD    float64
+	Turns      int
+	ModelTurns int
+	Unpriced   int
 }
 
 // UsageBackend is one (provider, agent, model, effort) and what it cost over the range.
@@ -61,6 +74,8 @@ type Usage struct {
 	Days     []UsageDay
 	Costs    []TurnCost
 	Backends []UsageBackend
+	// People is the same range grouped by whose turn it was, most expensive first.
+	People []UsagePerson
 	// The totals are for the whole range. Costs is capped by limit and may be shorter.
 	TotalCostUSD    float64
 	TotalTurns      int
@@ -88,7 +103,7 @@ type UsageQuery struct {
 func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 	from, to := q.From.UTC(), q.To.UTC()
 	if !to.After(from) {
-		return Usage{Days: []UsageDay{}, Costs: []TurnCost{}, Backends: []UsageBackend{}}, nil
+		return Usage{Days: []UsageDay{}, Costs: []TurnCost{}, Backends: []UsageBackend{}, People: []UsagePerson{}}, nil
 	}
 	// Clamped from the far end, so narrowing a too-wide range keeps the recent days the
 	// caller was almost certainly asking about.
@@ -129,10 +144,25 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 		return Usage{}, fmt.Errorf("read usage by backend: %w", err)
 	}
 
+	personRows, err := s.q.UsageByPerson(ctx, db.UsageByPersonParams{FromTime: from, ToTime: to})
+	if err != nil {
+		return Usage{}, fmt.Errorf("read usage by person: %w", err)
+	}
+
 	out := Usage{
 		Days:     make([]UsageDay, 0, len(dayRows)),
 		Costs:    make([]TurnCost, 0, len(costRows)),
 		Backends: make([]UsageBackend, 0, len(backendRows)),
+		People:   make([]UsagePerson, 0, len(personRows)),
+	}
+	for _, r := range personRows {
+		out.People = append(out.People, UsagePerson{
+			StartedBy:  r.StartedBy,
+			CostUSD:    r.CostUsd,
+			Turns:      int(r.Turns),
+			ModelTurns: int(r.ModelTurns),
+			Unpriced:   int(r.Unpriced),
+		})
 	}
 	for _, r := range backendRows {
 		out.Backends = append(out.Backends, UsageBackend{
@@ -177,6 +207,7 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 			StartedAt:  r.StartedAt.UTC(),
 			FinishedAt: utcPtr(r.FinishedAt),
 			CostUSD:    r.CostUsd,
+			StartedBy:  r.StartedBy,
 			Backend: Backend{
 				Agent:    deref(r.Agent),
 				Model:    deref(r.Model),

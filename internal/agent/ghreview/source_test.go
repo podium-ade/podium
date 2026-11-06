@@ -89,7 +89,21 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) session(key string) { h.mu.Lock(); h.known[key] = true; h.mu.Unlock() }
 
+// drain is the events that could start a turn. What is only recorded — a comment nobody put
+// to Podium, an edit, a delete — is the record's business, and drainAll returns it too.
 func (h *harness) drain() []conductor.InboundEvent {
+	var out []conductor.InboundEvent
+	for _, ev := range h.drainAll() {
+		if ev.RecordOnly || ev.Change != "" {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// drainAll is every event offered, recorded-only ones included.
+func (h *harness) drainAll() []conductor.InboundEvent {
 	var out []conductor.InboundEvent
 	for {
 		select {
@@ -378,6 +392,63 @@ func TestNoMentionOnASessionPRIsDroppedUnlessItIsAReviewReply(t *testing.T) {
 	rec := postWebhook(t, h, "issue_comment", "d-lgtm2", prComment("lgtm"))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, h.drain(), "a conversation-tab lgtm is not a follow-up")
+}
+
+// What nobody put to Podium is still said: it is offered as RecordOnly, with the person's
+// own words and the comment's identity, and the conductor keeps it for a PR it holds.
+func TestAnUnaddressedCommentIsOfferedForTheRecord(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	payload := prComment("lgtm")
+	payload["comment"].(map[string]any)["html_url"] = "https://github.com/acme/repo/pull/12#issuecomment-7"
+	rec := postWebhook(t, h, "issue_comment", "d-rec", payload)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drainAll()
+	require.Len(t, evs, 1)
+	assert.True(t, evs[0].RecordOnly)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "https://github.com/acme/repo/pull/12#issuecomment-7", evs[0].ExternalURL)
+	assert.Equal(t, "lgtm", evs[0].Text)
+	assert.Equal(t, "lgtm", evs[0].RecordText)
+	assert.Equal(t, "alice", evs[0].SpeakerHandle)
+}
+
+// An edit and a delete are offered as changes of the recorded comment, and never as a
+// turn — not even an edit that now mentions the bot.
+func TestEditsAndDeletesAreChangesNotTurns(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	edited := prComment("@podium now do it")
+	edited["action"] = "edited"
+	rec := postWebhook(t, h, "issue_comment", "d-edit", edited)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drainAll()
+	require.Len(t, evs, 1)
+	assert.Equal(t, conductor.ChangeEdited, evs[0].Change)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "@podium now do it", evs[0].Text, "an edit's text is the new body, with no instruction")
+
+	deleted := prComment("@podium now do it")
+	deleted["action"] = "deleted"
+	rec = postWebhook(t, h, "issue_comment", "d-del", deleted)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs = h.drainAll()
+	require.Len(t, evs, 1)
+	assert.Equal(t, conductor.ChangeDeleted, evs[0].Change)
+	assert.Empty(t, h.drain())
+}
+
+// A triggered comment carries its identity too, which is what makes a redelivery of it the
+// same row in the record and never a second turn.
+func TestATriggeredCommentCarriesItsIdentity(t *testing.T) {
+	h := newHarness(t)
+	rec := postWebhook(t, h, "issue_comment", "d-id", prComment("@podium look"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "@podium look", evs[0].RecordText, "the record keeps the words, not the instruction")
+	assert.Contains(t, evs[0].Text, "alice commented on")
 }
 
 func TestAReviewThreadReplyOnASessionPRContinues(t *testing.T) {

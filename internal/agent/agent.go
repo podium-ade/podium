@@ -238,6 +238,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		DisplayName: profile.DisplayName,
 		UIURL:       cfg.WebURL(),
 		Logger:      logger,
+		// Live frames reach a watcher whichever conductor it is connected to.
+		Bus: st,
 	})
 	if err != nil {
 		st.Close()
@@ -381,25 +383,28 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 
 	a.conductor, err = conductor.New(conductor.Options{
-		Store:               st,
-		Podium:              a.podium,
-		Profiles:            live,
-		Sources:             sources,
-		Metrics:             conductor.NewMetrics(registry),
-		Logger:              logger,
-		Memory:              briefMemory,
-		MemorySandboxMCPURL: memorySandboxMCPURL,
-		MemoryClient:        a.memory,
-		XAIBaseURL:          a.cfg.XAIBaseURL,
-		OpenAIBaseURL:       a.cfg.OpenAIBaseURL,
-		OpenAICodexBaseURL:  a.cfg.OpenAICodexBaseURL,
-		GoogleBaseURL:       a.cfg.GoogleBaseURL,
-		SkillsDir:           a.cfg.SkillsDir,
-		Host:                host,
-		HostMaxTurns:        a.cfg.HostMaxTurns,
-		Mirror:              a.chat,
-		GitHub:              gh,
-		GitTaskURL:          a.cfg.TaskURL,
+		Store:                 st,
+		Podium:                a.podium,
+		Profiles:              live,
+		Sources:               sources,
+		Metrics:               conductor.NewMetrics(registry),
+		Logger:                logger,
+		Memory:                briefMemory,
+		MemorySandboxMCPURL:   memorySandboxMCPURL,
+		MemoryClient:          a.memory,
+		XAIBaseURL:            a.cfg.XAIBaseURL,
+		OpenAIBaseURL:         a.cfg.OpenAIBaseURL,
+		OpenAICodexBaseURL:    a.cfg.OpenAICodexBaseURL,
+		GoogleBaseURL:         a.cfg.GoogleBaseURL,
+		SkillsDir:             a.cfg.SkillsDir,
+		Host:                  host,
+		HostMaxTurns:          a.cfg.HostMaxTurns,
+		AllowedDomains:        a.cfg.AllowedDomains,
+		TranscriptBudgetBytes: a.cfg.TranscriptBudgetBytes,
+		TranscriptKeepRecent:  a.cfg.TranscriptKeepRecent,
+		Mirror:                a.chat,
+		GitHub:                gh,
+		GitTaskURL:            a.cfg.TaskURL,
 		// The conductor's own bearer, as the seed for the key a turn's capability is
 		// signed with. Derived and not generated so a capability survives a restart, as
 		// the turn holding it does. See conductor/gitcred.go.
@@ -457,6 +462,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Chat:                       a.chat,
 		Tasks:                      a.podium,
 		Turns:                      a.conductor,
+		Deliveries:                 a.conductor,
+		Canceller:                  a.conductor,
+		Auditor:                    a.podium,
 		Slack:                      slackDir,
 		Connections:                a.live,
 		Logger:                     a.logger,
@@ -518,7 +526,8 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	})
 	root.HandleFunc("/readyz", a.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
-	root.Handle("/"+agentv1connect.AgentServiceName+"/", api.RequireBearer(a.cfg.Token, rpc))
+	root.Handle("/"+agentv1connect.AgentServiceName+"/",
+		api.RequireBearer(a.cfg.Token, api.RecordWebIdentities(a.store, a.logger, rpc)))
 	a.mountSurface(root)
 	if a.chatHost != nil {
 		// The chat host's model gateway and tools. Each request names a conversation by a
@@ -723,6 +732,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// so nothing but this keeps a signed-in provider working past its first hour.
 	go a.svc.RefreshTokens(runCtx)
 
+	go func() {
+		if err := a.chat.RunRelay(runCtx); err != nil {
+			a.logger.ErrorContext(runCtx, "the chat relay stopped", "error", err)
+		}
+	}()
 	if a.chatHost != nil {
 		go func() {
 			if err := a.chatHost.Run(runCtx); err != nil {

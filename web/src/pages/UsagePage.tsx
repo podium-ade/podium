@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { ChevronLeft, ChevronRight, Coins, Cpu, LayoutDashboard, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Cpu, LayoutDashboard, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { Empty } from "../components/Empty";
 import { PageFrame } from "../components/PageHeader";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
 import { BackendTable } from "../components/usage/BackendTable";
+import { PeopleTable } from "../components/usage/PeopleTable";
 import { RangePicker } from "../components/usage/RangePicker";
 import { TaskCostTable } from "../components/usage/TaskCostTable";
 import { UsageBreakdown } from "../components/usage/UsageBreakdown";
@@ -44,6 +45,7 @@ const PAGE_SIZE = 50;
 const TABS = [
   { to: "/usage", end: true, label: "Overview", icon: LayoutDashboard, path: "overview" },
   { to: "/usage/models", end: false, label: "By model", icon: Cpu, path: "models" },
+  { to: "/usage/people", end: false, label: "By person", icon: Users, path: "people" },
 ];
 
 function tabLink({ isActive }: { isActive: boolean }) {
@@ -249,10 +251,27 @@ export function UsagePage() {
     </section>
   );
 
+  const people = (
+    <section aria-label="By person" className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-fg">
+          By person <span className="font-normal text-muted">· {range.label}</span>
+        </h2>
+      </div>
+      {usage.isPending ? <TableSkeleton cols={6} /> : <PeopleTable people={usage.data?.people ?? []} />}
+      <p className="max-w-3xl text-2xs leading-relaxed text-faint">
+        Each turn is counted against the person who started it, wherever they started it: in a
+        shared chat or a Slack thread several people talk in, every turn runs as its sender, not
+        as the chat&apos;s owner. A delegated task counts against the person whose turn delegated
+        it. Reviews for people outside Podium run as the GitHub App.
+      </p>
+    </section>
+  );
+
   return (
     <PageFrame
         title="Usage"
-        lead="What your assistants have spent, by task and by model."
+        lead="What your assistants have spent, by task, by model and by person."
         actions={<RangePicker range={range} onChange={pick} />}
       >
 
@@ -308,6 +327,7 @@ export function UsagePage() {
       <Routes>
         <Route index element={overview} />
         <Route path="models" element={models} />
+        <Route path="people" element={people} />
         <Route path="*" element={overview} />
       </Routes>
     </PageFrame>

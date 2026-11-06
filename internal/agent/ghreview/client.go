@@ -41,9 +41,10 @@ const (
 
 // User is a GitHub account as the API reports it on a comment or sender.
 type User struct {
-	Login string `json:"login"`
-	Type  string `json:"type"`
-	ID    int64  `json:"id"`
+	Login     string `json:"login"`
+	Type      string `json:"type"`
+	ID        int64  `json:"id"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 // App is GET /app.
@@ -428,6 +429,10 @@ func (c *restClient) ResolveThread(ctx context.Context, installID int64, owner, 
 
 // reactionSeen is the reaction a comment gets when a turn starts on it.
 const reactionSeen = "eyes"
+
+// reactionRefused is "I will not act on this": the commenter has not linked GitHub to Podium,
+// and asked for something other than a review.
+const reactionRefused = "confused"
 
 // CreateReaction reacts to one comment. kind is KindIssueComment for the conversation tab
 // and KindReviewComment for the diff: GitHub keeps the two under different paths.

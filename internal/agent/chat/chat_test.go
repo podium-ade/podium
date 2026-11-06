@@ -31,6 +31,12 @@ type fakeStore struct {
 	// failAppend makes the next AppendChatMessage fail, to prove the turn slot is given
 	// back when the write does not land.
 	failAppend bool
+	// participants is chat_participants: who may write a chat besides its owner.
+	participants map[string][]string
+	// viewers is who a chat was shared with as a viewer (phase 5): they may read, not write.
+	viewers map[string][]string
+	// queued is turn_queue, by chat, as the conductor would have written it.
+	queued map[string][]store.QueuedTurn
 }
 
 // fakePull is one row of chat_pull_requests, tombstone and all.
@@ -44,7 +50,70 @@ func newFakeStore() *fakeStore {
 		chats:    map[string]store.Chat{},
 		messages: map[string][]store.ChatMessage{},
 		running:  map[string]bool{},
+
+		participants: map[string][]string{},
+		queued:       map[string][]store.QueuedTurn{},
 	}
+}
+
+func (f *fakeStore) RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error) {
+	row, err := f.AppendChatMessage(ctx, msg)
+	return row, err == nil, err
+}
+
+// ChatRole is chat_role for the fake: the owner, an editor for every participant, and a
+// viewer for whoever viewers names (phase 5).
+func (f *fakeStore) ChatRole(_ context.Context, chatID, viewer string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[chatID]
+	if !ok {
+		return "", fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID)
+	}
+	if c.Login == viewer {
+		return store.RoleOwner, nil
+	}
+	for _, p := range f.participants[chatID] {
+		if p == viewer {
+			return store.RoleEditor, nil
+		}
+	}
+	for _, v := range f.viewers[chatID] {
+		if v == viewer {
+			return store.RoleViewer, nil
+		}
+	}
+	return "", nil
+}
+
+func (f *fakeStore) AddChatParticipant(_ context.Context, chatID, login, _ string, _ time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.participants[chatID] {
+		if p == login {
+			return false, nil
+		}
+	}
+	f.participants[chatID] = append(f.participants[chatID], login)
+	return true, nil
+}
+
+func (f *fakeStore) MarkChatMultiplayer(_ context.Context, chatID string, force bool) (store.Chat, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[chatID]
+	if !ok || c.Multiplayer || (!force && len(f.participants[chatID]) < 2) {
+		return store.Chat{}, false, nil
+	}
+	c.Multiplayer = true
+	f.chats[chatID] = c
+	return c, true, nil
+}
+
+func (f *fakeStore) ListQueuedTurnsForChat(_ context.Context, chatID string) ([]store.QueuedTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.QueuedTurn(nil), f.queued[chatID]...), nil
 }
 
 func (f *fakeStore) add(id, login string) store.Chat {
@@ -99,6 +168,17 @@ func (f *fakeStore) ListChatMessages(_ context.Context, chatID string, fromSeq u
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeStore) GetChatMessage(_ context.Context, chatID string, seq uint64) (store.ChatMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.messages[chatID] {
+		if m.Seq == seq {
+			return m, nil
+		}
+	}
+	return store.ChatMessage{}, store.ErrNotFound
 }
 
 func (f *fakeStore) AttachToLastAssistantMessage(
@@ -218,7 +298,7 @@ func (f *fakeStore) ListChatPullRequests(_ context.Context, chatID string) ([]st
 
 func newSource(t *testing.T, st Store) *Source {
 	t.Helper()
-	src, err := New(Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	src, err := New(Options{PlacedWait: -1, Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
 	require.NoError(t, err)
 	return src
 }
@@ -370,30 +450,28 @@ func TestAnotherLoginsChatIsNotThere(t *testing.T) {
 	assert.Empty(t, msgs)
 }
 
-func TestASecondMessageWhileATurnRunsIsRefused(t *testing.T) {
+func TestASecondMessageWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	src := newSource(t, st)
 	ctx := context.Background()
 
-	_, err := src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "first"})
+	first, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "first"})
 	require.NoError(t, err)
+	assert.True(t, first.Addressed)
+	assert.Zero(t, first.Ahead, "nothing was running, so it starts now")
 
-	// The turn row does not exist yet — the conductor has not even read the event — and
-	// the second send is still refused. That window is exactly what the in-process claim
-	// is for.
+	// The turn row does not exist yet — the conductor has not even read the event — and a
+	// second send is accepted and reported as waiting behind the first, never refused.
 	require.False(t, st.running["chat_1"])
-	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
-	assert.ErrorIs(t, err, ErrTurnRunning)
+	second, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Ahead, "one turn ahead: the one in flight")
 
 	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
 	require.NoError(t, err)
-	assert.Len(t, msgs, 1, "a refused send stores nothing")
-
-	// The outcome of the turn gives the slot back.
-	require.NoError(t, src.React(ctx, "chat_1", conductor.ReactionDone))
-	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "second"})
-	require.NoError(t, err)
+	assert.Len(t, msgs, 2, "both are stored")
+	assert.Len(t, src.Events(), 2, "and both are turns the conductor queues in order")
 }
 
 func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
@@ -415,15 +493,16 @@ func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
 	assert.Equal(t, "the answer", msgs[1].Text)
 }
 
-func TestATurnLeftRunningByADeadProcessStillRefusesASend(t *testing.T) {
+func TestATurnLeftRunningByADeadProcessCountsAsAhead(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	st.running["chat_1"] = true
 	// A fresh process: nothing in memory, and the turns table is the only witness.
 	src := newSource(t, st)
 
-	_, err := src.Send(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
-	assert.ErrorIs(t, err, ErrTurnRunning)
+	res, err := src.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Ahead)
 }
 
 func TestAFailedWriteGivesTheTurnSlotBack(t *testing.T) {
@@ -440,27 +519,27 @@ func TestAFailedWriteGivesTheTurnSlotBack(t *testing.T) {
 	assert.NoError(t, err, "a chat must not be wedged by a write that failed")
 }
 
-func TestConcurrentSendsProduceExactlyOneTurn(t *testing.T) {
+func TestConcurrentSendsAreEachATurn(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	src := newSource(t, st)
 
 	const senders = 8
 	var wg sync.WaitGroup
-	accepted := make(chan struct{}, senders)
 	for i := range senders {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if _, err := src.Send(context.Background(), SendRequest{
+			_, err := src.Send(context.Background(), SendRequest{
 				ChatID: "chat_1", Login: "alice", Text: fmt.Sprintf("message %d", i),
-			}); err == nil {
-				accepted <- struct{}{}
-			}
+			})
+			assert.NoError(t, err)
 		}(i)
 	}
 	wg.Wait()
-	assert.Len(t, accepted, 1, "one turn at a time per conversation, whatever the race")
+	// Each is a turn for the conductor; it is the queue there, not a refusal here, that makes
+	// them one at a time (conductor/queue.go).
+	assert.Len(t, src.Events(), senders)
 }
 
 func TestProgressIsStoredAsTheTaskTalking(t *testing.T) {
@@ -771,13 +850,13 @@ func TestAnEmptyMessageIsRefused(t *testing.T) {
 func TestWithNoUIURLThereIsNoDeepLink(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
-	src, err := New(Options{Store: st, DisplayName: "Podium"})
+	src, err := New(Options{PlacedWait: -1, Store: st, DisplayName: "Podium"})
 	require.NoError(t, err)
 	assert.Empty(t, src.URL("chat_1"), "a link to nowhere is worse than none")
 }
 
 func TestASourceNeedsAStore(t *testing.T) {
-	_, err := New(Options{})
+	_, err := New(Options{PlacedWait: -1})
 	assert.ErrorContains(t, err, "a store is required")
 }
 
@@ -843,4 +922,62 @@ func TestAChatRemembersWhatItIsAnsweredOn(t *testing.T) {
 	got, err = st.GetChat(ctx, "chat_1")
 	require.NoError(t, err)
 	assert.Equal(t, store.ChatChoice{}, got.ChatChoice, "clearing the override is remembered too")
+}
+
+// A delivery that changed (landed after a retry, failed for good, put back in the queue) is
+// sent to a watcher as the message again, under its own seq, read fresh so it carries the
+// deliveries the store attaches. Nobody watching and no relay is nothing to do.
+func TestADeliveryChangeResendsTheMessage(t *testing.T) {
+	st := newFakeStore()
+	src := newSource(t, st)
+	ctx := context.Background()
+	msg, err := st.AppendChatMessage(ctx, store.ChatMessage{ChatID: "chat_1", Role: store.RoleAssistant, Text: "the answer"})
+	require.NoError(t, err)
+
+	src.DeliveryChanged("chat_1", msg.Seq) // nobody watches: a no-op, and no panic
+
+	sub := src.Subscribe(ctx, "chat_1")
+	defer sub.Close()
+	src.DeliveryChanged("chat_1", msg.Seq)
+	select {
+	case f := <-sub.Frames():
+		assert.Equal(t, FrameMessage, f.Kind)
+		assert.Equal(t, msg.Seq, f.Message.Seq)
+		assert.Equal(t, "the answer", f.Message.Text)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the changed message was not resent")
+	}
+	src.DeliveryChanged("chat_1", 999) // a message that is not there is logged, not sent
+	select {
+	case f := <-sub.Frames():
+		t.Fatalf("a missing message was sent: %+v", f)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// A send answers with where the conductor put the message, when the conductor says in time,
+// and with its own estimate when it does not.
+func TestSendAnswersWithWhereTheConductorPutIt(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src, err := New(Options{PlacedWait: 2 * time.Second, Store: st, DisplayName: "Podium"})
+	require.NoError(t, err)
+
+	go func() {
+		ev := <-src.Events()
+		require.NotNil(t, ev.Placed, "a web message asks where it went")
+		ev.Placed(3)
+	}()
+	res, err := src.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hi"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, res.Ahead)
+
+	quiet, err := New(Options{PlacedWait: 20 * time.Millisecond, Store: st, DisplayName: "Podium"})
+	require.NoError(t, err)
+	start := time.Now()
+	res, err = quiet.SendMessage(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "again"})
+	require.NoError(t, err)
+	assert.Zero(t, res.Ahead, "the estimate: nothing running, nothing queued")
+	assert.Less(t, time.Since(start), time.Second)
+	drainEvent(t, quiet)
 }
