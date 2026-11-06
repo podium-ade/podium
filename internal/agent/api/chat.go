@@ -625,6 +625,7 @@ func (s *AgentService) StreamChat(
 	head := chatToProto(row)
 	head.SharedWithMe = sharedWithMe(row, login, SeesAll(ctx))
 	head.MyRole = role
+	head.TaskRunning = s.chatTaskRunning(ctx, chatID)
 	if err := stream.Send(&agentv1.ChatFrame{
 		Frame: &agentv1.ChatFrame_Chat{Chat: head},
 	}); err != nil {
@@ -709,12 +710,26 @@ func (s *AgentService) StreamChat(
 				c := out.GetChat()
 				c.MyRole = role
 				c.SharedWithMe = sharedWithMe(f.Chat, login, SeesAll(ctx))
+				c.TaskRunning = s.chatTaskRunning(ctx, chatID)
 			}
 			if err := stream.Send(out); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// chatTaskRunning is whether a task this chat delegated is still running, for a chat row read
+// on its own: GetChat leaves Chat.TaskRunning false, which drew a delegated task as finished in
+// the open chat while it was still working (the list computes it inline and was right). A read
+// that fails says false, as the row did before: a stale "done" beats a stream that ends.
+func (s *AgentService) chatTaskRunning(ctx context.Context, chatID string) bool {
+	running, err := s.store.ChatTaskRunning(ctx, chatID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading whether a chat's task is running failed", "chat_id", chatID, "error", err)
+		return false
+	}
+	return running
 }
 
 // stillReadable is nil while login may still read the chat, and the not-found error a stream

@@ -811,6 +811,14 @@ func TestTheChatListReportsARunningDelegatedTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, running, "a delegated task does not hold the composer")
 
+	// A chat read on its own (the stream's chat frames) says the same as the list.
+	taskRunning, err := s.ChatTaskRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.True(t, taskRunning, "the open chat sees the delegated task running too")
+
 	require.NoError(t, s.FinishDelegation(ctx, dlg.ID, TurnSucceeded, "4,812.", nil, nil))
 	assert.False(t, listed().TaskRunning)
+	taskRunning, err = s.ChatTaskRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.False(t, taskRunning)
 }
