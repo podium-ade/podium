@@ -131,6 +131,28 @@ func (s *Store) ClaimOutbox(ctx context.Context, limit int, lease time.Duration)
 	return out, nil
 }
 
+// ClaimOutboxFor claims one message's due deliveries, the way ClaimOutbox claims a page of
+// everybody's.
+func (s *Store) ClaimOutboxFor(ctx context.Context, chatID string, seq uint64, lease time.Duration) ([]OutboxItem, error) {
+	rows, err := s.q.ClaimOutboxFor(ctx, db.ClaimOutboxForParams{
+		LeaseSeconds: lease.Seconds(),
+		ChatID:       chatID,
+		MessageSeq:   int64(seq), //nolint:gosec // a chat's message numbers
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claim the deliveries of %s/%d: %w", chatID, seq, err)
+	}
+	out := make([]OutboxItem, 0, len(rows))
+	for _, r := range rows {
+		it, err := outboxFromRow(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
 // MarkOutboxSent records a delivery that landed, with the surface's id for it.
 func (s *Store) MarkOutboxSent(ctx context.Context, id, externalID string) error {
 	if err := s.q.MarkOutboxSent(ctx, db.MarkOutboxSentParams{

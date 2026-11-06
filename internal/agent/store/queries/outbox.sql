@@ -28,6 +28,21 @@ update chat_outbox o
  )
 returning o.*;
 
+-- ClaimOutboxFor is ClaimOutbox for one message's deliveries only: what a person's Retry
+-- attempts at once, without taking up (and holding the lease on) anybody else's.
+-- name: ClaimOutboxFor :many
+update chat_outbox o
+   set attempts = o.attempts + 1,
+       next_at = now() + make_interval(secs => @lease_seconds::double precision),
+       updated_at = now()
+ where o.id in (
+   select d.id from chat_outbox d
+    where d.chat_id = @chat_id and d.message_seq = @message_seq
+      and d.status = 'pending' and d.next_at <= now()
+    for update skip locked
+ )
+returning o.*;
+
 -- BeginOutboxAttempt is the inline first attempt's claim: the row was just inserted by this
 -- caller, and counting the attempt here keeps attempts honest for the backoff that follows.
 -- name: BeginOutboxAttempt :execrows
