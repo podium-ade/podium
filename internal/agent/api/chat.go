@@ -662,6 +662,12 @@ func (s *AgentService) StreamChat(
 	if err != nil {
 		return err
 	}
+	// The transcript so far is on the client. Without this an empty chat and one still
+	// replaying look the same to a screen with no messages yet, and it shows a new chat's
+	// welcome before the history lands.
+	if err := stream.Send(&agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Replayed{Replayed: true}}); err != nil {
+		return err
+	}
 
 	for {
 		select {
