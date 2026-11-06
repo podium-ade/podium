@@ -21,6 +21,8 @@ in this image, and its source is in the Debian archive for Debian 13 (trixie).
 | libyuv (`libyuv0`) | colour conversion, linked by voxl | BSD-3-Clause | Debian |
 | Opus (`libopus0`) | audio codec, linked by voxl | BSD-2-Clause, BSD-3-Clause | Debian |
 | PulseAudio client (`libpulse0`) | audio capture, linked by voxl | LGPL-2.1+ | Debian |
+| ttyd 1.7.7 | serves the terminal to a browser | MIT. The release binary is statically linked with libwebsockets 4.3.3 (MIT), libuv 1.44.2 (MIT), json-c 0.17 (MIT), zlib 1.3.1 (Zlib) and mbed TLS 2.28.5 (Apache-2.0 or GPL-2+, used under Apache-2.0); its web client bundles xterm.js (MIT) | https://github.com/tsl0922/ttyd (tag 1.7.7; `scripts/cross-build.sh` is how the release is built) |
+| tmux (`tmux`) | the terminal's shared session | ISC | Debian |
 | Xvfb (`xvfb`) | the virtual X display | MIT/X11 | Debian |
 | XFCE (`xfce4`, `xfce4-terminal`: session, xfwm4, panel, xfdesktop, Thunar) | the desktop | GPL-2+; panel libraries LGPL-2.1+ | Debian |
 | Greybird (`greybird-gtk-theme`) | theme | GPL-2+ or CC-BY-SA-3.0+ | Debian |

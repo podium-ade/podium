@@ -3,6 +3,7 @@
 # A virtual X display (Xvfb), XFCE, one Chromium the agent's browser tools drive over its
 # DevTools port, and voxl, which streams the display to a browser as H.264 over a WebSocket —
 # the one transport that reaches a sandbox through Cloudflare and a provider's HTTPS proxy.
+# Beside it, ttyd serves a terminal the same way: a tmux session in the turn's workspace.
 # `desktop/podium-desktop` starts all of it in front of the runtime; see that script for why
 # it is a wrapper and not this image's CMD.
 #
@@ -45,6 +46,23 @@ RUN set -eux; \
     strip /opt/voxl/bin/voxl; \
     /opt/voxl/bin/voxl --help >/dev/null
 
+# ttyd, the terminal: a web page and a WebSocket in front of a shell. Debian 13 does not package
+# it, so this is the project's own static release, pinned by checksum per architecture. MIT; its
+# static build carries libwebsockets, libuv and json-c (MIT), zlib (Zlib) and mbed TLS
+# (Apache-2.0) — see desktop/THIRD_PARTY.md.
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS ttyd
+ARG TARGETARCH
+ARG TTYD_VERSION=1.7.7
+ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
+ADD --chmod=0755 --checksum=sha256:${TTYD_SHA256_AMD64} \
+    https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64 /ttyd.amd64
+ADD --chmod=0755 --checksum=sha256:${TTYD_SHA256_ARM64} \
+    https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.aarch64 /ttyd.arm64
+RUN set -eux; \
+    install -D -m 0755 "/ttyd.${TARGETARCH}" /opt/ttyd/ttyd; \
+    /opt/ttyd/ttyd --version
+
 FROM ${RUNTIME_IMAGE}
 ARG VERSION=dev
 ARG REVISION=none
@@ -65,6 +83,8 @@ USER root
 #   xfce-setup.sh selects, and the SVG loader the wallpaper needs (without it the desktop is
 #   black).
 # - chromium, xdotool: the browser and input automation for the agent.
+# - tmux: the terminal's session, so a reload, a second viewer or the panel coming back finds
+#   the same shell rather than a new one.
 # - libx264-164 libyuv0 libopus0 libpulse0: what /usr/local/bin/voxl links.
 #
 # /usr/share/doc stays: each package's copyright file is the licence text the image carries.
@@ -89,7 +109,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         xvfb dbus-x11 xfce4 xfce4-terminal \
         greybird-gtk-theme elementary-xfce-icon-theme librsvg2-common fonts-dejavu-core \
-        chromium xdotool \
+        chromium xdotool tmux \
         libx264-164 libyuv0 libopus0 libpulse0; \
     rm -rf /var/lib/apt/lists/*; \
     test -f /usr/share/doc/libx264-164/copyright; \
@@ -107,6 +127,7 @@ RUN set -eux; \
 
 COPY --from=voxl /opt/voxl/bin/voxl /usr/local/bin/voxl
 COPY --from=voxl /opt/voxl/src/ /usr/share/src/voxl/
+COPY --from=ttyd /opt/ttyd/ttyd /usr/local/bin/ttyd
 COPY desktop/podium-desktop desktop/xfce-setup.sh /opt/podium-desktop/
 COPY desktop/chromium-flags /etc/chromium.d/podium-desktop
 COPY desktop/THIRD_PARTY.md /usr/share/doc/podium-desktop/THIRD_PARTY.md
@@ -121,6 +142,7 @@ RUN set -eux; \
     grep -qx 'WebBrowser=chromium' /etc/xdg/xfce4/helpers.rc; \
     test -f "/usr/share/src/voxl/voxl-server-${VOXL_VERSION}.crate"; \
     voxl --help >/dev/null; \
+    ttyd --version; \
     chown -R 1000:1000 /home/agent
 
 USER agent

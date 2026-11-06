@@ -69,7 +69,8 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
         echo "DISPLAY: $DISPLAY"
         echo "VOXL: $(curl -fsS http://127.0.0.1:6901/healthz)"
         curl -fsS http://127.0.0.1:9222/json/version | grep -q "\\"Browser\\"" && echo "CDP: up"
-        for p in Xvfb xfce4-session xfwm4 xfce4-panel xfdesktop xfsettingsd chromium voxl; do
+        curl -fsS http://127.0.0.1:7681/ | grep -qi "<html" && echo "TERMINAL: up"
+        for p in Xvfb xfce4-session xfwm4 xfce4-panel xfdesktop xfsettingsd chromium voxl ttyd; do
           pgrep -x "$p" >/dev/null && echo "RUNNING: $p"
         done
         curl -fsS -o /tmp/shot.png http://127.0.0.1:6901/screenshot
@@ -85,7 +86,8 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("DISPLAY: :1");
     expect(run.stdout).toContain("VOXL: ok");
     expect(run.stdout).toContain("CDP: up");
-    for (const p of ["Xvfb", "xfce4-session", "xfwm4", "xfce4-panel", "xfdesktop", "xfsettingsd", "chromium", "voxl"]) {
+    expect(run.stdout).toContain("TERMINAL: up");
+    for (const p of ["Xvfb", "xfce4-session", "xfwm4", "xfce4-panel", "xfdesktop", "xfsettingsd", "chromium", "voxl", "ttyd"]) {
       expect(run.stdout).toContain(`RUNNING: ${p}`);
     }
     // A real frame from voxl's capture of the display: the PNG signature.
@@ -189,6 +191,43 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("OPENED: example.com/dock-1");
     expect(run.stdout).toContain("CLOSED: yes");
     expect(run.stdout).toContain("REOPENED: example.com/dock-2");
+  });
+
+  it("serves a terminal in the workspace, and every viewer shares one shell", () => {
+    // ttyd's own protocol, the way its page speaks it: the "tty" subprotocol, a JSON hello
+    // with the size, then input as "0" + bytes and output back as "0" + bytes. Two viewers in
+    // turn: what the first leaves in the shell (a variable), the second finds, because both
+    // attach to the same tmux session.
+    const client = [
+      "const view = (input, want) => new Promise((resolve, reject) => {",
+      '  const ws = new WebSocket("ws://127.0.0.1:7681/ws", ["tty"]);',
+      '  ws.binaryType = "arraybuffer";',
+      '  let out = "";',
+      "  const t = setTimeout(() => reject(new Error(\"no \" + want + \" in: \" + out)), 15000);",
+      "  ws.onopen = () => {",
+      '    ws.send(JSON.stringify({ AuthToken: "", columns: 120, rows: 30 }));',
+      '    setTimeout(() => ws.send("0" + input + "\\r"), 500);',
+      "  };",
+      "  ws.onmessage = (e) => {",
+      "    const b = new Uint8Array(e.data);",
+      "    if (b[0] === 48) out += new TextDecoder().decode(b.subarray(1));",
+      "    if (out.includes(want)) { clearTimeout(t); ws.close(); resolve(); }",
+      "  };",
+      "  ws.onerror = () => reject(new Error(\"socket error\"));",
+      "});",
+      "(async () => {",
+      '  await view("export SHARED=$((6*7)); echo FIRST_$(pwd)", "FIRST_/workspace");',
+      '  await view("echo SECOND_$SHARED", "SECOND_42");',
+      '  console.log("SHARED: yes");',
+      "})().catch((e) => { console.log(String(e)); process.exit(1); });",
+    ].join("\n");
+    const run = docker([
+      "run", "--rm", "-e", `TERM_CLIENT=${client}`, "--entrypoint", "sh", DesktopImage, "-c",
+      `podium-desktop -- sh -c 'node -e "$TERM_CLIENT" && echo "SESSIONS: $(tmux list-sessions -F "#S" | tr "\\n" " ")"'`,
+    ]);
+    expect(run.status, show(run)).toBe(0);
+    expect(run.stdout).toContain("SHARED: yes");
+    expect(run.stdout).toContain("SESSIONS: podium ");
   });
 
   it("fails the turn at the start, saying why, when the desktop cannot come up", () => {
