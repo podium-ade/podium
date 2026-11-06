@@ -11,7 +11,9 @@ import (
 // in the web chat the way it read in Slack.
 //
 // The conversion is deliberately conservative. Code — a ``` block or a `span` — is copied
-// through untouched, because inside code an asterisk is an asterisk. Outside code a marker is
+// through unformatted, because inside code an asterisk is an asterisk. Slack's three entity
+// escapes are undone there too: Slack escapes <, > and & everywhere, code included, so
+// `a &lt; b` is what arrives for the a < b somebody typed. Outside code a marker is
 // only converted where Slack itself would have formatted it: hugging a word, not floating in
 // a sentence like "2 * 3 * 4".
 
@@ -38,7 +40,7 @@ func fromMrkdwn(text string) string {
 	var b strings.Builder
 	for _, part := range splitInboundCode(text) {
 		if part.code {
-			b.WriteString(part.text)
+			b.WriteString(unescapeSlack(part.text))
 			continue
 		}
 		b.WriteString(fromMrkdwnProse(part.text))
@@ -76,11 +78,16 @@ func fromMrkdwnProse(s string) string {
 	s = replaceMarkers(inItalicRE, s, "*$2*")
 	s = replaceMarkers(inStrikeRE, s, "~~$2~~")
 	s = strings.ReplaceAll(s, "\x00\x00", "**")
-	// Slack escapes exactly these three; everything else arrived literally.
+	return unescapeSlack(s)
+}
+
+// unescapeSlack undoes the three escapes Slack applies to message text; everything else
+// arrived literally. &amp; goes last, so "&amp;lt;" (somebody typing the entity itself) reads
+// back as "&lt;" rather than "<".
+func unescapeSlack(s string) string {
 	s = strings.ReplaceAll(s, "&lt;", "<")
 	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	return s
+	return strings.ReplaceAll(s, "&amp;", "&")
 }
 
 // replaceMarkers applies a marker pattern until it stops matching. The patterns consume the
