@@ -107,12 +107,14 @@ voxl=$!
 #    tmux holds it, so every viewer — a second tab, a reload, the panel shown again — attaches
 #    to the same session instead of starting a new shell; the session goes with the turn.
 #    Writable, and no login of its own, for the reason voxl has none. The page's look is the
-#    chat's: dark, the panel's own font size, no "leave this page?" prompt.
+#    chat's: dark, the panel's own font size, a quiet status line, no "leave this page?"
+#    prompt.
 ttyd --port "$terminal_port" --interface 0.0.0.0 --writable \
 	--client-option 'theme={"background":"#0b0b0c","foreground":"#e7e7ea","cursor":"#e7e7ea","selectionBackground":"#3a3a40"}' \
 	--client-option fontSize=13 --client-option disableLeaveAlert=true \
 	--client-option disableResizeOverlay=true --client-option titleFixed=Terminal \
-	tmux new-session -A -s podium -c "$PWD" >"$logs/ttyd.log" 2>&1 &
+	tmux new-session -A -s podium -c "$PWD" \; \
+	set-option -g status-style 'bg=#151517,fg=#8a8a93' >"$logs/ttyd.log" 2>&1 &
 ttyd=$!
 
 # 6. Ready means every end answers: the browser the agent drives, the stream the person
