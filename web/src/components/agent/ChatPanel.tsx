@@ -50,7 +50,7 @@ import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
-import { ChatPeople } from "./chat/ChatPeople";
+import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
@@ -88,7 +88,10 @@ type VoiceRow = { id: string; label: string; gone?: boolean };
 
 // The thread, its markdown and its highlighter are most of this screen's weight and none of
 // any other's, so they load with the first conversation opened.
-const ChatThread = lazy(() => import("./chat/ChatThread").then((m) => ({ default: m.ChatThread })));
+// The transcript is its own chunk. ChatPanel starts fetching it as soon as it mounts, so a chat
+// opened from the arrival does not sit on an empty pane while it downloads.
+const loadChatThread = () => import("./chat/ChatThread");
+const ChatThread = lazy(() => loadChatThread().then((m) => ({ default: m.ChatThread })));
 
 /** Matches store.MaxChatTitleRunes — the input refuses more, the server does too. */
 const MAX_CHAT_TITLE = 80;
@@ -106,6 +109,9 @@ export function ChatPanel() {
   // The tab's route is `chat/*`. The first segment is the chat id, except `a`, which names
   // a personal assistant: /agent/chat/a/:id and /agent/chat/a/:id/:chatId.
   const splat = useParams()["*"] ?? "";
+  useEffect(() => {
+    void loadChatThread();
+  }, []);
   const route = useMemo(() => parseChatPath(splat), [splat]);
   const active = route.chatId;
   const personalityId = route.personalityId;
@@ -344,7 +350,10 @@ export function ChatPanel() {
               listedOrigin={railChats.find((c) => c.id === active)?.origin}
               listedChannel={railChats.find((c) => c.id === active)?.channel}
               listedLogin={railChats.find((c) => c.id === active)?.login}
-              listedEmpty={(railChats.find((c) => c.id === active)?.preview ?? "") === ""}
+              listedRole={railChats.find((c) => c.id === active)?.myRole}
+              listedSharedWithMe={railChats.find((c) => c.id === active)?.sharedWithMe}
+              listedMultiplayer={railChats.find((c) => c.id === active)?.multiplayer}
+              listedEmpty={railChats.find((c) => c.id === active)?.preview === ""}
               onRename={(title) => renameChat(active, title)}
               onLeave={() => navigate(blank)}
               assistant={answeredBy}
@@ -1086,6 +1095,9 @@ function Conversation({
   listedChannel,
   listedLogin,
   listedEmpty,
+  listedRole,
+  listedSharedWithMe,
+  listedMultiplayer,
   onRename,
   onLeave,
   assistant,
@@ -1106,10 +1118,20 @@ function Conversation({
   /** listedLogin is the owner the list row already has. Empty for a mirrored thread. */
   listedLogin?: string;
   /**
-   * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
+   * listedEmpty is true when the list row has no preview yet — a new chat. A chat the list does
+   * not have yet (still loading, or opened from a link) is not empty. The connecting
    * skeleton is a fake user bubble and would flash before the greeting.
    */
   listedEmpty?: boolean;
+  /**
+   * listedRole and listedSharedWithMe are what the list row says this viewer may do, for the
+   * same reason as listedOrigin: the stream's own chat frame lands after the first render, and
+   * a viewer was shown the composer until it did.
+   */
+  listedRole?: string;
+  listedSharedWithMe?: boolean;
+  /** listedMultiplayer is whether the list row says other people are in it: faces to come. */
+  listedMultiplayer?: boolean;
   onRename: (title: string) => Promise<void>;
   onLeave: () => void;
   assistant?: Assistant;
@@ -1138,11 +1160,14 @@ function Conversation({
   const owner = stream.chat?.login || listedLogin || "";
   // Somebody else's chat is writable by the people taking part in it (phase 4): the server
   // marks those shared_with_me. Anybody else reading it — the dev token — gets the note.
-  const sharedWithMe = stream.chat?.sharedWithMe === true;
+  const sharedWithMe = stream.chat ? stream.chat.sharedWithMe : listedSharedWithMe === true;
   // Phase 5: the server says what this viewer may do. A viewer reads; an editor and the owner
   // write. The dev token is "owner" of everything but writes nobody's chat but its own, so the
   // note for somebody else's chat still stands for it.
-  const role = roleOf(stream.chat);
+  const role = roleOf(stream.chat ?? { myRole: listedRole ?? "" });
+  // Until either says, the bottom of the screen is held rather than guessed: offering the
+  // composer and then taking it away is the flash this avoids.
+  const roleKnown = stream.chat !== undefined || role !== "" || stream.gone === true;
   const viewOnly = role === "viewer";
   const foreign =
     owner !== "" &&
@@ -1273,11 +1298,11 @@ function Conversation({
   // The composer is only held while a send is in flight. A turn running no longer blocks it:
   // what is sent meanwhile is queued as a turn of its own (phase 4).
   const sending = send.isPending;
+  // Still loading until the stream says the replay is done: the chat's own frames arrive
+  // before its messages, so going by the stream's phase showed the new-chat welcome for a
+  // moment on every chat that has history.
   const connecting =
-    stream.phase === "connecting" &&
-    stream.messages.length === 0 &&
-    !stream.gone &&
-    !listedEmpty;
+    !stream.replayed && stream.messages.length === 0 && !stream.gone && !pendingVisible && !listedEmpty;
   const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
   const thread = useMemo(
     () =>
@@ -1315,11 +1340,32 @@ function Conversation({
         channel={channel}
         onRename={onRename}
         canRename={role === "" || canWrite(role)}
-        actions={role !== "" ? <ShareButton chatId={chatId} title={title || stream.chat?.title || ""} /> : null}
+        actions={
+          role !== "" ? (
+            <ShareButton
+              chatId={chatId}
+              title={title || stream.chat?.title || ""}
+              multiplayer={stream.chat?.multiplayer ?? false}
+            />
+          ) : null
+        }
       />
-      <ChatPeople people={stream.chat?.people ?? []} surfaces={stream.chat?.surfaces ?? []} />
-      <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
-      <Suspense fallback={<div className="min-h-0 flex-1" />}>
+      {/* One header row: who is in it and where it lives, then what it produced. */}
+      <ChatPullRequests
+        chatId={chatId}
+        pullRequests={stream.pullRequests}
+        loading={!stream.pullRequestsKnown || stream.chat === undefined}
+        expect={{ surface: mirrored, people: mirrored || listedMultiplayer === true }}
+        leading={
+          (stream.chat?.surfaces.length ?? 0) > 0 ? <ChatSurfaces surfaces={stream.chat?.surfaces ?? []} /> : undefined
+        }
+        trailing={
+          (stream.chat?.people.length ?? 0) > 0 ? <ChatPeople people={stream.chat?.people ?? []} /> : undefined
+        }
+      />
+      {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
+          title and above the composer, it read as a new chat. */}
+      <Suspense fallback={<ThreadLoading />}>
         <ChatThread
           messages={thread}
           busy={busy}
@@ -1351,7 +1397,9 @@ function Conversation({
         />
       </Suspense>
 
-      {viewOnly ? (
+      {!roleKnown ? (
+        <ComposerPlaceholder />
+      ) : viewOnly ? (
         <div
           data-testid="chat-view-only"
           className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
@@ -1489,20 +1537,69 @@ function ArrivalWell({
   );
 }
 
-function TranscriptSkeleton() {
+/** ThreadLoading is TranscriptSkeleton where ChatThread would draw it, for its Suspense fallback. */
+function ThreadLoading() {
   return (
-    <div aria-busy="true" aria-label="Loading the conversation" className="space-y-5">
-      <div className="flex justify-end">
-        <Skeleton className="h-9 w-64 rounded-xl" />
+    <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5">
+        <TranscriptSkeleton />
       </div>
-      <div className="flex gap-3">
-        <Skeleton className="size-7 shrink-0 rounded-lg" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3.5 w-full" />
-          <Skeleton className="h-3.5 w-11/12" />
-          <Skeleton className="h-3.5 w-2/3" />
+    </div>
+  );
+}
+
+/**
+ * TranscriptSkeleton is the conversation before its history lands: a few exchanges in the
+ * shape a real one has, each settling in after the one above it, and a highlight passing down
+ * through them so it reads as one thing loading rather than a grid of blinking bars. Under
+ * prefers-reduced-motion both are reduced to a still frame by the global rule in index.css.
+ */
+function TranscriptSkeleton() {
+  // Widths vary so it does not look like a template; the user bubbles sit right like real ones.
+  const turns = [
+    { ask: "w-56", lines: ["w-full", "w-11/12", "w-2/3"] },
+    { ask: "w-40", lines: ["w-full", "w-4/5"] },
+    { ask: "w-64", lines: ["w-full", "w-full", "w-3/5"] },
+  ];
+  let row = 0;
+  // Each bar's shimmer starts a beat after the one above it: a wave, top to bottom.
+  const wave = () => ({ animationDelay: `${row++ * 90}ms` });
+  return (
+    <div aria-busy="true" aria-label="Loading the conversation" className="space-y-7">
+      {turns.map((t, i) => (
+        <div
+          key={i}
+          className="animate-in fade-in-0 slide-in-from-bottom-1 space-y-5 fill-mode-both duration-500"
+          style={{ animationDelay: `${i * 120}ms` }}
+        >
+          <div className="flex justify-end">
+            <Skeleton className={cn("h-10 rounded-2xl rounded-br-md", t.ask)} style={wave()} />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="size-7 shrink-0 rounded-lg" style={wave()} />
+            <div className="min-w-0 flex-1 space-y-2.5 pt-1">
+              <Skeleton className="h-3 w-20" style={wave()} />
+              {t.lines.map((w, j) => (
+                <Skeleton key={j} className={cn("h-3.5", w)} style={wave()} />
+              ))}
+            </div>
+          </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * ComposerPlaceholder holds the bottom of the screen while nothing yet says whether this viewer
+ * may write here. It is inert and quiet, so whichever replaces it (the composer or the
+ * view-only note) does not look like a control being taken away.
+ */
+function ComposerPlaceholder() {
+  return (
+    <div aria-hidden className="pt-4">
+      <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
+        <Skeleton className="h-[52px] rounded-3xl opacity-60" />
       </div>
     </div>
   );
