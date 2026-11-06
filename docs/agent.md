@@ -2822,6 +2822,11 @@ What that decides:
   instruction. One per person per pull request every ten minutes. Anything else from them
   gets a confused reaction. (The pull request's own title, description, diff and comments are
   still what the review reads; the containment, not a filter, is what makes that safe.)
+- **A login is spelled as podium-server spells it.** That is who the proxy says is calling,
+  and what chats, access rows and personal secrets are keyed on. A login somebody types — a
+  share target, an @-mention — and a Slack email (which Slack lowercases) are resolved to
+  that spelling through the signed-in people's web identities, case-insensitively, before
+  they are written or compared (migration 0040).
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
 - **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`

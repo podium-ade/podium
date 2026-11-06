@@ -148,7 +148,9 @@ func (c *Conductor) resolveSlack(ctx context.Context, ev *InboundEvent) string {
 	}
 	login := ""
 	if c.domainAllowed(candidate) {
-		ok, err := c.store.HasWebIdentity(ctx, candidate)
+		// The Slack email is lowercased; the person's login is however podium-server spells
+		// it (0040), which is what every other comparison uses.
+		canonical, ok, err := c.store.CanonicalWebLogin(ctx, candidate)
 		if err != nil {
 			// Not cached: a database blip must not refuse somebody for a minute.
 			c.logger.WarnContext(ctx, "checking whether a slack speaker is in podium failed",
@@ -156,7 +158,7 @@ func (c *Conductor) resolveSlack(ctx context.Context, ev *InboundEvent) string {
 			return ""
 		}
 		if ok {
-			login = candidate
+			login = canonical
 		}
 	}
 	if login != "" {

@@ -363,6 +363,43 @@ func TestAMessageAfterAccessIsGoneEndsTheStream(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(stream.Err()))
 }
 
+// A login typed in another case than podium-server spells it (0040) still names the person:
+// sharing with "erin@acme.test" reaches the Erin@Acme.test who signed in, unsharing removes
+// that grant, and an @-mention in any case reaches her inbox.
+func TestATypedLoginInAnyCaseNamesThePersonWhoSignedIn(t *testing.T) {
+	f := newSharingFixture(t)
+	ctx := context.Background()
+	const erin = "Erin@Acme.test"
+	require.NoError(t, f.store.UpsertIdentity(ctx, store.Identity{
+		Login: erin, Provider: store.ProviderWeb, ExternalID: erin, DisplayName: "Erin",
+	}))
+	created, err := f.clientAs("alice").CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+
+	_, err = f.clientAs("alice").ShareChat(ctx, connect.NewRequest(&agentv1.ShareChatRequest{
+		ChatId: chatID, Login: "erin@acme.test", Role: store.RoleEditor,
+	}))
+	require.NoError(t, err, "a signed-in person is found whatever case their login is typed in")
+	assert.Contains(t, f.listAs(t, erin, ""), chatID)
+
+	_, err = f.clientAs("alice").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+		ChatId: chatID, Text: "over to you @[Erin](mention:ERIN@acme.test)",
+	}))
+	require.NoError(t, err)
+	inbox, err := f.clientAs(erin).ListNotifications(ctx, connect.NewRequest(&agentv1.ListNotificationsRequest{}))
+	require.NoError(t, err)
+	kinds := map[string]bool{}
+	for _, n := range inbox.Msg.GetNotifications() {
+		kinds[n.GetKind()] = true
+	}
+	assert.True(t, kinds[store.NotifyMention], "the mention reaches her, in her own spelling")
+
+	_, err = f.clientAs("alice").UnshareChat(ctx, connect.NewRequest(&agentv1.UnshareChatRequest{ChatId: chatID, Login: "ERIN@ACME.TEST"}))
+	require.NoError(t, err)
+	assert.NotContains(t, f.listAs(t, erin, ""), chatID, "unshared, in whatever case it was typed")
+}
+
 // Shares and mentions reach the person through their inbox; read marks clear unread counts.
 func TestNotificationsAndReadMarksThroughTheService(t *testing.T) {
 	f := newSharingFixture(t)
