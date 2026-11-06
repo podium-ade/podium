@@ -241,6 +241,9 @@ func (c *Conductor) stillAdmitted(ctx context.Context, src Source, ev *InboundEv
 		return true
 	}
 	was := strings.TrimSpace(ev.Login)
+	// Fresh, not from the cache: this is the check that the person who asked is still a
+	// Podium account, and a remembered answer from before they left would defeat it.
+	c.idents.forget(ev.SpeakerProvider, ev.SpeakerID)
 	c.resolveSpeaker(ctx, src, ev)
 	if was == "" || strings.TrimSpace(ev.Login) != "" {
 		return true
