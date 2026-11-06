@@ -104,6 +104,49 @@ func (s *Store) SetChatChannel(ctx context.Context, id, channel string) error {
 	return nil
 }
 
+// The privacy of a Slack conversation, as the Slack source reports it (0037). Empty is not
+// known.
+const (
+	ChannelPublic  = "public"
+	ChannelPrivate = "private"
+	ChannelIM      = "im"
+	ChannelMPIM    = "mpim"
+)
+
+// SetChatChannelPrivacy records whether a mirrored chat's Slack conversation is public.
+func (s *Store) SetChatChannelPrivacy(ctx context.Context, id, privacy string) error {
+	if id == "" {
+		return fmt.Errorf("set chat channel privacy: an id is required")
+	}
+	if err := s.q.SetChatChannelPrivacy(ctx, db.SetChatChannelPrivacyParams{ID: id, ChannelPrivacy: privacy}); err != nil {
+		return fmt.Errorf("set channel privacy of chat %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetChatSourceURL records the link to a mirrored chat's conversation where it lives.
+func (s *Store) SetChatSourceURL(ctx context.Context, id, url string) error {
+	if id == "" {
+		return fmt.Errorf("set chat source url: an id is required")
+	}
+	if err := s.q.SetChatSourceURL(ctx, db.SetChatSourceURLParams{ID: id, SourceUrl: url}); err != nil {
+		return fmt.Errorf("set source url of chat %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetChatHistorySeeded records that a mirrored chat's record starts where its conversation
+// did (0039), so its turns read the record alone.
+func (s *Store) SetChatHistorySeeded(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("set chat history seeded: an id is required")
+	}
+	if err := s.q.SetChatHistorySeeded(ctx, id); err != nil {
+		return fmt.Errorf("mark history of chat %s seeded: %w", id, err)
+	}
+	return nil
+}
+
 // SlackChannelID is the C…/G…/D… inside a slack:<channel>:<thread> source key.
 func SlackChannelID(sourceKey string) (string, bool) {
 	kind, rest, ok := strings.Cut(sourceKey, ":")

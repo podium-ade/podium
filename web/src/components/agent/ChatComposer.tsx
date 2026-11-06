@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Loader2, Paperclip, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowUp, AtSign, Check, ChevronDown, FileText, Loader2, Paperclip, Square, Users, X } from "lucide-react";
 import type { AgentBackend, Assistant } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import {
@@ -10,7 +11,15 @@ import {
   revokePreview,
   type PendingFile,
 } from "../../lib/chatFiles";
+import { agent } from "../../lib/client";
 import { humanBytes } from "../../lib/format";
+import {
+  PODIUM_MENTION,
+  insertMention,
+  mentionQuery,
+  mentionSuggestions,
+  mentionsPodium,
+} from "../../lib/mentions";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
@@ -32,9 +41,39 @@ const EFFORT_HINT: Record<string, string> = {
   max: "Most thorough. Uses the limit sooner",
 };
 
+/** QueueState is this person's place in the chat's turn queue, for the composer's status line. */
+export interface QueueState {
+  /** ahead is how many turns run before this person's next one (0 when none is queued). */
+  ahead: number;
+  /** mine is this person's waiting turns, by the message that asked. */
+  mine: bigint[];
+  /** waiting is every turn waiting, anybody's. */
+  waiting: number;
+}
+
 export interface ChatComposerProps {
-  /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
+  /**
+   * disabled is true while a send is in flight. A turn running does not disable the box any
+   * more (phase 4): what is sent meanwhile is queued as a turn of its own.
+   */
   disabled: boolean;
+  /** running is true while a turn of this chat is in flight; the send button can stop it. */
+  running?: boolean;
+  /** onStop stops the running turn. Absent hides the control. */
+  onStop?: () => void;
+  /**
+   * multiplayer is true once the chat has more than one person in it: a message must
+   * mention Podium (or the chat's assistant) to start a turn, and the composer says so.
+   */
+  multiplayer?: boolean;
+  /** mirrored is where a mirrored conversation lives ("slack", "github"); empty for a web chat. */
+  mirrored?: string;
+  /** personality is the chat's personal assistant's name, which also starts a turn. */
+  personality?: string;
+  /** queue is this person's place in the turn queue. */
+  queue?: QueueState;
+  /** onTakeBack removes one of this person's waiting turns. */
+  onTakeBack?: (seq: bigint) => void;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
   /** assistant is what answers this conversation, and what choice overrides. */
@@ -63,6 +102,13 @@ export interface ChatComposerProps {
  */
 export function ChatComposer({
   disabled,
+  running = false,
+  onStop,
+  multiplayer = false,
+  mirrored = "",
+  personality = "",
+  queue,
+  onTakeBack,
   agents,
   assistant,
   choice,
@@ -115,7 +161,34 @@ export function ChatComposer({
     });
   };
 
+  // The @-mention list: Podium, the chat's assistant, and people, filtered by what is typed.
+  const [caret, setCaret] = useState(0);
+  const [pick, setPick] = useState(0);
+  const [mentionClosed, setMentionClosed] = useState(false);
+  const typing = mentionClosed ? undefined : mentionQuery(text, caret);
+  const members = useQuery({
+    queryKey: ["agent", "members", typing?.query ?? ""],
+    queryFn: () => agent.searchMembers({ query: typing?.query ?? "", limit: 8 }),
+    enabled: typing !== undefined && multiplayer,
+    staleTime: 30_000,
+  });
+  const suggestions = mentionSuggestions(typing?.query, personality, multiplayer ? (members.data?.members ?? []) : []);
+  const choose = (token: string) => {
+    if (!typing) return;
+    const next = insertMention(text, typing.start, caret, token);
+    setText(next.text);
+    setCaret(next.caret);
+    setPick(0);
+    requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
   const canSend = !disabled && (text.trim() !== "" || files.length > 0);
+  // In a multiplayer chat only a mention is a turn; the button says which this will be.
+  const toPodium = !multiplayer || mentionsPodium(text, personality);
+  const sendLabel = disabled ? "Working" : multiplayer ? (toPodium ? "Send to Podium" : "Send") : "Send";
 
   const send = () => {
     if (!canSend) return;
@@ -131,6 +204,44 @@ export function ChatComposer({
   return (
     <div className="bg-gradient-to-t from-bg via-bg/95 to-transparent pt-4">
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
+        {multiplayer ? (
+          <p
+            data-testid="chat-multiplayer-hint"
+            className="mb-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
+          >
+            <Users className="size-3" aria-hidden />
+            Shared chat — mention <span className="font-medium text-fg">{PODIUM_MENTION}</span> to ask it
+            something.
+          </p>
+        ) : null}
+        {queue && (queue.mine.length > 0 || queue.waiting > 0) ? (
+          <div
+            data-testid="chat-queue-status"
+            className="mb-1.5 flex flex-wrap items-center gap-2 px-2 text-2xs text-muted"
+          >
+            {queue.mine.length > 0 ? (
+              <>
+                <span>
+                  Queued — {queue.ahead} {queue.ahead === 1 ? "turn" : "turns"} ahead
+                </span>
+                {onTakeBack ? (
+                  <button
+                    type="button"
+                    data-testid="chat-queue-take-back"
+                    className="rounded-sm underline underline-offset-2 hover:text-fg"
+                    onClick={() => onTakeBack(queue.mine[queue.mine.length - 1])}
+                  >
+                    Take back
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <span>
+                {queue.waiting} {queue.waiting === 1 ? "turn" : "turns"} waiting
+              </span>
+            )}
+          </div>
+        ) : null}
         <div
           onDragEnter={(e) => {
             e.preventDefault();
@@ -162,6 +273,36 @@ export function ChatComposer({
             </div>
           ) : null}
 
+          {typing && suggestions.length > 0 ? (
+            <ul
+              role="listbox"
+              aria-label="Mention"
+              data-testid="chat-mentions"
+              className="absolute bottom-full left-3 z-20 mb-2 max-h-64 w-72 overflow-y-auto rounded-xl border border-border bg-panel p-1 shadow-lg"
+            >
+              {suggestions.map((sug, i) => (
+                <li key={sug.key} role="option" aria-selected={i === pick}>
+                  <button
+                    type="button"
+                    data-testid="chat-mention-option"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      choose(sug.token);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
+                      i === pick ? "bg-raised text-fg" : "text-muted hover:bg-raised",
+                    )}
+                  >
+                    <AtSign className="size-3.5 shrink-0" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{sug.label}</span>
+                    {sug.hint ? <span className="truncate text-2xs text-faint">{sug.hint}</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           {files.length > 0 ? (
             <ul
               data-testid="chat-pending-files"
@@ -186,14 +327,44 @@ export function ChatComposer({
             value={text}
             rows={1}
             disabled={disabled}
-            placeholder={disabled ? "Working…" : "Ask anything about your stack"}
-            onChange={(e) => setText(e.target.value)}
+            placeholder={
+              disabled
+                ? "Working…"
+                : multiplayer
+                  ? `Message the chat, or mention ${PODIUM_MENTION}`
+                  : "Ask anything about your stack"
+            }
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
+              setMentionClosed(false);
+              setPick(0);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onPaste={(e) => {
               const pasted = [...e.clipboardData.files];
               if (pasted.length === 0) return;
               void takeFiles(pasted);
             }}
             onKeyDown={(e) => {
+              if (typing && suggestions.length > 0) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const step = e.key === "ArrowDown" ? 1 : -1;
+                  setPick((p) => (p + step + suggestions.length) % suggestions.length);
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  choose(suggestions[Math.min(pick, suggestions.length - 1)].token);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setMentionClosed(true);
+                  return;
+                }
+              }
               if (e.key === "Escape") {
                 box.current?.blur();
                 return;
@@ -267,13 +438,34 @@ export function ChatComposer({
                 <Kbd>Enter</Kbd> newline
               </p>
 
-              <Tooltip label={disabled ? "Working" : "Send"}>
+              {running && onStop ? (
+                <Tooltip label="Stop the answer">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    data-testid="chat-stop"
+                    aria-label="Stop the answer"
+                    onClick={onStop}
+                    className="rounded-full"
+                  >
+                    <Square className="fill-current" />
+                  </Button>
+                </Tooltip>
+              ) : null}
+              {multiplayer ? (
+                <span data-testid="chat-send-label" className="text-2xs text-faint">
+                  {sendLabel}
+                </span>
+              ) : null}
+              <Tooltip label={sendLabel}>
                 <Button
                   type="button"
                   size="icon-sm"
                   data-testid="chat-send"
+                  data-to-podium={toPodium ? "true" : "false"}
                   disabled={!canSend}
-                  aria-label={disabled ? "Working" : "Send"}
+                  aria-label={sendLabel}
                   onClick={send}
                   className="rounded-full"
                 >
@@ -283,10 +475,14 @@ export function ChatComposer({
             </div>
           </div>
         </div>
-        <p className="mt-1.5 px-2 text-2xs text-faint">
+        <p data-testid="chat-composer-note" className="mt-1.5 px-2 text-2xs text-faint">
           {fileError !== ""
             ? fileError
-            : "One question at a time: a turn runs to an answer and exits. Paste or drop files to attach them."}
+            : mirrored !== ""
+              ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
+              : running
+                ? "A message sent now waits for the answer in progress, then gets its own turn."
+                : "Paste or drop files to attach them."}
         </p>
       </div>
     </div>
@@ -534,3 +730,16 @@ function effortsFor(agents: AgentBackend[], effective: AgentChoice): string[] {
 function assistantName(assistant?: Assistant): string {
   return assistant?.displayName ? ` ${assistant.displayName}` : "";
 }
+
+/** surfaceLabel is a source kind as a person reads it. */
+function surfaceLabel(kind: string): string {
+  switch (kind) {
+    case "slack":
+      return "Slack";
+    case "github":
+      return "GitHub";
+    default:
+      return kind;
+  }
+}
+

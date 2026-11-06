@@ -324,6 +324,18 @@ describe("decodeBrief", () => {
   });
 });
 
+describe("requested_by", () => {
+  it("carries who an App-written turn is for", () => {
+    const brief = decodeBrief(encode({ ...minimal, requested_by: "Dana Smith <dana@acme.com>" }));
+    expect(brief.requested_by).toBe("Dana Smith <dana@acme.com>");
+  });
+
+  it("is optional, and never empty", () => {
+    expect(decodeBrief(encode(minimal)).requested_by).toBeUndefined();
+    expect(() => decodeBrief(encode({ ...minimal, requested_by: "" }))).toThrow(BriefError);
+  });
+});
+
 describe("git_credentials", () => {
   it("accepts an address and the name of the variable the capability arrives in", () => {
     const brief = decodeBrief(encode({ ...minimal, git_credentials: { url: "http://host.docker.internal:8090", token_env: "PODIUM_GIT_CAPABILITY" } }));

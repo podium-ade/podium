@@ -31,6 +31,7 @@ import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { installRequestedBy } from "./requestedby.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { nextInboxLine, warmMillis } from "./warm.js";
 import {
@@ -221,6 +222,13 @@ async function main(): Promise<number> {
       await reportTurn(invoke, summary, `I could not get a GitHub credential for this work: ${why}`);
       return ExitHarnessError;
     }
+  }
+
+  // Before the first git runs, so the clones below and every git the agent starts later
+  // are all covered. A directory of its own, never the workspace, so nothing it writes can
+  // be committed.
+  if (brief.requested_by) {
+    installRequestedBy(mkdtempSync(join(tmpdir(), "podium-hooks-")), brief.requested_by);
   }
 
   if (brief.repos && brief.repos.length > 0) {

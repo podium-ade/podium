@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,19 @@ func (s *AgentService) CompleteGitHubOAuth(
 	}); err != nil {
 		return nil, storeError(err)
 	}
+	// The numeric id from OAuth is the proof that a GitHub commenter is this person. It is
+	// what lets them ask Podium for more than a review on a pull request, and what makes a
+	// pull request they spoke on show up in their chats. A previous account of theirs is
+	// dropped first: one person, one GitHub account, as github_accounts already has it.
+	if err := s.store.DeleteIdentitiesOf(ctx, store.ProviderGitHub, login); err != nil {
+		return nil, storeError(err)
+	}
+	if err := s.store.UpsertIdentity(ctx, store.Identity{
+		Login: login, Provider: store.ProviderGitHub, ExternalID: strconv.FormatInt(user.ID, 10),
+		Handle: user.Login, DisplayName: user.Name, VerifiedAt: time.Now().UTC(),
+	}); err != nil {
+		return nil, storeError(err)
+	}
 	s.logger.InfoContext(ctx, "a github account was connected", "login", login,
 		"github_login", user.Login, "github_id", user.ID)
 
@@ -219,6 +233,9 @@ func (s *AgentService) DisconnectGitHubAccount(
 		return nil, connect.NewError(connect.CodeOf(err), err)
 	}
 	if err := s.store.DeleteGitHubAccount(ctx, login); err != nil {
+		return nil, storeError(err)
+	}
+	if err := s.store.DeleteIdentitiesOf(ctx, store.ProviderGitHub, login); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "a github account was disconnected", "login", login)

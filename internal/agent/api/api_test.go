@@ -71,16 +71,26 @@ func TestRequireBearerWithNoTokenRefusesEverything(t *testing.T) {
 	}
 }
 
-func TestReadableBy(t *testing.T) {
-	own := store.Chat{Login: "alice@example.com", Origin: store.OriginWeb}
-	other := store.Chat{Login: "bob@example.com", Origin: store.OriginWeb}
-	slack := store.Chat{Origin: store.OriginSlack, StartedBy: "carol"}
+// The two answers mayReadChat gives without asking the store: the owner reads their own chat,
+// and the dev token reads everything. Participants are the store's question and are covered
+// by visibility_integration_test.go.
+func TestMayReadChatWithoutTheStore(t *testing.T) {
+	s := &AgentService{}
+	own := store.Chat{ID: "chat_1", Login: "alice@example.com", Origin: store.OriginWeb}
+	slack := store.Chat{ID: "chat_2", Origin: store.OriginSlack, StartedBy: "carol"}
+	devCtx := context.WithValue(t.Context(), scopeKey{}, ScopeAll)
 
-	assert.True(t, readableBy(own, "alice@example.com", false))
-	assert.False(t, readableBy(other, "alice@example.com", false))
-	assert.False(t, readableBy(slack, "alice@example.com", false))
-	assert.True(t, readableBy(other, "local", true))
-	assert.True(t, readableBy(slack, "local", true))
+	ok, err := s.mayReadChat(t.Context(), own, "alice@example.com")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	for _, nobody := range []string{"", "unknown"} {
+		ok, err = s.mayReadChat(t.Context(), slack, nobody)
+		require.NoError(t, err)
+		assert.False(t, ok, "login %q", nobody)
+	}
+	ok, err = s.mayReadChat(devCtx, slack, "local")
+	require.NoError(t, err)
+	assert.True(t, ok)
 }
 
 func TestRequireBearerRecordsTheDevTokenScope(t *testing.T) {

@@ -82,9 +82,14 @@ type Brief struct {
 	// Absent means this conductor has no GitHub App, or this playbook has no repositories
 	// to mint for, and the older path — a playbook naming its own token secret — applies.
 	GitCredentials *BriefGitCredentials `json:"git_credentials,omitempty"`
-	Memory         *BriefMemory         `json:"memory,omitempty"`
-	Browser        *BriefBrowser        `json:"browser,omitempty"`
-	Provider       *BriefProvider       `json:"provider,omitempty"`
+	// RequestedBy is "Name <login>" when this turn writes to GitHub as the App on someone's
+	// behalf. The runtime puts it on every commit as a Requested-by trailer through a
+	// commit-msg hook on every git it runs, so the attribution does not rest on the model
+	// remembering an instruction. Empty when the turn commits as the person themselves.
+	RequestedBy string         `json:"requested_by,omitempty"`
+	Memory      *BriefMemory   `json:"memory,omitempty"`
+	Browser     *BriefBrowser  `json:"browser,omitempty"`
+	Provider    *BriefProvider `json:"provider,omitempty"`
 	// Delegation is present only on a HOST turn's brief. A task's brief never carries one,
 	// which is what stops a delegated task delegating again.
 	Delegation *BriefDelegation `json:"delegation,omitempty"`

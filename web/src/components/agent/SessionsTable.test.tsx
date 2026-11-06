@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -53,6 +53,7 @@ const turn = {
   numTurns: 4,
   costUsd: 0.0123,
   finalText: "the answer",
+  startedBy: "alice@podium.test",
 };
 
 describe("SessionsTable", () => {
@@ -92,6 +93,20 @@ describe("SessionsTable", () => {
     expect(rows[1]).toHaveTextContent("slack");
   });
 
+  it("gives the pull requests a person took part in a section of their own", async () => {
+    listSessions.mockResolvedValue({
+      sessions: [
+        session,
+        { ...session, id: "sess_pr", sourceKind: "github", sourceKey: "github:acme/repo#12" },
+      ],
+      nextCursor: "",
+    });
+    mount();
+    expect(await screen.findByTestId("session-section-github")).toHaveTextContent("GitHub");
+    expect(screen.getByTestId("session-section-slack")).toHaveTextContent("Slack");
+    expect(screen.queryByTestId("session-section-other")).not.toBeInTheDocument();
+  });
+
   it("shows the source, a readable conversation ref and the playbook", async () => {
     mount();
     const row = await screen.findByTestId("session-row");
@@ -114,6 +129,8 @@ describe("SessionsTable", () => {
     expect(turnRow).toHaveTextContent("$0.0123");
     expect(turnRow).toHaveTextContent("4 model turns");
     expect(turnRow).toHaveTextContent("the answer");
+    // Whose turn it was: each turn runs as the person who asked it.
+    expect(within(turnRow).getByTestId("turn-started-by")).toHaveTextContent("by alice@podium.test");
     expect(screen.getByRole("link", { name: "task_01xyz" })).toHaveAttribute(
       "href",
       "/tasks/task_01xyz",
@@ -145,5 +162,31 @@ describe("SessionsTable", () => {
     mount();
     expect(await screen.findByText("Could not list sessions")).toBeInTheDocument();
     expect(screen.getByText(/podium-agent is not reachable/)).toBeInTheDocument();
+  });
+});
+
+describe("SessionsTable sharing", () => {
+  it("puts shared conversations and the workspace in sections of their own", async () => {
+    listSessions.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace"
+        ? {
+            sessions: [
+              { ...session, id: "sess_ws", sourceKind: "chat", sourceKey: "chat:c_ws", chatId: "c_ws", accessReason: "workspace", myRole: "viewer" },
+            ],
+          }
+        : {
+            sessions: [
+              { ...session, id: "sess_mine", sourceKind: "chat", sourceKey: "chat:c_mine", chatId: "c_mine", accessReason: "owner", myRole: "owner", unreadCount: 3n },
+              { ...session, id: "sess_shared", sourceKind: "slack", chatId: "c_shared", accessReason: "shared", myRole: "editor", sharedBy: "alice" },
+            ],
+          },
+    );
+    mount();
+    expect(await screen.findByTestId("session-section-shared")).toHaveTextContent("Shared with me");
+    expect(screen.getByTestId("session-section-workspace")).toHaveTextContent("Workspace");
+    expect(screen.getByTestId("session-unread")).toHaveTextContent("3");
+    const shared = screen.getAllByTestId("session-shared").map((e) => e.textContent);
+    expect(shared).toEqual(expect.arrayContaining(["· Shared by alice", "· Workspace · view only"]));
+    expect(screen.getAllByRole("link", { name: "Open chat" })[0]).toHaveAttribute("href", "/agent/chat/c_mine");
   });
 });

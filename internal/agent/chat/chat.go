@@ -27,16 +27,16 @@ import (
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
-// ErrTurnRunning is what Send returns while a turn of that chat is still in flight. The UI
-// disables the composer; this is the guarantee behind it.
-var ErrTurnRunning = errors.New("a turn is already running for this chat")
-
 // ErrPersonalityGone is what Send returns when the assistant this chat was bound to
 // has been deleted, or no longer belongs to the chat's owner. The message is not stored.
 // The sentence is the product copy, and the chat client matches it exactly.
 //
 //nolint:revive,staticcheck // user-facing copy, including the capital and the period
 var ErrPersonalityGone = errors.New("That assistant was deleted.")
+
+// ErrViewOnly is a send, or another write, from somebody a chat was shared with as a viewer.
+// They can see the chat, so unlike a chat they cannot see it is not reported as missing.
+var ErrViewOnly = errors.New("you have view access to this chat")
 
 // eventBuffer is how many inbound messages may be waiting for the turn loop. One human
 // typing cannot outrun this, and a full channel makes Send block rather than lose a
@@ -52,6 +52,8 @@ type Store interface {
 	GetChat(ctx context.Context, id string) (store.Chat, error)
 	AppendChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, fromSeq uint64) ([]store.ChatMessage, error)
+	// GetChatMessage re-reads one message whose deliveries changed (DeliveryChanged).
+	GetChatMessage(ctx context.Context, chatID string, seq uint64) (store.ChatMessage, error)
 	AttachToLastAssistantMessage(
 		ctx context.Context, chatID string, file store.ChatAttachment,
 	) (store.ChatMessage, error)
@@ -65,6 +67,17 @@ type Store interface {
 	// GetPersonality reads the voice a chat is bound to. The caller treats a missing
 	// row, and a row owned by somebody else, as a deleted assistant.
 	GetPersonality(ctx context.Context, id string) (store.Personality, error)
+
+	// The multiplayer half (phase 4). RecordChatMessage stores a web message with whether it
+	// was put to Podium; ChatRole is who may write the chat (phase 5: its owner and its
+	// editors — a viewer reads only); AddChatParticipant and
+	// MarkChatMultiplayer are how a chat learns it has more than one person in it; and the
+	// queue is what a send that waits behind a running turn reports.
+	RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error)
+	ChatRole(ctx context.Context, chatID, viewer string) (string, error)
+	AddChatParticipant(ctx context.Context, chatID, login, via string, at time.Time) (bool, error)
+	MarkChatMultiplayer(ctx context.Context, chatID string, force bool) (store.Chat, bool, error)
+	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
 }
 
 // Options is what a Source needs.
@@ -77,6 +90,14 @@ type Options struct {
 	// nowhere.
 	UIURL  string
 	Logger *slog.Logger
+	// Bus, when set, relays this chat's live frames to and from the other conductors that
+	// share the database (Relay). Store must then also be a RelayStore. Unset is one
+	// conductor's in-process fan-out, which is all a single conductor needs.
+	Bus Bus
+	// PlacedWait is how long Send waits for the conductor to say where a message went
+	// (InboundEvent.Placed) before it answers with its own estimate. Zero is
+	// DefaultPlacedWait; negative does not wait, for a consumer that never places messages.
+	PlacedWait time.Duration
 }
 
 // SendRequest is one human message arriving from the browser.
@@ -118,7 +139,10 @@ type Source struct {
 	name   string
 	uiURL  string
 	logger *slog.Logger
+	// placed is Options.PlacedWait, defaulted.
+	placed time.Duration
 	events chan conductor.InboundEvent
+	relay  *Relay
 
 	mu   sync.Mutex
 	live map[string]*live
@@ -136,7 +160,7 @@ func New(opts Options) (*Source, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Source{
+	src := &Source{
 		store:  opts.Store,
 		bcast:  NewBroadcaster(),
 		name:   opts.DisplayName,
@@ -144,7 +168,28 @@ func New(opts Options) (*Source, error) {
 		logger: logger,
 		events: make(chan conductor.InboundEvent, eventBuffer),
 		live:   map[string]*live{},
-	}, nil
+		placed: opts.PlacedWait,
+	}
+	if src.placed == 0 {
+		src.placed = DefaultPlacedWait
+	}
+	if opts.Bus != nil {
+		rs, ok := opts.Store.(RelayStore)
+		if !ok {
+			return nil, errors.New("chat: a relay needs a store that can re-read a message")
+		}
+		src.relay = NewRelay(src.bcast, opts.Bus, rs, logger)
+	}
+	return src, nil
+}
+
+// RunRelay carries live frames to and from the other conductors until ctx ends. It returns
+// at once when no Bus was configured.
+func (s *Source) RunRelay(ctx context.Context) error {
+	if s.relay == nil {
+		return nil
+	}
+	return s.relay.Run(ctx)
 }
 
 // Kind implements conductor.Source. It is "chat", not "dev": the two share the brief's
@@ -169,6 +214,26 @@ func (s *Source) Mirrored(chatID string, msg store.ChatMessage) {
 	s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: msg})
 }
 
+// DeliveryChanged implements conductor.DeliveryWatcher: one of a message's deliveries to
+// Slack or GitHub landed, failed for good, or was put back in the queue. The message is read
+// again — with its deliveries, which the store attaches — and sent under its own seq, which a
+// client replaces rather than appends. A watcher on another conductor gets it through the
+// relay, which reads the same row.
+func (s *Source) DeliveryChanged(chatID string, seq uint64) {
+	if !s.bcast.watched(chatID) && !s.bcast.relaying() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg, err := s.store.GetChatMessage(ctx, chatID, seq)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading a message whose delivery changed failed",
+			"chat_id", chatID, "seq", seq, "error", err)
+		return
+	}
+	s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: msg})
+}
+
 // URL is the deep link to one chat, as a human reaches it. Empty when no UI URL is known.
 func (s *Source) URL(chatID string) string {
 	if s.uiURL == "" {
@@ -177,30 +242,51 @@ func (s *Source) URL(chatID string) string {
 	return s.uiURL + "/agent/chat/" + chatID
 }
 
-// Send stores one human message and starts a turn on it.
+// SendResult is what a send did: the stored message, whether it was put to Podium, and how
+// many turns are ahead of it when it was.
+type SendResult struct {
+	Message store.ChatMessage
+	// Addressed is false for a message in a multiplayer chat that did not tag Podium: it is
+	// the conversation around the bot, recorded and never a turn.
+	Addressed bool
+	// Ahead is how many turns run before this one, as the conductor placed it: the turn in
+	// flight and the turns queued ahead of it. Zero means it is being answered now. Only when
+	// the conductor does not say within Options.PlacedWait is it the estimate the send made itself,
+	// which the queue frame corrects.
+	Ahead int
+}
+
+// Send stores one human message and, when it is put to Podium, starts or queues a turn on it.
 //
-// The order matters: the running check and the busy flag are taken together, then the row
-// is written, then the frame goes out, then the event. A caller that gets ErrTurnRunning
-// has changed nothing.
+// Who may send is who may write the chat: its owner and everybody who has taken part in it
+// (decision 7 keeps a shared personal assistant's chat writable by them too). Nothing is
+// refused for a turn being in flight any more: a message sent while one runs is a turn of its
+// own, queued in order, and run as its sender (conductor/queue.go). A mirrored conversation
+// can be written here too, and stays one-way — the message and its answer live in Podium and
+// are never posted to Slack or GitHub (decision 18).
 func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, error) {
+	res, err := s.SendMessage(ctx, req)
+	return res.Message, err
+}
+
+// SendMessage is Send, reporting what the send did.
+func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, error) {
 	if req.ChatID == "" {
-		return store.ChatMessage{}, errors.New("send: a chat id is required")
+		return SendResult{}, errors.New("send: a chat id is required")
 	}
 	if strings.TrimSpace(req.Text) == "" {
-		return store.ChatMessage{}, errors.New("send: a message needs some text")
+		return SendResult{}, errors.New("send: a message needs some text")
 	}
 	chat, err := s.store.GetChat(ctx, req.ChatID)
 	if err != nil {
-		return store.ChatMessage{}, err
+		return SendResult{}, err
 	}
-	if chat.Login != req.Login {
-		// Reported as "no such chat" rather than "not yours": the existence of another
-		// login's chat is itself something this caller has no business learning.
-		return store.ChatMessage{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, req.ChatID)
+	if err := s.mayWrite(ctx, chat, req.Login); err != nil {
+		return SendResult{}, err
 	}
 	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)
 	if err != nil {
-		return store.ChatMessage{}, err
+		return SendResult{}, err
 	}
 	// An empty composer choice means this voice's default. A Podium chat, and a voice
 	// that names no model of its own, leave it empty so the turn follows Podium.
@@ -208,35 +294,65 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	if override.Empty() {
 		override = personalityModel
 	}
-	reply := s.awaiting(req.ChatID)
-	if !reply {
-		if err := s.claim(ctx, req.ChatID); err != nil {
-			return store.ChatMessage{}, err
-		}
-	}
 
-	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+	// A chat with one person in it answers everything they say, as it always has. Once it is
+	// multiplayer a message has to tag Podium (or the chat's assistant), the way it would in
+	// Slack (decision 33).
+	//
+	// The assistant answers to its name and to the display name the chat was opened with, which
+	// is the one a participant who does not own it can see (and the one the composer inserts).
+	addressed := !chat.Multiplayer || MentionsPodium(req.Text, personalityName) ||
+		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay))
+
+	// A chat with more than one person in it names who said what on every message, the way
+	// a mirrored thread does. A chat with one person leaves it empty: the reader is the asker.
+	author := ""
+	if chat.Multiplayer {
+		author = req.Login
+	}
+	msg, _, err := s.store.RecordChatMessage(ctx, store.ChatMessage{
 		ChatID: req.ChatID,
 		Role:   store.RoleUser,
 		Text:   req.Text,
 		TS:     time.Now().UTC(),
+		Author: author,
+		// Who typed it: a chat's record names its author on every message, because from
+		// phase 4 a chat may have more than one person in it.
+		AuthorLogin: req.Login,
+		Via:         store.ViaWeb,
+		Addressed:   addressed,
+		Mentions:    MentionedLogins(req.Text),
 	})
 	if err != nil {
-		if !reply {
-			s.release(req.ChatID)
-		}
-		return store.ChatMessage{}, err
+		return SendResult{}, err
 	}
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
+	s.joined(ctx, chat, req.Login)
 	s.remember(ctx, chat, req)
+	if !addressed {
+		return SendResult{Message: msg}, nil
+	}
+
+	ahead := s.ahead(ctx, req.ChatID)
+	s.markBusy(req.ChatID)
 
 	// No playbook travels with a chat message. The assistant answers it, and the playbooks
 	// are what that turn delegates to — one per piece of work, decided by the turn.
+	//
+	// The session is the chat's own: chat:<id> for a web chat, and for a mirrored one the
+	// Slack thread or pull request it is the record of, so the message queues behind that
+	// conversation's turns and its turn reads the whole of it. Ref is the chat either way,
+	// which is what keeps the answer in the web chat.
+	sourceKey := chat.SourceKey
+	if sourceKey == "" {
+		sourceKey = store.ChatSourceKey(req.ChatID)
+	}
 	ev := conductor.InboundEvent{
 		SourceKind:        conductor.SourceChat,
-		SourceKey:         store.ChatSourceKey(req.ChatID),
+		SourceKey:         sourceKey,
 		Ref:               req.ChatID,
 		Author:            req.Login,
+		Login:             req.Login,
 		Text:              req.Text,
 		TS:                msg.TS,
 		URL:               s.URL(req.ChatID),
@@ -244,18 +360,173 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		BriefKind:         conductor.SourceChat,
 		PersonalityName:   personalityName,
 		PersonalityPrompt: personalityPrompt,
+		Mentioned:         true,
+		ChatID:            req.ChatID,
+		ChatSeq:           msg.Seq,
+	}
+	where := make(chan int, 1)
+	ev.Placed = func(n int) {
+		select {
+		case where <- n:
+		default:
+		}
 	}
 	select {
 	case s.events <- ev:
 	case <-ctx.Done():
 		// The message is stored and will be in the next turn's transcript, but nothing is
-		// going to answer it, so the composer must not stay disabled.
-		if !reply {
-			s.release(req.ChatID)
-		}
-		return store.ChatMessage{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
+		// going to answer it, so the composer must not stay busy.
+		s.release(req.ChatID)
+		return SendResult{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
-	return msg, nil
+	// The conductor says where the message went once it has queued it or handed it to the
+	// turn answering this person — normally within milliseconds. A conductor that is slow to
+	// get to it leaves the estimate standing; the queue frame corrects that.
+	if s.placed > 0 {
+		wait := time.NewTimer(s.placed)
+		defer wait.Stop()
+		select {
+		case n := <-where:
+			ahead = n
+		case <-wait.C:
+		case <-ctx.Done():
+		}
+	}
+	return SendResult{Message: msg, Addressed: true, Ahead: ahead}, nil
+}
+
+// DefaultPlacedWait is how long Send waits to hear where its message went before it answers
+// with its own estimate instead.
+const DefaultPlacedWait = time.Second
+
+// mayWrite answers whether login may send in chat: ErrViewOnly for somebody who may only
+// read it, and ErrNotFound for somebody who may not even do that — the existence of a chat
+// the caller cannot see is itself something they have no business learning. The owner is
+// answered from the row; everybody else from chat_role (0035), which makes an editor of a
+// participant and of whoever it was shared with as one.
+func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) error {
+	if login == "" || chat.DeletedAt != nil {
+		// A deleted mirrored chat (0036) is nobody's to write, its owner included.
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
+	}
+	if chat.Login != "" && chat.Login == login {
+		return nil
+	}
+	role, err := s.store.ChatRole(ctx, chat.ID, login)
+	if err != nil {
+		s.logger.WarnContext(ctx, "checking who may write a chat failed", "chat_id", chat.ID, "error", err)
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
+	}
+	switch {
+	case store.MayWrite(role):
+		return nil
+	case store.MayRead(role):
+		return fmt.Errorf("%w: chat %s", ErrViewOnly, chat.ID)
+	default:
+		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chat.ID)
+	}
+}
+
+// joined makes the sender a participant of the chat, and the chat multiplayer once a second
+// Podium person is in it. The moment it becomes multiplayer is announced in the thread, once.
+func (s *Source) joined(ctx context.Context, chat store.Chat, login string) {
+	if _, err := s.store.AddChatParticipant(ctx, chat.ID, login, store.JoinedWeb, time.Now().UTC()); err != nil {
+		s.logger.WarnContext(ctx, "recording a chat's participant failed", "chat_id", chat.ID, "error", err)
+		return
+	}
+	if chat.Multiplayer {
+		return
+	}
+	s.Multiplayer(ctx, chat.ID, false, "")
+}
+
+// Multiplayer makes a chat multiplayer, if it is not yet: force for a share (phase 5),
+// otherwise only once a second Podium person has taken part. The call that changes it posts
+// the notice that says so; who, when the caller knows it, is the person whose arrival made
+// it so.
+func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who string) {
+	updated, changed, err := s.store.MarkChatMultiplayer(ctx, chatID, force)
+	if err != nil {
+		s.logger.WarnContext(ctx, "marking a chat multiplayer failed", "chat_id", chatID, "error", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	text := "This chat is shared now — Podium only answers when mentioned."
+	if !force {
+		text = "More than one person is in this chat now — Podium only answers when mentioned."
+		if who != "" {
+			text = who + " is in this chat too now — Podium only answers when mentioned."
+		}
+	}
+	notice, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+		ChatID: chatID,
+		Role:   store.RoleNotice,
+		Text:   text,
+		TS:     time.Now().UTC(),
+	})
+	if err != nil {
+		s.logger.WarnContext(ctx, "announcing that a chat is multiplayer failed", "chat_id", chatID, "error", err)
+	} else {
+		s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: notice})
+	}
+	s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: updated})
+}
+
+// ChatChanged re-reads a chat and shows the row to every screen watching it, here and on the
+// other conductors: a share, an unshare, a change of general access (phase 5). Each stream
+// works out its own viewer's role from it, and one that has lost access ends.
+//
+// A chat that is no longer there — a web chat its owner deleted — is shown as a tombstone, so
+// a stream watching it ends instead of waiting for a frame that never comes.
+func (s *Source) ChatChanged(ctx context.Context, chatID string) {
+	c, err := s.store.GetChat(ctx, chatID)
+	if errors.Is(err, store.ErrNotFound) {
+		s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: Tombstone(chatID)})
+		return
+	}
+	if err != nil {
+		s.logger.WarnContext(ctx, "re-reading a changed chat failed", "chat_id", chatID, "error", err)
+		return
+	}
+	s.bcast.Publish(chatID, Frame{Kind: FrameChat, Chat: c})
+}
+
+// Tombstone is the row a chat frame carries for a chat that no longer exists: deleted, so
+// every role worked out from it is none.
+func Tombstone(chatID string) store.Chat {
+	now := time.Now().UTC()
+	return store.Chat{ID: chatID, DeletedAt: &now}
+}
+
+// ahead is how many turns run before a message sent now: the one in flight, and the queue.
+func (s *Source) ahead(ctx context.Context, chatID string) int {
+	n := 0
+	if running, err := s.Running(ctx, chatID); err == nil && running {
+		n++
+	}
+	if q, err := s.store.ListQueuedTurnsForChat(ctx, chatID); err == nil {
+		n += len(q)
+	}
+	return n
+}
+
+// QueueChanged implements conductor.QueueWatcher: the turns waiting in this chat's session
+// moved, and every screen showing the chat redraws its queue. A watcher on another conductor
+// gets it through the relay, which reads the same rows.
+func (s *Source) QueueChanged(chatID string) {
+	if !s.bcast.watched(chatID) && !s.bcast.relaying() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	q, err := s.store.ListQueuedTurnsForChat(ctx, chatID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading a chat's turn queue failed", "chat_id", chatID, "error", err)
+		return
+	}
+	s.bcast.Publish(chatID, Frame{Kind: FrameQueue, Queue: q})
 }
 
 // personalityFor loads the voice a chat is bound to. A Podium chat has none, and the
@@ -340,15 +611,9 @@ func (s *Source) Running(ctx context.Context, chatID string) (bool, error) {
 	return s.store.ChatTurnRunning(ctx, chatID)
 }
 
-// claim takes the chat's one turn slot, or refuses with ErrTurnRunning.
-func (s *Source) claim(ctx context.Context, chatID string) error {
-	running, err := s.store.ChatTurnRunning(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	if running {
-		return ErrTurnRunning
-	}
+// markBusy records that a turn of this chat is about to start or wait, so Running answers
+// true in the window before the conductor writes the turn row.
+func (s *Source) markBusy(chatID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.live[chatID]
@@ -356,12 +621,11 @@ func (s *Source) claim(ctx context.Context, chatID string) error {
 		st = &live{}
 		s.live[chatID] = st
 	}
-	if st.busy {
-		return ErrTurnRunning
+	if !st.busy {
+		// A message queued behind a turn in flight must not reset what that turn has said.
+		st.spoke = false
 	}
 	st.busy = true
-	st.spoke = false
-	return nil
 }
 
 // release gives the slot back. Called on every way a turn can end, including the ways that
@@ -430,10 +694,14 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 		// A turn's own half-finished thoughts are not history. They are in the transcript a
 		// human reads, and leaving them out of this one keeps the brief's cap for the
 		// questions and answers it is meant to carry.
-		if m.Role == store.RoleProgress || m.Role == store.RoleActivity {
+		if m.Role == store.RoleProgress || m.Role == store.RoleActivity || m.Role == store.RoleNotice {
 			continue
 		}
 		author := chat.Login
+		if m.AuthorLogin != "" {
+			// A chat may have more than one person in it (phase 4).
+			author = m.AuthorLogin
+		}
 		if m.Role == store.RoleAssistant {
 			author = s.name
 		}
@@ -599,6 +867,11 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		}
 		s.bcast.Publish(ref, Frame{Kind: FrameStatus, State: StatusFailed})
 		return err
+	case conductor.ReactionRefused:
+		// The web chat's caller is always a signed-in person, so nothing it sends is
+		// refused for who sent it. Accepted and ignored rather than an error, so a change
+		// to the gate cannot turn into a failure here.
+		return nil
 	default:
 		return fmt.Errorf("chat: unknown reaction %q", kind)
 	}

@@ -43,12 +43,12 @@ func TestOneConductorDoesAPieceOfWorkAtATime(t *testing.T) {
 	assert.Nil(t, pending, "taken once")
 
 	// With a warm task, the message is injected by whoever heard it, and nothing is left.
-	require.NoError(t, s.SetWarmTask(ctx, key, "a", "task_7"))
+	require.NoError(t, s.SetWarmTask(ctx, key, "a", WarmTask{TaskID: "task_7"}))
 	warm, ok, err = s.HandOffToOwner(ctx, key, "b", []byte(`{"Text":"and this"}`))
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, "task_7", warm)
-	require.NoError(t, s.SetWarmTask(ctx, key, "a", ""))
+	require.NoError(t, s.SetWarmTask(ctx, key, "a", WarmTask{}))
 
 	released, err = s.ReleaseLease(ctx, key, "a")
 	require.NoError(t, err)
@@ -66,11 +66,13 @@ func TestALeaseNobodyRenewsIsAnybodys(t *testing.T) {
 	s := newStore(t)
 	key := DelegationLease("dlg_1")
 
-	ok, err := s.AcquireLease(ctx, key, "dead", 50*time.Millisecond)
+	// The lease is long enough to outlive a cold database's first statements (50ms was not,
+	// on a freshly started server) and short enough that the sleep below outlives it.
+	ok, err := s.AcquireLease(ctx, key, "dead", 300*time.Millisecond)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, s.SetWarmTask(ctx, key, "dead", "task_1"))
-	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, s.SetWarmTask(ctx, key, "dead", WarmTask{TaskID: "task_1"}))
+	time.Sleep(600 * time.Millisecond)
 
 	_, ok, err = s.HandOffToOwner(ctx, key, "live", []byte(`{}`))
 	require.NoError(t, err)

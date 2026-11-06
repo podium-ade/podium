@@ -77,3 +77,12 @@ func GlobalCredentialForTest(ctx context.Context, st *store.Store, provider stri
 	}
 	return c.hasGlobalCredential(ctx, &hostRun{provider: &BriefProvider{ID: provider}})
 }
+
+// DeliverDueForTest runs one pass of the delivery outbox worker and returns how many rows it
+// claimed.
+func (c *Conductor) DeliverDueForTest(ctx context.Context) int { return c.deliverDue(ctx) }
+
+// TurnTranscriptForTest is the transcript a turn of sess at ref would be handed.
+func (c *Conductor) TurnTranscriptForTest(ctx context.Context, src Source, ref string, sess store.Session) ([]BriefEntry, error) {
+	return c.turnTranscript(ctx, src, ref, sess)
+}

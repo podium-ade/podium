@@ -82,8 +82,9 @@ func (s *Source) DetachPullRequest(
 	return s.pullRequests(ctx, chatID)
 }
 
-// ownChat is the same ownership answer Send gives: another login's chat is reported as no
-// such chat, because its existence is not this caller's to learn.
+// ownChat is the same answer Send gives (phase 5: the owner and the chat's editors may change
+// its pull requests): a chat the caller cannot see is reported as no such chat, because its
+// existence is not this caller's to learn, and a viewer is told they only have view access.
 func (s *Source) ownChat(ctx context.Context, chatID, login string) error {
 	if chatID == "" {
 		return errors.New("a chat id is required")
@@ -92,10 +93,7 @@ func (s *Source) ownChat(ctx context.Context, chatID, login string) error {
 	if err != nil {
 		return err
 	}
-	if c.Login != login {
-		return fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID)
-	}
-	return nil
+	return s.mayWrite(ctx, c, login)
 }
 
 // pullRequests reads the chat's links back and publishes them to whoever is watching. The

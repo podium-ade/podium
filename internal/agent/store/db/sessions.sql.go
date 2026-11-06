@@ -51,37 +51,74 @@ func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Sessio
 }
 
 const listSessions = `-- name: ListSessions :many
-select id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id from sessions
+select s.id, s.source_kind, s.source_key, s.profile, s.playbook, s.created_at, s.last_turn_at, s.github_review_id,
+  coalesce(c.id, '')::text as chat_id,
+  coalesce(chat_role(c.id, $1::text), '')::text as my_role,
+  (case
+    when c.id is null then ''
+    when c.login is not null and c.login = $1::text then 'owner'
+    when exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = $1::text) then 'participant'
+    when exists (select 1 from chat_access a where a.chat_id = c.id and a.login = $1::text) then 'shared'
+    when c.general_access = 'members' then 'workspace'
+    else ''
+  end)::text as access_reason,
+  coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = $1::text), '')::text as shared_by,
+  coalesce(chat_unread(c.id, $1::text), 0)::bigint as unread_count
+from sessions s
+left join chats c on c.source_key = s.source_key
 where (
-  $1::bool
-  or (
-    source_kind = 'chat'
-    and exists (
-      select 1 from chats c
-      where c.source_key = sessions.source_key
-        and c.login = $2
-    )
-  )
+  ($2::bool and $3::text = '')
+  or (c.id is not null and $3::text in ('', 'shared')
+      and chat_visible_to(c.id, c.login, $1::text)
+      and ($3::text = '' or c.login is distinct from $1::text))
+  or (c.id is not null and $3::text = 'workspace'
+      and c.general_access = 'members'
+      and c.deleted_at is null
+      and not chat_visible_to(c.id, c.login, $1::text)
+      and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
 )
-and ($3::text = '' or id < $3::text)
-order by id desc
-limit $4::int
+and ($4::text = '' or s.id < $4::text)
+order by s.id desc
+limit $5::int
 `
 
 type ListSessionsParams struct {
+	Viewer     string
 	IncludeAll bool
-	Login      *string
+	Section    string
 	AfterID    string
 	PageLimit  int32
 }
 
+type ListSessionsRow struct {
+	ID             string
+	SourceKind     string
+	SourceKey      string
+	Profile        string
+	Playbook       string
+	CreatedAt      time.Time
+	LastTurnAt     *time.Time
+	GithubReviewID int64
+	ChatID         string
+	MyRole         string
+	AccessReason   string
+	SharedBy       string
+	UnreadCount    int64
+}
+
 // ListSessions is the same partition as ListChats. include_all is the dev token and returns
-// every source. Otherwise only web-chat sessions whose chat row is owned by this login —
-// a Slack, Linear or dev session has no such row, so a signed-in user does not see it.
-func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]Session, error) {
+// every source. Otherwise a session is visible exactly when the chat that holds it is: a web
+// chat's own row, or the mirror of a Slack thread or pull request (joined on source_key, the
+// key both are written under). A Linear or dev session has no chat and stays the operator's.
+//
+// Phase 5 adds the same sections ListChats has, and what a row needs to say about sharing:
+// the chat it is the record of, the caller's role and why they can see it, who shared it, and
+// how much of it they have not read. A session with no chat (Linear, dev) has none of these.
+func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]ListSessionsRow, error) {
 	rows, err := q.db.Query(ctx, listSessions,
+		arg.Viewer,
 		arg.IncludeAll,
-		arg.Login,
+		arg.Section,
 		arg.AfterID,
 		arg.PageLimit,
 	)
@@ -89,9 +126,9 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Session{}
+	items := []ListSessionsRow{}
 	for rows.Next() {
-		var i Session
+		var i ListSessionsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SourceKind,
@@ -101,6 +138,11 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.CreatedAt,
 			&i.LastTurnAt,
 			&i.GithubReviewID,
+			&i.ChatID,
+			&i.MyRole,
+			&i.AccessReason,
+			&i.SharedBy,
+			&i.UnreadCount,
 		); err != nil {
 			return nil, err
 		}

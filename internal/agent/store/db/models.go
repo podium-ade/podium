@@ -23,17 +23,68 @@ type Chat struct {
 	Channel            string
 	PersonalityID      *string
 	PersonalityDisplay string
+	LastSeq            int64
+	Multiplayer        bool
+	GeneralAccess      string
+	GeneralRole        string
+	LinkToken          *string
+	DeletedAt          *time.Time
+	ChannelPrivacy     string
+	SourceUrl          string
+	HistorySeeded      bool
+}
+
+type ChatAccess struct {
+	ChatID    string
+	Login     string
+	Role      string
+	GrantedBy string
+	GrantedAt time.Time
 }
 
 type ChatMessage struct {
+	ChatID       string
+	Seq          int64
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   *string
+	ExternalUrl  string
+	Addressed    bool
+	EditedAt     *time.Time
+	DeletedAt    *time.Time
+	Mentions     []string
+}
+
+type ChatOutbox struct {
+	ID          string
 	ChatID      string
-	Seq         int64
-	Role        string
-	Text        string
-	Attachments []byte
-	Ts          time.Time
-	TaskID      string
-	Author      string
+	MessageSeq  int64
+	SurfaceKind string
+	SurfaceRef  string
+	Payload     []byte
+	Status      string
+	Attempts    int32
+	NextAt      time.Time
+	LastError   string
+	ExternalID  *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ChatParticipant struct {
+	ChatID    string
+	Login     string
+	JoinedVia string
+	FirstSeen time.Time
+	LastSeen  time.Time
 }
 
 type ChatPullRequest struct {
@@ -45,6 +96,13 @@ type ChatPullRequest struct {
 	Source     string
 	CreatedAt  time.Time
 	DetachedAt *time.Time
+}
+
+type ChatRead struct {
+	ChatID      string
+	Login       string
+	LastReadSeq int64
+	UpdatedAt   time.Time
 }
 
 type Delegation struct {
@@ -77,6 +135,16 @@ type GithubAccount struct {
 	NeedsReconnect bool
 }
 
+type Identity struct {
+	Login       string
+	Provider    string
+	ExternalID  string
+	Handle      string
+	DisplayName string
+	AvatarUrl   string
+	VerifiedAt  time.Time
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time
@@ -99,6 +167,17 @@ type McpServer struct {
 	Config             string
 	Owner              string
 	Fallback           bool
+}
+
+type Notification struct {
+	ID        int64
+	Login     string
+	Kind      string
+	ChatID    string
+	Seq       int64
+	Actor     string
+	CreatedAt time.Time
+	ReadAt    *time.Time
 }
 
 type Personality struct {
@@ -164,6 +243,19 @@ type Turn struct {
 	Model      *string
 	Effort     *string
 	Provider   *string
+	StartedBy  string
+}
+
+type TurnQueue struct {
+	ID         int64
+	SessionID  string
+	SourceKind string
+	Login      string
+	Author     string
+	ChatID     string
+	MessageSeq int64
+	Event      []byte
+	CreatedAt  time.Time
 }
 
 type WorkLease struct {
@@ -172,4 +264,6 @@ type WorkLease struct {
 	ExpiresAt  time.Time
 	Pending    []byte
 	WarmTaskID string
+	WarmLogin  string
+	WarmKind   string
 }

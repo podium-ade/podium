@@ -10,9 +10,9 @@ package conductor
 // being followed, a turn that has no task to find it by.
 //
 //   - A conductor serves a session only while it holds "session:<id>". One that hears a
-//     message for a session another conductor holds hands it over: it injects it into the
-//     owner's warm task when there is one, and otherwise leaves it on the lease, where the
-//     owner takes it as its next turn instead of letting go.
+//     message for a session another conductor holds injects it into the owner's warm task
+//     when that task is answering the same person on the same surface, and otherwise
+//     queues it (turn_queue, queue.go), where the owner's loop finds it.
 //   - Leases are renewed while the work goes on and expire when a conductor stops renewing,
 //     which is what dying looks like. Every conductor looks for such work periodically
 //     (adopt) and takes it over: a running task's turn is followed from where the relay
@@ -113,49 +113,17 @@ func (c *Conductor) release(ctx context.Context, key string) *InboundEvent {
 	return &ev
 }
 
-// handOff gives a message to the conductor serving its session, and reports whether one was.
-// False means nobody holds the session any more, and the caller should take it itself.
-func (c *Conductor) handOff(ctx context.Context, sessionID string, ev InboundEvent) bool {
-	if !c.leasing() {
-		return false
-	}
-	raw, err := json.Marshal(ev)
-	if err != nil {
-		c.logger.ErrorContext(ctx, "a message could not be encoded for its owner", "error", err)
-		return false
-	}
-	warm, ok, err := c.store.HandOffToOwner(ctx, store.SessionLease(sessionID), c.replicaID, raw)
-	if err != nil {
-		c.logger.WarnContext(ctx, "handing a message to its session's owner failed", "session_id", sessionID, "error", err)
-		return false
-	}
-	if !ok {
-		return false
-	}
-	if warm == "" {
-		c.logger.InfoContext(ctx, "another conductor serves this session; handed the message over",
-			"session_id", sessionID)
-		return true
-	}
-	// The owner's task is warm, so the message goes straight into it from here: the control
-	// plane does not care which conductor asks.
-	if err := c.podium.InjectTask(ctx, warm, ev.Text); err != nil {
-		c.logger.WarnContext(ctx, "injecting into another conductor's warm task failed; the message "+
-			"is in the conversation for its next turn", "session_id", sessionID, "task_id", warm, "error", err)
-		return true
-	}
-	c.logger.InfoContext(ctx, "injected a message into another conductor's warm task",
-		"session_id", sessionID, "task_id", warm)
-	return true
-}
-
 // noteWarm records a session's waiting task on its lease, so a conductor that does not own the
 // session can inject into it. Empty clears it.
 func (c *Conductor) noteWarm(ctx context.Context, sessionID, taskID string) {
 	if !c.leasing() {
 		return
 	}
-	if err := c.store.SetWarmTask(context.WithoutCancel(ctx), store.SessionLease(sessionID), c.replicaID, taskID); err != nil {
+	c.mu.Lock()
+	st := c.state(sessionID)
+	warm := store.WarmTask{TaskID: taskID, Login: st.turnLogin, Kind: st.turnKind}
+	c.mu.Unlock()
+	if err := c.store.SetWarmTask(context.WithoutCancel(ctx), store.SessionLease(sessionID), c.replicaID, warm); err != nil {
 		c.logger.WarnContext(ctx, "recording a session's warm task failed", "session_id", sessionID, "error", err)
 	}
 }
@@ -198,6 +166,8 @@ func (c *Conductor) renewLeases(ctx context.Context) {
 // follow, and its own conductor finishes or fails it.
 func (c *Conductor) adopt(ctx context.Context) {
 	c.recoverWork(ctx, false)
+	// A conductor that died with turns queued left them on a session nobody holds.
+	c.adoptQueues(ctx)
 }
 
 // WhileLeader runs fn for as long as this conductor holds key, and only then: it waits for the
