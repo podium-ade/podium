@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Globe } from "lucide-react";
 import github from "../../../assets/marks/github.svg";
 import slack from "../../../assets/marks/slack.svg";
+import { googlePicture } from "../../../lib/avatar";
 import { surfaceName } from "../../../lib/surfaces";
 import { cn } from "../../../lib/utils";
 
@@ -50,7 +52,29 @@ export function OriginMark({ via, url, className }: { via?: string; url?: string
  * Avatar is a person's picture, or their initials when there is none. It is decoration:
  * the name is always in the text beside it.
  */
-export function Avatar({ name, src, className }: { name: string; src?: string; className?: string }) {
+/**
+ * Avatar is a person's face. A Podium person (login) is shown with their Google picture
+ * first, the one they signed in with, then whatever picture the account they spoke from has
+ * (src), then their initials. A picture that fails to load falls through to the next, so a
+ * stack with no Google sign-in, or somebody with no picture, still reads.
+ */
+export function Avatar({
+  name,
+  src,
+  login,
+  className,
+}: {
+  name: string;
+  src?: string;
+  login?: string;
+  className?: string;
+}) {
+  const sources = [login ? googlePicture(login) : "", src ?? ""].filter((u) => u !== "");
+  const key = sources.join("|");
+  // Which source failed is per set of sources: a person whose picture changes starts over.
+  const [failed, setFailed] = useState<{ key: string; n: number }>({ key, n: 0 });
+  const tried = failed.key === key ? failed.n : 0;
+  const shown = sources[tried];
   const initials =
     name
       .split(/[\s._@-]+/)
@@ -66,7 +90,16 @@ export function Avatar({ name, src, className }: { name: string; src?: string; c
         className,
       )}
     >
-      {src ? <img src={src} alt="" className="size-full object-cover" /> : initials}
+      {shown ? (
+        <img
+          src={shown}
+          alt=""
+          className="size-full object-cover"
+          onError={() => setFailed({ key, n: tried + 1 })}
+        />
+      ) : (
+        initials
+      )}
     </span>
   );
 }
