@@ -126,12 +126,14 @@ func (c *Conductor) transcriptFor(ctx context.Context, src Source, ref, sourceKe
 			}
 			lines := recordLines(msgs, chat, c.botName())
 			if len(lines) > 0 {
-				if chat.Origin == SourceGitHub && !chat.HistorySeeded && src != nil {
+				if chat.Origin == SourceGitHub && !chat.HistorySeeded {
 					// A pull request chat opened before its history was seeded (0039), or
 					// whose seed failed, has a record that starts the first time Podium heard
 					// it. What GitHub holds from before the first recorded message is read and
 					// put in front, once per turn. A seeded chat's record already holds it.
-					lines = c.withEarlierHistory(ctx, src, ref, lines)
+					if gh, ghRef, ok := c.githubFor(src, ref, sourceKey); ok {
+						lines = c.withEarlierHistory(ctx, gh, ghRef, lines)
+					}
 				}
 				return lines, nil
 			}
@@ -151,6 +153,33 @@ func (c *Conductor) transcriptFor(ctx context.Context, src Source, ref, sourceKe
 		lines = append(lines, transcriptLine{BriefEntry: e, addressed: e.Role == RoleUser})
 	}
 	return lines, nil
+}
+
+// keyRefSource is the optional half of a source that can name a conversation from its session
+// key alone. The GitHub source implements it, so a turn started from the web chat in a pull
+// request's chat can still read that pull request's earlier history from GitHub.
+type keyRefSource interface {
+	RefForKey(sourceKey string) (string, bool)
+}
+
+// githubFor is the GitHub source and a GitHub ref for reading a pull request's own
+// conversation: the turn's when GitHub carried it, and otherwise the configured GitHub source
+// with a ref built from the session key — the chat source cannot read GitHub, and its ref
+// names a chat, not a pull request.
+func (c *Conductor) githubFor(src Source, ref, sourceKey string) (Source, string, bool) {
+	if src != nil && src.Kind() == SourceGitHub {
+		return src, ref, true
+	}
+	gh := c.sourceOf(SourceGitHub)
+	kr, ok := gh.(keyRefSource)
+	if gh == nil || !ok {
+		return nil, "", false
+	}
+	ghRef, ok := kr.RefForKey(sourceKey)
+	if !ok {
+		return nil, "", false
+	}
+	return gh, ghRef, true
 }
 
 func (c *Conductor) withEarlierHistory(ctx context.Context, src Source, ref string, lines []transcriptLine) []transcriptLine {

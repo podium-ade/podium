@@ -386,6 +386,17 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 	return SourceKey(p.Owner, p.Repo, p.Number), true
 }
 
+// RefForKey is a ref naming the pull request a session key names, for reading its
+// conversation when what the conductor holds is not a GitHub ref — a message somebody sent
+// from the web chat into a PR's chat, whose ref is the chat's. It names no comment.
+func (s *Source) RefForKey(sourceKey string) (string, bool) {
+	owner, repo, number, ok := ParseSourceKey(sourceKey)
+	if !ok {
+		return "", false
+	}
+	return Ref(Parsed{Owner: owner, Repo: repo, Number: number, Kind: KindPullRequest}), true
+}
+
 // FetchTranscript reads the PR's conversation and any bound Slack threads, oldest first.
 func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error) {
 	p, err := ParseRef(ref)

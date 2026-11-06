@@ -50,3 +50,16 @@ func TestHistoryForATriggerThatIsNoCommentIsEverythingSoFar(t *testing.T) {
 	got := s.historyEvents(Parsed{Owner: "acme", Repo: "repo", Number: 12, Kind: KindPullRequest}, items)
 	assert.Len(t, got, 2)
 }
+
+func TestRefForKeyNamesThePullRequest(t *testing.T) {
+	s := &Source{}
+	ref, ok := s.RefForKey("github:acme/repo#12")
+	require.True(t, ok)
+	p, err := ParseRef(ref)
+	require.NoError(t, err)
+	assert.Equal(t, "acme", p.Owner)
+	assert.Equal(t, "repo", p.Repo)
+	assert.Equal(t, 12, p.Number)
+	_, ok = s.RefForKey("slack:C1:1.1")
+	assert.False(t, ok)
+}
