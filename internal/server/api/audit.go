@@ -45,6 +45,7 @@ var conductorActions = map[string]bool{
 	"chat.join":           true,
 	"chat.leave":          true,
 	"chat.delete":         true,
+	"chat.start":          true,
 }
 
 // RecordAudit writes one row, for the conductor only.

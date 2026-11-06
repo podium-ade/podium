@@ -43,6 +43,11 @@ service TurnService {
   // ReleasePreview takes down the preview a finished delegated task of this conversation
   // left up, before its ttl does.
   rpc ReleasePreview(ReleasePreviewRequest) returns (ReleasePreviewResponse);
+
+  // StartChat opens a new web chat owned by the person behind this turn, with the
+  // assistant's opening message, optionally shared, and returns the link to it: "starting a
+  // triage on this session — click here to join".
+  rpc StartChat(StartChatRequest) returns (StartChatResponse);
 }
 
 // Delegation is one task a turn asked for.
@@ -130,6 +135,29 @@ message ReleasePreviewRequest {
 
 message ReleasePreviewResponse {
   Delegation delegation = 1;
+}
+
+message StartChatRequest {
+  // title names the new chat.
+  string title = 1;
+  // opening is the assistant's first message in it, in markdown.
+  string opening = 2;
+  // share_with is Podium people to share it with, by login.
+  repeated string share_with = 3;
+  // access is general access: restricted (the default), members or link.
+  string access = 4;
+  // role is what sharing grants: editor (the default) or viewer.
+  string role = 5;
+}
+
+message StartChatResponse {
+  string chat_id = 1;
+  string title = 2;
+  // url is the link to the chat as a person reaches it, with its link token when it is
+  // shared by link.
+  string url = 3;
+  repeated string shared_with = 4;
+  string access = 5;
 }
 
 // GitCredentialService is the ONE thing a task container may ask the conductor for: a

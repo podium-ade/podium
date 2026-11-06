@@ -15,7 +15,7 @@
 
 import { createInterface } from "node:readline";
 
-import { Client, DelegateError, type Delegation } from "./delegate.js";
+import { Client, DelegateError, type Delegation, type StartedChat } from "./delegate.js";
 import { isEntrypoint } from "./entry.js";
 
 /** ProtocolVersion is what this server speaks when a client asks for nothing else. MCP
@@ -148,6 +148,50 @@ export const tools: ToolDefinition[] = [
     },
   },
   {
+    // The conductor's chat host offers the same tool in the same words
+    // (internal/agent/conductor/startchat.go, StartChatTool).
+    name: "start_chat",
+    description:
+      "Open a NEW Podium chat for a piece of work that deserves its own conversation — a triage, " +
+      "an incident, a design discussion — and invite people into it. The chat belongs to the person " +
+      "who asked you, starts with your opening message, and links back to this conversation. Returns " +
+      "the link: put it in your answer as a markdown link, e.g. \"Starting a triage — [click here to " +
+      "join](<url>)\". Use it only when the person asks for a separate conversation or plainly wants " +
+      "others brought in; otherwise answer here. share_with is Podium people by email; access " +
+      "\"members\" lets every Podium member find it, \"link\" lets anyone with the link in.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "The new chat's name. 3–6 words." },
+        opening: {
+          type: "string",
+          description:
+            "Your first message in the new chat: what it is for, what is known so far, and what happens next. " +
+            "Markdown. It is all the new chat starts from.",
+        },
+        share_with: {
+          type: "array",
+          items: { type: "string" },
+          description: "Podium people to invite, by email address. Optional.",
+        },
+        access: {
+          type: "string",
+          enum: ["restricted", "members", "link"],
+          description:
+            "Who else may open it. restricted (default): only the people named. members: every Podium member. " +
+            "link: anyone with the link.",
+        },
+        role: {
+          type: "string",
+          enum: ["editor", "viewer"],
+          description: "What the people invited may do. editor (default) may write and ask you; viewer may read.",
+        },
+      },
+      required: ["title", "opening"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "release_preview",
     description:
       "Take down the preview a finished delegated task left up — its containers and its " +
@@ -252,6 +296,22 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
         const { delegation } = await client.releasePreview(id);
         return ok(`Released the preview of ${delegation.id} (task ${delegation.task_id ?? "?"}). Its URLs no longer answer.`);
       }
+      case "start_chat": {
+        const title = requireString(args, "title");
+        const opening = requireString(args, "opening");
+        const shareWith = args.share_with;
+        if (shareWith !== undefined && (!Array.isArray(shareWith) || shareWith.some((s) => typeof s !== "string"))) {
+          throw new RPCError(InvalidParams, "share_with is a list of email addresses");
+        }
+        const started = await client.startChat({
+          title,
+          opening,
+          share_with: shareWith as string[] | undefined,
+          access: typeof args.access === "string" ? args.access : undefined,
+          role: typeof args.role === "string" ? args.role : undefined,
+        });
+        return ok(describeStartedChat(started));
+      }
       default:
         throw new RPCError(InvalidParams, `unknown tool ${name}`);
     }
@@ -266,6 +326,20 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
     }
     return failed(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** describeStartedChat is what start_chat answers, in conductor.DescribeStartedChat's words. */
+function describeStartedChat(s: StartedChat): string {
+  const shared =
+    s.sharedWith && s.sharedWith.length > 0
+      ? `shared with: ${s.sharedWith.join(", ")} (each was notified)`
+      : "shared with: nobody by name";
+  return (
+    `Opened the chat ${JSON.stringify(s.title ?? "")}.\nchat_id: ${s.chatId ?? "?"}\nurl: ${s.url ?? ""}\n` +
+    `${shared}\naccess: ${s.access ?? "restricted"}\n\n` +
+    `Put the link in your answer, e.g. "[click here to join](${s.url ?? ""})". ` +
+    "The new conversation continues there; do not repeat its opening here."
+  );
 }
 
 /** describe is one delegation in the words a model should relay. */
