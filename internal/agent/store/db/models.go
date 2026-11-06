@@ -32,6 +32,8 @@ type Chat struct {
 	ChannelPrivacy     string
 	SourceUrl          string
 	HistorySeeded      bool
+	StartedFromChat    *string
+	StartedByTurn      *string
 }
 
 type ChatAccess struct {

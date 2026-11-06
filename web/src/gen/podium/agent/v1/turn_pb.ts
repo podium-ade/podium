@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/turn.proto.
  */
 export const file_podium_agent_v1_turn: GenFile = /*@__PURE__*/
-  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIksKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCRIRCglyZWFkX29ubHkYAyABKAgiQwoQRGVsZWdhdGVSZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iIgoUR2V0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkiWgoVR2V0RGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbhIQCghwcm9ncmVzcxgCIAEoCSIYChZMaXN0RGVsZWdhdGlvbnNSZXF1ZXN0IksKF0xpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEjAKC2RlbGVnYXRpb25zGAEgAygLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iNQoXQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDgoGcmVhc29uGAIgASgJIksKGENhbmNlbERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iMwoXSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSJLChhJbmplY3REZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uIiMKFVJlbGVhc2VQcmV2aWV3UmVxdWVzdBIKCgJpZBgBIAEoCSJJChZSZWxlYXNlUHJldmlld1Jlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiISChBNaW50VG9rZW5SZXF1ZXN0Io8BChFNaW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBITCgthdXRob3JfbmFtZRgEIAEoCRIUCgxhdXRob3JfZW1haWwYBSABKAky2QQKC1R1cm5TZXJ2aWNlEk8KCERlbGVnYXRlEiAucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRlUmVxdWVzdBohLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlc3BvbnNlEl4KDUdldERlbGVnYXRpb24SJS5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlc3BvbnNlEmQKD0xpc3REZWxlZ2F0aW9ucxInLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLkxpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEmcKEENhbmNlbERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEmcKEEluamVjdERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlc3BvbnNlEmEKDlJlbGVhc2VQcmV2aWV3EiYucG9kaXVtLmFnZW50LnYxLlJlbGVhc2VQcmV2aWV3UmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5SZWxlYXNlUHJldmlld1Jlc3BvbnNlMmoKFEdpdENyZWRlbnRpYWxTZXJ2aWNlElIKCU1pbnRUb2tlbhIhLnBvZGl1bS5hZ2VudC52MS5NaW50VG9rZW5SZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLk1pbnRUb2tlblJlc3BvbnNlQsMBChNjb20ucG9kaXVtLmFnZW50LnYxQglUdXJuUHJvdG9QAVpDZ2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIksKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCRIRCglyZWFkX29ubHkYAyABKAgiQwoQRGVsZWdhdGVSZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iIgoUR2V0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkiWgoVR2V0RGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbhIQCghwcm9ncmVzcxgCIAEoCSIYChZMaXN0RGVsZWdhdGlvbnNSZXF1ZXN0IksKF0xpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEjAKC2RlbGVnYXRpb25zGAEgAygLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iNQoXQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDgoGcmVhc29uGAIgASgJIksKGENhbmNlbERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iMwoXSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSJLChhJbmplY3REZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uIiMKFVJlbGVhc2VQcmV2aWV3UmVxdWVzdBIKCgJpZBgBIAEoCSJJChZSZWxlYXNlUHJldmlld1Jlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiJkChBTdGFydENoYXRSZXF1ZXN0Eg0KBXRpdGxlGAEgASgJEg8KB29wZW5pbmcYAiABKAkSEgoKc2hhcmVfd2l0aBgDIAMoCRIOCgZhY2Nlc3MYBCABKAkSDAoEcm9sZRgFIAEoCSJlChFTdGFydENoYXRSZXNwb25zZRIPCgdjaGF0X2lkGAEgASgJEg0KBXRpdGxlGAIgASgJEgsKA3VybBgDIAEoCRITCgtzaGFyZWRfd2l0aBgEIAMoCRIOCgZhY2Nlc3MYBSABKAkiEgoQTWludFRva2VuUmVxdWVzdCKPAQoRTWludFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoKZXhwaXJlc19hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLYXV0aG9yX25hbWUYBCABKAkSFAoMYXV0aG9yX2VtYWlsGAUgASgJMq0FCgtUdXJuU2VydmljZRJPCghEZWxlZ2F0ZRIgLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlcXVlc3QaIS5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGVSZXNwb25zZRJeCg1HZXREZWxlZ2F0aW9uEiUucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXF1ZXN0GiYucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXNwb25zZRJkCg9MaXN0RGVsZWdhdGlvbnMSJy5wb2RpdW0uYWdlbnQudjEuTGlzdERlbGVnYXRpb25zUmVxdWVzdBooLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXNwb25zZRJnChBDYW5jZWxEZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXNwb25zZRJnChBJbmplY3REZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXNwb25zZRJhCg5SZWxlYXNlUHJldmlldxImLnBvZGl1bS5hZ2VudC52MS5SZWxlYXNlUHJldmlld1JlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuUmVsZWFzZVByZXZpZXdSZXNwb25zZRJSCglTdGFydENoYXQSIS5wb2RpdW0uYWdlbnQudjEuU3RhcnRDaGF0UmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5TdGFydENoYXRSZXNwb25zZTJqChRHaXRDcmVkZW50aWFsU2VydmljZRJSCglNaW50VG9rZW4SIS5wb2RpdW0uYWdlbnQudjEuTWludFRva2VuUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5NaW50VG9rZW5SZXNwb25zZULDAQoTY29tLnBvZGl1bS5hZ2VudC52MUIJVHVyblByb3RvUAFaQ2dpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Delegation is one task a turn asked for.
@@ -330,6 +330,93 @@ export const ReleasePreviewResponseSchema: GenMessage<ReleasePreviewResponse> = 
   messageDesc(file_podium_agent_v1_turn, 12);
 
 /**
+ * @generated from message podium.agent.v1.StartChatRequest
+ */
+export type StartChatRequest = Message<"podium.agent.v1.StartChatRequest"> & {
+  /**
+   * title names the new chat.
+   *
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * opening is the assistant's first message in it, in markdown.
+   *
+   * @generated from field: string opening = 2;
+   */
+  opening: string;
+
+  /**
+   * share_with is Podium people to share it with, by login.
+   *
+   * @generated from field: repeated string share_with = 3;
+   */
+  shareWith: string[];
+
+  /**
+   * access is general access: restricted (the default), members or link.
+   *
+   * @generated from field: string access = 4;
+   */
+  access: string;
+
+  /**
+   * role is what sharing grants: editor (the default) or viewer.
+   *
+   * @generated from field: string role = 5;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartChatRequest.
+ * Use `create(StartChatRequestSchema)` to create a new message.
+ */
+export const StartChatRequestSchema: GenMessage<StartChatRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 13);
+
+/**
+ * @generated from message podium.agent.v1.StartChatResponse
+ */
+export type StartChatResponse = Message<"podium.agent.v1.StartChatResponse"> & {
+  /**
+   * @generated from field: string chat_id = 1;
+   */
+  chatId: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * url is the link to the chat as a person reaches it, with its link token when it is
+   * shared by link.
+   *
+   * @generated from field: string url = 3;
+   */
+  url: string;
+
+  /**
+   * @generated from field: repeated string shared_with = 4;
+   */
+  sharedWith: string[];
+
+  /**
+   * @generated from field: string access = 5;
+   */
+  access: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartChatResponse.
+ * Use `create(StartChatResponseSchema)` to create a new message.
+ */
+export const StartChatResponseSchema: GenMessage<StartChatResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 14);
+
+/**
  * MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
  * mint is in the capability the caller presents in the X-Podium-Turn header.
  *
@@ -343,7 +430,7 @@ export type MintTokenRequest = Message<"podium.agent.v1.MintTokenRequest"> & {
  * Use `create(MintTokenRequestSchema)` to create a new message.
  */
 export const MintTokenRequestSchema: GenMessage<MintTokenRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 13);
+  messageDesc(file_podium_agent_v1_turn, 15);
 
 /**
  * @generated from message podium.agent.v1.MintTokenResponse
@@ -394,7 +481,7 @@ export type MintTokenResponse = Message<"podium.agent.v1.MintTokenResponse"> & {
  * Use `create(MintTokenResponseSchema)` to create a new message.
  */
 export const MintTokenResponseSchema: GenMessage<MintTokenResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 14);
+  messageDesc(file_podium_agent_v1_turn, 16);
 
 /**
  * TurnService is what a TURN may ask of the conductor, and it is deliberately a service of
@@ -481,6 +568,18 @@ export const TurnService: GenService<{
     methodKind: "unary";
     input: typeof ReleasePreviewRequestSchema;
     output: typeof ReleasePreviewResponseSchema;
+  },
+  /**
+   * StartChat opens a new web chat owned by the person behind this turn, with the
+   * assistant's opening message, optionally shared, and returns the link to it: "starting a
+   * triage on this session — click here to join".
+   *
+   * @generated from rpc podium.agent.v1.TurnService.StartChat
+   */
+  startChat: {
+    methodKind: "unary";
+    input: typeof StartChatRequestSchema;
+    output: typeof StartChatResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_turn, 0);

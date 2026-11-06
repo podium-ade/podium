@@ -194,6 +194,18 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, chatID string) (bool, err
 	return running, err
 }
 
+const countChatsStartedByTurn = `-- name: CountChatsStartedByTurn :one
+select count(*)::int from chats where started_by_turn = $1::text
+`
+
+// CountChatsStartedByTurn is how many chats one turn has opened.
+func (q *Queries) CountChatsStartedByTurn(ctx context.Context, startedByTurn string) (int32, error) {
+	row := q.db.QueryRow(ctx, countChatsStartedByTurn, startedByTurn)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createChat = `-- name: CreateChat :one
 
 insert into chats (
@@ -206,7 +218,7 @@ values (
   -- A mirrored conversation always has other people in it (decision 33).
   $8::text <> 'web'
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
 `
 
 type CreateChatParams struct {
@@ -271,6 +283,8 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
@@ -417,7 +431,7 @@ func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMes
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -447,12 +461,14 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -485,6 +501,8 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
@@ -683,7 +701,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token, c.deleted_at, c.channel_privacy, c.source_url, c.history_seeded,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token, c.deleted_at, c.channel_privacy, c.source_url, c.history_seeded, c.started_from_chat, c.started_by_turn,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -790,6 +808,8 @@ type ListChatsRow struct {
 	ChannelPrivacy     string
 	SourceUrl          string
 	HistorySeeded      bool
+	StartedFromChat    *string
+	StartedByTurn      *string
 	HasMessage         bool
 	LastMessageAt      time.Time
 	LastText           string
@@ -861,6 +881,8 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.ChannelPrivacy,
 			&i.SourceUrl,
 			&i.HistorySeeded,
+			&i.StartedFromChat,
+			&i.StartedByTurn,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -887,7 +909,7 @@ where id = $1 and not multiplayer and (
   $2::bool
   or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
 `
 
 type MarkChatMultiplayerParams struct {
@@ -925,6 +947,8 @@ func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplay
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
@@ -1032,7 +1056,7 @@ update chats set title = $1, auto_title = false
    or chat_role(id, $3::text) in ('owner', 'editor')
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
 `
 
 type RenameChatParams struct {
@@ -1087,6 +1111,8 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
@@ -1094,7 +1120,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
 `
 
 type SetChatChoiceParams struct {
@@ -1141,6 +1167,8 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }
@@ -1183,10 +1211,57 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 	return i, err
 }
 
+const setChatStartedFrom = `-- name: SetChatStartedFrom :one
+update chats
+set started_from_chat = $1, started_by_turn = $2
+where id = $3
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
+`
+
+type SetChatStartedFromParams struct {
+	StartedFromChat *string
+	StartedByTurn   *string
+	ID              string
+}
+
+// SetChatStartedFrom records that a chat was opened by a turn of another conversation.
+func (q *Queries) SetChatStartedFrom(ctx context.Context, arg SetChatStartedFromParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, setChatStartedFrom, arg.StartedFromChat, arg.StartedByTurn, arg.ID)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
+		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+	)
+	return i, err
+}
+
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
 `
 
 type SetChatTitleParams struct {
@@ -1221,6 +1296,8 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
 		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
 	)
 	return i, err
 }

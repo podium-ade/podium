@@ -269,6 +269,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("develops Podium itself");
     expect(prompt).toContain("`general`");
     expect(prompt).toContain("a browser");
+    expect(prompt).toContain("`podium_start_chat` opens a separate Podium chat");
     // The address and the token's variable are the runtime's business, not the model's:
     // a prompt that names them is a prompt that invites the model to use them directly.
     expect(prompt).not.toContain("http://127.0.0.1:8090");

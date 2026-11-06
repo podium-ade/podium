@@ -640,6 +640,9 @@ type Chat struct {
 	// HistorySeeded is a mirrored chat whose record was seeded with what its conversation
 	// said before Podium was in it (0039).
 	HistorySeeded bool
+	// StartedFromChat is the conversation the assistant opened this chat from, "" for a chat
+	// somebody opened themselves or one whose origin was deleted (0041).
+	StartedFromChat string
 	// SourceURL is the link to a mirrored chat's conversation where it lives (a Slack
 	// thread's permalink), "" when the source gave none (0038).
 	SourceURL string
@@ -1336,7 +1339,32 @@ func chatFromRow(row db.Chat) Chat {
 		ChannelPrivacy:     row.ChannelPrivacy,
 		SourceURL:          row.SourceUrl,
 		HistorySeeded:      row.HistorySeeded,
+		StartedFromChat:    deref(row.StartedFromChat),
 	}
+}
+
+// SetChatStartedFrom records that turnID opened chatID from the conversation fromChat ("" when
+// that conversation has no chat row).
+func (s *Store) SetChatStartedFrom(ctx context.Context, chatID, fromChat, turnID string) (Chat, error) {
+	row, err := s.q.SetChatStartedFrom(ctx, db.SetChatStartedFromParams{
+		ID: chatID, StartedFromChat: nullable(fromChat), StartedByTurn: &turnID,
+	})
+	if noRows(err) {
+		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, chatID)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("record where chat %s was started from: %w", chatID, err)
+	}
+	return chatFromRow(row), nil
+}
+
+// CountChatsStartedByTurn is how many chats one turn has opened.
+func (s *Store) CountChatsStartedByTurn(ctx context.Context, turnID string) (int, error) {
+	n, err := s.q.CountChatsStartedByTurn(ctx, turnID)
+	if err != nil {
+		return 0, fmt.Errorf("count the chats turn %s opened: %w", turnID, err)
+	}
+	return int(n), nil
 }
 
 // ChatTurnRunning reports whether a turn of this chat is in flight. It is the server-side
