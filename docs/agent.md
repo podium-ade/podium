@@ -2098,7 +2098,7 @@ docker build -t registry.example.com/agent-warehouse:2026-09-05 -f agent-warehou
 
 Four things the base decides for you:
 
-- **It is Debian 12 bookworm, glibc, Node 22.** Use `apt-get` and bookworm package sources, and
+- **It is Debian 13 trixie, glibc, Node 26.** Use `apt-get` and trixie package sources, and
   glibc binaries and manylinux wheels — not musl ones. `gh` is already installed from GitHub's
   own apt repository, and so are `git`, `curl`, `jq` and `ripgrep`.
 - **End with `USER agent`** — uid 1000, and the base renames the stock `node` user rather than
@@ -2113,10 +2113,11 @@ Four things the base decides for you:
   own layer is working around the design rather than extending it.
 
 **Check what `apt-get` drags in before you commit to a package.** Debian's `python3-matplotlib`
-on bookworm hard-depends on `gcc-12`, `g++-12`, `libboost1.74-dev` and `libopenblas-dev` —
-**1.05 GB of C++ toolchain** in a runtime image, to draw a chart. The way round it is pip's own
-manylinux wheels at exact versions, and that is not free either: Debian 12's interpreter is
-marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so it means `pip3 install
+on trixie no longer pulls in a C++ toolchain, as it did on bookworm, but even with
+`--no-install-recommends` its `python3-fonttools` dependency hard-depends on `python3-scipy` and
+`python3-sympy` — **about 450 MB** more in a runtime image, to draw a chart. The way round it is
+pip's own manylinux wheels at exact versions, and that is not free either: Debian 13's
+interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so it means `pip3 install
 --break-system-packages`, purging pip again in the same layer, and knowing that no `dpkg`
 package in your image owns `numpy` — two of those on one `sys.path` is a real problem. Run
 `apt-cache depends --recurse --no-recommends <pkg>` first, and look at `docker images` after.

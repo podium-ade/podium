@@ -7,7 +7,7 @@
 #
 # Pinned by digest. A tag is a moving target and a base image is the part of a supply chain
 # nobody looks at.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 
 # The web UI is compiled into the binary (go:embed of web/dist), so there is nothing to serve
 # from disk and no second stage to build it.
