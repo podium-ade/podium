@@ -2816,17 +2816,12 @@ What that decides:
 
 - **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
   🚫; nothing runs. On GitHub, a commenter who has not connected GitHub may ask for exactly
-  one thing — a review, with `@podium review [note]` or `/review [note]` at the start of a
-  line. It runs the review playbook on the App's credentials, read-only; the note is cut to
-  280 characters, stripped of code, markup, links and mentions, and screened twice: a
-  deny-list of instruction shapes, then a `claude-haiku-5-5` classifier on the company's
-  Anthropic key (structured output, a 3-second deadline, verdicts cached by the note's hash
-  for ten minutes). A note either rejects, or that cannot be screened — no key stored, a
-  timeout, a provider error — is dropped and the review still runs without it; a note that
-  passes is handed to the model as a quoted topic hint. One per person per pull request
-  every ten minutes. Anything else from them gets a confused reaction.
-  `podium_agent_review_note_checks_total{outcome}` counts allowed, denied_list,
-  denied_model, no_classifier and error.
+  one thing — a review, with `@podium review` or `/review` at the start of a line.
+  Whatever follows the command is ignored: nothing the requester wrote is put to the model as
+  a request. It runs the review playbook on the App's credentials, read-only, with a fixed
+  instruction. One per person per pull request every ten minutes. Anything else from them
+  gets a confused reaction. (The pull request's own title, description, diff and comments are
+  still what the review reads; the containment, not a filter, is what makes that safe.)
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
 - **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`
