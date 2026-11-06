@@ -33,10 +33,11 @@ const (
 	DefaultNoteModel   = "claude-haiku-5-5"
 	DefaultNoteTimeout = 3 * time.Second
 	DefaultNoteCache   = 10 * time.Minute
-	// noteMaxTokens is room for {"ok": false} and nothing else. The model thinks adaptively
-	// by default and that is fine at low effort; a cap that truncated the answer would read
-	// as "not JSON" and drop the note, which is the safe direction to be wrong in.
-	noteMaxTokens = 1024
+	// noteMaxTokens is room for the model's thinking and then {"ok": false}. Claude Haiku 5.5
+	// thinks adaptively by default and the thinking counts against this cap, so it is sized
+	// for that and not for the dozen bytes of the verdict: a cap the thinking ate would stop
+	// at max_tokens and drop a note that was fine. Still the safe direction to be wrong in.
+	noteMaxTokens = 2048
 	// noteAnswerLimit bounds what is read of the provider's answer: the verdict is a dozen
 	// bytes, and anything near this size is not one.
 	noteAnswerLimit     = 64 << 10
