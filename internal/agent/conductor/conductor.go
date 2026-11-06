@@ -346,6 +346,9 @@ type sessionState struct {
 	// warmHost is a host turn that has answered and is still up, waiting for the next
 	// message, which is written into its inbox. See hostwarm.go.
 	warmHost *warmHost
+	// emptyPops is how many times in a row kick took the lease and found nothing it could
+	// pop while the queue still counted rows (queue.go, retryQueue). Reset by a pop that works.
+	emptyPops int
 }
 
 // New validates the options and returns a Conductor.
