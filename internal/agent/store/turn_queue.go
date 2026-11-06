@@ -165,6 +165,11 @@ func (s *Store) MarkChatMultiplayer(ctx context.Context, chatID string, force bo
 	if err != nil {
 		return Chat{}, false, fmt.Errorf("mark chat %s multiplayer: %w", chatID, err)
 	}
+	// Only the call that flipped it names the earlier messages, and a message sent after the
+	// flip already carries its author, so this cannot race a send into a wrong name.
+	if err := s.q.NameWebAuthors(ctx, chatID); err != nil {
+		return Chat{}, false, fmt.Errorf("name the earlier messages of chat %s: %w", chatID, err)
+	}
 	return chatFromRow(row), true, nil
 }
 
