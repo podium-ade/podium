@@ -98,6 +98,7 @@ var chatDelegateTools = []chatTool{
 			"required":             []string{"delegation_id"},
 			"additionalProperties": false,
 		}},
+	StartChatTool,
 	{Name: "release_preview", Description: "Take down the preview a finished delegated task left up — its containers and its " +
 		"URLs. Use it when the person says they are done with it.",
 		InputSchema: idOnly()},
@@ -321,6 +322,16 @@ func (c *Conductor) chatDelegateTool(ctx context.Context, token, name string, ar
 			return "", err
 		}
 		return fmt.Sprintf("Asked the node to stop %s (task %s).", d.ID, orUnknown(d.TaskID)), nil
+	case StartChatTool.Name:
+		req, err := StartChatArgs(args)
+		if err != nil {
+			return "", err
+		}
+		started, err := c.StartChat(ctx, token, req)
+		if err != nil {
+			return "", err
+		}
+		return DescribeStartedChat(started), nil
 	case "release_preview":
 		id, err := argString(args, "delegation_id")
 		if err != nil {

@@ -707,6 +707,165 @@ func (x *ReleasePreviewResponse) GetDelegation() *Delegation {
 	return nil
 }
 
+type StartChatRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// title names the new chat.
+	Title string `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	// opening is the assistant's first message in it, in markdown.
+	Opening string `protobuf:"bytes,2,opt,name=opening,proto3" json:"opening,omitempty"`
+	// share_with is Podium people to share it with, by login.
+	ShareWith []string `protobuf:"bytes,3,rep,name=share_with,json=shareWith,proto3" json:"share_with,omitempty"`
+	// access is general access: restricted (the default), members or link.
+	Access string `protobuf:"bytes,4,opt,name=access,proto3" json:"access,omitempty"`
+	// role is what sharing grants: editor (the default) or viewer.
+	Role          string `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartChatRequest) Reset() {
+	*x = StartChatRequest{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartChatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartChatRequest) ProtoMessage() {}
+
+func (x *StartChatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartChatRequest.ProtoReflect.Descriptor instead.
+func (*StartChatRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *StartChatRequest) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *StartChatRequest) GetOpening() string {
+	if x != nil {
+		return x.Opening
+	}
+	return ""
+}
+
+func (x *StartChatRequest) GetShareWith() []string {
+	if x != nil {
+		return x.ShareWith
+	}
+	return nil
+}
+
+func (x *StartChatRequest) GetAccess() string {
+	if x != nil {
+		return x.Access
+	}
+	return ""
+}
+
+func (x *StartChatRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type StartChatResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
+	Title  string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// url is the link to the chat as a person reaches it, with its link token when it is
+	// shared by link.
+	Url           string   `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	SharedWith    []string `protobuf:"bytes,4,rep,name=shared_with,json=sharedWith,proto3" json:"shared_with,omitempty"`
+	Access        string   `protobuf:"bytes,5,opt,name=access,proto3" json:"access,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartChatResponse) Reset() {
+	*x = StartChatResponse{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartChatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartChatResponse) ProtoMessage() {}
+
+func (x *StartChatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartChatResponse.ProtoReflect.Descriptor instead.
+func (*StartChatResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *StartChatResponse) GetChatId() string {
+	if x != nil {
+		return x.ChatId
+	}
+	return ""
+}
+
+func (x *StartChatResponse) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *StartChatResponse) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *StartChatResponse) GetSharedWith() []string {
+	if x != nil {
+		return x.SharedWith
+	}
+	return nil
+}
+
+func (x *StartChatResponse) GetAccess() string {
+	if x != nil {
+		return x.Access
+	}
+	return ""
+}
+
 // MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
 // mint is in the capability the caller presents in the X-Podium-Turn header.
 type MintTokenRequest struct {
@@ -717,7 +876,7 @@ type MintTokenRequest struct {
 
 func (x *MintTokenRequest) Reset() {
 	*x = MintTokenRequest{}
-	mi := &file_podium_agent_v1_turn_proto_msgTypes[13]
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -729,7 +888,7 @@ func (x *MintTokenRequest) String() string {
 func (*MintTokenRequest) ProtoMessage() {}
 
 func (x *MintTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_turn_proto_msgTypes[13]
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -742,7 +901,7 @@ func (x *MintTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MintTokenRequest.ProtoReflect.Descriptor instead.
 func (*MintTokenRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{13}
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{15}
 }
 
 type MintTokenResponse struct {
@@ -768,7 +927,7 @@ type MintTokenResponse struct {
 
 func (x *MintTokenResponse) Reset() {
 	*x = MintTokenResponse{}
-	mi := &file_podium_agent_v1_turn_proto_msgTypes[14]
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +939,7 @@ func (x *MintTokenResponse) String() string {
 func (*MintTokenResponse) ProtoMessage() {}
 
 func (x *MintTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_turn_proto_msgTypes[14]
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +952,7 @@ func (x *MintTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MintTokenResponse.ProtoReflect.Descriptor instead.
 func (*MintTokenResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{14}
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MintTokenResponse) GetToken() string {
@@ -886,7 +1045,21 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"\x16ReleasePreviewResponse\x12;\n" +
 	"\n" +
 	"delegation\x18\x01 \x01(\v2\x1b.podium.agent.v1.DelegationR\n" +
-	"delegation\"\x12\n" +
+	"delegation\"\x8d\x01\n" +
+	"\x10StartChatRequest\x12\x14\n" +
+	"\x05title\x18\x01 \x01(\tR\x05title\x12\x18\n" +
+	"\aopening\x18\x02 \x01(\tR\aopening\x12\x1d\n" +
+	"\n" +
+	"share_with\x18\x03 \x03(\tR\tshareWith\x12\x16\n" +
+	"\x06access\x18\x04 \x01(\tR\x06access\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\"\x8d\x01\n" +
+	"\x11StartChatResponse\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x10\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\x12\x1f\n" +
+	"\vshared_with\x18\x04 \x03(\tR\n" +
+	"sharedWith\x12\x16\n" +
+	"\x06access\x18\x05 \x01(\tR\x06access\"\x12\n" +
 	"\x10MintTokenRequest\"\xc4\x01\n" +
 	"\x11MintTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1a\n" +
@@ -895,14 +1068,15 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x1f\n" +
 	"\vauthor_name\x18\x04 \x01(\tR\n" +
 	"authorName\x12!\n" +
-	"\fauthor_email\x18\x05 \x01(\tR\vauthorEmail2\xd9\x04\n" +
+	"\fauthor_email\x18\x05 \x01(\tR\vauthorEmail2\xad\x05\n" +
 	"\vTurnService\x12O\n" +
 	"\bDelegate\x12 .podium.agent.v1.DelegateRequest\x1a!.podium.agent.v1.DelegateResponse\x12^\n" +
 	"\rGetDelegation\x12%.podium.agent.v1.GetDelegationRequest\x1a&.podium.agent.v1.GetDelegationResponse\x12d\n" +
 	"\x0fListDelegations\x12'.podium.agent.v1.ListDelegationsRequest\x1a(.podium.agent.v1.ListDelegationsResponse\x12g\n" +
 	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponse\x12g\n" +
 	"\x10InjectDelegation\x12(.podium.agent.v1.InjectDelegationRequest\x1a).podium.agent.v1.InjectDelegationResponse\x12a\n" +
-	"\x0eReleasePreview\x12&.podium.agent.v1.ReleasePreviewRequest\x1a'.podium.agent.v1.ReleasePreviewResponse2j\n" +
+	"\x0eReleasePreview\x12&.podium.agent.v1.ReleasePreviewRequest\x1a'.podium.agent.v1.ReleasePreviewResponse\x12R\n" +
+	"\tStartChat\x12!.podium.agent.v1.StartChatRequest\x1a\".podium.agent.v1.StartChatResponse2j\n" +
 	"\x14GitCredentialService\x12R\n" +
 	"\tMintToken\x12!.podium.agent.v1.MintTokenRequest\x1a\".podium.agent.v1.MintTokenResponseB\xc3\x01\n" +
 	"\x13com.podium.agent.v1B\tTurnProtoP\x01ZCgithub.com/podium-ade/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
@@ -919,7 +1093,7 @@ func file_podium_agent_v1_turn_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_turn_proto_rawDescData
 }
 
-var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*Delegation)(nil),               // 0: podium.agent.v1.Delegation
 	(*DelegateRequest)(nil),          // 1: podium.agent.v1.DelegateRequest
@@ -934,36 +1108,40 @@ var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*InjectDelegationResponse)(nil), // 10: podium.agent.v1.InjectDelegationResponse
 	(*ReleasePreviewRequest)(nil),    // 11: podium.agent.v1.ReleasePreviewRequest
 	(*ReleasePreviewResponse)(nil),   // 12: podium.agent.v1.ReleasePreviewResponse
-	(*MintTokenRequest)(nil),         // 13: podium.agent.v1.MintTokenRequest
-	(*MintTokenResponse)(nil),        // 14: podium.agent.v1.MintTokenResponse
-	(*timestamppb.Timestamp)(nil),    // 15: google.protobuf.Timestamp
+	(*StartChatRequest)(nil),         // 13: podium.agent.v1.StartChatRequest
+	(*StartChatResponse)(nil),        // 14: podium.agent.v1.StartChatResponse
+	(*MintTokenRequest)(nil),         // 15: podium.agent.v1.MintTokenRequest
+	(*MintTokenResponse)(nil),        // 16: podium.agent.v1.MintTokenResponse
+	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_turn_proto_depIdxs = []int32{
-	15, // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
+	17, // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
+	17, // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: podium.agent.v1.DelegateResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 3: podium.agent.v1.GetDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 4: podium.agent.v1.ListDelegationsResponse.delegations:type_name -> podium.agent.v1.Delegation
 	0,  // 5: podium.agent.v1.CancelDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 6: podium.agent.v1.InjectDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 7: podium.agent.v1.ReleasePreviewResponse.delegation:type_name -> podium.agent.v1.Delegation
-	15, // 8: podium.agent.v1.MintTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	17, // 8: podium.agent.v1.MintTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
 	1,  // 9: podium.agent.v1.TurnService.Delegate:input_type -> podium.agent.v1.DelegateRequest
 	3,  // 10: podium.agent.v1.TurnService.GetDelegation:input_type -> podium.agent.v1.GetDelegationRequest
 	5,  // 11: podium.agent.v1.TurnService.ListDelegations:input_type -> podium.agent.v1.ListDelegationsRequest
 	7,  // 12: podium.agent.v1.TurnService.CancelDelegation:input_type -> podium.agent.v1.CancelDelegationRequest
 	9,  // 13: podium.agent.v1.TurnService.InjectDelegation:input_type -> podium.agent.v1.InjectDelegationRequest
 	11, // 14: podium.agent.v1.TurnService.ReleasePreview:input_type -> podium.agent.v1.ReleasePreviewRequest
-	13, // 15: podium.agent.v1.GitCredentialService.MintToken:input_type -> podium.agent.v1.MintTokenRequest
-	2,  // 16: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
-	4,  // 17: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
-	6,  // 18: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
-	8,  // 19: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
-	10, // 20: podium.agent.v1.TurnService.InjectDelegation:output_type -> podium.agent.v1.InjectDelegationResponse
-	12, // 21: podium.agent.v1.TurnService.ReleasePreview:output_type -> podium.agent.v1.ReleasePreviewResponse
-	14, // 22: podium.agent.v1.GitCredentialService.MintToken:output_type -> podium.agent.v1.MintTokenResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
+	13, // 15: podium.agent.v1.TurnService.StartChat:input_type -> podium.agent.v1.StartChatRequest
+	15, // 16: podium.agent.v1.GitCredentialService.MintToken:input_type -> podium.agent.v1.MintTokenRequest
+	2,  // 17: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
+	4,  // 18: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
+	6,  // 19: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
+	8,  // 20: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
+	10, // 21: podium.agent.v1.TurnService.InjectDelegation:output_type -> podium.agent.v1.InjectDelegationResponse
+	12, // 22: podium.agent.v1.TurnService.ReleasePreview:output_type -> podium.agent.v1.ReleasePreviewResponse
+	14, // 23: podium.agent.v1.TurnService.StartChat:output_type -> podium.agent.v1.StartChatResponse
+	16, // 24: podium.agent.v1.GitCredentialService.MintToken:output_type -> podium.agent.v1.MintTokenResponse
+	17, // [17:25] is the sub-list for method output_type
+	9,  // [9:17] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -980,7 +1158,7 @@ func file_podium_agent_v1_turn_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_turn_proto_rawDesc), len(file_podium_agent_v1_turn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

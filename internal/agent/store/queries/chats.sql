@@ -336,3 +336,14 @@ where id = @id and not multiplayer and (
   or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
 )
 returning *;
+
+-- SetChatStartedFrom records that a chat was opened by a turn of another conversation.
+-- name: SetChatStartedFrom :one
+update chats
+set started_from_chat = sqlc.narg('started_from_chat'), started_by_turn = @started_by_turn
+where id = @id
+returning *;
+
+-- CountChatsStartedByTurn is how many chats one turn has opened.
+-- name: CountChatsStartedByTurn :one
+select count(*)::int from chats where started_by_turn = @started_by_turn::text;

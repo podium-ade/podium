@@ -246,7 +246,12 @@ How to do it well:
   start a second task for the same job. Inject is a new user message inside the running
   container; the workspace is kept. Delegate only for a new piece of work.
 - \`podium_cancel_delegation\` when the work is no longer wanted. A task nobody is waiting for
-  still holds a machine and still costs money.`;
+  still holds a machine and still costs money.
+- \`podium_start_chat\` opens a separate Podium chat — a triage, an incident, a side
+  discussion — when the person asks for one or wants other people brought in. Write its
+  opening as the brief that conversation starts from, invite people by email, and put the
+  link it returns in your answer: "Starting a triage — [click here to join](…)". It is not a
+  way to delegate work: that is still \`podium_delegate\`.`;
 }
 
 /**

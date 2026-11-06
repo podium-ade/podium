@@ -29,6 +29,24 @@ export interface Delegation {
   finished_at?: string;
 }
 
+/** StartChatArgs is what start_chat asks the conductor for (podium.agent.v1.StartChatRequest). */
+export interface StartChatArgs {
+  title: string;
+  opening: string;
+  share_with?: string[];
+  access?: string;
+  role?: string;
+}
+
+/** StartedChat is the chat the conductor opened (podium.agent.v1.StartChatResponse). */
+export interface StartedChat {
+  chatId?: string;
+  title?: string;
+  url?: string;
+  sharedWith?: string[];
+  access?: string;
+}
+
 /** DelegationState is a delegation plus the last thing its task said. */
 export interface DelegationState {
   delegation: Delegation;
@@ -82,6 +100,10 @@ export class Client {
 
   releasePreview(id: string): Promise<{ delegation: Delegation }> {
     return this.call("DELETE", `${Resources}/${encodeURIComponent(id)}/preview`);
+  }
+
+  startChat(args: StartChatArgs): Promise<StartedChat> {
+    return this.call("POST", "/v1/chats", args);
   }
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {

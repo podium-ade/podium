@@ -41,6 +41,7 @@ type Delegator interface {
 	CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error)
 	InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error)
 	ReleaseDelegationPreview(ctx context.Context, token, id string) (store.Delegation, error)
+	StartChat(ctx context.Context, token string, req conductor.StartChatRequest) (conductor.StartedChat, error)
 }
 
 // TurnService implements podium.agent.v1.TurnService.
@@ -194,6 +195,47 @@ func (s *TurnService) ReleasePreview(
 	s.logger.InfoContext(ctx, "a turn released a delegated task's preview",
 		"delegation_id", dlg.ID, "turn_id", dlg.TurnID, "task_id", dlg.TaskID)
 	return connect.NewResponse(&agentv1.ReleasePreviewResponse{Delegation: delegationProto(dlg)}), nil
+}
+
+// StartChat opens a new chat for the calling turn's person and returns the link to it.
+func (s *TurnService) StartChat(
+	ctx context.Context,
+	req *connect.Request[agentv1.StartChatRequest],
+) (*connect.Response[agentv1.StartChatResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	started, err := s.delegator.StartChat(ctx, token, conductor.StartChatRequest{
+		Title:     req.Msg.GetTitle(),
+		Opening:   req.Msg.GetOpening(),
+		ShareWith: req.Msg.GetShareWith(),
+		Access:    req.Msg.GetAccess(),
+		Role:      req.Msg.GetRole(),
+	})
+	if err != nil {
+		return nil, startChatError(err)
+	}
+	return connect.NewResponse(&agentv1.StartChatResponse{
+		ChatId:     started.Chat.ID,
+		Title:      started.Chat.Title,
+		Url:        started.URL,
+		SharedWith: started.SharedWith,
+		Access:     started.Chat.GeneralAccess,
+	}), nil
+}
+
+func startChatError(err error) error {
+	switch {
+	case errors.Is(err, conductor.ErrNoTurn):
+		return connect.NewError(connect.CodeUnauthenticated, err)
+	case errors.Is(err, conductor.ErrInvalidStartChat):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, conductor.ErrNoChatOwner), errors.Is(err, conductor.ErrTooManyChats):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return connect.NewError(connect.CodeInternal, err)
+	}
 }
 
 // token is the caller's turn token, or the reason there is nothing to do.

@@ -66,8 +66,37 @@ type fakePodium struct {
 	// vault is the control plane's secret store, so a turn's per-turn secrets — a git
 	// capability, an assistant task's delegation token — land somewhere a test can read.
 	vault *fakeVault
+	audit *fakeAudit
 
 	srv *httptest.Server
+}
+
+// fakeAudit is the control plane's audit log: it keeps every entry the conductor records.
+type fakeAudit struct {
+	mu      sync.Mutex
+	entries []*podiumv1.RecordAuditRequest
+}
+
+func (a *fakeAudit) RecordAudit(
+	_ context.Context, req *connect.Request[podiumv1.RecordAuditRequest],
+) (*connect.Response[podiumv1.RecordAuditResponse], error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.entries = append(a.entries, proto.Clone(req.Msg).(*podiumv1.RecordAuditRequest))
+	return connect.NewResponse(&podiumv1.RecordAuditResponse{}), nil
+}
+
+// Actions is every audit action recorded against subject, in order.
+func (a *fakeAudit) Actions(subject string) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []string
+	for _, e := range a.entries {
+		if e.GetSubject() == subject {
+			out = append(out, e.GetAction())
+		}
+	}
+	return out
 }
 
 type fakeTask struct {
@@ -84,11 +113,13 @@ func newFakePodium(t *testing.T) *fakePodium {
 		blobs:    map[string][]byte{},
 		terminal: podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED,
 		vault:    &fakeVault{values: map[string][]byte{}},
+		audit:    &fakeAudit{},
 	}
 	mux := http.NewServeMux()
 	mux.Handle(podiumv1connect.NewSecretServiceHandler(f.vault))
 	mux.Handle(podiumv1connect.NewTaskServiceHandler(f))
 	mux.Handle(podiumv1connect.NewArtifactServiceHandler(f))
+	mux.Handle(podiumv1connect.NewAuditServiceHandler(f.audit))
 	mux.HandleFunc("/artifacts/", f.download)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
