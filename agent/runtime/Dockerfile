@@ -11,7 +11,7 @@
 # There is no CLAUDE_* or ANTHROPIC_* variable anywhere below, and no
 # --dangerously-skip-permissions: the key arrives as a Podium secret with target: env, and
 # the only permission decision is permissionMode in src/main.ts.
-ARG NODE_IMAGE=node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+ARG NODE_IMAGE=node:26-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072
 
 # --------------------------------------------------------------------------------- build
 FROM ${NODE_IMAGE} AS build

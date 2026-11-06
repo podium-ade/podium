@@ -503,7 +503,7 @@ task's containers up after its command exits and publishes the named ports outsi
 until the `ttl` runs out or somebody releases it.
 
 ```yaml
-image: node:22
+image: node:26
 command: ["sh", "-c", "make build test && (make serve &)"]
 sidecars:
   accounts:     { image: ghcr.io/acme/accounts:dev }
