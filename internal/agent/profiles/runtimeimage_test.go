@@ -58,3 +58,21 @@ func TestAnExplicitImageIsKept(t *testing.T) {
 	s.applyDefaults()
 	require.Equal(t, "registry.example.com/mine@sha256:abc", s.Image)
 }
+
+// A desktop playbook that names no image gets the desktop image, on a release too: nobody
+// publishes it (it carries voxl, which is GPL-2+ as built), so the only default there is is the
+// tag `make agent-runtime-desktop` writes. One that names an image keeps it.
+func TestADesktopPlaybookWithNoImageGetsTheLocalDesktopImage(t *testing.T) {
+	original := version.Version
+	t.Cleanup(func() { version.Version = original })
+	for _, v := range []string{"0.1.0", "dev"} {
+		version.Version = v
+		s := Playbook{AllowedTools: []string{"read"}, Desktop: true}
+		s.applyDefaults()
+		require.Equal(t, LocalDesktopImage, s.Image, v)
+		require.NoError(t, s.validate("test"))
+	}
+	s := Playbook{Image: "modal:podium-desktop:v1", AllowedTools: []string{"read"}, Desktop: true}
+	s.applyDefaults()
+	require.Equal(t, "modal:podium-desktop:v1", s.Image)
+}

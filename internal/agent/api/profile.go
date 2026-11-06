@@ -237,6 +237,7 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		Interactive:    s.Interactive,
 		Docker:         s.Docker,
 		Browser:        s.Browser,
+		Desktop:        s.Desktop,
 		Origin:         "file",
 		Editable:       true,
 		RunsOn:         s.RunsOn,

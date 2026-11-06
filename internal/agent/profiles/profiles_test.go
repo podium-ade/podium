@@ -162,6 +162,15 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"a docker playbook pointing DOCKER_HOST somewhere else", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "docker: true\nenv: {DOCKER_HOST: tcp://elsewhere:2375}\n"
 		}, []string{"playbooks/general.yaml", "DOCKER_HOST"}},
+		{"a desktop with a second browser", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nbrowser: true\n"
+		}, []string{"playbooks/general.yaml", "desktop and browser cannot both be true"}},
+		{"a desktop exposing its own port name", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {desktop: {port: 3000}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.desktop is the desktop's own port"}},
+		{"a desktop exposing the desktop's port number", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {web: {port: 6901}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.web uses port 6901"}},
 		{"a boat machine type boat does not have", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "sandbox: {boat: {type: huge}}\n"
 		}, []string{"playbooks/general.yaml", "sandbox.boat.type"}},
