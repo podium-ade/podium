@@ -200,8 +200,11 @@ func (h *Handler) picture(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user, err := h.Store.GetUser(r.Context(), sess.Login)
+	user, err := h.Store.GetUser(r.Context(), pictureLogin(r, sess.Login))
 	if err != nil || user.PictureURL == "" {
+		// Cached briefly, so a screen full of people with no Google picture does not ask
+		// again for every face on every render; the client falls back to initials.
+		w.Header().Set("Cache-Control", "private, max-age=300")
 		http.NotFound(w, r)
 		return
 	}
@@ -236,6 +239,17 @@ func (h *Handler) picture(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, io.LimitReader(res.Body, pictureMaxBody))
+}
+
+// pictureLogin is whose picture a request asks for: ?login= names another member, so the
+// people in a shared chat are shown with their own faces, and no login is the caller's own.
+// Any signed-in member may see any member's picture, the way they already see each other's
+// names; somebody who is not signed in sees none (the session check above).
+func pictureLogin(r *http.Request, self string) string {
+	if login := strings.TrimSpace(r.URL.Query().Get("login")); login != "" {
+		return login
+	}
+	return self
 }
 
 func googlePictureHost(host string) bool {

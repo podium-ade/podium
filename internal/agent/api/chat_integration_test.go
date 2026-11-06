@@ -489,6 +489,8 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, second)
 	assert.Equal(t, uint64(2), second.GetSeq())
 	assert.Equal(t, "4,812 in August.", second.GetText())
+	assert.True(t, nextFrame(t, stream).GetReplayed(),
+		"the end of the replay is said, so a screen can tell an empty chat from one still loading")
 
 	// Then live: a human message reaches the stream the moment it is sent.
 	sent, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
@@ -772,6 +774,7 @@ func TestAttachAndDetachAPullRequestThroughTheService(t *testing.T) {
 	require.NotNil(t, nextFrame(t, stream).GetChat())
 	assert.Empty(t, nextFrame(t, stream).GetPullRequests().GetPullRequests(),
 		"a new chat has produced nothing yet")
+	require.True(t, nextFrame(t, stream).GetReplayed(), "an empty replay still ends with the marker")
 
 	// A URL with the path a browser was actually on. What is stored is canonical.
 	attached, err := f.client.AttachChatPullRequest(ctx, connect.NewRequest(

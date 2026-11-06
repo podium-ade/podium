@@ -204,3 +204,14 @@ func TestOriginOfFollowsLoopbackRequest(t *testing.T) {
 	require.Equal(t, "http://localhost:8080", originOf(lan, "http://localhost:8080"),
 		"a LAN Host is not a registered Google redirect; keep PublicURL")
 }
+
+func TestPictureLoginIsTheCallerUnlessAnotherMemberIsNamed(t *testing.T) {
+	own := httptest.NewRequest(http.MethodGet, PicturePath, nil)
+	require.Equal(t, "ada@acme.com", pictureLogin(own, "ada@acme.com"))
+
+	other := httptest.NewRequest(http.MethodGet, PicturePath+"?login=bob%40acme.com", nil)
+	require.Equal(t, "bob@acme.com", pictureLogin(other, "ada@acme.com"))
+
+	blank := httptest.NewRequest(http.MethodGet, PicturePath+"?login=%20", nil)
+	require.Equal(t, "ada@acme.com", pictureLogin(blank, "ada@acme.com"))
+}
