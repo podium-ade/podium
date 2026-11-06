@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"unicode/utf8"
@@ -128,8 +129,10 @@ func (r *Relay) send(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case w := <-r.queue:
-			raw, err := json.Marshal(w)
+			raw, err := encodeWire(w)
 			if err != nil {
+				r.logger.WarnContext(ctx, "a chat frame does not fit a NOTIFY; other conductors will catch up on their next re-read",
+					"chat_id", w.Chat, "kind", string(w.Kind), "error", err)
 				continue
 			}
 			if err := r.bus.Notify(ctx, store.ChatChannel, string(raw)); err != nil && ctx.Err() == nil {
@@ -170,6 +173,11 @@ func (r *Relay) rebuild(ctx context.Context, w wire) (Frame, error) {
 		return Frame{Kind: FrameMessage, Message: msg}, nil
 	case FrameChat:
 		chat, err := r.store.GetChat(ctx, w.Chat)
+		if errors.Is(err, store.ErrNotFound) {
+			// Deleted on the conductor that announced it. The watchers here have to hear
+			// that too, or their streams outlive the chat.
+			return Frame{Kind: FrameChat, Chat: Tombstone(w.Chat)}, nil
+		}
 		if err != nil {
 			return Frame{}, err
 		}
@@ -192,6 +200,33 @@ func (r *Relay) rebuild(ctx context.Context, w wire) (Frame, error) {
 		return Frame{Kind: FrameProgress, Progress: w.Text, TaskID: w.TaskID}, nil
 	}
 	return Frame{}, store.ErrNotFound
+}
+
+// encodeWire is w as a NOTIFY payload, never over store.MaxNotifyPayload. The rune cap on a
+// progress line is not enough on its own: JSON escapes <, >, & and control characters as six
+// bytes each, so a line of 1500 angle brackets is about 9 KB once encoded. A payload over the
+// limit has its progress text halved until it fits; only a frame that cannot fit even with no
+// text is an error.
+func encodeWire(w wire) ([]byte, error) {
+	for {
+		raw, err := json.Marshal(w)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) <= store.MaxNotifyPayload {
+			return raw, nil
+		}
+		if w.Text == "" {
+			return nil, fmt.Errorf("a %d-byte frame is over the %d-byte NOTIFY limit", len(raw), store.MaxNotifyPayload)
+		}
+		// cutRunes keeps an ellipsis, so a line already down to a rune or two goes outright,
+		// or this would never end.
+		if n := utf8.RuneCountInString(w.Text); n <= 2 {
+			w.Text = ""
+		} else {
+			w.Text = cutRunes(w.Text, n/2)
+		}
+	}
 }
 
 // cutRunes is s cut to at most n runes, on a rune boundary.

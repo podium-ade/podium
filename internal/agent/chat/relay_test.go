@@ -53,9 +53,13 @@ func (b *memBus) reconnect() {
 
 type relayRows struct {
 	msgs map[uint64]store.ChatMessage
+	gone map[string]bool
 }
 
 func (r relayRows) GetChat(_ context.Context, id string) (store.Chat, error) {
+	if r.gone[id] {
+		return store.Chat{}, store.ErrNotFound
+	}
 	return store.Chat{ID: id, Title: "re-read"}, nil
 }
 
@@ -154,6 +158,32 @@ func TestRelayCutsALongProgressLine(t *testing.T) {
 	a.Publish("c1", Frame{Kind: FrameProgress, Progress: long})
 	got := next(t, onB)
 	assert.Equal(t, progressRunes+1, len([]rune(got.Progress)), "cut on a rune boundary, with an ellipsis")
+}
+
+// A chat another conductor deleted reaches B's watchers as a tombstone, so their streams end
+// rather than wait for a frame that never comes.
+func TestRelayCarriesADeletedChatAsATombstone(t *testing.T) {
+	a, b, _ := relayPair(t, relayRows{gone: map[string]bool{"c1": true}})
+	onB := b.Subscribe(context.Background(), "c1")
+	a.Publish("c1", Frame{Kind: FrameChat})
+	got := next(t, onB)
+	assert.Equal(t, FrameChat, got.Kind)
+	assert.Equal(t, "c1", got.Chat.ID)
+	assert.NotNil(t, got.Chat.DeletedAt, "a chat that is gone is shown as deleted")
+}
+
+// JSON escapes <, > and & as six bytes each, so a progress line within the rune cap can still
+// be over NOTIFY's limit once encoded. It is cut until it fits, and it still crosses.
+func TestRelayFitsAnEscapeHeavyProgressLineIntoANotify(t *testing.T) {
+	w := wire{Origin: "cond_x", Chat: "c1", Kind: FrameProgress, Text: cutRunes(strings.Repeat("<", 3000), progressRunes)}
+	raw, err := encodeWire(w)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(raw), store.MaxNotifyPayload)
+	assert.Contains(t, string(raw), `\u003c`, "still a progress line")
+
+	short, err := encodeWire(wire{Origin: "cond_x", Chat: "c1", Kind: FrameProgress, Text: "\x00\x01"})
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(short), store.MaxNotifyPayload)
 }
 
 // A chat nobody on B watches is not re-read on B; a message B cannot find is dropped.
