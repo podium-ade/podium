@@ -81,7 +81,8 @@ func (c *Conductor) recordKey(src Source, ev InboundEvent) (string, bool) {
 // source that is not mirrored, a message with no identity of its own, and a mirror write that
 // failed — because the mirror is how a turn is READ, and a database blip must not stop the
 // bot answering.
-func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent) bool {
+func (c *Conductor) mirrorHeard(ctx context.Context, src Source, evp *InboundEvent) bool {
+	ev := *evp
 	key, ok := c.mirrorKey(src, ev.Ref)
 	if !ok {
 		return true
@@ -118,7 +119,13 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 	if created {
 		c.seedHistory(ctx, src, chat, ev)
 	}
-	return c.mirrorRecord(ctx, src, chat.ID, ev, !ev.RecordOnly)
+	row, fresh := c.mirrorRecord(ctx, src, chat.ID, ev, !ev.RecordOnly)
+	if fresh && row.Seq != 0 {
+		// The message in the record this event is, for the turn queue: the person who asked
+		// takes their queued turn back by it, and the chat shows whose turns are waiting.
+		evp.ChatID, evp.ChatSeq = row.ChatID, row.Seq
+	}
+	return fresh
 }
 
 // mirrorChat finds the chat mirroring a conversation, or opens it. created is true only for
@@ -161,7 +168,7 @@ func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev Inbound
 		return
 	}
 	c.recordParticipant(ctx, chat, ev)
-	c.mirrorRecord(ctx, src, chat.ID, ev, false)
+	_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
 }
 
 // mirrorChanged applies an edit or a delete made on the message's own surface. It never
@@ -236,7 +243,7 @@ func (c *Conductor) seedHistory(ctx context.Context, src Source, chat store.Chat
 		ev.RecordOnly = true
 		c.resolveSpeaker(ctx, src, &ev)
 		c.recordParticipant(ctx, chat, ev)
-		c.mirrorRecord(ctx, src, chat.ID, ev, false)
+		_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
 	}
 	// Only once the history is in: a chat whose seed failed keeps its turns reading the
 	// source's earlier history in front of the record (transcript.go), as before.
@@ -246,9 +253,11 @@ func (c *Conductor) seedHistory(ctx context.Context, src Source, chat store.Chat
 	}
 }
 
-// mirrorRecord writes one human message into a mirrored chat and announces it. It reports
-// false only for a message that was already there.
-func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string, ev InboundEvent, addressed bool) bool {
+// mirrorRecord writes one human message into a mirrored chat and announces it, returning the
+// row it wrote. It reports false only for a message that was already there; a write that
+// failed is reported fresh with no row (a conversation that cannot be mirrored is still one
+// the bot answers).
+func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string, ev InboundEvent, addressed bool) (store.ChatMessage, bool) {
 	msg := store.ChatMessage{
 		ChatID:       chatID,
 		Role:         RoleUser,
@@ -267,11 +276,11 @@ func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string,
 	if err != nil {
 		c.logger.WarnContext(ctx, "appending to a mirrored conversation failed",
 			"chat_id", chatID, "role", msg.Role, "error", err)
-		return true
+		return store.ChatMessage{}, true
 	}
 	if !fresh {
 		c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), "duplicate").Inc() })
-		return false
+		return store.ChatMessage{}, false
 	}
 	outcome := "addressed"
 	if !addressed {
@@ -281,7 +290,7 @@ func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string,
 	if c.mirror != nil {
 		c.mirror.Mirrored(chatID, row)
 	}
-	return true
+	return row, true
 }
 
 // recordText is what the record keeps of a human message: their words, not an instruction

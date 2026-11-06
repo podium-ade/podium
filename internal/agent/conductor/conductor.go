@@ -530,7 +530,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// already written and stops here, so one message is never two turns. A no-op that reports
 	// fresh for the web chat, which stores its own messages, and for a source that is not
 	// mirrored at all.
-	if !c.mirrorHeard(ctx, src, ev) {
+	if !c.mirrorHeard(ctx, src, &ev) {
 		c.logger.InfoContext(ctx, "an inbound message was already recorded; not acting on it twice",
 			"source", src.Kind(), "source_key", ev.SourceKey, "external_id", ev.ExternalID)
 		return
