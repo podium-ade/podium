@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -31,8 +30,10 @@ const desktopEndpointTTL = 5 * time.Minute
 //   - A tailnet preview is on a device that refuses tagged callers, which this server is, by
 //     design: it is refused here with that reason rather than timing out.
 type desktopUpstreams struct {
-	store   *store.Store
-	secrets *secrets.Service
+	store *store.Store
+	// provider builds a sandbox provider from the server's configuration: buildSandboxProvider,
+	// replaced in tests.
+	provider func(ctx context.Context, name string) (sandbox.Provider, error)
 
 	mu    sync.Mutex
 	cache map[string]cachedUpstream
@@ -45,7 +46,14 @@ type cachedUpstream struct {
 }
 
 func newDesktopUpstreams(st *store.Store, sec *secrets.Service) *desktopUpstreams {
-	return &desktopUpstreams{store: st, secrets: sec, cache: map[string]cachedUpstream{}, now: time.Now}
+	return &desktopUpstreams{
+		store: st,
+		provider: func(ctx context.Context, name string) (sandbox.Provider, error) {
+			return buildSandboxProvider(ctx, sec, name)
+		},
+		cache: map[string]cachedUpstream{},
+		now:   time.Now,
+	}
 }
 
 func (d *desktopUpstreams) Resolve(ctx context.Context, taskID string) (desktop.Upstream, error) {
@@ -117,7 +125,7 @@ func (d *desktopUpstreams) sandboxUpstream(ctx context.Context, task store.Task,
 	if task.SandboxProvider == "" || task.SandboxID == "" {
 		return desktop.Upstream{}, desktop.ErrNoDesktop
 	}
-	p, err := buildSandboxProvider(ctx, d.secrets, task.SandboxProvider)
+	p, err := d.provider(ctx, task.SandboxProvider)
 	if err != nil {
 		return desktop.Upstream{}, err
 	}
@@ -129,11 +137,8 @@ func (d *desktopUpstreams) sandboxUpstream(ctx context.Context, task store.Task,
 	if err != nil || u.Host == "" {
 		return desktop.Upstream{}, fmt.Errorf("the %s sandbox's desktop port has no usable URL", task.SandboxProvider)
 	}
-	return desktop.Upstream{URL: u, Apply: func(r *http.Request) { endpointApply(ep, r) }}, nil
+	return desktop.Upstream{URL: u, Apply: ep.Apply}, nil
 }
-
-// endpointApply is sandbox.Endpoint.Apply, kept as a function so the endpoint is captured whole.
-func endpointApply(ep sandbox.Endpoint, r *http.Request) { ep.Apply(r) }
 
 func plainUpstream(raw string) (desktop.Upstream, error) {
 	u, err := url.Parse(raw)
