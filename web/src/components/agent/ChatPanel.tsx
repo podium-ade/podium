@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Ellipsis,
   LogOut,
+  Monitor,
   Pencil,
   Plus,
   Search,
@@ -28,6 +29,9 @@ import { comparePersonalities, inheritedAssistant } from "../../lib/personality"
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
+import { PanelResizer } from "../task/PanelResizer";
+import { desktopCandidate, useDesktopTask } from "../../lib/desktop";
+import { DesktopPanel } from "./DesktopPanel";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -1145,6 +1149,15 @@ function Conversation({
   // the viewer a row of their own — and harmless after.
   const [search] = useSearchParams();
   const stream = useChatStream(chatId, search.get("k") ?? "");
+  // A desktop turn's desktop, beside the conversation while its task runs — including the wait
+  // for the next message, which is when a person works on it. Hidden is per conversation.
+  const desktopTaskId = desktopCandidate(stream.messages, stream.taskId);
+  const desktop = useDesktopTask(desktopTaskId);
+  const [desktopHidden, setDesktopHidden] = useState(false);
+  const split = useRef<HTMLDivElement>(null);
+  const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
+  const desktopStyle =
+    desktopWidth === undefined ? undefined : ({ "--desktop-width": `${desktopWidth}px` } as CSSProperties);
   const botName = assistant?.displayName ?? "Podium";
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
@@ -1333,105 +1346,130 @@ function Conversation({
     );
   }
 
+  const desktopShown = desktop.desktop && !desktopHidden && desktopTaskId !== undefined;
   return (
-    <>
-      <ConversationTitle
-        title={title || stream.chat?.title || ""}
-        channel={channel}
-        onRename={onRename}
-        canRename={role === "" || canWrite(role)}
-        actions={
-          role !== "" ? (
-            <ShareButton
-              chatId={chatId}
-              title={title || stream.chat?.title || ""}
-              multiplayer={stream.chat?.multiplayer ?? false}
-            />
-          ) : null
-        }
-      />
-      {/* One header row: who is in it and where it lives, then what it produced. */}
-      <ChatPullRequests
-        chatId={chatId}
-        pullRequests={stream.pullRequests}
-        loading={!stream.pullRequestsKnown || stream.chat === undefined}
-        expect={{ surface: mirrored, people: mirrored || listedMultiplayer === true }}
-        leading={
-          (stream.chat?.surfaces.length ?? 0) > 0 ? <ChatSurfaces surfaces={stream.chat?.surfaces ?? []} /> : undefined
-        }
-        trailing={
-          (stream.chat?.people.length ?? 0) > 0 ? <ChatPeople people={stream.chat?.people ?? []} /> : undefined
-        }
-      />
-      {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
-          title and above the composer, it read as a new chat. */}
-      <Suspense fallback={<ThreadLoading />}>
-        <ChatThread
-          messages={thread}
-          busy={busy}
-          botName={botName}
-          progress={stream.progress}
-          taskId={stream.taskId}
-          onSend={(text) => send.mutate({ text, choice })}
-          top={
+    <div ref={split} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row" style={desktopStyle}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <ConversationTitle
+          title={title || stream.chat?.title || ""}
+          channel={channel}
+          onRename={onRename}
+          canRename={role === "" || canWrite(role)}
+          actions={
             <>
-              {connecting ? <TranscriptSkeleton /> : null}
-              {stream.error ? (
-                <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                  {stream.error}. Nothing was lost. The reconnect replays from the last message
-                  this browser saw.
-                </Alert>
+              {desktop.desktop && desktopHidden ? (
+                <Button size="xs" variant="outline" onClick={() => setDesktopHidden(false)} aria-label="Show the desktop">
+                  <Monitor aria-hidden />
+                  Desktop
+                </Button>
+              ) : null}
+              {role !== "" ? (
+                <ShareButton
+                  chatId={chatId}
+                  title={title || stream.chat?.title || ""}
+                  multiplayer={stream.chat?.multiplayer ?? false}
+                />
               ) : null}
             </>
           }
-          welcome={
-            showWelcome ? (
-              <ArrivalWell
-                botName={botName}
-                playbookNames={playbookNames}
-                onSuggest={(text) => send.mutate({ text, choice })}
-                suggesting={busy}
-              />
-            ) : null
+        />
+        {/* One header row: who is in it and where it lives, then what it produced. */}
+        <ChatPullRequests
+          chatId={chatId}
+          pullRequests={stream.pullRequests}
+          loading={!stream.pullRequestsKnown || stream.chat === undefined}
+          expect={{ surface: mirrored, people: mirrored || listedMultiplayer === true }}
+          leading={
+            (stream.chat?.surfaces.length ?? 0) > 0 ? <ChatSurfaces surfaces={stream.chat?.surfaces ?? []} /> : undefined
+          }
+          trailing={
+            (stream.chat?.people.length ?? 0) > 0 ? <ChatPeople people={stream.chat?.people ?? []} /> : undefined
           }
         />
-      </Suspense>
+        {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
+            title and above the composer, it read as a new chat. */}
+        <Suspense fallback={<ThreadLoading />}>
+          <ChatThread
+            messages={thread}
+            busy={busy}
+            botName={botName}
+            progress={stream.progress}
+            taskId={stream.taskId}
+            onSend={(text) => send.mutate({ text, choice })}
+            top={
+              <>
+                {connecting ? <TranscriptSkeleton /> : null}
+                {stream.error ? (
+                  <Alert variant="warn" title="The chat stream dropped and is reconnecting">
+                    {stream.error}. Nothing was lost. The reconnect replays from the last message
+                    this browser saw.
+                  </Alert>
+                ) : null}
+              </>
+            }
+            welcome={
+              showWelcome ? (
+                <ArrivalWell
+                  botName={botName}
+                  playbookNames={playbookNames}
+                  onSuggest={(text) => send.mutate({ text, choice })}
+                  suggesting={busy}
+                />
+              ) : null
+            }
+          />
+        </Suspense>
 
-      {!roleKnown ? (
-        <ComposerPlaceholder />
-      ) : viewOnly ? (
-        <div
-          data-testid="chat-view-only"
-          className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
-        >
-          <Users className="size-4 shrink-0" aria-hidden />
-          You have view access. Ask {owner || "the owner"} to make you an editor to post here.
-        </div>
-      ) : foreign ? (
-        <div
-          data-testid="chat-foreign-note"
-          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
-        >
-          This chat belongs to {owner}.
-        </div>
-      ) : (
-        <ChatComposer
-          disabled={sending}
-          running={stream.running && !stream.awaiting}
-          onStop={() => stop.mutate()}
-          multiplayer={multiplayer}
-          mirrored={mirrored ? origin : ""}
-          personality={personalityName}
-          queue={queue}
-          onTakeBack={(seq) => takeBack.mutate(seq)}
-          agents={agents}
-          assistant={assistant}
-          choice={choice}
-          onChoiceChange={setChoice}
-          onSend={(text, choice) => send.mutate({ text, choice })}
-        />
-      )}
-    </>
+        {!roleKnown ? (
+          <ComposerPlaceholder />
+        ) : viewOnly ? (
+          <div
+            data-testid="chat-view-only"
+            className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            <Users className="size-4 shrink-0" aria-hidden />
+            You have view access. Ask {owner || "the owner"} to make you an editor to post here.
+          </div>
+        ) : foreign ? (
+          <div
+            data-testid="chat-foreign-note"
+            className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            This chat belongs to {owner}.
+          </div>
+        ) : (
+          <ChatComposer
+            disabled={sending}
+            running={stream.running && !stream.awaiting}
+            onStop={() => stop.mutate()}
+            multiplayer={multiplayer}
+            mirrored={mirrored ? origin : ""}
+            personality={personalityName}
+            queue={queue}
+            onTakeBack={(seq) => takeBack.mutate(seq)}
+            agents={agents}
+            assistant={assistant}
+            choice={choice}
+            onChoiceChange={setChoice}
+            onSend={(text, choice) => send.mutate({ text, choice })}
+          />
+        )}
+      </div>
+      {desktopShown ? (
+        <>
+          <PanelResizer
+            width={desktopWidth}
+            onWidth={setDesktopWidth}
+            onReset={() => setDesktopWidth(undefined)}
+            container={split}
+            label="Resize the desktop"
+          />
+          <div className="flex min-h-[60vh] min-w-0 flex-col lg:min-h-0 lg:w-[var(--desktop-width,55%)]">
+            <DesktopPanel taskId={desktopTaskId} onHide={() => setDesktopHidden(true)} />
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
