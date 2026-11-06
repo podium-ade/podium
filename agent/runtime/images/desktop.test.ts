@@ -130,6 +130,37 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("MESA: 0");
   });
 
+  it("carries the browser tools' MCP client, and it drives the desktop's Chromium", () => {
+    // The runtime starts `chrome-devtools-mcp --browserUrl <cdp_url>` for the browser* tools;
+    // the base runtime image does not carry it. An MCP exchange over stdio against the
+    // desktop's DevTools port — initialize, then list the pages once it has answered — proves
+    // it is installed and drives this browser.
+    const client = [
+      'const p = require("node:child_process").spawn("chrome-devtools-mcp", ["--browserUrl", "http://127.0.0.1:9222"]);',
+      'let out = "";',
+      'const send = (m) => p.stdin.write(JSON.stringify(m) + "\\n");',
+      'p.stdout.on("data", (d) => {',
+      '  out += d;',
+      '  if (out.includes("\\"id\\":1") && !out.includes("sent")) {',
+      '    out += "sent";',
+      '    send({ jsonrpc: "2.0", method: "notifications/initialized" });',
+      '    send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_pages", arguments: {} } });',
+      '  }',
+      '  const page = /\\d+: (about:blank)/.exec(out);',
+      '  if (page) { console.log("PAGE: " + page[1]); p.kill(); process.exit(0); }',
+      '});',
+      'send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } });',
+      'setTimeout(() => { console.log("NO PAGE: " + out); p.kill(); process.exit(1); }, 30000);',
+    ].join("\n");
+    const run = docker([
+      "run", "--rm", "-e", `MCP_CLIENT=${client}`, "--entrypoint", "sh", DesktopImage, "-c",
+      'echo "MCP: $(chrome-devtools-mcp --version)"; podium-desktop -- sh -c \'node -e "$MCP_CLIENT"\'',
+    ]);
+    expect(run.status, show(run)).toBe(0);
+    expect(run.stdout).toMatch(/MCP: \d+\.\d+\.\d+/);
+    expect(run.stdout).toContain("PAGE: about:blank");
+  });
+
   it("fails the turn at the start, saying why, when the desktop cannot come up", () => {
     // Another X server already holds display :1 (a lock file naming a live process — this
     // shell): Xvfb refuses to start, and the turn's command must not run at all. The lock is

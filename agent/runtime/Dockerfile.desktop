@@ -95,6 +95,16 @@ RUN set -eux; \
     test -f /usr/share/doc/libx264-164/copyright; \
     chromium --version
 
+# The MCP client the runtime points the agent's browser* tools at (opencode.ts, BrowserBinary).
+# The base runtime does not carry it — a `browser: true` turn's image does — and without it a
+# desktop turn's browser tools have nothing to start. The same pin as Dockerfile.dev, and
+# installed rather than fetched by npx at run time, for the same reasons.
+ARG CHROME_DEVTOOLS_MCP_VERSION=1.10.1
+RUN set -eux; \
+    npm install --global "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
+    npm cache clean --force; \
+    chrome-devtools-mcp --version
+
 COPY --from=voxl /opt/voxl/bin/voxl /usr/local/bin/voxl
 COPY --from=voxl /opt/voxl/src/ /usr/share/src/voxl/
 COPY desktop/podium-desktop desktop/xfce-setup.sh /opt/podium-desktop/
