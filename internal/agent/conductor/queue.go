@@ -33,6 +33,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -146,10 +147,18 @@ func (c *Conductor) kick(ctx context.Context, src Source, sess store.Session, j 
 	}
 	next, nsrc, nj, ok := c.popNext(ctx, src, sess, j)
 	if !ok {
-		// Somebody else took it between our write and our lease, or it was removed.
-		c.letGo(ctx, sess.ID, key)
+		// Somebody else took it between our write and our lease, or it was removed — or the
+		// queue counts rows nothing can pop right now (a pop that errors, rows locked by a
+		// concurrent delete). Let go without the immediate recheck: that recheck would kick
+		// again at once and, with rows that keep failing to pop, recurse without end. A retry
+		// a little later, backing off, is what a queue that is really there needs.
+		c.releaseSession(ctx, sess.ID, key)
+		c.retryQueue(ctx, sess.ID)
 		return
 	}
+	c.mu.Lock()
+	st.emptyPops = 0
+	c.mu.Unlock()
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -261,6 +270,58 @@ func (c *Conductor) stillAdmitted(ctx context.Context, src Source, ev *InboundEv
 // letGo releases a session this conductor holds, and takes it back if a turn was queued
 // while it was letting go. It reports nothing: whoever ends up serving the session serves it.
 func (c *Conductor) letGo(ctx context.Context, sessionID, key string) {
+	c.releaseSession(ctx, sessionID, key)
+	c.recheckQueue(ctx, sessionID)
+}
+
+// Queue retries after a kick that found nothing to pop: queueRetryBase doubling per attempt,
+// queueRetryMax attempts in a row. After that the session waits for the next message, or for
+// adoptQueues, rather than for a loop that may never succeed.
+const (
+	queueRetryBase = 250 * time.Millisecond
+	queueRetryMax  = 6
+)
+
+// retryQueue looks at a session's queue again later, when it still counts rows. It never
+// recurses: the next kick runs on a goroutine of its own after the backoff.
+func (c *Conductor) retryQueue(ctx context.Context, sessionID string) {
+	if ctx.Err() != nil {
+		return
+	}
+	n, err := c.store.CountQueuedTurns(ctx, sessionID)
+	if err != nil || n == 0 {
+		return
+	}
+	c.mu.Lock()
+	st := c.state(sessionID)
+	st.emptyPops++
+	attempt := st.emptyPops
+	c.mu.Unlock()
+	if attempt > queueRetryMax {
+		c.logger.WarnContext(ctx, "a session's queue counts turns that cannot be taken; leaving it for the next message",
+			"session_id", sessionID, "queued", n, "attempts", attempt-1)
+		c.mu.Lock()
+		st.emptyPops = 0
+		c.mu.Unlock()
+		return
+	}
+	wait := queueRetryBase << (attempt - 1)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		t := time.NewTimer(wait)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		c.recheckQueue(ctx, sessionID)
+	}()
+}
+
+// releaseSession is letGo without the look at the queue afterwards.
+func (c *Conductor) releaseSession(ctx context.Context, sessionID, key string) {
 	c.mu.Lock()
 	st := c.state(sessionID)
 	st.running = false
@@ -273,7 +334,6 @@ func (c *Conductor) letGo(ctx context.Context, sessionID, key string) {
 		c.requeueHanded(ctx, sessionID, *handed)
 		c.release(ctx, key)
 	}
-	c.recheckQueue(ctx, sessionID)
 }
 
 // recheckQueue is the look after letting go. A queued row with nobody serving it is this

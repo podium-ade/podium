@@ -4,9 +4,14 @@ package conductor_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -340,4 +345,78 @@ func TestTheConductorSaysExactlyWhereAMessageWent(t *testing.T) {
 			t.Fatalf("the conductor never said where %s's message went", who)
 		}
 	}
+}
+
+// TestAQueueRowNobodyCanTakeIsRetriedNotSpunOn: a queued row that is counted but cannot be
+// popped (here, locked by another transaction) used to make kick, letGo and recheckQueue call
+// each other without end. The conductor now backs off and looks again, and serves the row
+// once it can be taken.
+func TestAQueueRowNobodyCanTakeIsRetriedNotSpunOn(t *testing.T) {
+	ctx := context.Background()
+	st, dsn := newStoreWithURL(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer from "+taskID)}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	startWith(t, st, fake, src, nil)
+	key := conductor.KindDev + ":C1:1.1"
+
+	require.NoError(t, src.Send(ctx, asker("C1/1.1", "first", "alice@podium.test")))
+	waitFor(t, 30*time.Second, "alice's turn", func() bool { return turnStatus(st, key) == store.TurnSucceeded })
+	sess, err := st.GetSessionByKey(ctx, key)
+	require.NoError(t, err)
+
+	bob := asker("C1/1.1", "bob's, stuck", "bob@podium.test")
+	raw, err := json.Marshal(bob)
+	require.NoError(t, err)
+	row, err := st.EnqueueTurn(ctx, store.QueuedTurn{
+		SessionID: sess.ID, SourceKind: conductor.KindDev, Login: "bob@podium.test", Event: raw,
+	})
+	require.NoError(t, err)
+
+	// Lock bob's row so PopQueuedTurn (for update skip locked) cannot take it.
+	conn, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close(ctx) }()
+	tx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, "select id from turn_queue where id = $1 for update", row.ID)
+	require.NoError(t, err)
+
+	// Carol's message is served past the locked row; letting go afterwards finds the queue
+	// still counting bob's row and nothing it can take.
+	require.NoError(t, src.Send(ctx, asker("C1/1.1", "carol's", "carol@podium.test")))
+	waitFor(t, 30*time.Second, "carol's turn", func() bool {
+		return contains(startedBy(t, st, key), "carol@podium.test") && turnStatus(st, key) == store.TurnSucceeded
+	})
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, tx.Rollback(ctx))
+
+	waitFor(t, 30*time.Second, "bob's row to be served once it can be taken", func() bool {
+		return contains(startedBy(t, st, key), "bob@podium.test")
+	})
+	assert.Zero(t, queued(t, st, key))
+}
+
+// newStoreWithURL is newStore with the database's URL, for a test that needs a connection
+// of its own beside the store's pool.
+func newStoreWithURL(t *testing.T) (*store.Store, string) {
+	t.Helper()
+	ctx := context.Background()
+	name := fmt.Sprintf("podium_agent_conductor_%d_%d", os.Getpid(), dbSeq.Add(1))
+	conn, err := pgx.Connect(ctx, adminURL)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, fmt.Sprintf("create database %q", name))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(ctx))
+	u, err := url.Parse(adminURL)
+	require.NoError(t, err)
+	u.Path = "/" + name
+	st, err := store.New(ctx, u.String())
+	require.NoError(t, err)
+	t.Cleanup(st.Close)
+	require.NoError(t, st.Migrate(ctx))
+	return st, u.String()
 }
