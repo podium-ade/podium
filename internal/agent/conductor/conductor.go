@@ -1025,7 +1025,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent, j.onHost && c.chatHost != nil)
+	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, j.onHost && c.chatHost != nil)
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
@@ -1586,6 +1586,44 @@ func (c *Conductor) credentialOwner(ctx context.Context, login, agent string, on
 		return ""
 	}
 	return owner
+}
+
+// turnCredentialOwner is credentialOwner for a turn of one conversation: nobody's once the
+// conversation is shared. A shared conversation has one context whoever speaks in it, so it
+// spends one credential, the company's. Turns from different people then share a provider's
+// prompt cache instead of each writing their own, and nobody's own key is spent by somebody
+// else's question. Only the model key moves: the person asking still brings their own
+// secrets, MCP servers and GitHub account.
+func (c *Conductor) turnCredentialOwner(ctx context.Context, sess store.Session, login, agent string, onChatHost bool) string {
+	if c.sharedConversation(ctx, sess) {
+		return ""
+	}
+	return c.credentialOwner(ctx, login, agent, onChatHost)
+}
+
+// sharedConversation is whether a conversation is shared: a Slack thread or a pull request
+// always is, and a web chat is once it is multiplayer (shared, or a second person spoke in
+// it; store.Chat.Multiplayer, which never goes back). A chat whose record cannot be read is
+// treated as shared: the company key is what every turn falls back to anyway, and spending
+// a person's own key in a conversation they may have shared is the outcome to avoid.
+func (c *Conductor) sharedConversation(ctx context.Context, sess store.Session) bool {
+	switch sess.SourceKind {
+	case SourceSlack, SourceGitHub:
+		return true
+	}
+	if c.store == nil || sess.SourceKey == "" {
+		return false
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		c.logger.WarnContext(ctx, "could not tell whether the conversation is shared; the turn "+
+			"spends the global credential", "session_id", sess.ID, "error", err)
+		return true
+	}
+	return chat.Multiplayer
 }
 
 // turnOwner is the MCP registry a turn reads. A Slack turn, the dev token, and the

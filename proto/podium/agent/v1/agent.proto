@@ -1244,6 +1244,11 @@ message ChatFrame {
     ChatPullRequests pull_requests = 6;
     // queue is the turns waiting, sent at the start of the stream and whenever it changes.
     ChatQueue queue = 7;
+    // replayed is sent once per stream, after the replay from from_seq and before anything
+    // live. Until it arrives a client with no messages cannot tell an empty chat from one
+    // whose transcript is still on its way: the status, chat and pull-request frames all come
+    // first.
+    bool replayed = 8;
   }
 }
 

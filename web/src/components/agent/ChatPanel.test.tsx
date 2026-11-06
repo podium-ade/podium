@@ -45,6 +45,8 @@ vi.mock("../../lib/client", async () => {
       streamChat: (...a: unknown[]) => streamChat(...a),
       cancelChatTurn: (...a: unknown[]) => cancelChatTurn(...a),
       searchMembers: (...a: unknown[]) => searchMembers(...a),
+      // Opening a chat this person has a role in marks it read; nothing here asserts on it.
+      markChatRead: () => Promise.resolve({}),
     },
   };
 });
@@ -114,6 +116,9 @@ function said(seq: number, role: string, text: string, author: string) {
   return frame;
 }
 
+// replayed is the frame StreamChat sends once the transcript so far is out.
+const replayed = () => create(ChatFrameSchema, { frame: { case: "replayed", value: true } });
+
 // chatRow is the frame StreamChat opens with, which is where origin and participants arrive.
 const chatRow = (over: Record<string, unknown>) =>
   create(ChatFrameSchema, {
@@ -150,6 +155,8 @@ const chat = {
   lastMessageAt: timestampFromDate(new Date(Date.now() - 30_000)),
   preview: "how many active accounts",
   turnRunning: false,
+  // ListChats always says what the caller may do; the composer waits for it.
+  myRole: "owner",
 };
 
 const playbooks = [
@@ -332,6 +339,83 @@ describe("ChatPanel", () => {
     expect(await screen.findByText("That assistant was deleted.")).toBeInTheDocument();
   });
 
+  it("shows the loading skeleton, not a new chat's welcome, until the replay is done", async () => {
+    // The list has not answered yet, so nothing says whether this chat is new.
+    listChats.mockImplementation(() => new Promise(() => {}));
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    // The stream opens with the chat's own frames, before any message.
+    stream.push(chatRow({}));
+    stream.push(pullRequests());
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    expect(screen.queryByText(/Ask .* something/)).toBeNull();
+
+    stream.push(message(1, "user", "how many active accounts last month"));
+    stream.push(replayed());
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(1));
+    expect(screen.queryByLabelText("Loading the conversation")).toBeNull();
+    expect(screen.queryByText(/Ask .* something/)).toBeNull();
+  });
+
+  it("welcomes a chat that turns out to be empty once the replay is done", async () => {
+    listChats.mockImplementation(() => new Promise(() => {}));
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(chatRow({}));
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    stream.push(replayed());
+    expect(await screen.findByText(/Ask .* something/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading the conversation")).toBeNull();
+  });
+
+  it("never offers a viewer the composer, even before the stream says who they are", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, myRole: "viewer" }], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    expect(await screen.findByTestId("chat-view-only")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    stream.push(chatRow({ myRole: "viewer" }));
+    stream.push(replayed());
+    await waitFor(() => expect(screen.queryByLabelText("Loading the conversation")).toBeNull());
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+  });
+
+  it("holds the composer's place while nothing says whether this person may write", async () => {
+    listChats.mockImplementation(() => new Promise(() => {}));
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    expect(screen.queryByTestId("chat-view-only")).toBeNull();
+    stream.push(chatRow({ myRole: "editor" }));
+    expect(await screen.findByTestId("chat-composer")).toBeInTheDocument();
+  });
+
+  it("draws no pull-request empty state or attach button until the stream has said what the chat is", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-pr-add")).toBeNull();
+    expect(screen.queryByText(/No pull requests yet/)).toBeNull();
+
+    stream.push(chatRow({}));
+    expect(screen.queryByTestId("chat-pr-add")).toBeNull();
+    stream.push(pullRequests(41));
+    expect(await screen.findByTestId("chat-pull-request")).toHaveTextContent("acme/api#41");
+    expect(screen.getByTestId("chat-pr-add")).toBeInTheDocument();
+  });
+
   it("replays the conversation and follows it live", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
@@ -360,6 +444,7 @@ describe("ChatPanel", () => {
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
 
+    stream.push(chatRow({}));
     stream.push(message(1, "user", "fix the nil dereference and open a PR"));
     stream.push(message(2, "assistant", "Opened https://github.com/acme/api/pull/41."));
     stream.push(pullRequests(41));
@@ -916,6 +1001,8 @@ describe("ChatPanel", () => {
         ],
       }),
     );
+    // The server sends the set right after the chat row, at the start of every stream.
+    stream.push(pullRequests());
     const attributed = (seq: number, over: Record<string, unknown>) => {
       const frame = said(seq, "user", String(over.text ?? ""), String(over.author ?? ""));
       if (frame.frame.case === "message") Object.assign(frame.frame.value, over);

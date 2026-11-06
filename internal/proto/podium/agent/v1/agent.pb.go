@@ -5973,6 +5973,7 @@ type ChatFrame struct {
 	//	*ChatFrame_Chat
 	//	*ChatFrame_PullRequests
 	//	*ChatFrame_Queue
+	//	*ChatFrame_Replayed
 	Frame         isChatFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6078,6 +6079,15 @@ func (x *ChatFrame) GetQueue() *ChatQueue {
 	return nil
 }
 
+func (x *ChatFrame) GetReplayed() bool {
+	if x != nil {
+		if x, ok := x.Frame.(*ChatFrame_Replayed); ok {
+			return x.Replayed
+		}
+	}
+	return false
+}
+
 type isChatFrame_Frame interface {
 	isChatFrame_Frame()
 }
@@ -6111,6 +6121,14 @@ type ChatFrame_Queue struct {
 	Queue *ChatQueue `protobuf:"bytes,7,opt,name=queue,proto3,oneof"`
 }
 
+type ChatFrame_Replayed struct {
+	// replayed is sent once per stream, after the replay from from_seq and before anything
+	// live. Until it arrives a client with no messages cannot tell an empty chat from one
+	// whose transcript is still on its way: the status, chat and pull-request frames all come
+	// first.
+	Replayed bool `protobuf:"varint,8,opt,name=replayed,proto3,oneof"`
+}
+
 func (*ChatFrame_Message) isChatFrame_Frame() {}
 
 func (*ChatFrame_Progress) isChatFrame_Frame() {}
@@ -6124,6 +6142,8 @@ func (*ChatFrame_Chat) isChatFrame_Frame() {}
 func (*ChatFrame_PullRequests) isChatFrame_Frame() {}
 
 func (*ChatFrame_Queue) isChatFrame_Frame() {}
+
+func (*ChatFrame_Replayed) isChatFrame_Frame() {}
 
 type CreateChatRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -13365,7 +13385,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"Y\n" +
 	"\x10ChatPullRequests\x12E\n" +
-	"\rpull_requests\x18\x01 \x03(\v2 .podium.agent.v1.ChatPullRequestR\fpullRequests\"\xe8\x02\n" +
+	"\rpull_requests\x18\x01 \x03(\v2 .podium.agent.v1.ChatPullRequestR\fpullRequests\"\x86\x03\n" +
 	"\tChatFrame\x128\n" +
 	"\amessage\x18\x01 \x01(\v2\x1c.podium.agent.v1.ChatMessageH\x00R\amessage\x12\x1c\n" +
 	"\bprogress\x18\x02 \x01(\tH\x00R\bprogress\x125\n" +
@@ -13373,7 +13393,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06resync\x18\x04 \x01(\bH\x00R\x06resync\x12+\n" +
 	"\x04chat\x18\x05 \x01(\v2\x15.podium.agent.v1.ChatH\x00R\x04chat\x12H\n" +
 	"\rpull_requests\x18\x06 \x01(\v2!.podium.agent.v1.ChatPullRequestsH\x00R\fpullRequests\x122\n" +
-	"\x05queue\x18\a \x01(\v2\x1a.podium.agent.v1.ChatQueueH\x00R\x05queueB\a\n" +
+	"\x05queue\x18\a \x01(\v2\x1a.podium.agent.v1.ChatQueueH\x00R\x05queue\x12\x1c\n" +
+	"\breplayed\x18\b \x01(\bH\x00R\breplayedB\a\n" +
 	"\x05frame\"P\n" +
 	"\x11CreateChatRequest\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12%\n" +
@@ -14445,6 +14466,7 @@ func file_podium_agent_v1_agent_proto_init() {
 		(*ChatFrame_Chat)(nil),
 		(*ChatFrame_PullRequests)(nil),
 		(*ChatFrame_Queue)(nil),
+		(*ChatFrame_Replayed)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
