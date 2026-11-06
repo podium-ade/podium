@@ -905,6 +905,12 @@ func (c *Conductor) registerHost(ref string, cancel func()) {
 		c.hostRuns = map[string]func(){}
 	}
 	c.hostRuns[ref] = cancel
+	if at, ok := c.earlyStops[ref]; ok {
+		delete(c.earlyStops, ref)
+		if time.Since(at) < earlyStopTTL {
+			cancel()
+		}
+	}
 }
 
 func (c *Conductor) unregisterHost(ref string) {
@@ -925,6 +931,40 @@ func (c *Conductor) CancelHostTurn(ref string) bool {
 	}
 	cancel()
 	return true
+}
+
+// earlyStopTTL is how long a Stop for a turn that has not registered yet is remembered. The
+// gap it covers is the turn row being written and the turn taking its stop, which is
+// milliseconds; a Stop older than this belongs to nothing that will still start.
+const earlyStopTTL = 30 * time.Second
+
+// stopHostTurnSoon stops the host turn answering ref, or, when that turn is recorded as
+// running but has not registered yet, remembers the Stop so registerHost applies it. stopped
+// is a turn stopped now; deferred is a Stop remembered for a turn that has yet to register
+// here. Only a caller that has just read the turn as
+// running should use it: a ref nobody will register is simply forgotten after earlyStopTTL.
+func (c *Conductor) stopHostTurnSoon(ref string) (stopped, deferred bool) {
+	if c.CancelHostTurn(ref) {
+		return true, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel := c.hostRuns[ref]; cancel != nil {
+		// Registered between the two locks.
+		cancel()
+		return true, false
+	}
+	if c.earlyStops == nil {
+		c.earlyStops = map[string]time.Time{}
+	}
+	now := time.Now()
+	for r, at := range c.earlyStops {
+		if now.Sub(at) >= earlyStopTTL {
+			delete(c.earlyStops, r)
+		}
+	}
+	c.earlyStops[ref] = now
+	return false, true
 }
 
 // DefaultHostMaxTurns is how many host turns run at once when nothing says otherwise.

@@ -379,7 +379,14 @@ func (c *Conductor) CancelChatTurn(ctx context.Context, chatID string) (bool, er
 	if err != nil || !ok {
 		return false, err
 	}
-	stopped := c.CancelHostTurn(turn.TriggerRef)
+	// stopHostTurnSoon, not CancelHostTurn: the turn reads as running here a moment before it
+	// registers its stop, and a Stop pressed in that gap must still stop it.
+	stopped, deferred := c.stopHostTurnSoon(turn.TriggerRef)
+	if deferred && !c.leasing() && turn.TaskID == "" {
+		// One conductor, and a host turn that has not registered yet: it can only be ours,
+		// and registerHost will stop it.
+		stopped = true
+	}
 	if !stopped && c.leasing() {
 		if err := c.store.Notify(ctx, store.TurnCancelChannel, turn.TriggerRef); err != nil {
 			c.logger.WarnContext(ctx, "asking the other conductors to stop a turn failed",
@@ -405,7 +412,9 @@ func (c *Conductor) listenCancels(ctx context.Context) {
 		return
 	}
 	_ = c.store.Listen(ctx, store.TurnCancelChannel, nil, func(ref string) {
-		if c.CancelHostTurn(ref) {
+		// stopHostTurnSoon: the turn may be ours and not registered yet. A ref that is not
+		// ours is remembered for earlyStopTTL and then forgotten.
+		if stopped, _ := c.stopHostTurnSoon(ref); stopped {
 			c.logger.InfoContext(ctx, "stopped a host turn another conductor was asked to stop", "ref", ref)
 		}
 	}, func(err error) {

@@ -80,7 +80,9 @@ func TestStoppingAChatHostTurnInterruptsIt(t *testing.T) {
 		return started == 1
 	})
 
-	assert.True(t, r.cond.CancelHostTurn(ev.Ref), "a chat-host turn is stoppable")
+	waitFor(t, 20*time.Second, "a chat-host turn to be stoppable", func() bool {
+		return r.cond.CancelHostTurn(ev.Ref)
+	})
 	waitFor(t, 20*time.Second, "the turn to be recorded as cancelled", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnCancelled
 	})
@@ -108,7 +110,12 @@ func TestStoppingAChatHostTurnThatIsWaitingForRoom(t *testing.T) {
 		return turnStatus(st, second.SourceKey) == store.TurnRunning
 	})
 
-	assert.True(t, r.cond.CancelHostTurn(second.Ref), "a waiting chat-host turn is stoppable")
+	// The turn row says running a moment before the turn registers its stop, so the first
+	// Stop can land in that gap on a slow runner. Retry until it is registered: the first
+	// call that finds it is the one that stops it.
+	waitFor(t, 20*time.Second, "a waiting chat-host turn to be stoppable", func() bool {
+		return r.cond.CancelHostTurn(second.Ref)
+	})
 	waitFor(t, 20*time.Second, "the waiting turn to be recorded as cancelled", func() bool {
 		return turnStatus(st, second.SourceKey) == store.TurnCancelled
 	})
@@ -121,7 +128,9 @@ func TestStoppingAChatHostTurnThatIsWaitingForRoom(t *testing.T) {
 	assert.Equal(t, []string{"Stopped before I started."}, said)
 
 	// Freeing the slot does not start the stopped turn.
-	require.True(t, r.cond.CancelHostTurn(first.Ref))
+	waitFor(t, 20*time.Second, "the first turn to be stoppable", func() bool {
+		return r.cond.CancelHostTurn(first.Ref)
+	})
 	waitFor(t, 20*time.Second, "the first turn to end", func() bool {
 		return turnStatus(st, first.SourceKey) == store.TurnCancelled
 	})
