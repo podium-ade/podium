@@ -25,7 +25,10 @@ func TestFromMrkdwn(t *testing.T) {
 		{"subteam", "ping <!subteam^S123|@eng>", "ping @eng"},
 		{"escapes", "a &lt;b&gt; &amp; c", "a <b> & c"},
 		{"code span untouched", "run `*not bold*` please", "run `*not bold*` please"},
-		{"code block untouched", "```\n*x* _y_ &lt;\n```\n*z*", "```\n*x* _y_ &lt;\n```\n**z**"},
+		{"code block unformatted, its escapes undone", "```\n*x* _y_ &lt;\n```\n*z*", "```\n*x* _y_ <\n```\n**z**"},
+		{"code escapes are decoded", "```if a &lt; b &amp;&amp; c &gt; d```", "```if a < b && c > d```"},
+		{"code span escapes are decoded", "use `x &amp;&amp; y`", "use `x && y`"},
+		{"a typed entity survives", "write `&amp;lt;` for <", "write `&lt;` for <"},
 		{"unclosed backtick is prose", "a `b *c*", "a `b **c**"},
 		{"empty", "", ""},
 	}
