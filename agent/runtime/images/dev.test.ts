@@ -97,7 +97,7 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     expect(run.stdout).toContain(`LINT: golangci-lint has version ${golangciVersion} `);
     expect(run.stdout).toContain("MAKE: GNU Make");
     expect(run.stdout).toMatch(/GIT: git version \d/);
-    expect(run.stdout).toMatch(/NODE: v2[2-9]\./);
+    expect(run.stdout).toMatch(/NODE: v2[6-9]\./);
     expect(run.stdout).toMatch(/PNPM: 12\./);
   });
 

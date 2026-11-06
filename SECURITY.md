@@ -62,7 +62,7 @@ Releases are built by [`.github/workflows/release.yml`](.github/workflows/releas
 - every archive gets an SBOM from `syft`;
 - `checksums.txt` is signed with **keyless cosign**, so the signature names the workflow identity
   that produced it rather than a key somebody holds;
-- container images are multi-arch, based on `gcr.io/distroless/static-debian12` **pinned by
+- container images are multi-arch, based on `gcr.io/distroless/static-debian13` **pinned by
   digest**, and their manifests are signed the same way;
 - every GitHub Action in the release workflow is pinned to a commit SHA.
 

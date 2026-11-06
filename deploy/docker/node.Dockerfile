@@ -12,7 +12,7 @@
 #
 # The two Linux podium-runner builds are embedded in the binary itself, so nothing else has
 # to be copied in for tasks to run.
-FROM gcr.io/distroless/static-debian12:latest@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+FROM gcr.io/distroless/static-debian13:latest@sha256:448810357cc8e67b7208988abdba0f5ec3d3aebee0a5b13eb624979792cffc0f
 
 # goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
 # binaries at the same path: the build context holds linux/amd64/<binary> and
