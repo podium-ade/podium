@@ -15,6 +15,14 @@ on conflict (provider, external_id) do update
 select login from identities where provider = @provider and external_id = @external_id;
 
 -- HasWebIdentity is "this login has signed in to Podium". Only a web row says so.
+-- CanonicalWebLogin is the login a signed-in person is known by, for a login somebody typed
+-- in any case (0040). An exact match wins over a case-insensitive one.
+-- name: CanonicalWebLogin :one
+select login from identities
+where provider = 'web' and lower(external_id) = lower(@login)
+order by (external_id = @login) desc
+limit 1;
+
 -- name: HasWebIdentity :one
 select exists (
   select 1 from identities where provider = 'web' and external_id = @login

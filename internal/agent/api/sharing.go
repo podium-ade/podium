@@ -60,6 +60,18 @@ func (s *AgentService) auditChat(ctx context.Context, actor, action, chatID stri
 
 // chatRole is the caller's role on a chat. The dev token owns everything it can see; the
 // owner is answered from the row without a query, because that is every web chat's case.
+// typedLogin is a login somebody typed, in the spelling podium-server gave that person (0040):
+// "Dana@acme.com" for the dana@acme.com who signed in. Somebody who never signed in keeps what
+// was typed, trimmed, and is refused where a signed-in person is required.
+func (s *AgentService) typedLogin(ctx context.Context, typed string) (string, error) {
+	typed = strings.TrimSpace(typed)
+	login, ok, err := s.store.CanonicalWebLogin(ctx, typed)
+	if err != nil || !ok {
+		return typed, err
+	}
+	return login, nil
+}
+
 func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string) (string, error) {
 	if SeesAll(ctx) {
 		return store.RoleOwner, nil
@@ -332,11 +344,14 @@ func (s *AgentService) ShareChat(
 	if err != nil {
 		return nil, err
 	}
-	target := strings.ToLower(strings.TrimSpace(req.Msg.GetLogin()))
+	target, err := s.typedLogin(ctx, req.Msg.GetLogin())
+	if err != nil {
+		return nil, storeError(err)
+	}
 	if target == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("share chat: login is required"))
 	}
-	if target == row.Login {
+	if strings.EqualFold(target, row.Login) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("share chat: that is the chat's owner"))
 	}
 	first, err := s.store.ShareChat(ctx, row.ID, target, req.Msg.GetRole(), login)
@@ -372,7 +387,10 @@ func (s *AgentService) UnshareChat(
 	if err != nil {
 		return nil, err
 	}
-	target := strings.ToLower(strings.TrimSpace(req.Msg.GetLogin()))
+	target, err := s.typedLogin(ctx, req.Msg.GetLogin())
+	if err != nil {
+		return nil, storeError(err)
+	}
 	if target == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unshare chat: login is required"))
 	}

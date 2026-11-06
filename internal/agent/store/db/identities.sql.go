@@ -42,6 +42,23 @@ func (q *Queries) AddChatParticipant(ctx context.Context, arg AddChatParticipant
 	return inserted, err
 }
 
+const canonicalWebLogin = `-- name: CanonicalWebLogin :one
+select login from identities
+where provider = 'web' and lower(external_id) = lower($1)
+order by (external_id = $1) desc
+limit 1
+`
+
+// HasWebIdentity is "this login has signed in to Podium". Only a web row says so.
+// CanonicalWebLogin is the login a signed-in person is known by, for a login somebody typed
+// in any case (0040). An exact match wins over a case-insensitive one.
+func (q *Queries) CanonicalWebLogin(ctx context.Context, login string) (string, error) {
+	row := q.db.QueryRow(ctx, canonicalWebLogin, login)
+	var login_2 string
+	err := row.Scan(&login_2)
+	return login_2, err
+}
+
 const chatVisibleTo = `-- name: ChatVisibleTo :one
 select chat_visible_to(c.id, c.login, $1::text)::bool as visible
   from chats c where c.id = $2
@@ -101,7 +118,6 @@ select exists (
 )::bool as present
 `
 
-// HasWebIdentity is "this login has signed in to Podium". Only a web row says so.
 func (q *Queries) HasWebIdentity(ctx context.Context, login string) (bool, error) {
 	row := q.db.QueryRow(ctx, hasWebIdentity, login)
 	var present bool

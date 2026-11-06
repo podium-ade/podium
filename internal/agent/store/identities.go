@@ -81,6 +81,25 @@ func (s *Store) IdentityLogin(ctx context.Context, provider, externalID string) 
 	return login, nil
 }
 
+// CanonicalWebLogin is the login a signed-in person is known by, given one typed in any case.
+// ok is false for somebody who has never signed in. Logins are compared as podium-server
+// spells them everywhere else (0040), so a login a person typed is resolved through this
+// before it is written or compared.
+func (s *Store) CanonicalWebLogin(ctx context.Context, typed string) (string, bool, error) {
+	typed = strings.TrimSpace(typed)
+	if typed == "" {
+		return "", false, nil
+	}
+	login, err := s.q.CanonicalWebLogin(ctx, typed)
+	if noRows(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("look up the login of %s: %w", typed, err)
+	}
+	return login, true, nil
+}
+
 // HasWebIdentity reports whether this login has ever signed in to Podium.
 func (s *Store) HasWebIdentity(ctx context.Context, login string) (bool, error) {
 	ok, err := s.q.HasWebIdentity(ctx, login)

@@ -277,6 +277,31 @@ func TestAReviewCommandThatJoinsARunningReviewKeepsItsAllowance(t *testing.T) {
 	waitFor(t, 30*time.Second, "the second command to run a review", func() bool { return len(fake.Specs()) == 2 })
 }
 
+// Slack lowercases a workspace email; podium-server may spell the same person's login with
+// capitals. The Slack speaker still resolves, to the login as podium-server spells it, which is
+// what owns the chat and what every other comparison uses.
+func TestASlackSpeakerResolvesToTheLoginAsPodiumSpellsIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceSlack)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: "Dana@acme.com", Provider: store.ProviderWeb, ExternalID: "Dana@acme.com",
+	}))
+
+	ev := threadInbound("C1/61.1", "what is the plan?")
+	ev.Login = "dana@acme.com"
+	ev.SpeakerID = "T1/U_DANA"
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+	chat, err := st.ChatBySourceKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "Dana@acme.com", chat.Login)
+}
+
 func contains(xs []string, x string) bool {
 	for _, v := range xs {
 		if v == x {
