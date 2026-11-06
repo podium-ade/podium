@@ -19,5 +19,14 @@ export default defineConfig({
     // A shared CI runner is several times slower than a laptop, and a test that types a form
     // with userEvent already takes over a second here. These budgets are for that runner.
     testTimeout: 20_000,
+    // Node 25 turned on its own Web Storage, so from Node 26 a worker starts with a global
+    // `localStorage` that is undefined unless --localstorage-file names a file. It is an own
+    // property of globalThis, and vitest 3's jsdom environment does not overwrite a global
+    // that is already there — so every test that touches localStorage gets Node's
+    // undefined instead of jsdom's Storage and dies on `.getItem`. Turning Node's off puts
+    // jsdom's back. The flag is accepted from Node 22 on, where it is already the default.
+    poolOptions: {
+      forks: { execArgv: ["--no-experimental-webstorage"] },
+    },
   },
 });
