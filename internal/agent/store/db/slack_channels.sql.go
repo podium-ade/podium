@@ -88,6 +88,17 @@ func (q *Queries) SetChatChannelPrivacy(ctx context.Context, arg SetChatChannelP
 	return err
 }
 
+const setChatHistorySeeded = `-- name: SetChatHistorySeeded :exec
+update chats set history_seeded = true where id = $1
+`
+
+// SetChatHistorySeeded marks a mirrored chat whose record now starts where its
+// conversation did.
+func (q *Queries) SetChatHistorySeeded(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, setChatHistorySeeded, id)
+	return err
+}
+
 const setChatSourceURL = `-- name: SetChatSourceURL :exec
 update chats set source_url = $1 where id = $2
 `

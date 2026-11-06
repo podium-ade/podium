@@ -238,6 +238,12 @@ func (c *Conductor) seedHistory(ctx context.Context, src Source, chat store.Chat
 		c.recordParticipant(ctx, chat, ev)
 		c.mirrorRecord(ctx, src, chat.ID, ev, false)
 	}
+	// Only once the history is in: a chat whose seed failed keeps its turns reading the
+	// source's earlier history in front of the record (transcript.go), as before.
+	if err := c.store.SetChatHistorySeeded(ctx, chat.ID); err != nil {
+		c.logger.WarnContext(ctx, "recording that a chat's history was seeded failed",
+			"chat_id", chat.ID, "error", err)
+	}
 }
 
 // mirrorRecord writes one human message into a mirrored chat and announces it. It reports

@@ -37,3 +37,8 @@ update chats set channel_privacy = @channel_privacy where id = @id;
 -- SetChatSourceURL records the link to a mirrored chat's conversation where it lives (0038).
 -- name: SetChatSourceURL :exec
 update chats set source_url = @source_url where id = @id;
+
+-- SetChatHistorySeeded marks a mirrored chat whose record now starts where its
+-- conversation did.
+-- name: SetChatHistorySeeded :exec
+update chats set history_seeded = true where id = @id;
