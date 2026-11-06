@@ -349,8 +349,10 @@ every one finishing within 4.7 s.
 - **Whose key pays.** A person who sets their own key for the assistant's provider — a
   personal secret named `model.<provider>.api_key` (`model.anthropic.api_key`,
   `model.openai.api_key`, …), set under Settings → Models (Yours) or on the Secrets page — pays for their own conversations with it;
-  everyone else is on the company's. `podium_agent_gateway_requests_total{credential}` counts
-  which. A playbook may not name that secret.
+  everyone else is on the company's. A **shared** conversation is the company's whoever asks
+  (see [Several people, one conversation](#several-people-one-conversation)).
+  `podium_agent_gateway_requests_total{credential}` counts which. A playbook may not name that
+  secret.
 - **A message mid-turn is answered in it.** One that arrives while the assistant is answering
   goes into the same turn, and each gets its own answer; nothing waits for the turn to end.
 - **Limits.** `PODIUM_AGENT_CHAT_HOST_MAX_TURNS` (512) turns at once, and
@@ -415,6 +417,16 @@ What is put to Podium while it is answering is **queued** (`turn_queue`) and bec
 own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
+- **A shared conversation spends the company's model key.** Once a chat is multiplayer, and
+  always for a Slack thread or a pull request, every turn and every task it delegates runs on
+  the company's credential, never on the asker's own `model.<provider>.api_key` or Claude
+  sign-in, the owner's included. A shared conversation has one context, so it spends one
+  credential: turns from different people then share the provider's prompt cache, which is
+  scoped to the credential's workspace, and nobody's own key is spent by somebody else's
+  question. Only the model key moves. The asker's secrets, MCP servers and GitHub account
+  still apply to what they ask. Multiplayer is sticky, so this holds after a chat is
+  unshared. The share dialog warns the owner before the first share
+  (`conductor.turnCredentialOwner`).
 - **One person's run of messages is one turn**, as it always was: the latest is the instruction
   and the rest are in the transcript. A message from the same person on the same surface still
   goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting

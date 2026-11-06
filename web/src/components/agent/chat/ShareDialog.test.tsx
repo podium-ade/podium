@@ -51,12 +51,12 @@ function sharing(over: Over = {}): ChatSharing {
   });
 }
 
-function mount() {
+function mount(multiplayer = false) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ToastHost>
-        <ShareDialog chatId="chat_1" title="Launch" open onOpenChange={() => {}} />
+        <ShareDialog chatId="chat_1" title="Launch" multiplayer={multiplayer} open onOpenChange={() => {}} />
       </ToastHost>
     </QueryClientProvider>,
   );
@@ -139,6 +139,28 @@ describe("ShareDialog", () => {
     expect(screen.queryByRole("combobox", { name: "Role for Bob" })).toBeNull();
     expect(screen.getByTestId("share-general-access")).toBeDisabled();
     expect(screen.queryByTestId("share-link")).toBeNull();
+  });
+
+  it("warns the owner that a first share moves the chat to the company key", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
+    mount();
+    expect(await screen.findByTestId("share-key-warning")).toHaveTextContent("company’s model key");
+    expect(screen.getByTestId("share-key-warning")).toHaveTextContent("secrets, MCP servers and GitHub account");
+    expect(screen.queryByTestId("share-key-note")).toBeNull();
+  });
+
+  it("says a shared chat runs on the company key, without the warning", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing() });
+    mount();
+    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("runs on the company’s model key");
+    expect(screen.queryByTestId("share-key-warning")).toBeNull();
+  });
+
+  it("treats a chat the conductor marked multiplayer as shared", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
+    mount(true);
+    expect(await screen.findByTestId("share-key-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("share-key-warning")).toBeNull();
   });
 
   it("warns before a private Slack conversation is shared", async () => {

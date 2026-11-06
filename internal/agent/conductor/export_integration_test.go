@@ -86,3 +86,10 @@ func (c *Conductor) DeliverDueForTest(ctx context.Context) int { return c.delive
 func (c *Conductor) TurnTranscriptForTest(ctx context.Context, src Source, ref string, sess store.Session) ([]BriefEntry, error) {
 	return c.turnTranscript(ctx, src, ref, sess)
 }
+
+// SharedConversationForTest is whether a turn of sess would spend the company's model key
+// because its conversation is shared, against st's chat record.
+func SharedConversationForTest(ctx context.Context, st *store.Store, sess store.Session) bool {
+	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return c.sharedConversation(ctx, sess)
+}
