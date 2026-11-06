@@ -31,6 +31,7 @@ type Chat struct {
 	DeletedAt          *time.Time
 	ChannelPrivacy     string
 	SourceUrl          string
+	HistorySeeded      bool
 }
 
 type ChatAccess struct {

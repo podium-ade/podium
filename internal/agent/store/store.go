@@ -637,6 +637,9 @@ const ChatPreviewChars = 80
 type Chat struct {
 	ID    string
 	Title string
+	// HistorySeeded is a mirrored chat whose record was seeded with what its conversation
+	// said before Podium was in it (0039).
+	HistorySeeded bool
 	// SourceURL is the link to a mirrored chat's conversation where it lives (a Slack
 	// thread's permalink), "" when the source gave none (0038).
 	SourceURL string
@@ -1332,6 +1335,7 @@ func chatFromRow(row db.Chat) Chat {
 		DeletedAt:          row.DeletedAt,
 		ChannelPrivacy:     row.ChannelPrivacy,
 		SourceURL:          row.SourceUrl,
+		HistorySeeded:      row.HistorySeeded,
 	}
 }
 

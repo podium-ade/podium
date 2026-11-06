@@ -303,7 +303,7 @@ func (q *Queries) RevokeChatAccess(ctx context.Context, arg RevokeChatAccessPara
 const setChatGeneralAccess = `-- name: SetChatGeneralAccess :one
 update chats set general_access = $1, general_role = $2
  where id = $3
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
 `
 
 type SetChatGeneralAccessParams struct {
@@ -338,13 +338,14 @@ func (q *Queries) SetChatGeneralAccess(ctx context.Context, arg SetChatGeneralAc
 		&i.DeletedAt,
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
+		&i.HistorySeeded,
 	)
 	return i, err
 }
 
 const setChatLinkToken = `-- name: SetChatLinkToken :one
 update chats set link_token = $1 where id = $2
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded
 `
 
 type SetChatLinkTokenParams struct {
@@ -378,6 +379,7 @@ func (q *Queries) SetChatLinkToken(ctx context.Context, arg SetChatLinkTokenPara
 		&i.DeletedAt,
 		&i.ChannelPrivacy,
 		&i.SourceUrl,
+		&i.HistorySeeded,
 	)
 	return i, err
 }

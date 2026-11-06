@@ -126,12 +126,11 @@ func (c *Conductor) transcriptFor(ctx context.Context, src Source, ref, sourceKe
 			}
 			lines := recordLines(msgs, chat, c.botName())
 			if len(lines) > 0 {
-				if chat.Origin == SourceGitHub && src != nil {
-					// A pull request's record starts the first time Podium heard it, which
-					// can be long after the conversation started; its history is not seeded
-					// the way a Slack thread's is. What GitHub holds from before the first
-					// recorded message is read and put in front, once per turn, which is no
-					// more than the turn read before the record existed.
+				if chat.Origin == SourceGitHub && !chat.HistorySeeded && src != nil {
+					// A pull request chat opened before its history was seeded (0039), or
+					// whose seed failed, has a record that starts the first time Podium heard
+					// it. What GitHub holds from before the first recorded message is read and
+					// put in front, once per turn. A seeded chat's record already holds it.
 					lines = c.withEarlierHistory(ctx, src, ref, lines)
 				}
 				return lines, nil

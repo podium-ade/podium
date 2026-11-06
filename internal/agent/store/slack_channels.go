@@ -135,6 +135,18 @@ func (s *Store) SetChatSourceURL(ctx context.Context, id, url string) error {
 	return nil
 }
 
+// SetChatHistorySeeded records that a mirrored chat's record starts where its conversation
+// did (0039), so its turns read the record alone.
+func (s *Store) SetChatHistorySeeded(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("set chat history seeded: an id is required")
+	}
+	if err := s.q.SetChatHistorySeeded(ctx, id); err != nil {
+		return fmt.Errorf("mark history of chat %s seeded: %w", id, err)
+	}
+	return nil
+}
+
 // SlackChannelID is the C…/G…/D… inside a slack:<channel>:<thread> source key.
 func SlackChannelID(sourceKey string) (string, bool) {
 	kind, rest, ok := strings.Cut(sourceKey, ":")
