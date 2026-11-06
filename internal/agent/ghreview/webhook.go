@@ -140,7 +140,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	phrases := f.phraseRE()
 	// A review command is its own trigger: `/review` names no mention, and it is the one
 	// request somebody outside Podium may make, so it must reach the conductor's gate.
-	cmd, isCommand := ParseReviewCommand(c.body, s.mentionRE)
+	isCommand := IsReviewCommand(c.body, s.mentionRE)
 	if c.ready {
 		isCommand = false
 	}
@@ -204,7 +204,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	}
 	request := ""
 	if isCommand {
-		request = s.reviewRequest(ctx, c, cmd, commit, head)
+		request = reviewRequestInstruction(c.author, PRURL(c.owner, c.repo, c.number), commit, head)
 	}
 	ev := s.inbound(c, text)
 	ev.Mentioned = c.mentioned || isCommand
@@ -263,23 +263,6 @@ func (s *Source) recordOnly(ctx context.Context, c classified) {
 	ev := s.inbound(c, strings.TrimSpace(c.body))
 	ev.RecordOnly = true
 	s.emit(ctx, ev)
-}
-
-// reviewRequest is the review a commenter outside Podium is allowed to have: the fixed
-// instruction, with their note only if it survives sanitizing and the note checker. A note
-// that does not is dropped and the review still runs — refusing the review would make the
-// checker an oracle for what it catches.
-func (s *Source) reviewRequest(ctx context.Context, c classified, cmd ReviewCommand, commit, head string) string {
-	note := SanitizeReviewNote(cmd.Note)
-	if note != "" {
-		ok, err := s.noteChecker.Allowed(ctx, note)
-		if err != nil || !ok {
-			s.logger.InfoContext(ctx, "github: dropped the note on a review command",
-				"pr", PRURL(c.owner, c.repo, c.number), "sender", c.author, "error", err)
-			note = ""
-		}
-	}
-	return reviewRequestInstruction(c.author, PRURL(c.owner, c.repo, c.number), note, commit, head)
 }
 
 // logWebhook records one delivery. The body stays out of the log: it is the

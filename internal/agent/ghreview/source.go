@@ -115,9 +115,6 @@ type SourceOptions struct {
 	Reviews ReviewMemory
 	// Filters is read on every delivery. Nil is the default Filters.
 	Filters FilterLookup
-	// NoteChecker decides whether the note on a review command from somebody outside
-	// Podium may reach the model. Nil is DenyList.
-	NoteChecker NoteChecker
 }
 
 // ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
@@ -130,7 +127,6 @@ type ReviewMemory struct {
 type Source struct {
 	client        *restClient
 	logger        *slog.Logger
-	noteChecker   NoteChecker
 	events        chan conductor.InboundEvent
 	listen        string
 	webhookSecret string
@@ -217,14 +213,9 @@ func NewSource(opts SourceOptions) (*Source, error) {
 	if taskURL == nil {
 		taskURL = func(string) string { return "" }
 	}
-	checker := opts.NoteChecker
-	if checker == nil {
-		checker = DenyList{}
-	}
 	return &Source{
 		client:        client,
 		logger:        logger,
-		noteChecker:   checker,
 		events:        make(chan conductor.InboundEvent, eventBuffer),
 		listen:        opts.Listen,
 		webhookSecret: opts.WebhookSecret,
