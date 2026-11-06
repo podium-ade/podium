@@ -49,6 +49,9 @@ const (
 	// TaskServiceReleasePreviewProcedure is the fully-qualified name of the TaskService's
 	// ReleasePreview RPC.
 	TaskServiceReleasePreviewProcedure = "/podium.v1.TaskService/ReleasePreview"
+	// TaskServiceCreateDesktopTicketProcedure is the fully-qualified name of the TaskService's
+	// CreateDesktopTicket RPC.
+	TaskServiceCreateDesktopTicketProcedure = "/podium.v1.TaskService/CreateDesktopTicket"
 )
 
 // TaskServiceClient is a client for the podium.v1.TaskService service.
@@ -68,6 +71,12 @@ type TaskServiceClient interface {
 	// ReleasePreview tears down a finished task's preview before its ttl runs out.
 	// Idempotent: releasing one that is already gone succeeds.
 	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
+	// CreateDesktopTicket is a link to a running task's desktop, for the caller: a desktop
+	// playbook's task exposes voxl on a port named "desktop", and podium-server streams it on
+	// its desktop origin (PODIUM_DESKTOP_URL). The link names the task and the caller, is
+	// signed by the server, and expires; it works only while the task runs.
+	// FailedPrecondition when desktops are not configured or the task has none running.
+	CreateDesktopTicket(context.Context, *connect.Request[v1.CreateDesktopTicketRequest]) (*connect.Response[v1.CreateDesktopTicketResponse], error)
 }
 
 // NewTaskServiceClient constructs a client for the podium.v1.TaskService service. By default, it
@@ -123,18 +132,25 @@ func NewTaskServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(taskServiceMethods.ByName("ReleasePreview")),
 			connect.WithClientOptions(opts...),
 		),
+		createDesktopTicket: connect.NewClient[v1.CreateDesktopTicketRequest, v1.CreateDesktopTicketResponse](
+			httpClient,
+			baseURL+TaskServiceCreateDesktopTicketProcedure,
+			connect.WithSchema(taskServiceMethods.ByName("CreateDesktopTicket")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // taskServiceClient implements TaskServiceClient.
 type taskServiceClient struct {
-	createTask       *connect.Client[v1.CreateTaskRequest, v1.CreateTaskResponse]
-	getTask          *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
-	listTasks        *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
-	cancelTask       *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
-	injectTask       *connect.Client[v1.InjectTaskRequest, v1.InjectTaskResponse]
-	streamTaskEvents *connect.Client[v1.StreamTaskEventsRequest, v1.TaskEvent]
-	releasePreview   *connect.Client[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse]
+	createTask          *connect.Client[v1.CreateTaskRequest, v1.CreateTaskResponse]
+	getTask             *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
+	listTasks           *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
+	cancelTask          *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
+	injectTask          *connect.Client[v1.InjectTaskRequest, v1.InjectTaskResponse]
+	streamTaskEvents    *connect.Client[v1.StreamTaskEventsRequest, v1.TaskEvent]
+	releasePreview      *connect.Client[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse]
+	createDesktopTicket *connect.Client[v1.CreateDesktopTicketRequest, v1.CreateDesktopTicketResponse]
 }
 
 // CreateTask calls podium.v1.TaskService.CreateTask.
@@ -172,6 +188,11 @@ func (c *taskServiceClient) ReleasePreview(ctx context.Context, req *connect.Req
 	return c.releasePreview.CallUnary(ctx, req)
 }
 
+// CreateDesktopTicket calls podium.v1.TaskService.CreateDesktopTicket.
+func (c *taskServiceClient) CreateDesktopTicket(ctx context.Context, req *connect.Request[v1.CreateDesktopTicketRequest]) (*connect.Response[v1.CreateDesktopTicketResponse], error) {
+	return c.createDesktopTicket.CallUnary(ctx, req)
+}
+
 // TaskServiceHandler is an implementation of the podium.v1.TaskService service.
 type TaskServiceHandler interface {
 	CreateTask(context.Context, *connect.Request[v1.CreateTaskRequest]) (*connect.Response[v1.CreateTaskResponse], error)
@@ -189,6 +210,12 @@ type TaskServiceHandler interface {
 	// ReleasePreview tears down a finished task's preview before its ttl runs out.
 	// Idempotent: releasing one that is already gone succeeds.
 	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
+	// CreateDesktopTicket is a link to a running task's desktop, for the caller: a desktop
+	// playbook's task exposes voxl on a port named "desktop", and podium-server streams it on
+	// its desktop origin (PODIUM_DESKTOP_URL). The link names the task and the caller, is
+	// signed by the server, and expires; it works only while the task runs.
+	// FailedPrecondition when desktops are not configured or the task has none running.
+	CreateDesktopTicket(context.Context, *connect.Request[v1.CreateDesktopTicketRequest]) (*connect.Response[v1.CreateDesktopTicketResponse], error)
 }
 
 // NewTaskServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -240,6 +267,12 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(taskServiceMethods.ByName("ReleasePreview")),
 		connect.WithHandlerOptions(opts...),
 	)
+	taskServiceCreateDesktopTicketHandler := connect.NewUnaryHandler(
+		TaskServiceCreateDesktopTicketProcedure,
+		svc.CreateDesktopTicket,
+		connect.WithSchema(taskServiceMethods.ByName("CreateDesktopTicket")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.TaskService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TaskServiceCreateTaskProcedure:
@@ -256,6 +289,8 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 			taskServiceStreamTaskEventsHandler.ServeHTTP(w, r)
 		case TaskServiceReleasePreviewProcedure:
 			taskServiceReleasePreviewHandler.ServeHTTP(w, r)
+		case TaskServiceCreateDesktopTicketProcedure:
+			taskServiceCreateDesktopTicketHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -291,4 +326,8 @@ func (UnimplementedTaskServiceHandler) StreamTaskEvents(context.Context, *connec
 
 func (UnimplementedTaskServiceHandler) ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.ReleasePreview is not implemented"))
+}
+
+func (UnimplementedTaskServiceHandler) CreateDesktopTicket(context.Context, *connect.Request[v1.CreateDesktopTicketRequest]) (*connect.Response[v1.CreateDesktopTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.CreateDesktopTicket is not implemented"))
 }

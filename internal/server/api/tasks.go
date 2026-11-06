@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/server/secrets"
@@ -63,7 +64,20 @@ type TaskService struct {
 	logger  *slog.Logger
 	// maxPreviewTTL is the longest expose.ttl admission accepts.
 	maxPreviewTTL time.Duration
+	// desktops mints desktop links; nil when PODIUM_DESKTOP_URL is unset.
+	desktops DesktopMinter
 }
+
+// DesktopMinter is internal/server/desktop.Service, as the task API needs it.
+type DesktopMinter interface {
+	Mint(taskID, login string) (string, time.Time, error)
+}
+
+// SetDesktops turns CreateDesktopTicket on.
+func (s *TaskService) SetDesktops(m DesktopMinter) { s.desktops = m }
+
+// desktopPort is the exposed port a desktop playbook names voxl's port (desktop.PortName).
+const desktopPort = "desktop"
 
 // NewTaskService returns the task API. injector may be the same object as canceller
 // (the node registry implements both); nil means InjectTask is unavailable.
@@ -89,6 +103,43 @@ func (s *TaskService) SetMaxPreviewTTL(d time.Duration) {
 	if d > 0 {
 		s.maxPreviewTTL = d
 	}
+}
+
+// CreateDesktopTicket is a link to a running task's desktop for the caller. It asks what
+// GetTask asks — a member may see any task — plus that the task is running and is a desktop
+// playbook's. The link is checked again on every request it makes, against the task as it
+// is then.
+func (s *TaskService) CreateDesktopTicket(
+	ctx context.Context,
+	req *connect.Request[podiumv1.CreateDesktopTicketRequest],
+) (*connect.Response[podiumv1.CreateDesktopTicketResponse], error) {
+	if s.desktops == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("desktops are not configured on this server: set PODIUM_DESKTOP_URL"))
+	}
+	task, err := s.store.GetTask(ctx, req.Msg.GetTaskId())
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if err := desktopProblem(task); err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	link, exp, err := s.desktops.Mint(task.ID, login(ctx))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&podiumv1.CreateDesktopTicketResponse{Url: link, ExpiresAt: timestamppb.New(exp)}), nil
+}
+
+// desktopProblem is why a task has no desktop to show, or nil.
+func desktopProblem(task store.Task) error {
+	if task.Spec.Expose == nil || task.Spec.Expose.Ports[desktopPort].Port == 0 {
+		return fmt.Errorf("task %s has no desktop: its playbook is not a desktop playbook", task.ID)
+	}
+	if task.Status != store.StatusRunning {
+		return fmt.Errorf("task %s is %s: a desktop is there only while its task runs", task.ID, task.Status)
+	}
+	return nil
 }
 
 // CreateTask validates the spec and queues the task. Scheduling is the scheduler's problem.
