@@ -479,6 +479,32 @@ write agrees.
   conductor's credential may call, and only for `chat.*` actions). An audit write that fails
   is logged; the action stands.
 
+### Opening a chat from a turn
+
+The assistant can open a new chat and invite people into it — "starting a triage on this
+session: [click here to join](…)". Its `start_chat` tool (on the chat host's `podium` server
+and the runtime's, `POST /v1/chats` on the turn surface) takes a title, the assistant's
+opening message, and optionally `share_with` (Podium people by email), `access`
+(`restricted`, `members` or `link`) and `role` (`editor` or `viewer`). It answers with the
+link, which the assistant puts in its reply.
+
+- **It is the asker's chat.** The owner is the person who started the turn, on whatever
+  surface they spoke — exactly as if they had opened it themselves. A turn nobody in Podium
+  started (an automatic review, Linear, an anonymous review command) cannot open one.
+- **It starts from the opening and links home.** The first message is the assistant's,
+  ending "_Opened for Dana from [another conversation](…)_". The backlink is the plain chat
+  link, never the origin's link token, and leaves the origin's title out: the new chat may
+  be shared with people who cannot see the old one. The new chat records where it came from
+  (`0041`, `started_from_chat`).
+- **Sharing is the Share dialog's.** Named people are notified, a shared chat is multiplayer
+  from the start, link access gets a fresh token (the returned link carries it), and every
+  step is audited as the asker's — `chat.start`, then `chat.share` and `chat.general_access`
+  with `via: assistant`. Somebody who has never signed in is refused by name, and nothing is
+  opened.
+- **Bounded.** A turn opens at most three chats (`started_by_turn`, counted in the database,
+  so every conductor agrees) and names at most twenty people; members or link access is the
+  tool for more.
+
 ### Cancelling a turn
 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees

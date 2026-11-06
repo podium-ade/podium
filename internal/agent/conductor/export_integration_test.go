@@ -23,6 +23,11 @@ func (c *Conductor) DropGitCapabilityForTest(ctx context.Context, turnID string,
 	c.dropGitCapability(ctx, turnID, playbook)
 }
 
+// MintTurnTokenForTest issues the token a turn of sessionID started by login would hold.
+func (c *Conductor) MintTurnTokenForTest(sessionID, turnID, login string) (string, error) {
+	return c.mintTurnToken(turnGrant{turnID: turnID, sessionID: sessionID, login: login})
+}
+
 // PlacedForTest is where a turn of playbook runs, against st's saved default.
 func PlacedForTest(ctx context.Context, st *store.Store, playbook profiles.Playbook) profiles.Playbook {
 	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}

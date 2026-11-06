@@ -25,6 +25,13 @@ function stubClient(overrides: Partial<Record<keyof Client, unknown>> = {}): Cli
     releasePreview: vi.fn(async (id: string) => ({
       delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "succeeded" },
     })),
+    startChat: vi.fn(async (args: { title: string; share_with?: string[] }) => ({
+      chatId: "chat_new",
+      title: args.title,
+      url: "https://podium.example/agent/chat/chat_new",
+      sharedWith: args.share_with ?? [],
+      access: "restricted",
+    })),
   };
   return { ...base, ...overrides } as unknown as Client;
 }
@@ -77,6 +84,7 @@ describe("tools/list", () => {
       "list_delegations",
       "inject_delegation",
       "cancel_delegation",
+      "start_chat",
       "release_preview",
     ]);
     for (const tool of res.tools) {
@@ -214,6 +222,51 @@ describe("tools/call release_preview", () => {
   });
 });
 
+describe("tools/call start_chat", () => {
+  it("hands the conductor the chat to open and answers with the link to put in the reply", async () => {
+    const client = stubClient();
+    const res = await h_call(client, {
+      name: "start_chat",
+      arguments: {
+        title: "Triage: login outage",
+        opening: "Starting a triage.",
+        share_with: ["dana@acme.com"],
+        access: "members",
+      },
+    });
+    expect(client.startChat).toHaveBeenCalledWith({
+      title: "Triage: login outage",
+      opening: "Starting a triage.",
+      share_with: ["dana@acme.com"],
+      access: "members",
+      role: undefined,
+    });
+    expect(text(res)).toContain("https://podium.example/agent/chat/chat_new");
+    expect(text(res)).toContain("click here to join");
+    expect(text(res)).toContain("dana@acme.com");
+    expect(isError(res)).toBe(false);
+  });
+
+  it("refuses a share_with that is not a list of addresses", async () => {
+    const client = stubClient();
+    await expect(
+      h_call(client, { name: "start_chat", arguments: { title: "t", opening: "o", share_with: "dana" } }),
+    ).rejects.toThrow(/share_with/);
+    expect(client.startChat).not.toHaveBeenCalled();
+  });
+
+  it("relays the conductor's refusal as a failed tool result", async () => {
+    const client = stubClient({
+      startChat: vi.fn(async () => {
+        throw new DelegateError("failed_precondition", "a new chat needs a Podium person to own it");
+      }),
+    });
+    const res = await h_call(client, { name: "start_chat", arguments: { title: "t", opening: "o" } });
+    expect(isError(res)).toBe(true);
+    expect(text(res)).toContain("needs a Podium person");
+  });
+});
+
 describe("tools/call cancel_delegation", () => {
   it("passes the reason on", async () => {
     const client = stubClient();
@@ -257,7 +310,7 @@ describe("the stdio transport", () => {
     await done;
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
-    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(6);
+    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(tools.length);
   });
 
   it("says NOTHING to a notification, because answering one breaks the client", async () => {

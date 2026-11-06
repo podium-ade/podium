@@ -23,6 +23,7 @@ import (
 //	POST   /v1/delegations/{id}/cancel      stop it                    {reason}
 //	POST   /v1/delegations/{id}/messages    tell its task something    {text}
 //	DELETE /v1/delegations/{id}/preview     release its preview
+//	POST   /v1/chats                        open a new chat            {title, opening, shareWith, access, role}
 //	POST   /v1/git-tokens                   redeem the turn's capability for a GitHub token
 //	       /v1/mcp/pull-request             the pull-request reader (MCP)
 //
@@ -75,6 +76,13 @@ func NewTurnREST(turns *TurnService, gitcred *GitCredentialService, prMCP http.H
 		})
 		mux.HandleFunc("DELETE /v1/delegations/{id}/preview", func(w http.ResponseWriter, r *http.Request) {
 			serveTurnREST(w, r, http.StatusOK, &agentv1.ReleasePreviewRequest{Id: r.PathValue("id")}, turns.ReleasePreview)
+		})
+		mux.HandleFunc("POST /v1/chats", func(w http.ResponseWriter, r *http.Request) {
+			in := &agentv1.StartChatRequest{}
+			if !readBody(w, r, in) {
+				return
+			}
+			serveTurnREST(w, r, http.StatusCreated, in, turns.StartChat)
 		})
 	}
 	if gitcred != nil {
