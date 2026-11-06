@@ -66,11 +66,13 @@ func TestALeaseNobodyRenewsIsAnybodys(t *testing.T) {
 	s := newStore(t)
 	key := DelegationLease("dlg_1")
 
-	ok, err := s.AcquireLease(ctx, key, "dead", 50*time.Millisecond)
+	// The lease is long enough to outlive a cold database's first statements (50ms was not,
+	// on a freshly started server) and short enough that the sleep below outlives it.
+	ok, err := s.AcquireLease(ctx, key, "dead", 300*time.Millisecond)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, s.SetWarmTask(ctx, key, "dead", WarmTask{TaskID: "task_1"}))
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 
 	_, ok, err = s.HandOffToOwner(ctx, key, "live", []byte(`{}`))
 	require.NoError(t, err)

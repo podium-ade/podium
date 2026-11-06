@@ -295,6 +295,10 @@ type Conductor struct {
 	// hostRuns are the host turns in flight, by the ref of the message that started each,
 	// so one can be cancelled without stopping the conductor.
 	hostRuns map[string]func()
+	// earlyStops are Stops that arrived for a turn already recorded as running but not yet
+	// registered in hostRuns: the turn row is written a moment before the turn takes its
+	// stop. registerHost honours one it finds, so Stop pressed in that gap is not lost.
+	earlyStops map[string]time.Time
 	// turnTokens is the authority a host turn holds while it runs: one token per turn,
 	// scoped to that turn's conversation and its menu of playbooks, revoked when the turn
 	// ends. Not persisted — a host turn does not survive this process, so neither should
