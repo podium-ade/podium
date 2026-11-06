@@ -198,6 +198,57 @@ describe("ChatPanel desktop", () => {
     expect(await screen.findByTestId("desktop-panel")).toBeInTheDocument();
   });
 
+  it("has the workspace's terminal in a tab beside the desktop, and keeps both connected", async () => {
+    streamChat.mockImplementation(() =>
+      frames(msgFrame(1, "assistant", "on it", "task_desk")),
+    );
+    getTask.mockResolvedValue({ task: desktopTask() });
+    createDesktopTicket.mockResolvedValue({
+      url: "https://podium-desktop.example.com/t/task_desk/desk/",
+      terminalUrl: "https://podium-desktop.example.com/t/task_desk/term/",
+    });
+    const user = userEvent.setup();
+    mount();
+
+    await screen.findByTitle("The agent's desktop");
+    // The terminal connects when it is first opened, not before.
+    expect(
+      screen.queryByTitle("A terminal in the agent's workspace"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Terminal" }));
+    expect(
+      screen.getByTitle("A terminal in the agent's workspace"),
+    ).toHaveAttribute("src", "https://podium-desktop.example.com/t/task_desk/term/");
+    expect(
+      screen.getByRole("link", { name: "Open the terminal in a new tab" }),
+    ).toHaveAttribute("href", "https://podium-desktop.example.com/t/task_desk/term/");
+    // The desktop's stream is still there behind it: switching back does not reconnect.
+    expect(screen.getByTitle("The agent's desktop")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Desktop" }));
+    expect(
+      screen.getByTitle("A terminal in the agent's workspace"),
+    ).toBeInTheDocument();
+    expect(createDesktopTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no terminal tab for a task that serves none", async () => {
+    streamChat.mockImplementation(() =>
+      frames(msgFrame(1, "assistant", "on it", "task_desk")),
+    );
+    getTask.mockResolvedValue({ task: desktopTask() });
+    createDesktopTicket.mockResolvedValue({
+      url: "https://podium-desktop.example.com/t/task_desk/desk/",
+      terminalUrl: "",
+    });
+    mount();
+
+    await screen.findByTitle("The agent's desktop");
+    expect(screen.getByRole("tab", { name: "Desktop" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Terminal" })).not.toBeInTheDocument();
+  });
+
   it("shows nothing for a task that is not a desktop, or not running any more", async () => {
     streamChat.mockImplementation(() =>
       frames(msgFrame(1, "assistant", "done", "task_desk")),

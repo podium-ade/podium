@@ -1017,8 +1017,9 @@ export function PlaybookEditor({
                 Run on a shared desktop
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                A desktop the chat shows live, with the browser the agent drives. Needs the
-                desktop image and PODIUM_DESKTOP_URL; the turn waits 30 minutes between messages.
+                A desktop the chat shows live, with the browser the agent drives, and a terminal
+                in its workspace. Needs the desktop image and PODIUM_DESKTOP_URL; the turn waits 30
+                minutes between messages.
               </p>
             </div>
           </div>
