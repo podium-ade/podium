@@ -29,7 +29,15 @@ const selectCls =
  * ShareButton opens the share dialog. Everybody who can open a chat may see who else can;
  * only the owner is offered the controls — the server refuses everybody else anyway.
  */
-export function ShareButton({ chatId, title }: { chatId: string; title: string }) {
+export function ShareButton({
+  chatId,
+  title,
+  multiplayer = false,
+}: {
+  chatId: string;
+  title: string;
+  multiplayer?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -44,7 +52,15 @@ export function ShareButton({ chatId, title }: { chatId: string; title: string }
         <Share2 />
         Share
       </Button>
-      {open ? <ShareDialog chatId={chatId} title={title} open={open} onOpenChange={setOpen} /> : null}
+      {open ? (
+        <ShareDialog
+          chatId={chatId}
+          title={title}
+          multiplayer={multiplayer}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      ) : null}
     </>
   );
 }
@@ -52,15 +68,20 @@ export function ShareButton({ chatId, title }: { chatId: string; title: string }
 /**
  * ShareDialog is laid out like a document's: add people, the people with access (the owner
  * pinned first), and general access with its link.
+ *
+ * multiplayer is the chat's own flag. A shared chat runs on the company's model key, for
+ * good, so the dialog warns before the first share and says so afterwards.
  */
 export function ShareDialog({
   chatId,
   title,
+  multiplayer = false,
   open,
   onOpenChange,
 }: {
   chatId: string;
   title: string;
+  multiplayer?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -96,6 +117,11 @@ export function ShareDialog({
   const s = sharing.data;
   const owner = s?.myRole === "owner";
   const busy = share.isPending || unshare.isPending || update.isPending;
+  // Shared already: the chat says so, or this dialog has just shared it and the chat's own
+  // flag has not come back on the stream yet.
+  const shared =
+    multiplayer ||
+    (s !== undefined && (s.grants.length > 0 || (s.generalAccess !== "" && s.generalAccess !== "restricted")));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -116,6 +142,27 @@ export function ShareDialog({
               ? "This chat mirrors a private Slack conversation. Sharing it shows what was said there to people who are not in it."
               : "This chat mirrors a Slack channel that may be private. Sharing it shows what was said there to people who may not be in it."}
           </Alert>
+        ) : null}
+
+        {s ? (
+          shared ? (
+            <Alert role="note" data-testid="share-key-note">
+              This chat is shared, so it runs on the company’s model key. Each person’s own
+              secrets, MCP servers and GitHub account still apply to what they ask.
+            </Alert>
+          ) : owner ? (
+            <Alert
+              variant="warn"
+              role="note"
+              data-testid="share-key-warning"
+              title="Sharing moves this chat to the company’s model key"
+            >
+              From the first share on, every answer here, yours included, is paid for with the
+              company’s key instead of your own, and it stays that way even if you stop sharing.
+              Each person’s own secrets, MCP servers and GitHub account still apply to what
+              they ask.
+            </Alert>
+          ) : null
         ) : null}
 
         {owner ? (
@@ -212,7 +259,7 @@ function PersonRow({
   const name = grant.name || grant.login;
   return (
     <li data-testid="share-person" data-login={grant.login} className="flex items-center gap-2 py-1">
-      <Avatar name={name} src={grant.avatar} />
+      <Avatar name={name} src={grant.avatar} login={grant.login} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-fg">{name}</span>
         {grant.name && grant.name !== grant.login ? (
@@ -306,7 +353,7 @@ function AddPeople({
                 onClick={() => add(m.login)}
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-raised"
               >
-                <Avatar name={m.name || m.login} src={m.avatar} />
+                <Avatar name={m.name || m.login} src={m.avatar} login={m.login} />
                 <span className="min-w-0 flex-1 truncate">{m.name || m.login}</span>
                 {m.name ? <span className="truncate text-2xs text-muted">{m.login}</span> : null}
               </button>

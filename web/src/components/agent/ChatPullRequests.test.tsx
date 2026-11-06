@@ -34,12 +34,12 @@ function pr(owner: string, repo: string, number: number, source = "turn") {
   });
 }
 
-function mount(pullRequests = [pr("acme", "api", 41)]) {
+function mount(pullRequests = [pr("acme", "api", 41)], leading?: React.ReactNode, trailing?: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ToastHost>
-        <ChatPullRequests chatId="chat_01abc" pullRequests={pullRequests} />
+        <ChatPullRequests chatId="chat_01abc" pullRequests={pullRequests} leading={leading} trailing={trailing} />
       </ToastHost>
     </QueryClientProvider>,
   );
@@ -53,6 +53,55 @@ beforeEach(() => {
 });
 
 describe("ChatPullRequests", () => {
+  it("while loading, holds placeholders where the chip and faces will land, and nothing to press", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <ToastHost>
+          <ChatPullRequests chatId="chat_01abc" pullRequests={[]} loading expect={{ surface: true, people: true }} />
+        </ToastHost>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText("Loading")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+    expect(screen.queryByTestId("chat-pr-add")).toBeNull();
+    expect(screen.queryByText(/No pull requests yet/)).toBeNull();
+  });
+
+  it("while loading a chat that expects neither, is an empty row", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <ToastHost>
+          <ChatPullRequests chatId="chat_01abc" pullRequests={[]} loading />
+        </ToastHost>
+      </QueryClientProvider>,
+    );
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
+    expect(screen.queryByTestId("chat-pr-add")).toBeNull();
+  });
+
+  it("shares its row with who is in the conversation, and says nothing more when it has no links", () => {
+    mount([], <span data-testid="people">people</span>);
+    expect(screen.getByTestId("people")).toBeInTheDocument();
+    expect(screen.queryByText(/No pull requests yet/)).toBeNull();
+    // Attaching one is still offered.
+    expect(screen.getByTestId("chat-pr-add")).toBeInTheDocument();
+  });
+
+  it("puts the faces at the end of the row, just before the attach button", () => {
+    mount([pr("acme", "api", 41)], <span data-testid="surfaces">surfaces</span>, <span data-testid="faces">faces</span>);
+    const order = [...document.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid"));
+    expect(order.indexOf("surfaces")).toBeLessThan(order.indexOf("chat-pull-request"));
+    expect(order.indexOf("chat-pull-request")).toBeLessThan(order.indexOf("faces"));
+    expect(order.indexOf("faces")).toBeLessThan(order.indexOf("chat-pr-add"));
+  });
+
+  it("says there are none when the row has nothing else on it", () => {
+    mount([]);
+    expect(screen.getByText(/No pull requests yet/)).toBeInTheDocument();
+  });
+
   it("shows each link as owner/repo#number and opens it in a new tab", () => {
     mount([pr("acme", "api", 41), pr("acme", "web", 12, "human")]);
 

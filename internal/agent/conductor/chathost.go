@@ -80,7 +80,8 @@ type chatTurn struct {
 	delegationToken string
 	// title is what the turn named the chat, through the title tool.
 	title string
-	// login is the person whose own model key the gateway may spend, if they set one.
+	// login is the person whose own model key the gateway spends: the turn's credOwner, or
+	// empty for the company's.
 	login string
 	// session is the turn's opencode session, once it has one; open is true from then until
 	// the turn closes, while a message for the conversation is steered into it rather than
@@ -249,13 +250,10 @@ func (cr chatRun) run(ctx context.Context) {
 		return
 	}
 
-	login := h.login
-	if cv.provider == claudeAgentProvider {
-		// The sign-in being spent is credOwner's; the gateway must not fall back to anybody
-		// else's.
-		login = h.credOwner
-	}
-	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: login}
+	// The gateway spends credOwner's key, or the company's when credOwner is empty: the
+	// conductor already decided whose credential this turn spends (turnCredentialOwner), and
+	// a shared conversation spends nobody's own. The asker's login is not a fallback.
+	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: h.credOwner}
 	c.chat.mu.Lock()
 	cv.turn = turn
 	c.chat.mu.Unlock()

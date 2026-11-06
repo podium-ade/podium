@@ -180,11 +180,11 @@ function UserMessage() {
     </div>
   );
   return (
-    <MessagePrimitive.Root className="flex flex-col items-end gap-1">
+    <MessagePrimitive.Root className="flex animate-in flex-col items-end gap-1 fade-in-0 duration-300">
       {custom?.author ? (
         <div className="flex items-center gap-1.5 pr-1">
           <OriginMark via={custom.via} url={custom.externalUrl} />
-          <Avatar name={custom.author} src={custom.authorAvatar} className="size-5" />
+          <Avatar name={custom.author} src={custom.authorAvatar} login={custom.authorLogin} className="size-5" />
           <span data-testid="chat-author" className="text-xs font-medium text-muted">
             {custom.author}
           </span>
@@ -247,7 +247,7 @@ function AssistantMessage() {
   );
 
   return (
-    <MessagePrimitive.Root className="group/turn flex gap-3">
+    <MessagePrimitive.Root className="group/turn flex animate-in gap-3 fade-in-0 duration-300">
       <span
         aria-hidden
         className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-border bg-panel text-accent"

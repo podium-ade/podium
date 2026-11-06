@@ -350,7 +350,7 @@ func (c *Conductor) delegate(
 		if err := c.awaitWorkspace(bg, sess, playbookName, dlg.ID, limit); err != nil {
 			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
 				"delegation_id", dlg.ID, "error", err)
-			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
+			if ferr := c.finishDelegation(bg, dlg, store.TurnFailed, "", nil, nil); ferr != nil {
 				c.logger.ErrorContext(bg, "recording a delegation that never started failed",
 					"delegation_id", dlg.ID, "error", ferr)
 			}
@@ -376,7 +376,7 @@ func (c *Conductor) launch(
 	playbookName := playbook.Name
 	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice, opts)
 	if err != nil {
-		if ferr := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
+		if ferr := c.finishDelegation(ctx, dlg, store.TurnFailed, "", nil, nil); ferr != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that never started failed",
 				"delegation_id", dlg.ID, "error", ferr)
 		}
@@ -390,6 +390,9 @@ func (c *Conductor) launch(
 		c.logger.ErrorContext(ctx, "binding a delegation to its task failed",
 			"delegation_id", dlg.ID, "task_id", dlg.TaskID, "error", err)
 	}
+	// An open chat shows the task working from here, whether or not the turn that asked is
+	// still running (an automatic review's turn ends as soon as it hands the work over).
+	c.delegationChanged(ctx, dlg.SessionID)
 	c.logger.InfoContext(ctx, "delegated a task", "delegation_id", dlg.ID, "turn_id", g.turnID,
 		"session_id", g.sessionID, "playbook", playbookName, "task_id", dlg.TaskID)
 
@@ -401,7 +404,7 @@ func (c *Conductor) launch(
 		c.logger.WarnContext(ctx, "a delegated task failed before it started", "delegation_id", dlg.ID,
 			"task_id", dlg.TaskID, "status", failed.GetStatus().String(), "failure_reason", failed.GetFailureReason())
 		c.dropGitCapability(ctx, dlg.ID, playbook)
-		if err := c.store.FinishDelegation(ctx, dlg.ID, result.Status, "", nil, nil); err != nil {
+		if err := c.finishDelegation(ctx, dlg, result.Status, "", nil, nil); err != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that failed at once failed",
 				"delegation_id", dlg.ID, "error", err)
 		}
@@ -718,7 +721,7 @@ func (c *Conductor) startDelegatedTask(
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent, false)
+	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login
@@ -1105,7 +1108,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	}
 	// As turnRun.finish does, and for the same reason.
 	r.c.dropGitCapability(ctx, r.dlg.ID, r.playbook)
-	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer, numTurns, cost); err != nil {
+	if err := r.c.finishDelegation(ctx, r.dlg, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)
 	}
@@ -1208,7 +1211,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 			// Recorded, and its task never was. Nothing is running.
 			c.logger.WarnContext(ctx, "a delegation was recorded but its task never was; failing it",
 				"delegation_id", dlg.ID)
-			if err := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); err != nil {
+			if err := c.finishDelegation(ctx, dlg, store.TurnFailed, "", nil, nil); err != nil {
 				c.logger.ErrorContext(ctx, "failing an orphaned delegation failed",
 					"delegation_id", dlg.ID, "error", err)
 			}
@@ -1262,4 +1265,39 @@ func containsString(all []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ChatWatcher is told that a chat's row changed, so every screen watching it re-reads it. The
+// chat broadcaster implements it; it is how an open chat learns a delegated task started or
+// finished (Chat.TaskRunning), which nothing else it is sent says.
+type ChatWatcher interface {
+	ChatChanged(ctx context.Context, chatID string)
+}
+
+// finishDelegation records how a delegation ended and tells the conversation's open screens,
+// so a task block stops saying "working" the moment its task does.
+func (c *Conductor) finishDelegation(
+	ctx context.Context, dlg store.Delegation, status, answer string, numTurns *int, cost *float64,
+) error {
+	err := c.store.FinishDelegation(ctx, dlg.ID, status, answer, numTurns, cost)
+	c.delegationChanged(ctx, dlg.SessionID)
+	return err
+}
+
+// delegationChanged re-announces the chat a delegation belongs to. Best effort: a chat that
+// cannot be found (a conversation with no record) has no screen to tell.
+func (c *Conductor) delegationChanged(ctx context.Context, sessionID string) {
+	w, ok := c.mirror.(ChatWatcher)
+	if !ok || c.store == nil || sessionID == "" {
+		return
+	}
+	sess, err := c.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if err != nil {
+		return
+	}
+	w.ChatChanged(ctx, chat.ID)
 }

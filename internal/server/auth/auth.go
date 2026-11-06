@@ -26,8 +26,8 @@ const (
 	StartPath    = "/auth/google/start"
 	CallbackPath = "/auth/google/callback"
 	LogoutPath   = "/auth/logout"
-	// PicturePath is the signed-in user's Google avatar, proxied same-origin so
-	// tracking protection cannot hide it.
+	// PicturePath is a member's Google avatar, proxied same-origin so tracking
+	// protection cannot hide it: the signed-in user's own, or ?login= another member's.
 	PicturePath = "/auth/picture"
 )
 

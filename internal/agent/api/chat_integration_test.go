@@ -449,6 +449,37 @@ func TestARequestWithNoLoginIsRefused(t *testing.T) {
 // TestStreamChatReplaysThenFollows is the whole streaming contract in one test: what is
 // stored is replayed, what happens next arrives live, progress is a row like anything else
 // the task said and an attachment republishes the message it belongs to.
+// A delegated task outlives the turn that started it: an automatic review's turn ends the
+// moment it hands the work over. The open chat's row says the task is still running, as the
+// list does, or its task block reads "done" while the task works.
+func TestStreamChatSaysADelegatedTaskIsStillRunning(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	sess, err := f.store.UpsertSession(ctx, store.Session{
+		SourceKind: "chat", SourceKey: store.ChatSourceKey(chatID), Profile: "podium",
+	})
+	require.NoError(t, err)
+	turn, err := f.store.CreateTurn(ctx, sess.ID, chatID, store.Backend{})
+	require.NoError(t, err)
+	_, err = f.store.CreateDelegation(ctx, store.NewDelegation{
+		SessionID: sess.ID, TurnID: turn.ID, TriggerRef: chatID, Playbook: "review", Instruction: "review it",
+	})
+	require.NoError(t, err)
+	require.NoError(t, f.store.FinishTurn(ctx, turn.ID, store.TurnSucceeded, nil, nil, "started a task"))
+
+	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	head := nextFrame(t, stream).GetChat()
+	require.NotNil(t, head)
+	assert.True(t, head.GetTaskRunning(), "the turn is over and the task it delegated is not")
+}
+
 func TestStreamChatReplaysThenFollows(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -489,6 +520,8 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, second)
 	assert.Equal(t, uint64(2), second.GetSeq())
 	assert.Equal(t, "4,812 in August.", second.GetText())
+	assert.True(t, nextFrame(t, stream).GetReplayed(),
+		"the end of the replay is said, so a screen can tell an empty chat from one still loading")
 
 	// Then live: a human message reaches the stream the moment it is sent.
 	sent, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
@@ -772,6 +805,7 @@ func TestAttachAndDetachAPullRequestThroughTheService(t *testing.T) {
 	require.NotNil(t, nextFrame(t, stream).GetChat())
 	assert.Empty(t, nextFrame(t, stream).GetPullRequests().GetPullRequests(),
 		"a new chat has produced nothing yet")
+	require.True(t, nextFrame(t, stream).GetReplayed(), "an empty replay still ends with the marker")
 
 	// A URL with the path a browser was actually on. What is stored is canonical.
 	attached, err := f.client.AttachChatPullRequest(ctx, connect.NewRequest(

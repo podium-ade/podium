@@ -1380,6 +1380,16 @@ func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error
 	return running, nil
 }
 
+// ChatTaskRunning reports whether a task this chat delegated is still running. It fills
+// Chat.TaskRunning for a chat read on its own (GetChat), which the list query computes inline.
+func (s *Store) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
+	running, err := s.q.ChatTaskRunning(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("read whether a task of chat %s is running: %w", chatID, err)
+	}
+	return running, nil
+}
+
 // RunningChatTask is the Podium task currently answering this chat. Empty when nothing is
 // in flight, when the chat has never had a turn, and when the turn row exists but
 // CreateTask has not answered yet — there is then nothing to cancel.
