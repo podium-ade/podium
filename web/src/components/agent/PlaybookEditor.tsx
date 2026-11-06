@@ -172,6 +172,7 @@ export function PlaybookEditor({
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
   const [browser, setBrowser] = useState(playbook?.browser ?? false);
+  const [desktop, setDesktop] = useState(playbook?.desktop ?? false);
   const [runsOn, setRunsOn] = useState(playbook?.runsOn ?? "");
   const [overrides, setOverrides] = useState<SandboxOverrides>(() => definitionOverrides(playbook));
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
@@ -255,6 +256,7 @@ export function PlaybookEditor({
     interactive,
     docker,
     browser,
+    desktop,
     runsOn,
     sandbox: overrides,
     skills: skillList,
@@ -983,7 +985,10 @@ export function PlaybookEditor({
               id={`${uid}-browser`}
               aria-label="Attach a browser"
               checked={browser}
-              onCheckedChange={setBrowser}
+              onCheckedChange={(on) => {
+                setBrowser(on);
+                if (on) setDesktop(false);
+              }}
               className="mt-0.5"
             />
             <div className="min-w-0 space-y-0.5">
@@ -992,6 +997,28 @@ export function PlaybookEditor({
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
                 Headless Chrome sidecar and the tools to drive it.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-desktop`}
+              aria-label="Run on a shared desktop"
+              checked={desktop}
+              onCheckedChange={(on) => {
+                setDesktop(on);
+                if (on) setBrowser(false);
+              }}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-desktop`} className="text-fg">
+                Run on a shared desktop
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                A desktop the chat shows live, with the browser the agent drives. Needs the
+                desktop image and PODIUM_DESKTOP_URL; the turn waits 30 minutes between messages.
               </p>
             </div>
           </div>

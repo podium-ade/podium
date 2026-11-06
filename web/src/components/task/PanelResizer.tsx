@@ -19,6 +19,7 @@ export function PanelResizer({
   onWidth,
   onReset,
   container,
+  label = "Resize the entry panel",
 }: {
   /** width is the panel's current width in px, or undefined while it is the default. */
   width: number | undefined;
@@ -26,6 +27,8 @@ export function PanelResizer({
   onReset: () => void;
   /** container is the split the handle divides. */
   container: React.RefObject<HTMLElement | null>;
+  /** label names the handle for assistive technology: what it resizes. */
+  label?: string;
 }) {
   const dragging = useRef(false);
 
@@ -67,7 +70,7 @@ export function PanelResizer({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the entry panel"
+      aria-label={label}
       aria-valuenow={width}
       tabIndex={0}
       onPointerDown={down}
