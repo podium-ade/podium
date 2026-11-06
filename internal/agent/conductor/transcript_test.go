@@ -125,10 +125,12 @@ func TestTheRequestedByNoteNamesThePerson(t *testing.T) {
 	c.withRequestedBy(t.Context(), b, "dana@acme.com", nil)
 	assert.True(t, strings.HasPrefix(b.Instruction, "fix it\n\n(Podium note:"), b.Instruction)
 	assert.Contains(t, b.Instruction, "Requested-by: dana@acme.com")
+	assert.Equal(t, "dana@acme.com", b.RequestedBy, "the runtime's hook writes the trailer from this")
 
 	asPerson := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
 	c.withRequestedBy(t.Context(), asPerson, "dana@acme.com", &BriefGit{Name: "Dana"})
 	assert.Equal(t, "fix it", asPerson.Instruction, "a turn committing as the person needs no note")
+	assert.Empty(t, asPerson.RequestedBy, "nor a trailer")
 
 	noGit := &Brief{Instruction: "fix it"}
 	c.withRequestedBy(t.Context(), noGit, "dana@acme.com", nil)
@@ -137,4 +139,5 @@ func TestTheRequestedByNoteNamesThePerson(t *testing.T) {
 	nobody := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
 	c.withRequestedBy(t.Context(), nobody, "", nil)
 	assert.Equal(t, "fix it", nobody.Instruction)
+	assert.Empty(t, nobody.RequestedBy)
 }

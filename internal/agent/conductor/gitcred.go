@@ -377,8 +377,9 @@ func (c *Conductor) requestedBy(ctx context.Context, login string) (name, who st
 // whose playbook pushes as the App. The App's commits would otherwise say nothing about who
 // asked, and on a pull request "Podium did this" is not an answer a reviewer can act on.
 //
-// It is an instruction rather than a git hook because the runtime owns the clone and its
-// hooks; the brief is the one channel the conductor has into how commits are written.
+// The commit trailer is enforced, not requested: Brief.RequestedBy is what the runtime's
+// commit-msg hook writes onto every commit. The instruction stays for what no hook can
+// reach — the words of a pull request or a comment the turn writes.
 func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string, persona *BriefGit) {
 	if b == nil || persona != nil || b.GitCredentials == nil {
 		return
@@ -387,12 +388,13 @@ func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string,
 	if who == "" {
 		return
 	}
+	b.RequestedBy = who
 	b.Instruction = strings.TrimRight(b.Instruction, "\n") + "\n\n" + requestedByNote(name, who)
 }
 
 // requestedByNote is the line withRequestedBy adds. Kept separate so a test pins its words.
 func requestedByNote(name, who string) string {
 	return fmt.Sprintf("(Podium note: you write to GitHub as the Podium App on behalf of %s. "+
-		"End every commit message with the trailer `Requested-by: %s`, and say \"requested by %s\" "+
-		"in any pull request or comment you write.)", name, who, name)
+		"Podium adds the trailer `Requested-by: %s` to every commit you make; leave it there. "+
+		"Say \"requested by %s\" in any pull request or comment you write.)", name, who, name)
 }
