@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { ChatSharingSchema, type ChatSharing } from "../../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../../Toast";
+import { generalAccessLabel } from "../../../lib/sharing";
 import { ShareDialog } from "./ShareDialog";
 
 const getChatSharing = vi.fn();
@@ -62,6 +63,12 @@ function mount(multiplayer = false) {
   );
 }
 
+/** pick opens one of the dialog's pickers and chooses the option with that label. */
+async function pick(user: ReturnType<typeof userEvent.setup>, trigger: HTMLElement, option: string) {
+  await user.click(trigger);
+  await user.click(await screen.findByRole("option", { name: option }));
+}
+
 describe("ShareDialog", () => {
   beforeEach(() => {
     for (const f of [getChatSharing, shareChat, unshareChat, updateChatSharing, searchMembers]) f.mockReset();
@@ -75,7 +82,7 @@ describe("ShareDialog", () => {
     const [owner, bob] = within(people).getAllByTestId("share-person");
     expect(owner).toHaveAttribute("data-login", "alice");
     expect(owner).toHaveTextContent("Owner");
-    expect(within(bob).getByRole("combobox", { name: "Role for Bob" })).toHaveValue("editor");
+    expect(within(bob).getByRole("combobox", { name: "Role for Bob" })).toHaveTextContent("Can edit");
   });
 
   it("shares with a person found by name, as the role picked", async () => {
@@ -89,7 +96,7 @@ describe("ShareDialog", () => {
     });
     shareChat.mockResolvedValue({ sharing: sharing() });
     mount();
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Role for new people" }), "viewer");
+    await pick(user, await screen.findByRole("combobox", { name: "Role for new people" }), "Can view");
     await user.type(screen.getByTestId("share-add-input"), "ca");
     const results = await screen.findAllByTestId("share-add-result");
     expect(results).toHaveLength(1);
@@ -104,7 +111,7 @@ describe("ShareDialog", () => {
     shareChat.mockResolvedValue({ sharing: sharing() });
     unshareChat.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount();
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Role for Bob" }), "viewer");
+    await pick(user, await screen.findByRole("combobox", { name: "Role for Bob" }), "Can view");
     await waitFor(() => expect(shareChat).toHaveBeenCalledWith({ chatId: "chat_1", login: "bob", role: "viewer" }));
     await user.click(screen.getByRole("button", { name: "Remove Bob" }));
     await waitFor(() => expect(unshareChat).toHaveBeenCalledWith({ chatId: "chat_1", login: "bob" }));
@@ -118,13 +125,13 @@ describe("ShareDialog", () => {
       sharing: sharing({ generalAccess: "link", generalRole: "editor", linkToken: "tok123" }),
     });
     mount();
-    await user.selectOptions(await screen.findByTestId("share-general-access"), "link");
+    await pick(user, await screen.findByTestId("share-general-access"), generalAccessLabel("link"));
     await waitFor(() =>
       expect(updateChatSharing).toHaveBeenCalledWith({ chatId: "chat_1", generalAccess: "link" }),
     );
     const link = await screen.findByTestId("share-link");
     expect(link).toHaveTextContent("/agent/chat/chat_1?k=tok123");
-    expect(screen.getByTestId("share-general-role")).toHaveValue("editor");
+    expect(screen.getByTestId("share-general-role")).toHaveTextContent("Can edit");
     await user.click(screen.getByTestId("share-reset-link"));
     await waitFor(() => expect(updateChatSharing).toHaveBeenLastCalledWith({ chatId: "chat_1", rotateLink: true }));
   });

@@ -1,6 +1,6 @@
-import { useState, type ComponentProps } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Check, ChevronDown, Copy, Link2, Lock, RefreshCw, Share2, X } from "lucide-react";
+import { Building2, Check, Copy, Link2, Lock, RefreshCw, Share2, X } from "lucide-react";
 import type { ChatGrant, ChatSharing } from "../../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../../../lib/client";
 import {
@@ -20,45 +20,62 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { cn } from "@/lib/utils";
 import { Avatar } from "./Origin";
 
 /**
- * Select is a native select drawn to match the dialog: "field" sits beside an input at its
- * height, "ghost" is the quiet picker on a person's row and under general access. Native, so
- * keyboards, screen readers and the tests drive it as a plain combobox.
+ * Picker is the dialog's dropdown, drawn by the app's own select so its menu follows the theme
+ * (a native select's list is painted by the browser, light even in dark mode). "field" sits
+ * beside an input at its height, "ghost" is the quiet picker on a person's row and under general
+ * access.
  */
-function Select({
+function Picker({
   look = "ghost",
+  value,
+  options,
+  onValueChange,
+  disabled,
   className,
-  children,
-  ...props
-}: ComponentProps<"select"> & { look?: "field" | "ghost" }) {
+  ...trigger
+}: {
+  look?: "field" | "ghost";
+  value: string;
+  options: { value: string; label: string }[];
+  onValueChange?: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
+  "aria-label": string;
+  "data-testid"?: string;
+}) {
   return (
-    <span className={cn("relative inline-flex shrink-0 items-center", className)}>
-      <select
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger
+        {...trigger}
         className={cn(
-          "w-full cursor-pointer appearance-none rounded-md pr-7 text-sm text-fg",
-          "transition-colors duration-150 ease-out",
-          "disabled:cursor-default disabled:text-muted",
+          "w-auto shrink-0 cursor-pointer gap-1.5 text-sm",
+          "disabled:cursor-default disabled:opacity-100 disabled:text-muted disabled:[&>svg]:hidden",
           look === "field"
-            ? "min-h-11 border border-line-strong bg-panel pl-3 hover:border-muted"
-            : "h-8 border border-transparent bg-transparent pl-2 [field-sizing:content] hover:bg-raised disabled:hover:bg-transparent",
+            ? "min-h-11"
+            : "min-h-8 h-8 border-transparent bg-transparent px-2 hover:border-transparent hover:bg-raised disabled:hover:bg-transparent",
+          className,
         )}
-        {...props}
       >
-        {children}
-      </select>
-      <ChevronDown
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute right-2 size-3.5 text-muted",
-          props.disabled && "hidden",
-        )}
-      />
-    </span>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="min-w-40">
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} className="text-sm">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
+
+const ROLE_OPTIONS = (["editor", "viewer"] as const).map((r) => ({ value: r, label: roleLabel(r) }));
+const ACCESS_OPTIONS = ["restricted", "members", "link"].map((a) => ({ value: a, label: generalAccessLabel(a) }));
 
 const ACCESS_ICON = { restricted: Lock, members: Building2, link: Link2 } as const;
 
@@ -286,15 +303,13 @@ function PersonRow({
       </span>
       {editable && role !== "owner" ? (
         <>
-          <Select
+          <Picker
             aria-label={`Role for ${name}`}
             value={role}
+            options={ROLE_OPTIONS}
             disabled={disabled}
-            onChange={(e) => onRole?.(e.target.value)}
-          >
-            <option value="viewer">{roleLabel("viewer")}</option>
-            <option value="editor">{roleLabel("editor")}</option>
-          </Select>
+            onValueChange={(v) => onRole?.(v)}
+          />
           <Button
             type="button"
             variant="ghost"
@@ -349,15 +364,13 @@ function AddPeople({
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1"
         />
-        <Select
+        <Picker
           look="field"
           aria-label="Role for new people"
           value={role}
-          onChange={(e) => setRole(e.target.value)}
-        >
-          <option value="editor">{roleLabel("editor")}</option>
-          <option value="viewer">{roleLabel("viewer")}</option>
-        </Select>
+          options={ROLE_OPTIONS}
+          onValueChange={setRole}
+        />
       </div>
       {q !== "" ? (
         <ul className="rounded-md border border-border bg-panel p-1" data-testid="share-add-results">
@@ -420,33 +433,26 @@ function GeneralAccess({
         <Icon className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <Select
+        <Picker
           aria-label="General access"
           data-testid="share-general-access"
           className="-ml-2 max-w-full font-medium"
           value={access}
+          options={ACCESS_OPTIONS}
           disabled={!editable || disabled}
-          onChange={(e) => onAccess(e.target.value)}
-        >
-          {["restricted", "members", "link"].map((a) => (
-            <option key={a} value={a}>
-              {generalAccessLabel(a)}
-            </option>
-          ))}
-        </Select>
+          onValueChange={onAccess}
+        />
         <p className="text-xs text-muted">{generalAccessHint(access, role)}</p>
       </div>
       {open ? (
-        <Select
+        <Picker
           aria-label="General role"
           data-testid="share-general-role"
           value={role}
+          options={ROLE_OPTIONS}
           disabled={!editable || disabled}
-          onChange={(e) => onRole(e.target.value)}
-        >
-          <option value="viewer">{roleLabel("viewer")}</option>
-          <option value="editor">{roleLabel("editor")}</option>
-        </Select>
+          onValueChange={onRole}
+        />
       ) : null}
     </div>
   );
