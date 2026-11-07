@@ -26,19 +26,23 @@ export function roleLabel(role: string): string {
   return "";
 }
 
-/** generalAccessLabel names a general-access mode. */
+/**
+ * generalAccessLabel names a general-access mode. Every mode needs a Podium sign-in: "link"
+ * is not public, it lets in anybody signed in who also holds the link.
+ */
 export function generalAccessLabel(access: string): string {
-  if (access === "members") return "Podium members";
-  if (access === "link") return "Anyone with the link";
+  if (access === "members") return "Everyone in Podium";
+  if (access === "link") return "Anyone in Podium with the link";
   return "Restricted";
 }
 
 /** generalAccessHint says what a mode means, under its picker. */
 export function generalAccessHint(access: string, role: string): string {
   const what = role === "editor" ? "can edit" : "can view";
-  if (access === "members") return `Everybody signed in to Podium ${what}. It is listed under Workspace for them.`;
-  if (access === "link") return `Anybody signed in to Podium who has the link ${what}.`;
-  return "Only people with access can open this chat.";
+  if (access === "members") return `Everyone signed in to Podium ${what}. It shows up under Workspace for them.`;
+  if (access === "link")
+    return `Anyone signed in to Podium who has the link ${what}. It isn't listed anywhere, and the link alone doesn't let in someone who isn't signed in.`;
+  return "Only the people above can open this chat.";
 }
 
 /**
