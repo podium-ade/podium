@@ -221,6 +221,27 @@ describe("ChatPanel rail groups", () => {
     expect(again).not.toHaveTextContent("Mine");
   });
 
+  it("draws only marks past four sources, keeping the chosen count and an unread dot", async () => {
+    const chats = [
+      row({ id: "c_web", title: "Mine" }),
+      ...prs(2),
+      row({ id: "c_sl", title: "Oncall", origin: "slack", channel: "eng", unreadCount: 2n }),
+      row({ id: "c_sh", title: "Plan", login: "alice", myRole: "editor", accessReason: "shared", sharedWithMe: true }),
+      row({ id: "c_ws", title: "Runbook", login: "carol", myRole: "viewer", accessReason: "workspace" }),
+    ];
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace" ? { chats: [] } : { chats },
+    );
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("Runbook"));
+    expect(screen.getByTestId("chat-source-all")).toHaveTextContent("6");
+    expect(screen.getByTestId("chat-source-github")).not.toHaveTextContent("2");
+    expect(screen.getByTestId("chat-source-unread-slack")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-source-slack")).toHaveAccessibleName("Slack, 2 unread");
+    expect(screen.queryByTestId("chat-source-unread-github")).not.toBeInTheDocument();
+  });
+
   it("folds an origin away and remembers it", async () => {
     listChats.mockImplementation(async (req: { section?: string }) =>
       req.section === "workspace" ? { chats: [] } : { chats: [row({ id: "c_web", title: "Mine" }), ...prs(2)] },

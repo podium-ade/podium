@@ -1,6 +1,5 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
-  Building2,
   ChevronDown,
   Ellipsis,
   LogOut,
@@ -31,7 +30,6 @@ import { comparePersonalities, inheritedAssistant } from "../../lib/personality"
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
-import { PodiumMark } from "../PodiumMark";
 import { desktopCandidate, useDesktopTask } from "../../lib/desktop";
 import { DesktopPane } from "./DesktopPane";
 import { Skeleton } from "../Skeleton";
@@ -54,8 +52,8 @@ import {
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
-import { BrandTile } from "./BrandIcon";
 import { ChatComposer } from "./ChatComposer";
+import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
@@ -549,21 +547,6 @@ function writeSource(key: string) {
   }
 }
 
-/** OriginMark is the sign of where a list of chats lives: the service's own mark on its white
- * tile, as Connections draws it, or a drawn icon for what is Podium's own. */
-function OriginMark({ origin }: { origin: string }) {
-  if (origin === "github" || origin === "slack" || origin === "linear") {
-    return <BrandTile name={origin} size="chip" />;
-  }
-  if (origin === "web") return <PodiumMark className="size-[22px] rounded-sm" />;
-  const Icon = origin === "shared" ? Users : Building2;
-  return (
-    <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-sm border border-line-strong bg-panel">
-      <Icon className="size-[13px] text-soft" strokeWidth={2} />
-    </span>
-  );
-}
-
 function ChatRail({
   chats,
   active,
@@ -620,6 +603,8 @@ function ChatRail({
     writeSource(key);
   };
   const listed = source === "all" ? origins : origins.filter((o) => o.key === source);
+  // All plus up to three sources fit with every count; more draw marks only (see the strip).
+  const compactSources = sources.length + 1 > 4;
   const split = listed.length > 1;
   const searching = query.trim() !== "";
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
@@ -738,28 +723,54 @@ function ChatRail({
             data-testid="chat-sources"
             className="mx-2 mt-2 hidden gap-0.5 rounded-lg border border-border bg-bg p-0.5 sm:flex"
           >
-            {[{ key: "all", label: "All" }, ...sources].map((o) => {
+            {[{ key: "all", label: "All", chats: ordered }, ...sources].map((o) => {
               const on = o.key === source;
               const count =
                 o.key === "all" ? filtered.length : (origins.find((x) => x.key === o.key)?.chats.length ?? 0);
+              const waiting = o.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
+              // Four segments have room for every count. Past that the rail is too narrow:
+              // the others draw only their mark, the chosen one keeps its count, and a dot
+              // says a folded-away source has something unread. The tooltip says the rest.
+              const counted = on || !compactSources;
               return (
-                <Tooltip key={o.key} label={`${o.label} · ${count} ${count === 1 ? "chat" : "chats"}`}>
+                <Tooltip
+                  key={o.key}
+                  label={[
+                    o.label,
+                    `${count} ${count === 1 ? "chat" : "chats"}`,
+                    waiting > 0 ? `${waiting} unread` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
                   <button
                     type="button"
                     role="radio"
                     aria-checked={on}
-                    aria-label={o.label}
+                    aria-label={waiting > 0 ? `${o.label}, ${waiting} unread` : o.label}
                     data-testid={`chat-source-${o.key}`}
                     onClick={() => pickSource(o.key)}
                     className={cn(
-                      "flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-[background-color,border-color,color] duration-150 ease-out",
+                      "flex min-h-9 min-w-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-[background-color,border-color,color] duration-150 ease-out",
+                      compactSources && on ? "flex-none px-2.5" : "flex-1 px-1.5",
                       on
                         ? "border-line-strong bg-panel text-fg shadow-[0_1px_2px_#0003]"
                         : "border-transparent text-muted hover:bg-panel/60 hover:text-fg",
                     )}
                   >
-                    {o.key === "all" ? <span>All</span> : <OriginMark origin={o.key} />}
-                    <span className={cn("tabular-nums", on ? "text-soft" : "text-faint")}>{count}</span>
+                    <span className="relative inline-flex">
+                      {o.key === "all" ? <span>All</span> : <OriginMark origin={o.key} />}
+                      {waiting > 0 && !counted && o.key !== "all" ? (
+                        <span
+                          aria-hidden
+                          data-testid={`chat-source-unread-${o.key}`}
+                          className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-bg bg-accent"
+                        />
+                      ) : null}
+                    </span>
+                    {counted ? (
+                      <span className={cn("tabular-nums", on ? "text-soft" : "text-faint")}>{count}</span>
+                    ) : null}
                   </button>
                 </Tooltip>
               );
