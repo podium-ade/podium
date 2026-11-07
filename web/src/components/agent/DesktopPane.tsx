@@ -19,7 +19,7 @@ const wide = () => window.matchMedia?.("(min-width: 1024px)").matches ?? false;
 /**
  * CHAT_MIN_PX is the narrowest the conversation gets beside the desktop: the composer's
  * controls in one row. The pane gives way to it, at its default width, a dragged one, and
- * a window that got narrower since. (The CSS cap is this plus the 12px handle.)
+ * a window that got narrower since.
  */
 export const CHAT_MIN_PX = 480;
 const still = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -158,7 +158,7 @@ export function DesktopPane({
         data-testid="desktop-pane"
         aria-hidden={!shown || undefined}
         className={cn(
-          "flex min-h-[60vh] min-w-0 flex-col overflow-hidden lg:min-h-0 lg:w-[min(var(--desktop-width,55%),calc(100%-492px))]",
+          "flex min-h-[60vh] min-w-0 flex-col overflow-hidden lg:min-h-0 lg:w-[min(var(--desktop-width,55%),calc(100%-480px))]",
           !shown && "pointer-events-none",
         )}
       >
