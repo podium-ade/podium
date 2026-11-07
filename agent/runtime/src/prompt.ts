@@ -43,6 +43,9 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   if (titledConversation(brief) && firstChatTurn(brief)) {
     sections.push(chatTitleBlock(brief));
   }
+  if (brief.desktop && !onHost(brief)) {
+    sections.push(desktopBlock());
+  }
   if (brief.memory) {
     sections.push(memoryBlock());
   }
@@ -144,6 +147,28 @@ one.`;
 }
 
 /**
+ * desktopBlock is a desktop turn's: what the task's prompt says about nobody watching is not
+ * true of it, and a model told nothing about the desktop spent its first steps looking for a
+ * display server to start and a window tool the image does not carry.
+ */
+function desktopBlock(): string {
+  return `# The desktop
+
+This turn runs on a Linux desktop (XFCE, display :1) that a person watches live beside the
+conversation and can take over with their own mouse and keyboard. It is already running when
+the turn starts: do not start, check or restart it.
+
+- Your browser tools drive the Chromium on that desktop. Whatever you open there, the person
+  sees. Prefer them for anything on the web.
+- For the rest of the screen, run commands with \`DISPLAY=:1\` and use \`xdotool\` to find
+  windows, click and type.
+- The person has a terminal of their own in the workspace: the tmux session \`podium\`.
+  \`tmux capture-pane -p -t podium\` shows what is in it.
+- The desktop stays up after your answer. Leave on screen what the person should see, and
+  say in your answer what you did there.`;
+}
+
+/**
  * delegationBlock is the menu and the etiquette. The menu is the brief's, so a model cannot
  * be told about a playbook the conductor would then refuse.
  */
@@ -158,6 +183,9 @@ function delegationBlock(brief: TurnBrief): string {
     }
     if (p.browser) {
       has.push("a browser");
+    }
+    if (p.desktop) {
+      has.push("a desktop the person watches live in the chat, with a browser and a terminal");
     }
     if (p.preview) {
       has.push("a preview that stays up after it finishes");

@@ -932,6 +932,10 @@ What the flag does:
   told its raw address. Set `PODIUM_DESKTOP_URL` on podium-server, or the panel says
   desktops are off. A node publishes it on a LAN address; a tailnet preview cannot be
   streamed, because preview devices refuse the server.
+- **The model is told it is on the desktop.** The brief says `desktop: true`, and the
+  runtime's prompt says the desktop is already up, that a person watches it, and how to reach
+  the rest of the screen (`DISPLAY=:1`, `xdotool`) and the person's terminal. The delegation
+  menu says which playbook has a desktop.
 - **The browser tools point at the desktop's own Chromium** (`127.0.0.1:9222`). Not with
   `browser: true`, which would add a second, headless one nobody sees. Pages get WebGL,
   rendered on the CPU.

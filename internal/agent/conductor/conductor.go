@@ -1301,6 +1301,7 @@ func (c *Conductor) brief(
 	if j.playbook.Desktop {
 		// The same tools, pointed at the desktop's own Chromium: the one the person sees.
 		b.Browser = &BriefBrowser{CDPURL: desktopCDPURL}
+		b.Desktop = true
 	}
 	for _, r := range j.playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
