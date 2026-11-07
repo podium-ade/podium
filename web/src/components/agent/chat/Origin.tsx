@@ -3,6 +3,7 @@ import { Globe } from "lucide-react";
 import github from "../../../assets/marks/github.svg";
 import slack from "../../../assets/marks/slack.svg";
 import { googlePicture } from "../../../lib/avatar";
+import { PodiumMark } from "../../PodiumMark";
 import { surfaceName } from "../../../lib/surfaces";
 import { cn } from "../../../lib/utils";
 
@@ -10,19 +11,25 @@ const MARKS: Record<string, string> = { github, slack };
 
 /**
  * OriginMark is the small badge saying where a message was said: the Slack or GitHub mark,
- * or a globe for the web chat. With a url it is a link to the message there.
+ * Podium's own mark for its web chat, or a globe for anywhere else. With a url it is a link to the message there.
  */
 export function OriginMark({ via, url, className }: { via?: string; url?: string; className?: string }) {
   if (!via || via === "bot") return null;
   const src = MARKS[via];
   const label = url ? `Open in ${surfaceName(via)}` : `Said in ${surfaceName(via)}`;
-  const mark = src ? (
+  // The Slack and GitHub marks are drawn for a white tile; Podium's mark is its own tile, so
+  // it fills the badge instead of sitting on one.
+  const podium = via === "web";
+  const mark = podium ? (
+    <PodiumMark className="size-full" />
+  ) : src ? (
     <img src={src} alt="" className="size-3.5" />
   ) : (
     <Globe aria-hidden className="size-3.5 text-muted" />
   );
   const box = cn(
-    "inline-grid size-5 shrink-0 place-items-center rounded-sm border border-line-strong bg-white",
+    "inline-grid size-5 shrink-0 place-items-center overflow-hidden rounded-sm",
+    podium ? "border border-transparent" : "border border-line-strong bg-white",
     className,
   );
   if (!url) {
