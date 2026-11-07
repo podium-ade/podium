@@ -161,6 +161,32 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("PAGE: about:blank");
   });
 
+  it("opens the dock's browser in the agent's Chromium, and brings it back after it is closed", () => {
+    // The dock's and the app menu's browser is XFCE's preferred WebBrowser. It used to be
+    // debian-sensible-browser, which is not installed: "Failed to execute default Web
+    // Browser". Now it is Chromium with the desktop's own flags (/etc/chromium.d), so a launch
+    // opens its URL in the browser the agent drives, and after the person closes that one,
+    // the next launch starts it again with the DevTools port the agent's tools need.
+    const run = inContainer(`
+      podium-desktop -- sh -c '
+        exo-open --launch WebBrowser https://example.com/dock-1 2>/dev/null
+        sleep 3
+        curl -fsS http://127.0.0.1:9222/json/list | grep -o "example.com/dock-1" | head -1 | sed "s/^/OPENED: /"
+        pkill -TERM -o -x chromium
+        for i in $(seq 40); do curl -fsS -o /dev/null http://127.0.0.1:9222/json/version 2>/dev/null || break; sleep 0.25; done
+        curl -fsS -o /dev/null http://127.0.0.1:9222/json/version 2>/dev/null || echo "CLOSED: yes"
+        exo-open --launch WebBrowser https://example.com/dock-2 2>/dev/null
+        for i in $(seq 40); do curl -fsS -o /dev/null http://127.0.0.1:9222/json/version 2>/dev/null && break; sleep 0.25; done
+        sleep 2
+        curl -fsS http://127.0.0.1:9222/json/list | grep -o "example.com/dock-2" | head -1 | sed "s/^/REOPENED: /"
+      '
+    `);
+    expect(run.status, show(run)).toBe(0);
+    expect(run.stdout).toContain("OPENED: example.com/dock-1");
+    expect(run.stdout).toContain("CLOSED: yes");
+    expect(run.stdout).toContain("REOPENED: example.com/dock-2");
+  });
+
   it("fails the turn at the start, saying why, when the desktop cannot come up", () => {
     // Another X server already holds display :1 (a lock file naming a live process — this
     // shell): Xvfb refuses to start, and the turn's command must not run at all. The lock is

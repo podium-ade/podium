@@ -108,10 +108,17 @@ RUN set -eux; \
 COPY --from=voxl /opt/voxl/bin/voxl /usr/local/bin/voxl
 COPY --from=voxl /opt/voxl/src/ /usr/share/src/voxl/
 COPY desktop/podium-desktop desktop/xfce-setup.sh /opt/podium-desktop/
+COPY desktop/chromium-flags /etc/chromium.d/podium-desktop
 COPY desktop/THIRD_PARTY.md /usr/share/doc/podium-desktop/THIRD_PARTY.md
 RUN set -eux; \
     chmod 0755 /opt/podium-desktop/podium-desktop /opt/podium-desktop/xfce-setup.sh; \
     ln -s /opt/podium-desktop/podium-desktop /usr/local/bin/podium-desktop; \
+    chmod 0644 /etc/chromium.d/podium-desktop; \
+    # XFCE's browser is debian-sensible-browser by default, which runs sensible-browser, which
+    # is not installed: the dock's browser failed with "Input/output error". Chromium's own
+    # helper runs `chromium`, which reads the flags above.
+    sed -i 's/^WebBrowser=.*/WebBrowser=chromium/' /etc/xdg/xfce4/helpers.rc; \
+    grep -qx 'WebBrowser=chromium' /etc/xdg/xfce4/helpers.rc; \
     test -f "/usr/share/src/voxl/voxl-server-${VOXL_VERSION}.crate"; \
     voxl --help >/dev/null; \
     chown -R 1000:1000 /home/agent
