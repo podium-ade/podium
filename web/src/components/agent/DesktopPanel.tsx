@@ -64,9 +64,9 @@ export function DesktopPanel({
         className="min-h-0 flex-1"
       >
         <div className="flex h-10 shrink-0 items-center border-b border-border pr-2">
-          <TabsList className="h-full w-auto gap-0 border-b-0 px-1">
+          <TabsList className="h-full w-auto gap-0 overflow-visible border-b-0 px-1">
             {tabs.map(({ id, label, icon: Icon }) => (
-              <TabsTrigger key={id} value={id} className="min-h-10 px-3 text-xs">
+              <TabsTrigger key={id} value={id} className="h-full min-h-0 px-3 text-xs">
                 <Icon aria-hidden />
                 {label}
               </TabsTrigger>
