@@ -30,6 +30,16 @@ import (
 // uses for a title taken from a first message.
 const mirrorTitleRunes = 48
 
+// sourceTitleRunes bounds a title the source named the conversation with (InboundEvent.Title).
+// It is longer than a first line's cap because it is built to be read whole: a pull request's
+// number comes before its own title.
+const sourceTitleRunes = 120
+
+// sourceTitle is the event's own name for its conversation, clamped, or empty.
+func sourceTitle(ev InboundEvent) string {
+	return firstLine(ev.Title, sourceTitleRunes)
+}
+
 // MirrorWatcher is whoever streams a mirrored chat to a screen: the web chat's broadcaster.
 // The mirror writes rows straight into the store — the web source must not, or it would
 // double every one of its own — so the row has to be announced separately, and this is how.
@@ -108,6 +118,9 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, evp *InboundEve
 			chat.SourceURL = ev.ThreadURL
 		}
 	}
+	if !created {
+		chat = c.mirrorRetitle(ctx, chat, ev)
+	}
 	if ev.ChannelPrivacy != "" && chat.ChannelPrivacy != ev.ChannelPrivacy {
 		if err := c.store.SetChatChannelPrivacy(ctx, chat.ID, ev.ChannelPrivacy); err != nil {
 			c.logger.WarnContext(ctx, "recording a mirrored chat's channel privacy failed",
@@ -138,7 +151,11 @@ func (c *Conductor) mirrorChat(
 	if err == nil || !errors.Is(err, store.ErrNotFound) {
 		return chat, false, err
 	}
-	chat, err = c.store.CreateMirrorChat(ctx, key, src.Kind(), ev.Author, firstLine(recordText(ev), mirrorTitleRunes))
+	title := sourceTitle(ev)
+	if title == "" {
+		title = firstLine(recordText(ev), mirrorTitleRunes)
+	}
+	chat, err = c.store.CreateMirrorChat(ctx, key, src.Kind(), ev.Author, title)
 	if err == nil {
 		return chat, true, nil
 	}
@@ -146,6 +163,23 @@ func (c *Conductor) mirrorChat(
 		return again, false, nil
 	}
 	return store.Chat{}, false, err
+}
+
+// mirrorRetitle renames a mirrored chat to the name its source now gives the conversation (a
+// pull request retitled, or one named before the source could name it). A title somebody set
+// in Podium is theirs: SetChatTitle leaves a chat whose auto_title is off alone. A shorter
+// name the title already starts with is a source that knows less, not a rename.
+func (c *Conductor) mirrorRetitle(ctx context.Context, chat store.Chat, ev InboundEvent) store.Chat {
+	t := sourceTitle(ev)
+	if t == "" || !chat.AutoTitle || strings.HasPrefix(chat.Title, t) {
+		return chat
+	}
+	renamed, err := c.store.SetChatTitle(ctx, chat.ID, t)
+	if err != nil {
+		c.logger.WarnContext(ctx, "renaming a mirrored chat failed", "chat_id", chat.ID, "error", err)
+		return chat
+	}
+	return renamed
 }
 
 // mirrorRecordOnly records a message nobody put to Podium, into a conversation Podium already
@@ -168,6 +202,7 @@ func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev Inbound
 		return
 	}
 	c.recordParticipant(ctx, chat, ev)
+	c.mirrorRetitle(ctx, chat, ev)
 	_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
 }
 
