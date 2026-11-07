@@ -90,3 +90,30 @@ func TestThePreviewNoteLeavesTheDesktopPortOut(t *testing.T) {
 	assert.NotContains(t, note, "desktop")
 	assert.NotContains(t, note, "modal.host")
 }
+
+// A desktop turn's brief says it is one, so the runtime can tell the model the desktop is up
+// and watched; its browser tools point at the desktop's own Chromium. The menu a host turn
+// delegates from says which playbook has a desktop.
+func TestADesktopTurnsBriefSaysItRunsOnTheDesktop(t *testing.T) {
+	c := skillsConductor(t, "", profiles.Playbook{Image: profiles.LocalDesktopImage, Desktop: true})
+	playbook := c.profiles.Current().Playbooks["coder"]
+	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "open it"}, nil, nil, nil, choice)
+
+	assert.True(t, b.Desktop)
+	require.NotNil(t, b.Browser)
+	assert.Equal(t, desktopCDPURL, b.Browser.CDPURL)
+
+	menu := c.DelegablePlaybooks()
+	require.Len(t, menu, 1)
+	assert.True(t, menu[0].Desktop)
+
+	plain := skillsConductor(t, "", profiles.Playbook{})
+	pb := plain.profiles.Current().Playbooks["coder"]
+	b = plain.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(pb), "turn_1",
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
+		plain.profiles.Current().Resolve(pb, profiles.Override{}))
+	assert.False(t, b.Desktop)
+	assert.False(t, plain.DelegablePlaybooks()[0].Desktop)
+}

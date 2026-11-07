@@ -86,10 +86,15 @@ type Brief struct {
 	// behalf. The runtime puts it on every commit as a Requested-by trailer through a
 	// commit-msg hook on every git it runs, so the attribution does not rest on the model
 	// remembering an instruction. Empty when the turn commits as the person themselves.
-	RequestedBy string         `json:"requested_by,omitempty"`
-	Memory      *BriefMemory   `json:"memory,omitempty"`
-	Browser     *BriefBrowser  `json:"browser,omitempty"`
-	Provider    *BriefProvider `json:"provider,omitempty"`
+	RequestedBy string        `json:"requested_by,omitempty"`
+	Memory      *BriefMemory  `json:"memory,omitempty"`
+	Browser     *BriefBrowser `json:"browser,omitempty"`
+	// Desktop says this turn runs on a desktop playbook's desktop, already up when the turn
+	// starts, which a person watches and can take over. The runtime tells the model so: a
+	// task's prompt otherwise says nobody is watching, and a model told nothing about the
+	// desktop spent its first steps looking for a display server to start.
+	Desktop  bool           `json:"desktop,omitempty"`
+	Provider *BriefProvider `json:"provider,omitempty"`
 	// Delegation is present only on a HOST turn's brief. A task's brief never carries one,
 	// which is what stops a delegated task delegating again.
 	Delegation *BriefDelegation `json:"delegation,omitempty"`

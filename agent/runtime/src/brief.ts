@@ -118,6 +118,8 @@ const delegablePlaybookSchema = z.strictObject({
   summary: z.string().optional(),
   docker: z.boolean().optional(),
   browser: z.boolean().optional(),
+  // The task runs on a desktop the person watches live in the chat.
+  desktop: z.boolean().optional(),
   repos: z.array(z.string()).optional(),
   // The task stays up afterwards as a preview.
   preview: z.boolean().optional(),
@@ -239,6 +241,9 @@ const briefSchema = z.strictObject({
       cdp_url: z.string().min(1),
     })
     .optional(),
+  // This turn runs on a desktop playbook's desktop: up before the turn starts, watched live by
+  // a person in the chat, who can take it over. browser then points at its Chromium.
+  desktop: z.boolean().optional(),
   // Which model API serves this turn. It is REQUIRED and it names no vendor in this file:
   // `id` is whatever the harness calls that provider, and together with profile.model it is
   // the whole of "what runs this turn".
