@@ -84,15 +84,19 @@ export function PanelResizer({
       onKeyDown={key}
       title="Drag to resize · double-click to reset"
       className={cn(
-        // w-3: a handle with room to grab, not a hairline flush against the scroll bar beside it.
-        "group/resize relative hidden w-3 shrink-0 cursor-col-resize touch-none outline-none select-none lg:block",
-        "before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-hairline before:transition-all",
+        // The handle takes no width of its own: the seam between the two sides is one line,
+        // drawn on the panel's own edge, not a second hairline beside it with a gap between.
+        // What a pointer can grab is wider than what shows, laid over the seam and mostly on
+        // the panel's side, so it does not steal the list's scroll bar on the other.
+        "group/resize relative z-10 hidden w-0 shrink-0 cursor-col-resize touch-none outline-none select-none lg:block",
+        "after:absolute after:inset-y-0 after:-left-0.5 after:w-3",
+        "before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-hairline before:transition-[width,background-color] before:duration-150",
         "hover:before:w-0.5 hover:before:bg-accent focus-visible:before:w-0.5 focus-visible:before:bg-accent",
       )}
     >
       <span
         aria-hidden
-        className="absolute top-1/2 left-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors group-hover/resize:bg-accent group-focus-visible/resize:bg-accent"
+        className="absolute top-1/2 left-px h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors duration-150 group-hover/resize:bg-accent group-focus-visible/resize:bg-accent"
       />
     </div>
   );
