@@ -193,6 +193,20 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("REOPENED: example.com/dock-2");
   });
 
+  it("has the terminal's tmux session before anyone opens the terminal", () => {
+    // The turn's first step can read it: a session only a viewer made sent the agent looking
+    // for why it was missing.
+    const run = inContainer(`
+      podium-desktop -- sh -c '
+        echo "SESSION: $(tmux list-sessions -F "#S")"
+        echo "CWD: $(tmux display-message -p -t podium "#{pane_current_path}")"
+      '
+    `);
+    expect(run.status, show(run)).toBe(0);
+    expect(run.stdout).toContain("SESSION: podium");
+    expect(run.stdout).toContain("CWD: /workspace");
+  });
+
   it("serves a terminal in the workspace, and every viewer shares one shell", () => {
     // ttyd's own protocol, the way its page speaks it: the "tty" subprotocol, a JSON hello
     // with the size, then input as "0" + bytes and output back as "0" + bytes. Two viewers in
