@@ -29,7 +29,6 @@ const MARKS: Record<string, string> = {
 };
 
 const TILE = {
-  chip: { box: "size-[22px]", img: "h-[13px] w-[13px] max-h-[13px]" },
   row: { box: "size-10", img: "h-6 w-6 max-h-6" },
   dialog: { box: "size-8", img: "h-[18px] w-[18px] max-h-[18px]" },
   detail: { box: "size-14", img: "h-8 w-8 max-h-8" },
