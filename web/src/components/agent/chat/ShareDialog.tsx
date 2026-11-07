@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Link2, RefreshCw, Share2, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Copy, Link2, Lock, RefreshCw, Share2, X } from "lucide-react";
 import type { ChatGrant, ChatSharing } from "../../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../../../lib/client";
 import {
@@ -20,10 +20,47 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
+import { cn } from "@/lib/utils";
 import { Avatar } from "./Origin";
 
-const selectCls =
-  "rounded-md border border-border bg-bg px-2 py-1 text-sm text-fg disabled:text-muted";
+/**
+ * Select is a native select drawn to match the dialog: "field" sits beside an input at its
+ * height, "ghost" is the quiet picker on a person's row and under general access. Native, so
+ * keyboards, screen readers and the tests drive it as a plain combobox.
+ */
+function Select({
+  look = "ghost",
+  className,
+  children,
+  ...props
+}: ComponentProps<"select"> & { look?: "field" | "ghost" }) {
+  return (
+    <span className={cn("relative inline-flex shrink-0 items-center", className)}>
+      <select
+        className={cn(
+          "w-full cursor-pointer appearance-none rounded-md pr-7 text-sm text-fg",
+          "transition-colors duration-150 ease-out",
+          "disabled:cursor-default disabled:text-muted",
+          look === "field"
+            ? "min-h-11 border border-line-strong bg-panel pl-3 hover:border-muted"
+            : "h-8 border border-transparent bg-transparent pl-2 [field-sizing:content] hover:bg-raised disabled:hover:bg-transparent",
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute right-2 size-3.5 text-muted",
+          props.disabled && "hidden",
+        )}
+      />
+    </span>
+  );
+}
+
+const ACCESS_ICON = { restricted: Lock, members: Building2, link: Link2 } as const;
 
 /**
  * ShareButton opens the share dialog. Everybody who can open a chat may see who else can;
@@ -129,8 +166,8 @@ export function ShareDialog({
         <DialogHeader>
           <DialogTitle>Share “{title || "this chat"}”</DialogTitle>
           <DialogDescription>
-            People you share with see the whole conversation, including what was said before.
-            Editors can post and ask Podium; viewers read.
+            Everyone you add sees the whole conversation, earlier messages included. Editors
+            can post and ask Podium; viewers can only read.
           </DialogDescription>
         </DialogHeader>
 
@@ -147,20 +184,19 @@ export function ShareDialog({
         {s ? (
           shared ? (
             <Alert role="note" data-testid="share-key-note">
-              This chat is shared, so it runs on the company’s model key. Each person’s own
-              secrets, MCP servers and GitHub account still apply to what they ask.
+              This chat is shared, so Podium answers it using the company’s model key.
+              Everyone keeps their own GitHub account, secrets and MCP servers.
             </Alert>
           ) : owner ? (
             <Alert
               variant="warn"
               role="note"
               data-testid="share-key-warning"
-              title="Sharing moves this chat to the company’s model key"
+              title="Shared chats use the company’s model key"
             >
-              From the first share on, every answer here, yours included, is paid for with the
-              company’s key instead of your own, and it stays that way even if you stop sharing.
-              Each person’s own secrets, MCP servers and GitHub account still apply to what
-              they ask.
+              Once shared, Podium’s replies here, yours included, are billed to the company
+              instead of your own key, even if you stop sharing later. Everyone keeps their own
+              GitHub account, secrets and MCP servers.
             </Alert>
           ) : null
         ) : null}
@@ -173,9 +209,9 @@ export function ShareDialog({
           />
         ) : null}
 
-        <section aria-label="People with access" className="space-y-1">
+        <section aria-label="People with access" className="space-y-1.5">
           <h3 className="text-xs font-medium tracking-wide text-faint uppercase">People with access</h3>
-          <ul className="space-y-1" data-testid="share-people">
+          <ul className="-mx-2" data-testid="share-people">
             {s?.owner?.login ? <PersonRow grant={s.owner} role="owner" /> : null}
             {s?.grants.map((g) => (
               <PersonRow
@@ -189,44 +225,22 @@ export function ShareDialog({
               />
             ))}
             {s && !s.owner?.login && s.grants.length === 0 ? (
-              <li className="text-sm text-muted">Nobody in Podium has taken part yet.</li>
+              <li className="px-2 py-1 text-sm text-muted">Nobody in Podium has taken part yet.</li>
             ) : null}
           </ul>
         </section>
 
         {s ? (
-          <section aria-label="General access" className="space-y-2">
+          <section aria-label="General access" className="space-y-1.5 border-t border-border pt-4">
             <h3 className="text-xs font-medium tracking-wide text-faint uppercase">General access</h3>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="General access"
-                data-testid="share-general-access"
-                className={selectCls}
-                value={s.generalAccess || "restricted"}
-                disabled={!owner || busy}
-                onChange={(e) => update.mutate({ generalAccess: e.target.value })}
-              >
-                {["restricted", "members", "link"].map((a) => (
-                  <option key={a} value={a}>
-                    {generalAccessLabel(a)}
-                  </option>
-                ))}
-              </select>
-              {s.generalAccess && s.generalAccess !== "restricted" ? (
-                <select
-                  aria-label="General role"
-                  data-testid="share-general-role"
-                  className={selectCls}
-                  value={s.generalRole || "viewer"}
-                  disabled={!owner || busy}
-                  onChange={(e) => update.mutate({ generalRole: e.target.value })}
-                >
-                  <option value="viewer">{roleLabel("viewer")}</option>
-                  <option value="editor">{roleLabel("editor")}</option>
-                </select>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted">{generalAccessHint(s.generalAccess, s.generalRole)}</p>
+            <GeneralAccess
+              access={s.generalAccess || "restricted"}
+              role={s.generalRole || "viewer"}
+              editable={owner}
+              disabled={busy}
+              onAccess={(generalAccess) => update.mutate({ generalAccess })}
+              onRole={(generalRole) => update.mutate({ generalRole })}
+            />
             {owner && s.generalAccess === "link" && s.linkToken ? (
               <LinkRow
                 url={shareLink(window.location.origin, chatId, s.linkToken)}
@@ -258,7 +272,11 @@ function PersonRow({
 }) {
   const name = grant.name || grant.login;
   return (
-    <li data-testid="share-person" data-login={grant.login} className="flex items-center gap-2 py-1">
+    <li
+      data-testid="share-person"
+      data-login={grant.login}
+      className="flex min-h-11 items-center gap-3 rounded-md px-2 py-1.5"
+    >
       <Avatar name={name} src={grant.avatar} login={grant.login} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-fg">{name}</span>
@@ -268,16 +286,15 @@ function PersonRow({
       </span>
       {editable && role !== "owner" ? (
         <>
-          <select
+          <Select
             aria-label={`Role for ${name}`}
-            className={selectCls}
             value={role}
             disabled={disabled}
             onChange={(e) => onRole?.(e.target.value)}
           >
             <option value="viewer">{roleLabel("viewer")}</option>
             <option value="editor">{roleLabel("editor")}</option>
-          </select>
+          </Select>
           <Button
             type="button"
             variant="ghost"
@@ -290,7 +307,7 @@ function PersonRow({
           </Button>
         </>
       ) : (
-        <span className="text-xs text-muted">{roleLabel(role)}</span>
+        <span className="pr-2 text-sm text-muted">{roleLabel(role)}</span>
       )}
     </li>
   );
@@ -330,17 +347,17 @@ function AddPeople({
           value={query}
           disabled={disabled}
           onChange={(e) => setQuery(e.target.value)}
-          className="h-9 flex-1"
+          className="flex-1"
         />
-        <select
+        <Select
+          look="field"
           aria-label="Role for new people"
-          className={selectCls}
           value={role}
           onChange={(e) => setRole(e.target.value)}
         >
           <option value="editor">{roleLabel("editor")}</option>
           <option value="viewer">{roleLabel("viewer")}</option>
-        </select>
+        </Select>
       </div>
       {q !== "" ? (
         <ul className="rounded-md border border-border bg-panel p-1" data-testid="share-add-results">
@@ -367,6 +384,71 @@ function AddPeople({
         </ul>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * GeneralAccess is who besides the people listed can open the chat: an icon for the mode, the
+ * mode's picker with what it means under it, and, when it lets anybody in, their role.
+ */
+function GeneralAccess({
+  access,
+  role,
+  editable,
+  disabled,
+  onAccess,
+  onRole,
+}: {
+  access: string;
+  role: string;
+  editable: boolean;
+  disabled: boolean;
+  onAccess: (access: string) => void;
+  onRole: (role: string) => void;
+}) {
+  const Icon = ACCESS_ICON[access as keyof typeof ACCESS_ICON] ?? Lock;
+  const open = access !== "restricted";
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        aria-hidden
+        className={cn(
+          "grid size-8 shrink-0 place-items-center rounded-full",
+          open ? "bg-ok-bg text-ok" : "bg-raised text-muted",
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <Select
+          aria-label="General access"
+          data-testid="share-general-access"
+          className="-ml-2 max-w-full font-medium"
+          value={access}
+          disabled={!editable || disabled}
+          onChange={(e) => onAccess(e.target.value)}
+        >
+          {["restricted", "members", "link"].map((a) => (
+            <option key={a} value={a}>
+              {generalAccessLabel(a)}
+            </option>
+          ))}
+        </Select>
+        <p className="text-xs text-muted">{generalAccessHint(access, role)}</p>
+      </div>
+      {open ? (
+        <Select
+          aria-label="General role"
+          data-testid="share-general-role"
+          value={role}
+          disabled={!editable || disabled}
+          onChange={(e) => onRole(e.target.value)}
+        >
+          <option value="viewer">{roleLabel("viewer")}</option>
+          <option value="editor">{roleLabel("editor")}</option>
+        </Select>
+      ) : null}
+    </div>
   );
 }
 

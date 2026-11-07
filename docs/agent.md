@@ -461,8 +461,8 @@ write agrees.
 | viewer | shared with you as one, opened from a viewer link or Workspace, or a participant the 0031 backfill only guessed from a name | read, leave |
 
 - **General access** widens a chat beyond the named grants: *Restricted* (the default),
-  *Podium members* (everybody who has signed in; listed for them under **Workspace** until
-  they open it), or *Anyone with the link* (signed in, with `/agent/chat/<id>?k=<token>`).
+  *Everyone in Podium* (everybody who has signed in; listed for them under **Workspace** until
+  they open it), or *Anyone in Podium with the link* (signed in, with `/agent/chat/<id>?k=<token>`).
   Opening a chat either way writes the opener an access row, so it stays in their lists even
   if general access is narrowed later. **Reset link** makes a new 128-bit token: the old link
   stops letting anybody in; people who joined keep access. Narrowing to Restricted stops the

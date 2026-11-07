@@ -145,14 +145,14 @@ describe("ShareDialog", () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount();
     expect(await screen.findByTestId("share-key-warning")).toHaveTextContent("company’s model key");
-    expect(screen.getByTestId("share-key-warning")).toHaveTextContent("secrets, MCP servers and GitHub account");
+    expect(screen.getByTestId("share-key-warning")).toHaveTextContent("their own GitHub account, secrets and MCP servers");
     expect(screen.queryByTestId("share-key-note")).toBeNull();
   });
 
   it("says a shared chat runs on the company key, without the warning", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing() });
     mount();
-    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("runs on the company’s model key");
+    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
     expect(screen.queryByTestId("share-key-warning")).toBeNull();
   });
 
