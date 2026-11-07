@@ -93,9 +93,11 @@ chromium=$!
 #    proxy, with a token Podium's server holds, and the server is what signs a person in.
 #    --allowed-hosts is the name the provider's proxy forwards; IPs and localhost are
 #    always answered. --enable-resize lets voxl fit the screen to the viewer in control.
+#    --audio-enabled=false: there is no sound server in this box, and with audio on voxl
+#    retries connecting to one every two seconds for as long as the turn lasts.
 voxl --addr 0.0.0.0 --port "$port" --enable-basic-auth=false \
 	--allowed-hosts "$allowed_hosts" \
-	--enable-resize --enable-clipboard --framerate 30 --max-kbps 8000 \
+	--enable-resize --enable-clipboard --audio-enabled=false --framerate 30 --max-kbps 8000 \
 	>"$logs/voxl.log" 2>&1 &
 voxl=$!
 

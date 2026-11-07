@@ -74,6 +74,7 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
         done
         curl -fsS -o /tmp/shot.png http://127.0.0.1:6901/screenshot
         echo "SHOT: $(od -An -tx1 -N8 /tmp/shot.png | tr -d " \\n")"
+        tr "\\0" " " < /proc/$(pgrep -x voxl)/cmdline | grep -q -- "--audio-enabled=false" && echo "AUDIO: off"
         exit 7
       '
     `);
@@ -91,6 +92,9 @@ describe.skipIf(unavailable !== null)(`${DesktopImage}`, () => {
     expect(run.stdout).toContain("SHOT: 89504e470d0a1a0a");
     // xfce-setup.sh ran clean: a failure there is only a warning, so assert it is absent.
     expect(run.stderr).not.toContain("XFCE kept its defaults");
+    // There is no sound server: voxl is told so, rather than retrying one every two seconds
+    // once a viewer connects.
+    expect(run.stdout).toContain("AUDIO: off");
   });
 
   it("starts at the largest size, which voxl may only shrink", () => {
