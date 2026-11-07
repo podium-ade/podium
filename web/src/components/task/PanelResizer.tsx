@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { GripVertical } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 /** The narrowest either side of the split may get, list and panel alike. */
@@ -94,10 +95,14 @@ export function PanelResizer({
         "hover:before:w-[3px] hover:before:bg-accent focus-visible:before:w-[3px] focus-visible:before:bg-accent",
       )}
     >
+      {/* A bordered tab with a grip, not a bare bar: a bar the scroll thumb's shape and
+          colour, beside the scroll thumb, read as a second scroll bar. */}
       <span
         aria-hidden
-        className="absolute top-1/2 left-px h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors duration-150 group-hover/resize:bg-accent group-focus-visible/resize:bg-accent"
-      />
+        className="absolute top-1/2 left-px flex h-7 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border border-border bg-panel text-faint shadow-sm transition-colors duration-150 group-hover/resize:border-accent group-hover/resize:text-accent group-focus-visible/resize:border-accent group-focus-visible/resize:text-accent"
+      >
+        <GripVertical className="size-3" />
+      </span>
     </div>
   );
 }
