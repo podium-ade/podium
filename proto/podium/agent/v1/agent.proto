@@ -1735,6 +1735,10 @@ message PlaybookDefinition {
   // empty for the conductor's default (GetRunsOn).
   string runs_on = 31;
   PlaybookSandbox sandbox = 32;
+  // desktop runs the turn on a desktop a person shares with it: a virtual display, XFCE and
+  // the Chromium its browser tools drive, streamed to the chat's desktop panel. Not with
+  // browser. With no image, the turn runs podium-agent-runtime-desktop.
+  bool desktop = 34;
 }
 
 message GetProfileRequest {}

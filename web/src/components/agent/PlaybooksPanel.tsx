@@ -491,6 +491,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     interactive: draft.interactive,
     docker: draft.docker,
     browser: draft.browser,
+    desktop: draft.desktop,
     skills: draft.skills,
     mcpServers: draft.mcpServers,
     env: draft.env,

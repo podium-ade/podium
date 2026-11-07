@@ -34,3 +34,18 @@ func TestListedTaskDropsEnvAndMountContents(t *testing.T) {
 	require.Equal(t, "a long turn", task.Spec.Env["PODIUM_AGENT_TURN"])
 	require.Equal(t, "a long skill", task.Spec.Mounts[0].Files["SKILL.md"])
 }
+
+func TestADesktopLinkIsOnlyForARunningDesktopTask(t *testing.T) {
+	desktop := spec.TaskSpec{Expose: &spec.Expose{Ports: map[string]spec.ExposedPort{"desktop": {Port: 6901}}}}
+	web := spec.TaskSpec{Expose: &spec.Expose{Ports: map[string]spec.ExposedPort{"web": {Port: 3000}}}}
+
+	require.NoError(t, desktopProblem(store.Task{ID: "t", Status: store.StatusRunning, Spec: desktop}))
+	require.ErrorContains(t, desktopProblem(store.Task{ID: "t", Status: store.StatusRunning, Spec: web}),
+		"not a desktop playbook")
+	require.ErrorContains(t, desktopProblem(store.Task{ID: "t", Status: store.StatusRunning}),
+		"not a desktop playbook")
+	for _, st := range []store.Status{store.StatusQueued, store.StatusProvisioning, store.StatusSucceeded} {
+		require.ErrorContains(t, desktopProblem(store.Task{ID: "t", Status: st, Spec: desktop}),
+			"only while its task runs", st)
+	}
+}

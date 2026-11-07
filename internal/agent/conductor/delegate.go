@@ -166,6 +166,7 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Summary: playbookSummary(p),
 			Docker:  p.Docker,
 			Browser: p.Browser,
+			Desktop: p.Desktop,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
 			GitHub:  p.GitHub,
@@ -196,10 +197,12 @@ func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
 // playbook can reach rather than describing it: a model choosing between playbooks needs to
 // know which one has a Docker daemon and which one has the repository checked out.
 type DelegablePlaybook struct {
-	Name    string   `json:"name"`
-	Summary string   `json:"summary,omitempty"`
-	Docker  bool     `json:"docker,omitempty"`
-	Browser bool     `json:"browser,omitempty"`
+	Name    string `json:"name"`
+	Summary string `json:"summary,omitempty"`
+	Docker  bool   `json:"docker,omitempty"`
+	Browser bool   `json:"browser,omitempty"`
+	// Desktop says the task runs on a desktop the person watches live in the chat.
+	Desktop bool     `json:"desktop,omitempty"`
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`

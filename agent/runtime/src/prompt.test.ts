@@ -276,6 +276,26 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("PODIUM_TURN_TOKEN");
   });
 
+  it("tells a desktop turn its desktop is up and watched, and no other turn", () => {
+    // Told nothing, a desktop turn spent its first steps looking for a display server to
+    // start, a tmux session and a window tool.
+    const desk = buildSystemPrompt({ ...golden(), desktop: true });
+    expect(desk).toContain("# The desktop");
+    expect(desk).toContain("already running when\nthe turn starts: do not start, check or restart it");
+    expect(desk).toContain("DISPLAY=:1");
+    expect(desk).toContain("tmux capture-pane -p -t podium");
+    expect(buildSystemPrompt(golden())).not.toContain("# The desktop");
+  });
+
+  it("says in the delegation menu which playbook has a desktop", () => {
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "desktop", desktop: true }] },
+    });
+    expect(prompt).toContain("`desktop` — has a desktop the person watches live in the chat");
+  });
+
   it("tells a delegating turn not to repeat what the task already said", () => {
     // This is the behaviour that reads worst in a conversation: the task's answer arrives
     // on its own, and then the agent paraphrases it as if it had done the work.
