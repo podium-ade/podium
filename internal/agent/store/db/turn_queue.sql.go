@@ -276,3 +276,25 @@ func (q *Queries) RemoveQueuedTurn(ctx context.Context, arg RemoveQueuedTurnPara
 	}
 	return result.RowsAffected(), nil
 }
+
+const removeQueuedTurnByID = `-- name: RemoveQueuedTurnByID :execrows
+delete from turn_queue q
+ where q.id = $1 and q.chat_id = $2 and q.login = $3
+`
+
+type RemoveQueuedTurnByIDParams struct {
+	ID     int64
+	ChatID string
+	Login  string
+}
+
+// RemoveQueuedTurnByID takes back one's own queued turn by its row, which is how a message
+// that waits unrecorded (it has no seq yet) is named. Zero rows: not queued any more, not in
+// this chat, or not the caller's.
+func (q *Queries) RemoveQueuedTurnByID(ctx context.Context, arg RemoveQueuedTurnByIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeQueuedTurnByID, arg.ID, arg.ChatID, arg.Login)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

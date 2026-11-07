@@ -5428,9 +5428,15 @@ type QueuedTurn struct {
 	Author string `protobuf:"bytes,2,opt,name=author,proto3" json:"author,omitempty"`
 	// via is the surface they asked on: "web", "slack" or "github".
 	Via string `protobuf:"bytes,3,opt,name=via,proto3" json:"via,omitempty"`
-	// seq is the message that asked, in this chat; 0 when it is not in the record.
-	Seq           uint64                 `protobuf:"varint,4,opt,name=seq,proto3" json:"seq,omitempty"`
-	QueuedAt      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=queued_at,json=queuedAt,proto3" json:"queued_at,omitempty"`
+	// seq is the message that asked, in this chat; 0 when it is not in the record. A message
+	// sent from the web chat while Podium was answering waits unrecorded, and is written to the
+	// transcript when its turn starts, so it is read after the answer it waited for.
+	Seq      uint64                 `protobuf:"varint,4,opt,name=seq,proto3" json:"seq,omitempty"`
+	QueuedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=queued_at,json=queuedAt,proto3" json:"queued_at,omitempty"`
+	// id names this waiting turn, for CancelQueuedTurn.
+	Id int64 `protobuf:"varint,6,opt,name=id,proto3" json:"id,omitempty"`
+	// text is what was asked, so everybody in the chat sees the same queue.
+	Text          string `protobuf:"bytes,7,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5498,6 +5504,20 @@ func (x *QueuedTurn) GetQueuedAt() *timestamppb.Timestamp {
 		return x.QueuedAt
 	}
 	return nil
+}
+
+func (x *QueuedTurn) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *QueuedTurn) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
 }
 
 // ChatQueue is the whole set of turns waiting in a chat's session.
@@ -6785,8 +6805,11 @@ func (x *SendChatMessageResponse) GetQueuedPosition() int32 {
 type CancelQueuedTurnRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
-	// seq is the caller's message whose turn is waiting.
-	Seq           uint64 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	// seq is the caller's message whose turn is waiting. Use id for a message that waits
+	// unrecorded (QueuedTurn.seq 0).
+	Seq uint64 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	// id is the waiting turn (QueuedTurn.id). Set, it wins over seq.
+	Id            int64 `protobuf:"varint,3,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6831,6 +6854,13 @@ func (x *CancelQueuedTurnRequest) GetChatId() string {
 func (x *CancelQueuedTurnRequest) GetSeq() uint64 {
 	if x != nil {
 		return x.Seq
+	}
+	return 0
+}
+
+func (x *CancelQueuedTurnRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
 	}
 	return 0
 }
@@ -13358,14 +13388,16 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"deliveries\x18\x11 \x03(\v2\x1d.podium.agent.v1.ChatDeliveryR\n" +
 	"deliveries\x12\x1a\n" +
-	"\bmentions\x18\x12 \x03(\tR\bmentions\"\x97\x01\n" +
+	"\bmentions\x18\x12 \x03(\tR\bmentions\"\xbb\x01\n" +
 	"\n" +
 	"QueuedTurn\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12\x16\n" +
 	"\x06author\x18\x02 \x01(\tR\x06author\x12\x10\n" +
 	"\x03via\x18\x03 \x01(\tR\x03via\x12\x10\n" +
 	"\x03seq\x18\x04 \x01(\x04R\x03seq\x127\n" +
-	"\tqueued_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bqueuedAt\">\n" +
+	"\tqueued_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bqueuedAt\x12\x0e\n" +
+	"\x02id\x18\x06 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04text\x18\a \x01(\tR\x04text\">\n" +
 	"\tChatQueue\x121\n" +
 	"\x05turns\x18\x01 \x03(\v2\x1b.podium.agent.v1.QueuedTurnR\x05turns\"r\n" +
 	"\fChatDelivery\x12\x18\n" +
@@ -13442,10 +13474,11 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x17SendChatMessageResponse\x126\n" +
 	"\amessage\x18\x01 \x01(\v2\x1c.podium.agent.v1.ChatMessageR\amessage\x12\x1c\n" +
 	"\taddressed\x18\x02 \x01(\bR\taddressed\x12'\n" +
-	"\x0fqueued_position\x18\x03 \x01(\x05R\x0equeuedPosition\"D\n" +
+	"\x0fqueued_position\x18\x03 \x01(\x05R\x0equeuedPosition\"T\n" +
 	"\x17CancelQueuedTurnRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x04R\x03seq\"\x1a\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\x03R\x02id\"\x1a\n" +
 	"\x18CancelQueuedTurnResponse\"0\n" +
 	"\x15CancelChatTurnRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\"2\n" +
