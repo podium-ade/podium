@@ -1019,6 +1019,123 @@ func (x *ReleasePreviewResponse) GetTask() *Task {
 	return nil
 }
 
+type CreateDesktopTicketRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDesktopTicketRequest) Reset() {
+	*x = CreateDesktopTicketRequest{}
+	mi := &file_podium_v1_task_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDesktopTicketRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDesktopTicketRequest) ProtoMessage() {}
+
+func (x *CreateDesktopTicketRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_task_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDesktopTicketRequest.ProtoReflect.Descriptor instead.
+func (*CreateDesktopTicketRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CreateDesktopTicketRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+type CreateDesktopTicketResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// url is the desktop, ready to be an iframe's src.
+	Url       string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// terminal_url is a terminal in the task's workspace, ready to be an iframe's src; empty
+	// when the task exposes none. It expires with url.
+	TerminalUrl string `protobuf:"bytes,3,opt,name=terminal_url,json=terminalUrl,proto3" json:"terminal_url,omitempty"`
+	// ready is whether the desktop answers yet. A task runs before its desktop is up, and a
+	// frame loaded in between shows an error page it never leaves: ask again until it is.
+	Ready         bool `protobuf:"varint,4,opt,name=ready,proto3" json:"ready,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDesktopTicketResponse) Reset() {
+	*x = CreateDesktopTicketResponse{}
+	mi := &file_podium_v1_task_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDesktopTicketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDesktopTicketResponse) ProtoMessage() {}
+
+func (x *CreateDesktopTicketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_task_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDesktopTicketResponse.ProtoReflect.Descriptor instead.
+func (*CreateDesktopTicketResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *CreateDesktopTicketResponse) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *CreateDesktopTicketResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *CreateDesktopTicketResponse) GetTerminalUrl() string {
+	if x != nil {
+		return x.TerminalUrl
+	}
+	return ""
+}
+
+func (x *CreateDesktopTicketResponse) GetReady() bool {
+	if x != nil {
+		return x.Ready
+	}
+	return false
+}
+
 type StreamTaskEventsRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1030,7 +1147,7 @@ type StreamTaskEventsRequest struct {
 
 func (x *StreamTaskEventsRequest) Reset() {
 	*x = StreamTaskEventsRequest{}
-	mi := &file_podium_v1_task_proto_msgTypes[16]
+	mi := &file_podium_v1_task_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1042,7 +1159,7 @@ func (x *StreamTaskEventsRequest) String() string {
 func (*StreamTaskEventsRequest) ProtoMessage() {}
 
 func (x *StreamTaskEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_task_proto_msgTypes[16]
+	mi := &file_podium_v1_task_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1055,7 +1172,7 @@ func (x *StreamTaskEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamTaskEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamTaskEventsRequest) Descriptor() ([]byte, []int) {
-	return file_podium_v1_task_proto_rawDescGZIP(), []int{16}
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StreamTaskEventsRequest) GetTaskId() string {
@@ -1155,10 +1272,18 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x15ReleasePreviewRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\"=\n" +
 	"\x16ReleasePreviewResponse\x12#\n" +
-	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"M\n" +
+	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"5\n" +
+	"\x1aCreateDesktopTicketRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\"\xa3\x01\n" +
+	"\x1bCreateDesktopTicketResponse\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x129\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12!\n" +
+	"\fterminal_url\x18\x03 \x01(\tR\vterminalUrl\x12\x14\n" +
+	"\x05ready\x18\x04 \x01(\bR\x05ready\"M\n" +
 	"\x17StreamTaskEventsRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
-	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\x9f\x04\n" +
+	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\x85\x05\n" +
 	"\vTaskService\x12I\n" +
 	"\n" +
 	"CreateTask\x12\x1c.podium.v1.CreateTaskRequest\x1a\x1d.podium.v1.CreateTaskResponse\x12@\n" +
@@ -1169,7 +1294,8 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\n" +
 	"InjectTask\x12\x1c.podium.v1.InjectTaskRequest\x1a\x1d.podium.v1.InjectTaskResponse\x12N\n" +
 	"\x10StreamTaskEvents\x12\".podium.v1.StreamTaskEventsRequest\x1a\x14.podium.v1.TaskEvent0\x01\x12U\n" +
-	"\x0eReleasePreview\x12 .podium.v1.ReleasePreviewRequest\x1a!.podium.v1.ReleasePreviewResponseB\x9f\x01\n" +
+	"\x0eReleasePreview\x12 .podium.v1.ReleasePreviewRequest\x1a!.podium.v1.ReleasePreviewResponse\x12d\n" +
+	"\x13CreateDesktopTicket\x12%.podium.v1.CreateDesktopTicketRequest\x1a&.podium.v1.CreateDesktopTicketResponseB\x9f\x01\n" +
 	"\rcom.podium.v1B\tTaskProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
@@ -1185,74 +1311,79 @@ func file_podium_v1_task_proto_rawDescGZIP() []byte {
 	return file_podium_v1_task_proto_rawDescData
 }
 
-var file_podium_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_podium_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_podium_v1_task_proto_goTypes = []any{
-	(*Task)(nil),                    // 0: podium.v1.Task
-	(*TaskPreview)(nil),             // 1: podium.v1.TaskPreview
-	(*CreateTaskRequest)(nil),       // 2: podium.v1.CreateTaskRequest
-	(*CreateTaskResponse)(nil),      // 3: podium.v1.CreateTaskResponse
-	(*GetTaskRequest)(nil),          // 4: podium.v1.GetTaskRequest
-	(*GetTaskResponse)(nil),         // 5: podium.v1.GetTaskResponse
-	(*TaskFilter)(nil),              // 6: podium.v1.TaskFilter
-	(*Page)(nil),                    // 7: podium.v1.Page
-	(*ListTasksRequest)(nil),        // 8: podium.v1.ListTasksRequest
-	(*ListTasksResponse)(nil),       // 9: podium.v1.ListTasksResponse
-	(*CancelTaskRequest)(nil),       // 10: podium.v1.CancelTaskRequest
-	(*CancelTaskResponse)(nil),      // 11: podium.v1.CancelTaskResponse
-	(*InjectTaskRequest)(nil),       // 12: podium.v1.InjectTaskRequest
-	(*InjectTaskResponse)(nil),      // 13: podium.v1.InjectTaskResponse
-	(*ReleasePreviewRequest)(nil),   // 14: podium.v1.ReleasePreviewRequest
-	(*ReleasePreviewResponse)(nil),  // 15: podium.v1.ReleasePreviewResponse
-	(*StreamTaskEventsRequest)(nil), // 16: podium.v1.StreamTaskEventsRequest
-	nil,                             // 17: podium.v1.TaskPreview.UrlsEntry
-	(*TaskSpec)(nil),                // 18: podium.v1.TaskSpec
-	(TaskStatus)(0),                 // 19: podium.v1.TaskStatus
-	(*timestamppb.Timestamp)(nil),   // 20: google.protobuf.Timestamp
-	(*Usage)(nil),                   // 21: podium.v1.Usage
-	(*TaskEvent)(nil),               // 22: podium.v1.TaskEvent
+	(*Task)(nil),                        // 0: podium.v1.Task
+	(*TaskPreview)(nil),                 // 1: podium.v1.TaskPreview
+	(*CreateTaskRequest)(nil),           // 2: podium.v1.CreateTaskRequest
+	(*CreateTaskResponse)(nil),          // 3: podium.v1.CreateTaskResponse
+	(*GetTaskRequest)(nil),              // 4: podium.v1.GetTaskRequest
+	(*GetTaskResponse)(nil),             // 5: podium.v1.GetTaskResponse
+	(*TaskFilter)(nil),                  // 6: podium.v1.TaskFilter
+	(*Page)(nil),                        // 7: podium.v1.Page
+	(*ListTasksRequest)(nil),            // 8: podium.v1.ListTasksRequest
+	(*ListTasksResponse)(nil),           // 9: podium.v1.ListTasksResponse
+	(*CancelTaskRequest)(nil),           // 10: podium.v1.CancelTaskRequest
+	(*CancelTaskResponse)(nil),          // 11: podium.v1.CancelTaskResponse
+	(*InjectTaskRequest)(nil),           // 12: podium.v1.InjectTaskRequest
+	(*InjectTaskResponse)(nil),          // 13: podium.v1.InjectTaskResponse
+	(*ReleasePreviewRequest)(nil),       // 14: podium.v1.ReleasePreviewRequest
+	(*ReleasePreviewResponse)(nil),      // 15: podium.v1.ReleasePreviewResponse
+	(*CreateDesktopTicketRequest)(nil),  // 16: podium.v1.CreateDesktopTicketRequest
+	(*CreateDesktopTicketResponse)(nil), // 17: podium.v1.CreateDesktopTicketResponse
+	(*StreamTaskEventsRequest)(nil),     // 18: podium.v1.StreamTaskEventsRequest
+	nil,                                 // 19: podium.v1.TaskPreview.UrlsEntry
+	(*TaskSpec)(nil),                    // 20: podium.v1.TaskSpec
+	(TaskStatus)(0),                     // 21: podium.v1.TaskStatus
+	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
+	(*Usage)(nil),                       // 23: podium.v1.Usage
+	(*TaskEvent)(nil),                   // 24: podium.v1.TaskEvent
 }
 var file_podium_v1_task_proto_depIdxs = []int32{
-	18, // 0: podium.v1.Task.spec:type_name -> podium.v1.TaskSpec
-	19, // 1: podium.v1.Task.status:type_name -> podium.v1.TaskStatus
-	20, // 2: podium.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	20, // 3: podium.v1.Task.started_at:type_name -> google.protobuf.Timestamp
-	20, // 4: podium.v1.Task.finished_at:type_name -> google.protobuf.Timestamp
-	21, // 5: podium.v1.Task.usage:type_name -> podium.v1.Usage
-	20, // 6: podium.v1.Task.last_schedule_attempt_at:type_name -> google.protobuf.Timestamp
+	20, // 0: podium.v1.Task.spec:type_name -> podium.v1.TaskSpec
+	21, // 1: podium.v1.Task.status:type_name -> podium.v1.TaskStatus
+	22, // 2: podium.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	22, // 3: podium.v1.Task.started_at:type_name -> google.protobuf.Timestamp
+	22, // 4: podium.v1.Task.finished_at:type_name -> google.protobuf.Timestamp
+	23, // 5: podium.v1.Task.usage:type_name -> podium.v1.Usage
+	22, // 6: podium.v1.Task.last_schedule_attempt_at:type_name -> google.protobuf.Timestamp
 	1,  // 7: podium.v1.Task.preview:type_name -> podium.v1.TaskPreview
-	17, // 8: podium.v1.TaskPreview.urls:type_name -> podium.v1.TaskPreview.UrlsEntry
-	20, // 9: podium.v1.TaskPreview.expires_at:type_name -> google.protobuf.Timestamp
-	20, // 10: podium.v1.TaskPreview.released_at:type_name -> google.protobuf.Timestamp
-	18, // 11: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
+	19, // 8: podium.v1.TaskPreview.urls:type_name -> podium.v1.TaskPreview.UrlsEntry
+	22, // 9: podium.v1.TaskPreview.expires_at:type_name -> google.protobuf.Timestamp
+	22, // 10: podium.v1.TaskPreview.released_at:type_name -> google.protobuf.Timestamp
+	20, // 11: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
 	0,  // 12: podium.v1.CreateTaskResponse.task:type_name -> podium.v1.Task
 	0,  // 13: podium.v1.GetTaskResponse.task:type_name -> podium.v1.Task
-	19, // 14: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
-	20, // 15: podium.v1.TaskFilter.created_after:type_name -> google.protobuf.Timestamp
-	20, // 16: podium.v1.TaskFilter.created_before:type_name -> google.protobuf.Timestamp
+	21, // 14: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
+	22, // 15: podium.v1.TaskFilter.created_after:type_name -> google.protobuf.Timestamp
+	22, // 16: podium.v1.TaskFilter.created_before:type_name -> google.protobuf.Timestamp
 	6,  // 17: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
 	7,  // 18: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
 	0,  // 19: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
 	0,  // 20: podium.v1.CancelTaskResponse.task:type_name -> podium.v1.Task
 	0,  // 21: podium.v1.ReleasePreviewResponse.task:type_name -> podium.v1.Task
-	2,  // 22: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
-	4,  // 23: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
-	8,  // 24: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
-	10, // 25: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
-	12, // 26: podium.v1.TaskService.InjectTask:input_type -> podium.v1.InjectTaskRequest
-	16, // 27: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
-	14, // 28: podium.v1.TaskService.ReleasePreview:input_type -> podium.v1.ReleasePreviewRequest
-	3,  // 29: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
-	5,  // 30: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
-	9,  // 31: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
-	11, // 32: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
-	13, // 33: podium.v1.TaskService.InjectTask:output_type -> podium.v1.InjectTaskResponse
-	22, // 34: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
-	15, // 35: podium.v1.TaskService.ReleasePreview:output_type -> podium.v1.ReleasePreviewResponse
-	29, // [29:36] is the sub-list for method output_type
-	22, // [22:29] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	22, // 22: podium.v1.CreateDesktopTicketResponse.expires_at:type_name -> google.protobuf.Timestamp
+	2,  // 23: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
+	4,  // 24: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
+	8,  // 25: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
+	10, // 26: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
+	12, // 27: podium.v1.TaskService.InjectTask:input_type -> podium.v1.InjectTaskRequest
+	18, // 28: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
+	14, // 29: podium.v1.TaskService.ReleasePreview:input_type -> podium.v1.ReleasePreviewRequest
+	16, // 30: podium.v1.TaskService.CreateDesktopTicket:input_type -> podium.v1.CreateDesktopTicketRequest
+	3,  // 31: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
+	5,  // 32: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
+	9,  // 33: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
+	11, // 34: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
+	13, // 35: podium.v1.TaskService.InjectTask:output_type -> podium.v1.InjectTaskResponse
+	24, // 36: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
+	15, // 37: podium.v1.TaskService.ReleasePreview:output_type -> podium.v1.ReleasePreviewResponse
+	17, // 38: podium.v1.TaskService.CreateDesktopTicket:output_type -> podium.v1.CreateDesktopTicketResponse
+	31, // [31:39] is the sub-list for method output_type
+	23, // [23:31] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_task_proto_init() }
@@ -1269,7 +1400,7 @@ func file_podium_v1_task_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_task_proto_rawDesc), len(file_podium_v1_task_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

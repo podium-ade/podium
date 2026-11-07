@@ -9261,8 +9261,12 @@ type PlaybookDefinition struct {
 	UserSecrets []*PlaybookSecretRef `protobuf:"bytes,29,rep,name=user_secrets,json=userSecrets,proto3" json:"user_secrets,omitempty"`
 	// runs_on is where this playbook's turns run: "nodes", a sandbox provider's name, or
 	// empty for the conductor's default (GetRunsOn).
-	RunsOn        string           `protobuf:"bytes,31,opt,name=runs_on,json=runsOn,proto3" json:"runs_on,omitempty"`
-	Sandbox       *PlaybookSandbox `protobuf:"bytes,32,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	RunsOn  string           `protobuf:"bytes,31,opt,name=runs_on,json=runsOn,proto3" json:"runs_on,omitempty"`
+	Sandbox *PlaybookSandbox `protobuf:"bytes,32,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// desktop runs the turn on a desktop a person shares with it: a virtual display, XFCE and
+	// the Chromium its browser tools drive, streamed to the chat's desktop panel. Not with
+	// browser. With no image, the turn runs podium-agent-runtime-desktop.
+	Desktop       bool `protobuf:"varint,34,opt,name=desktop,proto3" json:"desktop,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9526,6 +9530,13 @@ func (x *PlaybookDefinition) GetSandbox() *PlaybookSandbox {
 		return x.Sandbox
 	}
 	return nil
+}
+
+func (x *PlaybookDefinition) GetDesktop() bool {
+	if x != nil {
+		return x.Desktop
+	}
+	return false
 }
 
 type GetProfileRequest struct {
@@ -13603,7 +13614,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"7\n" +
 	"\vPlaybookGit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xe7\t\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\x81\n" +
+	"\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -13641,7 +13653,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\abrowser\x18\x1c \x01(\bR\abrowser\x12E\n" +
 	"\fuser_secrets\x18\x1d \x03(\v2\".podium.agent.v1.PlaybookSecretRefR\vuserSecrets\x12\x17\n" +
 	"\aruns_on\x18\x1f \x01(\tR\x06runsOn\x12:\n" +
-	"\asandbox\x18  \x01(\v2 .podium.agent.v1.PlaybookSandboxR\asandbox\x1a6\n" +
+	"\asandbox\x18  \x01(\v2 .podium.agent.v1.PlaybookSandboxR\asandbox\x12\x18\n" +
+	"\adesktop\x18\" \x01(\bR\adesktop\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

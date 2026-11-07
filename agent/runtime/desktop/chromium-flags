@@ -1,0 +1,22 @@
+# /etc/chromium.d/podium-desktop: the flags every Chromium on the desktop starts with. Debian's
+# /usr/bin/chromium sources this directory, so the same flags reach every launch: podium-desktop's,
+# the dock's, the app menu's and xdg-open's. That is what makes them all one browser. A second
+# launch with the same profile hands its URL to the running Chromium (the one the agent drives)
+# instead of starting another, and after the person closes it, the dock starts it again with
+# the DevTools port the agent's browser tools need.
+#
+# - --no-sandbox, --test-type: a container has no user namespaces for Chromium's sandbox, and
+#   --test-type hides the warning bar about it.
+# - --use-angle=swiftshader, --enable-unsafe-swiftshader: there is no GPU, and without one
+#   Chromium turns WebGL off. These render it on the CPU with the SwiftShader Chromium bundles,
+#   which is what gives pages WebGL at all, and what lets the image leave Mesa's OpenGL out
+#   (Dockerfile.desktop). "Unsafe" is about a software GPU being a larger attack surface than a
+#   sandboxed real one, a trade this single-user, disposable box makes.
+# - The DevTools port is on loopback only: the agent's browser tools are in this box, and
+#   nothing else should drive it. 9222 is what podium-desktop waits for and the conductor
+#   points the browser tools at.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox --test-type --disable-dev-shm-usage \
+--no-first-run --no-default-browser-check --disable-session-crashed-bubble \
+--hide-crash-restore-bubble --use-angle=swiftshader --enable-unsafe-swiftshader \
+--user-data-dir=$HOME/.config/podium-desktop/chromium \
+--remote-debugging-address=127.0.0.1 --remote-debugging-port=9222"

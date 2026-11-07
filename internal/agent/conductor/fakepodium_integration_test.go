@@ -340,6 +340,13 @@ func (f *fakePodium) InjectTask(
 	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
 }
 
+// CreateDesktopTicket is the server's: the conductor never asks for a desktop link.
+func (f *fakePodium) CreateDesktopTicket(
+	context.Context, *connect.Request[podiumv1.CreateDesktopTicketRequest],
+) (*connect.Response[podiumv1.CreateDesktopTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
 func (f *fakePodium) ReleasePreview(
 	_ context.Context, req *connect.Request[podiumv1.ReleasePreviewRequest],
 ) (*connect.Response[podiumv1.ReleasePreviewResponse], error) {

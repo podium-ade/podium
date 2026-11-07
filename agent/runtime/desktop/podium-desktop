@@ -1,0 +1,151 @@
+#!/bin/sh
+# podium-desktop [-- COMMAND [ARG...]]
+#
+# Starts a desktop the turn and a person can share — a virtual X display, XFCE, one Chromium
+# the agent's browser tools drive, voxl streaming the display to a browser, and ttyd serving a
+# terminal in the workspace — waits until it answers, and then runs COMMAND in its place (exec, so COMMAND's exit status is this
+# script's). With no COMMAND it keeps the desktop up until it is stopped.
+#
+# It is a wrapper rather than the image's CMD because Podium never runs an image's CMD: a
+# turn's command is always the runtime, and a desktop playbook's command is this script in
+# front of it:
+#
+#   podium-desktop -- node /opt/podium-agent/dist/main.js
+#
+# Everything it starts is a child of COMMAND after the exec, so it lives exactly as long as
+# the turn does, warm window included, and goes when the turn's container or sandbox does.
+#
+# It runs as whatever user the turn runs as (uid 1000 `agent` in a container, `podium` in a
+# cloud sandbox) and needs nothing but a writable $HOME and /tmp.
+#
+# Environment (all optional):
+#   PODIUM_DESKTOP_SIZE            largest desktop, WxH (2560x1600). voxl can only SHRINK the
+#                                  screen to fit a viewer, so this is the start size.
+#   PODIUM_DESKTOP_PORT            voxl's port (6901). The playbook exposes it.
+#   PODIUM_DESKTOP_TERMINAL_PORT   ttyd's port (7681). The playbook exposes it.
+#   PODIUM_DESKTOP_ALLOWED_HOSTS   host names voxl answers besides IPs and localhost
+#                                  (.modal.host, the suffix of Modal's port URLs).
+#   PODIUM_DESKTOP_START_URL       Chromium's first page (about:blank).
+#   PODIUM_DESKTOP_READY_TIMEOUT   seconds to wait for the desktop to answer (30).
+set -eu
+
+if [ "${1:-}" = "--" ]; then
+	shift
+fi
+
+display=:1
+size="${PODIUM_DESKTOP_SIZE:-2560x1600}"
+port="${PODIUM_DESKTOP_PORT:-6901}"
+terminal_port="${PODIUM_DESKTOP_TERMINAL_PORT:-7681}"
+allowed_hosts="${PODIUM_DESKTOP_ALLOWED_HOSTS:-.modal.host}"
+start_url="${PODIUM_DESKTOP_START_URL:-about:blank}"
+ready_timeout="${PODIUM_DESKTOP_READY_TIMEOUT:-30}"
+cdp_port=9222
+logs="${TMPDIR:-/tmp}/podium-desktop"
+here="$(dirname "$(readlink -f "$0")")"
+
+mkdir -p "$logs"
+
+# fail says why the desktop did not come up, with the end of the log that explains it, and
+# stops: a turn without its desktop fails at the start with this, not halfway through with a
+# browser tool that cannot connect.
+fail() {
+	echo "podium-desktop: $1" >&2
+	if [ -n "${2:-}" ] && [ -s "$logs/$2" ]; then
+		echo "--- last lines of $logs/$2 ---" >&2
+		tail -n 20 "$logs/$2" >&2
+	fi
+	exit 1
+}
+
+printf '%s' "$size" | grep -Eq '^[0-9]+x[0-9]+$' ||
+	fail "PODIUM_DESKTOP_SIZE must be WIDTHxHEIGHT, not '$size'"
+
+export DISPLAY="$display"
+
+# 1. The display. -shmem puts the framebuffer in shared memory, which voxl captures without
+#    copying; -nolisten tcp keeps it off the network: only processes in this box draw on it.
+Xvfb "$display" -screen 0 "${size}x24" -shmem -nolisten tcp >"$logs/xvfb.log" 2>&1 &
+xvfb=$!
+socket="/tmp/.X11-unix/X${display#:}"
+i=0
+while [ ! -S "$socket" ]; do
+	kill -0 "$xvfb" 2>/dev/null || fail "the X display did not start" xvfb.log
+	i=$((i + 1))
+	[ "$i" -le 100 ] || fail "the X display did not start within 10s" xvfb.log
+	sleep 0.1
+done
+
+# 2. The desktop, with its own session bus. xfce-setup.sh settles XFCE's defaults into the
+#    minimal dark desktop the person sees; a desktop that missed it still works, so a
+#    failure there is a warning, not a reason to fail the turn.
+dbus-launch --exit-with-session startxfce4 >"$logs/xfce.log" 2>&1 &
+if ! "$here/xfce-setup.sh" >"$logs/xfce-setup.log" 2>&1; then
+	echo "podium-desktop: warning: XFCE kept its defaults (see $logs/xfce-setup.log)" >&2
+fi
+
+# 3. The browser, once. Its flags, the profile and the DevTools port included, are in
+#    /etc/chromium.d/podium-desktop (desktop/chromium-flags), so the dock and the app menu
+#    start the same browser: a later launch opens its URL in this one. Relaunching it in a
+#    loop instead would only open tabs in the running one.
+chromium --start-maximized "$start_url" >"$logs/chromium.log" 2>&1 &
+chromium=$!
+
+# 4. The stream. Its own login is off: the port is reachable only through the provider's
+#    proxy, with a token Podium's server holds, and the server is what signs a person in.
+#    --allowed-hosts is the name the provider's proxy forwards; IPs and localhost are
+#    always answered. --enable-resize lets voxl fit the screen to the viewer in control.
+#    --audio-enabled=false: there is no sound server in this box, and with audio on voxl
+#    retries connecting to one every two seconds for as long as the turn lasts.
+voxl --addr 0.0.0.0 --port "$port" --enable-basic-auth=false \
+	--allowed-hosts "$allowed_hosts" \
+	--enable-resize --enable-clipboard --audio-enabled=false --framerate 30 --max-kbps 8000 \
+	>"$logs/voxl.log" 2>&1 &
+voxl=$!
+
+# 5. The terminal: a shell in the turn's working directory, the workspace, for the person.
+#    tmux holds it, so every viewer — a second tab, a reload, the panel shown again — attaches
+#    to the same session instead of starting a new shell; the session goes with the turn.
+#    Writable, and no login of its own, for the reason voxl has none. The page's look is the
+#    chat's: dark, the panel's own font size, a quiet status line, no "leave this page?"
+#    prompt.
+#
+#    The session is made here, before anyone opens the terminal, so it is there from the
+#    turn's first step: the agent can read what the person has in it (tmux capture-pane -t
+#    podium), and was sent looking for why it was missing when only a viewer created it.
+#    ttyd's -A attaches to it, and makes it again if the person exited its shell.
+tmux new-session -d -s podium -c "$PWD" \; \
+	set-option -g status-style 'bg=#151517,fg=#8a8a93' ||
+	fail "the terminal's tmux session did not start"
+ttyd --port "$terminal_port" --interface 0.0.0.0 --writable \
+	--client-option 'theme={"background":"#0b0b0c","foreground":"#e7e7ea","cursor":"#e7e7ea","selectionBackground":"#3a3a40"}' \
+	--client-option fontSize=13 --client-option disableLeaveAlert=true \
+	--client-option disableResizeOverlay=true --client-option titleFixed=Terminal \
+	tmux new-session -A -s podium -c "$PWD" >"$logs/ttyd.log" 2>&1 &
+ttyd=$!
+
+# 6. Ready means every end answers: the browser the agent drives, the stream the person
+#    watches, and the terminal beside it.
+deadline=$(($(date +%s) + ready_timeout))
+until curl -fsS -o /dev/null "http://127.0.0.1:$cdp_port/json/version" 2>/dev/null; do
+	kill -0 "$chromium" 2>/dev/null || fail "Chromium exited before it was ready" chromium.log
+	[ "$(date +%s)" -lt "$deadline" ] || fail "Chromium did not answer on port $cdp_port within ${ready_timeout}s" chromium.log
+	sleep 0.2
+done
+until curl -fsS -o /dev/null "http://127.0.0.1:$port/healthz" 2>/dev/null; do
+	kill -0 "$voxl" 2>/dev/null || fail "voxl exited before it was ready" voxl.log
+	[ "$(date +%s)" -lt "$deadline" ] || fail "voxl did not answer on port $port within ${ready_timeout}s" voxl.log
+	sleep 0.2
+done
+until curl -fsS -o /dev/null "http://127.0.0.1:$terminal_port/" 2>/dev/null; do
+	kill -0 "$ttyd" 2>/dev/null || fail "ttyd exited before it was ready" ttyd.log
+	[ "$(date +%s)" -lt "$deadline" ] || fail "ttyd did not answer on port $terminal_port within ${ready_timeout}s" ttyd.log
+	sleep 0.2
+done
+
+if [ "$#" -eq 0 ]; then
+	echo "podium-desktop: ready on :$port (display $display); no command, holding the desktop up" >&2
+	wait "$voxl"
+	exit $?
+fi
+exec "$@"
