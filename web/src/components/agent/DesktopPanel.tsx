@@ -71,10 +71,11 @@ export function DesktopPanel({
         }}
         className="min-h-0 flex-1"
       >
-        <div className="flex h-10 shrink-0 items-center border-b border-border pr-2">
+        {/* h-14: the conversation's title bar beside it, so the two read as one header. */}
+        <div className="flex h-14 shrink-0 items-center border-b border-border pr-3">
           <TabsList className="h-full w-auto gap-0 overflow-visible border-b-0 px-1">
             {tabs.map(({ id, label, icon: Icon }) => (
-              <TabsTrigger key={id} value={id} className="h-full min-h-0 px-3 text-xs">
+              <TabsTrigger key={id} value={id} className="h-full min-h-0 px-3.5 text-sm">
                 <Icon aria-hidden />
                 {label}
               </TabsTrigger>
@@ -82,34 +83,34 @@ export function DesktopPanel({
           </TabsList>
           <div className="ml-auto flex items-center gap-1">
             <Button
-              size="icon-xs"
+              size="icon-sm"
               variant="ghost"
               title="Reconnect"
               aria-label="Reconnect the desktop and terminal"
               onClick={() => void ticket.refetch()}
             >
-              <RotateCw className="size-3.5" aria-hidden />
+              <RotateCw className="size-4" aria-hidden />
             </Button>
             {activeURL ? (
-              <Button size="icon-xs" variant="ghost" asChild title="Open in a new tab">
+              <Button size="icon-sm" variant="ghost" asChild title="Open in a new tab">
                 <a
                   href={activeURL}
                   target="_blank"
                   rel="noreferrer noopener"
                   aria-label={`Open the ${activeLabel} in a new tab`}
                 >
-                  <ExternalLink className="size-3.5" aria-hidden />
+                  <ExternalLink className="size-4" aria-hidden />
                 </a>
               </Button>
             ) : null}
             <Button
-              size="icon-xs"
+              size="icon-sm"
               variant="ghost"
               title="Hide"
               aria-label="Hide the desktop"
               onClick={onHide}
             >
-              <X className="size-3.5" aria-hidden />
+              <X className="size-4" aria-hidden />
             </Button>
           </div>
         </div>
