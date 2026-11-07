@@ -377,7 +377,7 @@ export function ChatComposer({
             className="block w-full resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-fg outline-none placeholder:text-faint disabled:opacity-60"
           />
 
-          <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto px-2 pb-2">
+          <div className="@container flex flex-nowrap items-center gap-1.5 overflow-x-auto px-2 pb-2">
             <input
               ref={fileInput}
               data-testid="chat-attach-input"
@@ -431,7 +431,8 @@ export function ChatComposer({
             ) : null}
 
             <div className="ml-auto flex items-center gap-2">
-              <p className="hidden items-center gap-1 text-2xs text-faint lg:flex">
+              {/* By the composer's width, not the window's: beside the desktop the composer is narrow on a wide screen. */}
+              <p className="hidden items-center gap-1 text-2xs text-faint @[40rem]:flex">
                 <Kbd>Enter</Kbd> sends
                 <span className="px-0.5">·</span>
                 <Kbd>Shift</Kbd>

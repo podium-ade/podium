@@ -16,6 +16,12 @@ const EASE_IN_OUT = "cubic-bezier(0.65, 0, 0.35, 1)";
 
 /** wide is the side-by-side layout (lg), where the pane is a column whose width can animate. */
 const wide = () => window.matchMedia?.("(min-width: 1024px)").matches ?? false;
+/**
+ * CHAT_MIN_PX is the narrowest the conversation gets beside the desktop: the composer's
+ * controls in one row. The pane gives way to it, at its default width, a dragged one, and
+ * a window that got narrower since. (The CSS cap is this plus the 12px handle.)
+ */
+export const CHAT_MIN_PX = 480;
 const still = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /**
@@ -144,6 +150,7 @@ export function DesktopPane({
           onReset={onReset}
           container={container}
           label="Resize the desktop"
+          minRest={CHAT_MIN_PX}
         />
       </div>
       <div
@@ -151,7 +158,7 @@ export function DesktopPane({
         data-testid="desktop-pane"
         aria-hidden={!shown || undefined}
         className={cn(
-          "flex min-h-[60vh] min-w-0 flex-col overflow-hidden lg:min-h-0 lg:w-[var(--desktop-width,55%)]",
+          "flex min-h-[60vh] min-w-0 flex-col overflow-hidden lg:min-h-0 lg:w-[min(var(--desktop-width,55%),calc(100%-492px))]",
           !shown && "pointer-events-none",
         )}
       >

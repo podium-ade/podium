@@ -1355,7 +1355,7 @@ function Conversation({
 
   return (
     <div ref={split} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row" style={desktopStyle}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", paneTask !== undefined && "lg:min-w-[480px]")}>
         <ConversationTitle
           title={title || stream.chat?.title || ""}
           channel={channel}
