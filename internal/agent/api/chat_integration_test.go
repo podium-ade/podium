@@ -670,23 +670,26 @@ func TestASecondSendWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	assert.True(t, first.Msg.GetAddressed())
 	assert.Zero(t, first.Msg.GetQueuedPosition())
 
-	// Phase 4: nothing is refused for a turn in flight. The second message is stored and
-	// reported as waiting behind the first; the conductor runs it as its own turn.
+	// Phase 4: nothing is refused for a turn in flight. The second message is reported as
+	// waiting behind the first; the conductor runs it as its own turn. It is queued, not
+	// stored: it goes into the record when its turn starts, after the answer to the first.
 	second, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: chatID, Text: "second",
 	}))
 	require.NoError(t, err)
 	assert.True(t, second.Msg.GetAddressed())
 	assert.Equal(t, int32(1), second.Msg.GetQueuedPosition())
+	assert.Zero(t, second.Msg.GetMessage().GetSeq(), "not in the record yet")
 
 	stored, err := f.store.ListChatMessages(ctx, chatID, 0)
 	require.NoError(t, err)
-	assert.Len(t, stored, 2, "both are stored")
+	require.Len(t, stored, 1, "only the first is in the record")
+	assert.Equal(t, "first", stored[0].Text)
 
 	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, listed.Msg.GetChats(), 1)
-	assert.Equal(t, "second", listed.Msg.GetChats()[0].GetPreview())
+	assert.Equal(t, "first", listed.Msg.GetChats()[0].GetPreview())
 }
 
 func TestSendChatMessageValidatesItsInput(t *testing.T) {
