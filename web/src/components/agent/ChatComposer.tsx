@@ -1,6 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, AtSign, Check, ChevronDown, FileText, Loader2, Paperclip, Square, Users, X } from "lucide-react";
+import {
+  ArrowUp,
+  AtSign,
+  Check,
+  ChevronDown,
+  FileText,
+  ListOrdered,
+  Loader2,
+  Paperclip,
+  Pencil,
+  SkipForward,
+  Square,
+  Users,
+  X,
+} from "lucide-react";
 import type { AgentBackend, Assistant } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import {
@@ -41,14 +55,22 @@ const EFFORT_HINT: Record<string, string> = {
   max: "Most thorough. Uses the limit sooner",
 };
 
-/** QueueState is this person's place in the chat's turn queue, for the composer's status line. */
-export interface QueueState {
-  /** ahead is how many turns run before this person's next one (0 when none is queued). */
-  ahead: number;
-  /** mine is this person's waiting turns, by the message that asked. */
-  mine: bigint[];
-  /** waiting is every turn waiting, anybody's. */
-  waiting: number;
+/**
+ * QueuedItem is one message waiting for its turn in the chat's shared queue — anybody's, in
+ * the order Podium will answer them.
+ */
+export interface QueuedItem {
+  /** id names it for onRemoveQueued. */
+  id: string;
+  text: string;
+  /** author is who asked, as shown; mine is whether that is the person at this composer. */
+  author: string;
+  mine: boolean;
+  /**
+   * editable is true for one of this person's messages that is not in the record yet: taking
+   * it back into the box and sending it again leaves no copy behind.
+   */
+  editable: boolean;
 }
 
 export interface ChatComposerProps {
@@ -70,10 +92,20 @@ export interface ChatComposerProps {
   mirrored?: string;
   /** personality is the chat's personal assistant's name, which also starts a turn. */
   personality?: string;
-  /** queue is this person's place in the turn queue. */
-  queue?: QueueState;
-  /** onTakeBack removes one of this person's waiting turns. */
-  onTakeBack?: (seq: bigint) => void;
+  /**
+   * queued is the chat's shared queue (the server's turn queue): what anybody put to Podium
+   * while it was answering, oldest first. Each goes out as a turn of its own, in order.
+   */
+  queued?: readonly QueuedItem[];
+  /**
+   * queueing is true when a message for Podium sent now would wait in the queue rather than
+   * be answered at once: something is being answered, or something is already waiting.
+   */
+  queueing?: boolean;
+  /** onInterrupt stops the answer in progress; the queue then goes on, in order. */
+  onInterrupt?: () => void;
+  /** onRemoveQueued takes back one of this person's queued messages. */
+  onRemoveQueued?: (id: string) => void;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
   /** assistant is what answers this conversation, and what choice overrides. */
@@ -93,9 +125,8 @@ export interface ChatComposerProps {
  * ChatComposer is the box a question is typed into.
  *
  * Enter sends and Shift+Enter makes a newline, which is what a chat box does; ⌘/Ctrl+Enter
- * sends too, for the people whose muscle memory says so. While a turn runs it is disabled —
- * the server refuses a concurrent send anyway (FailedPrecondition), and saying so before the
- * click is the friendlier half of the same rule.
+ * sends too, for the people whose muscle memory says so. While Podium is answering, a message
+ * for it is queued above the box (QueuedList) and goes out after the answer, one per turn.
  *
  * Files paste, drop or pick. A text file is inlined into the stored message; an image is
  * previewed here and named in the message, because the send RPC is still text.
@@ -107,8 +138,10 @@ export function ChatComposer({
   multiplayer = false,
   mirrored = "",
   personality = "",
-  queue,
-  onTakeBack,
+  queued = [],
+  queueing = false,
+  onInterrupt,
+  onRemoveQueued,
   agents,
   assistant,
   choice,
@@ -188,7 +221,32 @@ export function ChatComposer({
   const canSend = !disabled && (text.trim() !== "" || files.length > 0);
   // In a multiplayer chat only a mention is a turn; the button says which this will be.
   const toPodium = !multiplayer || mentionsPodium(text, personality);
-  const sendLabel = disabled ? "Working" : multiplayer ? (toPodium ? "Send to Podium" : "Send") : "Send";
+  // A message for Podium sent while it is answering waits in the queue; the button says so.
+  const willQueue = queueing && toPodium;
+  const sendLabel = disabled
+    ? "Working"
+    : willQueue
+      ? multiplayer
+        ? "Queue for Podium"
+        : "Queue"
+      : multiplayer
+        ? toPodium
+          ? "Send to Podium"
+          : "Send"
+        : "Send";
+  // Editing a queued message takes it out of the queue and back into the box, ahead of
+  // anything already typed there.
+  const editQueued = (id: string) => {
+    const item = queued.find((q) => q.id === id);
+    if (!item) return;
+    onRemoveQueued?.(id);
+    const next = text.trim() === "" ? item.text : `${item.text}\n\n${text}`;
+    setText(next);
+    requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(item.text.length, item.text.length);
+    });
+  };
 
   const send = () => {
     if (!canSend) return;
@@ -214,33 +272,15 @@ export function ChatComposer({
             something.
           </p>
         ) : null}
-        {queue && (queue.mine.length > 0 || queue.waiting > 0) ? (
-          <div
-            data-testid="chat-queue-status"
-            className="mb-1.5 flex flex-wrap items-center gap-2 px-2 text-2xs text-muted"
-          >
-            {queue.mine.length > 0 ? (
-              <>
-                <span>
-                  Queued — {queue.ahead} {queue.ahead === 1 ? "turn" : "turns"} ahead
-                </span>
-                {onTakeBack ? (
-                  <button
-                    type="button"
-                    data-testid="chat-queue-take-back"
-                    className="rounded-sm underline underline-offset-2 hover:text-fg"
-                    onClick={() => onTakeBack(queue.mine[queue.mine.length - 1])}
-                  >
-                    Take back
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <span>
-                {queue.waiting} {queue.waiting === 1 ? "turn" : "turns"} waiting
-              </span>
-            )}
-          </div>
+        {queued.length > 0 ? (
+          <QueuedList
+            items={queued}
+            multiplayer={multiplayer}
+            running={running}
+            onInterrupt={onInterrupt}
+            onEdit={editQueued}
+            onRemove={onRemoveQueued}
+          />
         ) : null}
         <div
           onDragEnter={(e) => {
@@ -470,7 +510,7 @@ export function ChatComposer({
                   onClick={send}
                   className="rounded-full"
                 >
-                  {disabled ? <Loader2 className="animate-spin" /> : <ArrowUp />}
+                  {disabled ? <Loader2 className="animate-spin" /> : willQueue ? <ListOrdered /> : <ArrowUp />}
                 </Button>
               </Tooltip>
             </div>
@@ -482,12 +522,148 @@ export function ChatComposer({
             : mirrored !== ""
               ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
               : running
-                ? "A message sent now waits for the answer in progress, then gets its own turn."
+                ? multiplayer
+                  ? `A message mentioning ${PODIUM_MENTION} is queued until the answer in progress is done. Anything else is posted now.`
+                  : "A message sent now is queued, and gets its own turn once the answer in progress is done."
                 : "Paste or drop files to attach them."}
         </p>
       </div>
     </div>
   );
+}
+
+/**
+ * QueuedList is the chat's shared queue, oldest first, above the box: what everybody put to
+ * Podium while it was answering, in the order it will be answered. A person can take their own
+ * back into the box to edit it, or drop it; anybody who may write the chat can interrupt the
+ * answer in progress, and the queue goes on, in order.
+ */
+function QueuedList({
+  items,
+  multiplayer,
+  running,
+  onInterrupt,
+  onEdit,
+  onRemove,
+}: {
+  items: readonly QueuedItem[];
+  multiplayer: boolean;
+  running: boolean;
+  onInterrupt?: () => void;
+  onEdit: (id: string) => void;
+  onRemove?: (id: string) => void;
+}) {
+  const firstMine = items.findIndex((q) => q.mine);
+  // On a phone the queue and the box would otherwise leave no room for the conversation: the
+  // first few rows show, one line each, and the rest are a tap away.
+  const [expanded, setExpanded] = useState(false);
+  const hidden = expanded ? 0 : Math.max(0, items.length - PHONE_ROWS);
+  return (
+    <div data-testid="chat-pending" className="mb-2 overflow-hidden rounded-2xl border border-border bg-panel">
+      <div className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs text-muted">
+        <ListOrdered className="size-3.5" aria-hidden />
+        <span data-testid="chat-pending-status" className="min-w-0 flex-1 truncate">
+          {items.length} queued
+          {multiplayer && firstMine >= 0 ? ` · yours is ${ordinal(firstMine + 1)}` : ""}
+        </span>
+        {running && onInterrupt ? (
+          <Tooltip label="Stop the answer in progress; the queue goes next, in order">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              data-testid="chat-pending-interrupt"
+              onClick={onInterrupt}
+              className="min-h-6 shrink-0 rounded-full px-2.5 text-2xs [&_svg]:size-3"
+            >
+              <SkipForward aria-hidden />
+              Interrupt &amp; send
+            </Button>
+          </Tooltip>
+        ) : null}
+      </div>
+      <ol className="max-h-40 divide-y divide-hairline overflow-y-auto">
+        {items.map((item, i) => (
+          <li
+            key={item.id}
+            data-testid="chat-pending-item"
+            data-mine={item.mine ? "true" : "false"}
+            className={cn(
+              "flex items-center gap-2 py-1 pr-1.5 pl-3 text-sm",
+              item.mine ? "text-fg" : "text-muted",
+              i >= PHONE_ROWS && !expanded && "max-sm:hidden",
+            )}
+          >
+            <span className="tabular w-4 shrink-0 text-right text-2xs text-faint">{i + 1}</span>
+            <span className="min-w-0 flex-1">
+              {multiplayer && item.author ? (
+                <span data-testid="chat-pending-author" className="block text-2xs font-medium text-muted">
+                  {item.mine ? "You" : item.author}
+                </span>
+              ) : null}
+              <span className="line-clamp-1 whitespace-pre-wrap break-words sm:line-clamp-2">
+                {item.text || <span className="italic text-faint">A message</span>}
+              </span>
+            </span>
+            {item.mine ? (
+              <span className="flex shrink-0 items-center gap-0.5">
+                {item.editable ? (
+                  <Tooltip label="Edit">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Edit queued message"
+                      className="size-7"
+                      data-testid="chat-pending-edit"
+                      onClick={() => onEdit(item.id)}
+                    >
+                      <Pencil />
+                    </Button>
+                  </Tooltip>
+                ) : null}
+                {onRemove ? (
+                  <Tooltip label="Remove">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Remove queued message"
+                      className="size-7"
+                      data-testid="chat-pending-remove"
+                      onClick={() => onRemove(item.id)}
+                    >
+                      <X />
+                    </Button>
+                  </Tooltip>
+                ) : null}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {hidden > 0 || (expanded && items.length > PHONE_ROWS) ? (
+        <button
+          type="button"
+          data-testid="chat-pending-more"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full border-t border-hairline px-3 py-1.5 text-left text-2xs text-muted hover:text-fg sm:hidden"
+        >
+          {expanded ? "Show less" : `+${hidden} more`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** PHONE_ROWS is how many queued messages a phone shows before "+N more". */
+const PHONE_ROWS = 2;
+
+/** ordinal is 1st, 2nd, 3rd, 4th… for the "yours is" line. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
 function FileChip({
