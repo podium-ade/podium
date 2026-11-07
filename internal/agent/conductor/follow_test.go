@@ -30,6 +30,10 @@ type streamStep struct {
 	deliver int
 	quiet   time.Duration
 	clean   bool
+	// killed ends the call the way a control plane that exits does: the connection drops
+	// with nothing written, not even the response header a stream that said nothing never
+	// sent.
+	killed bool
 }
 
 // scriptedTasks is podium-server as far as a follower can tell. It honours from_seq against
@@ -79,6 +83,9 @@ func (s *scriptedTasks) StreamTaskEvents(
 	}
 	if step.clean {
 		return nil
+	}
+	if step.killed {
+		panic(http.ErrAbortHandler)
 	}
 	return connect.NewError(connect.CodeUnavailable, errors.New("the control plane went away"))
 }
@@ -235,6 +242,34 @@ func TestFollowStartsTheGraceAgainAfterAStreamItHeld(t *testing.T) {
 	}
 
 	require.NoError(t, f.follow(context.Background()))
+}
+
+// A desktop turn's task says nothing for as long as it waits for the person's next message.
+// The server answers a stream only with its first event, so a quiet stream carries no
+// response header, and a control plane killed under it drops the connection with none. Two
+// restarts in one quiet wait wrote a running desktop off: the first started the grace, the
+// stream it reconnected was never counted as held, and the second found the grace long
+// spent. A stream held for longer than the grace was answered, whatever its header says.
+func TestFollowOutlastsTwoRestartsInOneQuietWait(t *testing.T) {
+	const grace = 200 * time.Millisecond
+	tasks := &scriptedTasks{
+		events: []*podiumv1.TaskEvent{sayEvent(1, "done")},
+		steps: []streamStep{
+			{quiet: 2 * grace, killed: true},
+			{quiet: 2 * grace, killed: true},
+			{deliver: 1, clean: true},
+		},
+	}
+	f := &follower{
+		tasks:   serveTasks(t, tasks),
+		taskID:  "task_01",
+		grace:   grace,
+		onEvent: func(context.Context, *podiumv1.TaskEvent) {},
+	}
+
+	require.NoError(t, f.follow(context.Background()), "a quiet task outlives its control plane's restarts")
+	fromSeqs, _ := tasks.seen()
+	assert.Len(t, fromSeqs, 3)
 }
 
 // TestGivingUpOnATaskCancelsIt: a turn the conductor has stopped following must not leave
