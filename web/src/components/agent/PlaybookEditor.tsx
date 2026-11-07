@@ -455,14 +455,14 @@ export function PlaybookEditor({
                 onChange={(e) => setTools(e.target.value)}
                 rows={6}
                 spellCheck={false}
-                placeholder={"read\ngrep\nglob\nbash"}
+                placeholder={"read\ngrep\nglob\nshell"}
                 className="font-mono text-xs"
               />
               <p className="text-2xs leading-relaxed text-faint">
                 One per line, in the harness&apos;s own names: <Mono>read</Mono>,{" "}
-                <Mono>grep</Mono>, <Mono>glob</Mono>, <Mono>bash</Mono>, <Mono>edit</Mono>,{" "}
-                <Mono>write</Mono>, <Mono>webfetch</Mono>, <Mono>list</Mono>, <Mono>patch</Mono>,{" "}
-                <Mono>task</Mono>. At least one is required.
+                <Mono>grep</Mono>, <Mono>glob</Mono>, <Mono>shell</Mono>, <Mono>edit</Mono>,{" "}
+                <Mono>write</Mono>, <Mono>webfetch</Mono>, <Mono>websearch</Mono>,{" "}
+                <Mono>subagent</Mono>, <Mono>todowrite</Mono>. At least one is required.
               </p>
               {tried && toolList.length === 0 ? (
                 <p className="text-xs text-err">Name at least one tool.</p>

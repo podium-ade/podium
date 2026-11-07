@@ -206,7 +206,7 @@ It runs as the user `podium-agent` runs as, on the machine that holds the master
 provider credential, so `profile.yaml` gives it a prompt, a model, a step cap and (rarely) a
 skill list, and the conductor gives it:
 
-- **`webfetch`, `todoread`, `todowrite` and nothing else.** This is the one tool list in
+- **`webfetch`, `todowrite` and nothing else.** This is the one tool list in
   Podium that no document can change. No shell, and no filesystem tools: the assistant clones
   nothing, so `read` has no legitimate target and every path it could reach belongs to somebody
   else. The first turn of a chat also gets `title_set`, a tool that writes only
@@ -793,9 +793,10 @@ env: {}                                                      # plain env, verbat
 ```
 
 **`allowed_tools` are the harness's own tool names**, lower case: `read`, `write`, `edit`,
-`bash`, `grep`, `glob`, `list`, `patch`, `webfetch`, `task`, `todoread`, `todowrite`. A name
-that is not one of those is refused when the playbook is loaded or saved, with the list in the
-message. That is deliberate rather than forgiving: these used to be the Claude Agent SDK's names
+`shell`, `grep`, `glob`, `webfetch`, `websearch`, `subagent`, `todowrite`. opencode 1's names
+still load and mean the tool each became: `bash` is `shell`, `task` is `subagent`, `list` is
+`glob`, `patch` is `edit` and `todoread` is `todowrite`. A name that is neither is refused when
+the playbook is loaded or saved, with the list in the message. That is deliberate rather than forgiving: these used to be the Claude Agent SDK's names
 (`Read`, `Grep`, `Bash`), and case-folding them would have worked for the ones that happen to
 match while silently dropping the ones that do not — a playbook running without a tool it asked
 for, discovered from its behaviour. **A profile carrying the old names will not load until they
@@ -1483,8 +1484,17 @@ built-in default — and the resolved triple travels in the brief, so the runtim
 | `gemini` | Google | `podium.agent.google_api_key` |
 
 **One runtime image, and no vendor in the code path.** The harness is
-[opencode](https://opencode.ai), which takes `--model provider/model` — so a backend is a flag
-rather than a dialect, and adding a third provider is a catalogue entry.
+[opencode](https://opencode.ai) 2 (`@opencode/cli@2.2.5`, the release the chat host is tested
+against), which takes `--model provider/model` — so a backend is a flag rather than a dialect,
+and adding a third provider is a catalogue entry.
+
+A turn starts one private `opencode serve` on loopback, waits until every MCP server it was given
+has connected, and only then runs `opencode run --server` against it; resumes and a warm turn's
+follow-ups reuse the same server. A run that starts its own server sends the first request before
+its MCP servers connect, and that request offers the model none of their tools. Every MCP server
+is also written with Code Mode off, so its tools are plain `<server>_<tool>` calls, as before,
+rather than JavaScript inside opencode's `execute` tool. `execute` and opencode's `question` tool
+are denied to every turn.
 
 It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
 Messages API and only that; pointed at xAI's Anthropic-compatible endpoint it failed on the

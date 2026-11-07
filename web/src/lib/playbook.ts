@@ -142,20 +142,21 @@ const SANDBOX_KEYS = ["boat", "modal"]
 const BOAT_KEYS = ["type", "template", "org"]
 const MODAL_KEYS = ["runtime", "environment"]
 
+// opencode 2's tools, mirroring Tools in internal/agent/profiles/agents.go. LEGACY_TOOLS are
+// opencode 1's names, still accepted: the runtime turns each into the tool it became.
 const TOOLS = [
-  "bash",
+  "shell",
   "edit",
+  "write",
+  "read",
   "glob",
   "grep",
-  "list",
-  "patch",
-  "read",
-  "task",
-  "todoread",
-  "todowrite",
   "webfetch",
-  "write",
+  "websearch",
+  "subagent",
+  "todowrite",
 ]
+const LEGACY_TOOLS = ["bash", "task", "list", "patch", "todoread"]
 
 export function parsePlaybookYaml(text: string): ParsedPlaybook {
   const parsed = parseYaml(text, { emptyMessage: "the playbook is empty" })
@@ -340,7 +341,7 @@ export function parsePlaybookValue(
     for (const [i, tool] of out.allowed_tools.entries()) {
       if (tool.trim() === "") {
         r.bad(`allowed_tools[${i}]`, "holds an empty entry")
-      } else if (!TOOLS.includes(tool)) {
+      } else if (!TOOLS.includes(tool) && !LEGACY_TOOLS.includes(tool)) {
         r.bad(
           `allowed_tools[${i}]`,
           `names ${JSON.stringify(tool)}, which is not a tool this harness has (have ${TOOLS.join(", ")})`,
