@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
+  ChevronDown,
   Ellipsis,
   LogOut,
   Monitor,
@@ -52,6 +53,7 @@ import {
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
+import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
@@ -61,9 +63,9 @@ import { toThread } from "../../lib/chatThread";
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
 
-function RailHeading({ title, action }: { title: string; action?: ReactNode }) {
+function RailHeading({ title, action, className }: { title: string; action?: ReactNode; className?: string }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 px-4 pt-4 pb-3">
+    <div className={cn("flex min-w-0 items-center justify-between gap-2 px-4 pt-4 pb-3", className)}>
       <h2 className="min-w-0 truncate text-xs font-bold tracking-[0.08em] text-muted uppercase">{title}</h2>
       {action}
     </div>
@@ -430,19 +432,19 @@ function when(c: Chat): number {
   return toDate(c.lastMessageAt ?? c.createdAt)?.getTime() ?? 0;
 }
 
-function startOfDay(ms: number): number {
+/** shortWhen is how long ago, in the fewest characters a row can spare: now, 5m, 3h, 2d, Nov 2. */
+function shortWhen(ms: number, now = Date.now()): string {
+  const ago = now - ms;
+  if (ago < 60_000) return "now";
+  if (ago < 3_600_000) return `${Math.floor(ago / 60_000)}m`;
+  if (ago < 86_400_000) return `${Math.floor(ago / 3_600_000)}h`;
+  if (ago < 7 * 86_400_000) return `${Math.floor(ago / 86_400_000)}d`;
   const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-/** recencyLabel is Today / Yesterday / Previous 7 days / Older, newest-first grouping. */
-function recencyLabel(ms: number, now = Date.now()): string {
-  const today = startOfDay(now);
-  if (ms >= today) return "Today";
-  if (ms >= today - 86_400_000) return "Yesterday";
-  if (ms >= today - 7 * 86_400_000) return "Previous 7 days";
-  return "Older";
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() === new Date(now).getFullYear() ? {} : { year: "2-digit" }),
+  });
 }
 
 function originKey(origin: string | undefined): string {
@@ -493,15 +495,56 @@ function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat
     .map((key) => ({ key, label: originLabel(key), chats: by.get(key) ?? [] }));
 }
 
-function groupChats(chats: Chat[]): { label: string; chats: Chat[] }[] {
-  const groups: { label: string; chats: Chat[] }[] = [];
-  for (const c of chats) {
-    const label = recencyLabel(when(c));
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.chats.push(c);
-    else groups.push({ label, chats: [c] });
+/** RAIL_PAGE is how many chats one origin lists before "Show more", and how many more each
+ * press adds. A busy repository's pull requests would otherwise push the web chats out of
+ * sight. */
+const RAIL_PAGE = 8;
+
+/** The origins somebody folded away, remembered per browser: a convenience, not state. */
+const COLLAPSED_KEY = "podium.chatRail.collapsed";
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_KEY);
+    const keys: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : []);
+  } catch {
+    return new Set();
   }
-  return groups;
+}
+
+function writeCollapsed(keys: Set<string>) {
+  try {
+    window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...keys]));
+  } catch {
+    // Private window or blocked storage: the fold lasts until the page reloads.
+  }
+}
+
+/** visibleChats is the head of one origin's list: limit chats, and always the open one, so
+ * opening a chat from a link never leaves it hidden under "Show more". */
+function visibleChats(chats: Chat[], limit: number, active: string): Chat[] {
+  const at = chats.findIndex((c) => c.id === active);
+  return chats.slice(0, Math.max(limit, at + 1));
+}
+
+/** The source the rail is narrowed to — "all", or an origin key — remembered per browser. */
+const SOURCE_KEY = "podium.chatRail.source";
+
+function readSource(): string {
+  try {
+    return window.localStorage.getItem(SOURCE_KEY) || "all";
+  } catch {
+    return "all";
+  }
+}
+
+function writeSource(key: string) {
+  try {
+    window.localStorage.setItem(SOURCE_KEY, key);
+  } catch {
+    // The choice lasts until the page reloads.
+  }
 }
 
 function ChatRail({
@@ -550,7 +593,32 @@ function ChatRail({
     );
   }, [ordered, query]);
   const origins = useMemo(() => groupByOrigin(filtered), [filtered]);
-  const split = origins.length > 1;
+  // The sources the selector offers are every one the viewer has chats in, whatever the
+  // search says, so typing does not reshuffle the control under the cursor.
+  const sources = useMemo(() => groupByOrigin(ordered), [ordered]);
+  const [sourcePick, setSourcePick] = useState(readSource);
+  const source = sources.some((o) => o.key === sourcePick) ? sourcePick : "all";
+  const pickSource = (key: string) => {
+    setSourcePick(key);
+    writeSource(key);
+  };
+  const listed = source === "all" ? origins : origins.filter((o) => o.key === source);
+  // All plus up to three sources fit with every count; more draw marks only (see the strip).
+  const compactSources = sources.length + 1 > 4;
+  const split = listed.length > 1;
+  const searching = query.trim() !== "";
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+  const toggleOrigin = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeCollapsed(next);
+      return next;
+    });
+  // How many chats each origin lists. A search lists every match: the point of searching is
+  // finding the one that was not on screen.
+  const [shown, setShown] = useState<Record<string, number>>({});
 
   return (
     <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-rail sm:w-[264px] sm:self-stretch sm:border-r sm:border-b-0">
@@ -568,7 +636,8 @@ function ChatRail({
             </Tooltip>
           }
         />
-        <ul className="hidden max-h-48 flex-col gap-0.5 overflow-y-auto px-2 py-2 sm:flex">
+        {/* 16px under the list, the same as above the heading, before Chats begins. */}
+        <ul className="hidden max-h-48 flex-col gap-0.5 overflow-y-auto px-2 pt-2 pb-4 sm:flex">
           {voices.map((voice) => (
             <li key={voice.id || "podium"}>
               {voice.gone ? (
@@ -647,6 +716,67 @@ function ChatRail({
             />
           </label>
         ) : null}
+        {sources.length > 1 ? (
+          <div
+            role="radiogroup"
+            aria-label="Show chats from"
+            data-testid="chat-sources"
+            className="mx-2 mt-2 hidden gap-0.5 rounded-lg border border-border bg-bg p-0.5 sm:flex"
+          >
+            {[{ key: "all", label: "All", chats: ordered }, ...sources].map((o) => {
+              const on = o.key === source;
+              const count =
+                o.key === "all" ? filtered.length : (origins.find((x) => x.key === o.key)?.chats.length ?? 0);
+              const waiting = o.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
+              // Four segments have room for every count. Past that the rail is too narrow:
+              // the others draw only their mark, the chosen one keeps its count, and a dot
+              // says a folded-away source has something unread. The tooltip says the rest.
+              const counted = on || !compactSources;
+              return (
+                <Tooltip
+                  key={o.key}
+                  label={[
+                    o.label,
+                    `${count} ${count === 1 ? "chat" : "chats"}`,
+                    waiting > 0 ? `${waiting} unread` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    aria-label={waiting > 0 ? `${o.label}, ${waiting} unread` : o.label}
+                    data-testid={`chat-source-${o.key}`}
+                    onClick={() => pickSource(o.key)}
+                    className={cn(
+                      "flex min-h-9 min-w-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-[background-color,border-color,color] duration-150 ease-out",
+                      compactSources && on ? "flex-none px-2.5" : "flex-1 px-1.5",
+                      on
+                        ? "border-line-strong bg-panel text-fg shadow-[0_1px_2px_#0003]"
+                        : "border-transparent text-muted hover:bg-panel/60 hover:text-fg",
+                    )}
+                  >
+                    <span className="relative inline-flex">
+                      {o.key === "all" ? <span>All</span> : <OriginMark origin={o.key} />}
+                      {waiting > 0 && !counted && o.key !== "all" ? (
+                        <span
+                          aria-hidden
+                          data-testid={`chat-source-unread-${o.key}`}
+                          className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-bg bg-accent"
+                        />
+                      ) : null}
+                    </span>
+                    {counted ? (
+                      <span className={cn("tabular-nums", on ? "text-soft" : "text-faint")}>{count}</span>
+                    ) : null}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="mx-3 mt-2 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
@@ -712,40 +842,89 @@ function ChatRail({
         {!loading && ordered.length > 0 && filtered.length === 0 ? (
           <li className="px-2.5 py-2 text-sm text-muted">No chats match.</li>
         ) : null}
-        {origins.map((origin) => (
-          <li key={origin.key} className="pt-4 first:pt-1">
-            {split ? (
-              <p
-                data-testid={`chat-origin-${origin.key}`}
-                className="px-2.5 pb-1 text-xs font-medium tracking-wide text-faint uppercase"
-              >
-                {origin.label}
-              </p>
-            ) : null}
-            <ul>
-              {groupChats(origin.chats).map((g) => (
-                <li key={`${origin.key}-${g.label}`} className="pt-3 first:pt-0">
-                  <p className="px-2.5 pb-1 text-xs font-medium text-faint">{g.label}</p>
-                  <ul className="space-y-px">
-                    {g.chats.map((c) => (
-                      <ChatRow
-                        key={c.id}
-                        chat={c}
-                        active={c.id === active}
-                        onOpen={onOpen}
-                        onRename={onRename}
-                        onDelete={onDelete}
-                        onLeave={onLeave}
-                        deleting={deletingId === c.id}
-                        viewerLogin={viewerLogin}
-                      />
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
+        {listed.map((origin) => {
+          const folded = split && !searching && collapsed.has(origin.key);
+          const limit = searching ? origin.chats.length : (shown[origin.key] ?? RAIL_PAGE);
+          const visible = folded ? [] : visibleChats(origin.chats, limit, active);
+          const hidden = origin.chats.length - visible.length;
+          const listId = `chat-origin-list-${origin.key}`;
+          const unreadIn = origin.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
+          return (
+            <li key={origin.key} className="mt-2 border-t border-border pt-1 first:mt-0 first:border-t-0 first:pt-0">
+              {split ? (
+                // The heading stays at the top of the list while its own chats scroll under
+                // it, so a long GitHub list never leaves the reader wondering whose rows
+                // these are. It bleeds over the list's padding to cover what scrolls under it.
+                <button
+                  type="button"
+                  data-testid={`chat-origin-${origin.key}`}
+                  aria-expanded={!folded}
+                  aria-controls={listId}
+                  onClick={() => toggleOrigin(origin.key)}
+                  className="group/origin sticky top-0 z-10 -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2.5 border-b border-transparent bg-rail px-5 text-left transition-colors duration-150 hover:text-fg"
+                >
+                  <OriginMark origin={origin.key} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-[0.08em] text-soft uppercase group-hover/origin:text-fg">
+                    {origin.label}
+                  </span>
+                  {folded && unreadIn > 0 ? (
+                    <span className="shrink-0 rounded-full bg-accent px-1.5 text-2xs font-semibold text-accent-ink tabular-nums">
+                      {unreadIn > 99 ? "99+" : unreadIn}
+                      <span className="sr-only"> unread</span>
+                    </span>
+                  ) : null}
+                  <span className="shrink-0 text-xs font-semibold text-faint tabular-nums">
+                    {origin.chats.length}
+                    <span className="sr-only"> chats</span>
+                  </span>
+                  <ChevronDown
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 stroke-[1.8] text-muted transition-transform duration-200 ease-out motion-reduce:transition-none",
+                      folded && "-rotate-90",
+                    )}
+                  />
+                </button>
+              ) : null}
+              {folded ? null : (
+                <ul
+                  id={listId}
+                  className="space-y-px animate-in fade-in-0 slide-in-from-top-1 duration-200 ease-out motion-reduce:animate-none"
+                >
+                  {visible.map((c) => (
+                    <ChatRow
+                      key={c.id}
+                      chat={c}
+                      active={c.id === active}
+                      onOpen={onOpen}
+                      onRename={onRename}
+                      onDelete={onDelete}
+                      onLeave={onLeave}
+                      deleting={deletingId === c.id}
+                      viewerLogin={viewerLogin}
+                    />
+                  ))}
+                  {hidden > 0 ? (
+                    <li className="pt-1.5">
+                      <button
+                        type="button"
+                        data-testid={`chat-more-${origin.key}`}
+                        onClick={() =>
+                          setShown((prev) => ({ ...prev, [origin.key]: visible.length + RAIL_PAGE }))
+                        }
+                        className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-xs font-semibold text-muted transition-colors duration-150 hover:border-line-strong hover:bg-panel hover:text-fg"
+                      >
+                        <ChevronDown aria-hidden className="size-3.5 stroke-[2]" />
+                        Show {Math.min(hidden, RAIL_PAGE)} more
+                        <span className="font-normal text-faint tabular-nums">· {hidden} left</span>
+                      </button>
+                    </li>
+                  ) : null}
+                </ul>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -861,7 +1040,12 @@ function ChatRow({
   // Where the conversation lives. A mirrored thread is read here and answered there, and
   // the mark is what stops a reader wondering why it has no composer.
   const mirrored = chat.origin !== "" && chat.origin !== "web";
-  const where = mirrored ? (chat.channel ? `#${chat.channel}` : chat.origin) : "";
+  // A pull request's repository is its GitHub surface's label without the number.
+  const repo = (chat.surfaces ?? []).find((s) => s.kind === "github")?.label.replace(/#\d+$/, "") ?? "";
+  const where = mirrored ? (chat.channel ? `#${chat.channel}` : repo || chat.origin) : "";
+  // The line under the title. A pull request's title is its number and its own title, and
+  // its group already says GitHub: the line names the repository and whose it is.
+  const subtitle = chat.origin === "github" ? [repo, chat.startedBy].filter(Boolean) : [where].filter(Boolean);
   const hint = (
     <span className="block max-w-64 space-y-0.5 py-0.5">
       {where || chat.startedBy ? (
@@ -877,11 +1061,16 @@ function ChatRow({
     </span>
   );
 
+  // A pull request's title leads with its number. The number is the handle people say out
+  // loud, so it is set apart — tabular and quieter — and the PR's own words carry the row.
+  const pr = chat.origin === "github" ? /^#(\d+)(?::\s*(.+))?$/.exec(chat.title) : null;
+  const at = when(chat);
+
   return (
     <li
       className={cn(
-        "group relative flex min-h-[52px] items-center rounded-md border transition-colors",
-        active ? "border-line-strong bg-panel" : "border-transparent hover:border-border hover:bg-panel",
+        "group relative flex min-h-[52px] items-center rounded-md border transition-colors duration-150",
+        active ? "border-line-strong bg-panel shadow-[0_1px_2px_#0002]" : "border-transparent hover:border-border hover:bg-panel",
       )}
     >
       <Tooltip label={hint} side="right">
@@ -893,42 +1082,86 @@ function ChatRow({
             start();
           }}
           aria-current={active ? "true" : undefined}
-          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8"
+          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-2 rounded-md py-2 pr-2 pl-3 text-left"
         >
-          {running ? (
-            <span className="relative flex size-2 shrink-0" aria-hidden>
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-run" />
-            </span>
-          ) : null}
           <span className="min-w-0 flex-1">
-            <span className={cn("block truncate text-sm", active ? "font-bold text-fg" : "font-semibold text-fg")}>
-              {chat.title}
-            </span>
-            {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
+            <span
+                className={cn(
+                  "block truncate text-sm transition-colors duration-150",
+                  active
+                    ? "font-bold text-fg"
+                    : unreadCount > 0
+                      ? "font-semibold text-fg"
+                      : "font-medium text-soft group-hover:text-fg",
+                )}
+              >
+                {pr && pr[2] ? (
+                  <>
+                    <span className="font-semibold text-muted tabular-nums">#{pr[1]}</span> {pr[2]}
+                  </>
+                ) : (
+                  chat.title
+                )}
+              </span>
+            {subtitle.length > 0 ? (
+              <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
+                {subtitle.map((part, i) => (
+                  <Fragment key={i}>
+                    {i > 0 ? <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-current opacity-70" /> : null}
+                    <span className="truncate">{part}</span>
+                  </Fragment>
+                ))}
+              </span>
+            ) : null}
             {foreign && !chat.sharedWithMe ? (
-              <span className="block truncate text-2xs text-muted">{chat.login}</span>
+              <span className="mt-0.5 block truncate text-2xs text-muted">{chat.login}</span>
             ) : null}
             {shared ? (
-              <span data-testid="chat-row-shared" className="block truncate text-2xs text-muted">
+              <span data-testid="chat-row-shared" className="mt-0.5 block truncate text-2xs text-muted">
                 {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}
                 {shared}
               </span>
             ) : chat.sharedWithMe && !mirrored ? (
-              <span data-testid="chat-row-shared" className="block truncate text-2xs text-muted">
+              <span data-testid="chat-row-shared" className="mt-0.5 block truncate text-2xs text-muted">
                 {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}shared by {chat.login}
               </span>
             ) : null}
           </span>
-          {unreadCount > 0 ? (
-            <span
-              data-testid="chat-row-unread"
-              className="shrink-0 rounded-full bg-accent px-1.5 text-2xs font-semibold text-accent-ink"
-            >
-              {unreadCount > 99 ? "99+" : unreadCount}
-              <span className="sr-only"> unread</span>
-            </span>
-          ) : null}
+          {/* The right column is the row's own at all times, so nothing moves on hover: when it
+              was last spoken in (or that it is working now) and what is waiting. The actions
+              button takes this same slot on hover, and the column steps out of its way. */}
+          <span
+            className={cn(
+              "flex w-8 shrink-0 flex-col items-end justify-center gap-1 self-stretch transition-opacity duration-150",
+              menu && "group-focus-within:opacity-0 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0",
+            )}
+          >
+            {running ? (
+              <span className="relative inline-flex size-2" aria-hidden>
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
+                <span className="relative inline-flex size-2 rounded-full bg-run" />
+              </span>
+            ) : at > 0 ? (
+              <time
+                dateTime={new Date(at).toISOString()}
+                className={cn(
+                  "text-2xs whitespace-nowrap tabular-nums",
+                  unreadCount > 0 ? "font-semibold text-fg" : "text-faint",
+                )}
+              >
+                {shortWhen(at)}
+              </time>
+            ) : null}
+            {unreadCount > 0 ? (
+              <span
+                data-testid="chat-row-unread"
+                className="min-w-5 rounded-full bg-accent px-1.5 text-center text-2xs leading-4 font-semibold text-accent-ink tabular-nums"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
+          </span>
           {running ? <span className="sr-only">running</span> : null}
           {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
           {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
@@ -941,7 +1174,7 @@ function ChatRow({
             type="button"
             data-testid="chat-actions"
             aria-label={`Actions for ${chat.title}`}
-            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-raised hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-raised data-[state=open]:opacity-100"
+            className="absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-raised hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-raised data-[state=open]:opacity-100"
           >
             <Ellipsis className="size-4" />
           </button>
