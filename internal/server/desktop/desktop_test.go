@@ -352,3 +352,16 @@ func TestTokensAreBoundToTheirTask(t *testing.T) {
 	_, err = other.verify(tok, "task_1")
 	require.ErrorIs(t, err, errBadToken, "another process's key must not verify it")
 }
+
+func TestADesktopIsReadyOnceItsStreamAnswers(t *testing.T) {
+	h := newHarness(t)
+	require.True(t, h.svc.Ready(context.Background(), "task_1"))
+	// Through the same route a viewer takes: the provider's credentials, voxl's health check.
+	require.Equal(t, "_modal_connect_token=provider-secret", h.voxl.lastHeaders().Get("Cookie"))
+
+	require.False(t, h.svc.Ready(context.Background(), "task_gone"), "a task with no desktop")
+
+	// Running, but the stream is not up yet: nothing answers on its port.
+	h.voxl.srv.Close()
+	require.False(t, h.svc.Ready(context.Background(), "task_1"))
+}

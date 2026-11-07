@@ -1070,7 +1070,10 @@ type CreateDesktopTicketResponse struct {
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// terminal_url is a terminal in the task's workspace, ready to be an iframe's src; empty
 	// when the task exposes none. It expires with url.
-	TerminalUrl   string `protobuf:"bytes,3,opt,name=terminal_url,json=terminalUrl,proto3" json:"terminal_url,omitempty"`
+	TerminalUrl string `protobuf:"bytes,3,opt,name=terminal_url,json=terminalUrl,proto3" json:"terminal_url,omitempty"`
+	// ready is whether the desktop answers yet. A task runs before its desktop is up, and a
+	// frame loaded in between shows an error page it never leaves: ask again until it is.
+	Ready         bool `protobuf:"varint,4,opt,name=ready,proto3" json:"ready,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1124,6 +1127,13 @@ func (x *CreateDesktopTicketResponse) GetTerminalUrl() string {
 		return x.TerminalUrl
 	}
 	return ""
+}
+
+func (x *CreateDesktopTicketResponse) GetReady() bool {
+	if x != nil {
+		return x.Ready
+	}
+	return false
 }
 
 type StreamTaskEventsRequest struct {
@@ -1264,12 +1274,13 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x16ReleasePreviewResponse\x12#\n" +
 	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"5\n" +
 	"\x1aCreateDesktopTicketRequest\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\tR\x06taskId\"\x8d\x01\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\"\xa3\x01\n" +
 	"\x1bCreateDesktopTicketResponse\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x129\n" +
 	"\n" +
 	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12!\n" +
-	"\fterminal_url\x18\x03 \x01(\tR\vterminalUrl\"M\n" +
+	"\fterminal_url\x18\x03 \x01(\tR\vterminalUrl\x12\x14\n" +
+	"\x05ready\x18\x04 \x01(\bR\x05ready\"M\n" +
 	"\x17StreamTaskEventsRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\x85\x05\n" +

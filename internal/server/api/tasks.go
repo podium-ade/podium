@@ -71,6 +71,8 @@ type TaskService struct {
 // DesktopMinter is internal/server/desktop.Service, as the task API needs it.
 type DesktopMinter interface {
 	Mint(taskID, port, login string) (string, time.Time, error)
+	// Ready is whether the task's desktop answers yet.
+	Ready(ctx context.Context, taskID string) bool
 }
 
 // SetDesktops turns CreateDesktopTicket on.
@@ -133,7 +135,9 @@ func (s *TaskService) CreateDesktopTicket(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	res := &podiumv1.CreateDesktopTicketResponse{Url: link, ExpiresAt: timestamppb.New(exp)}
+	res := &podiumv1.CreateDesktopTicketResponse{
+		Url: link, ExpiresAt: timestamppb.New(exp), Ready: s.desktops.Ready(ctx, task.ID),
+	}
 	if task.Spec.Expose.Ports[terminalPort].Port != 0 {
 		// The terminal's link is minted with the desktop's, so they expire together.
 		if res.TerminalUrl, _, err = s.desktops.Mint(task.ID, terminalPort, login(ctx)); err != nil {

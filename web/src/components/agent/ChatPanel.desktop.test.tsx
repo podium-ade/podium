@@ -157,6 +157,7 @@ describe("ChatPanel desktop", () => {
     );
     getTask.mockResolvedValue({ task: desktopTask() });
     createDesktopTicket.mockResolvedValue({
+      ready: true,
       url: "https://podium-desktop.example.com/t/task_desk/tok/",
     });
     mount();
@@ -186,6 +187,7 @@ describe("ChatPanel desktop", () => {
     );
     getTask.mockResolvedValue({ task: desktopTask() });
     createDesktopTicket.mockResolvedValue({
+      ready: true,
       url: "https://podium-desktop.example.com/t/task_desk/tok/",
     });
     const user = userEvent.setup();
@@ -204,6 +206,7 @@ describe("ChatPanel desktop", () => {
     );
     getTask.mockResolvedValue({ task: desktopTask() });
     createDesktopTicket.mockResolvedValue({
+      ready: true,
       url: "https://podium-desktop.example.com/t/task_desk/desk/",
       terminalUrl: "https://podium-desktop.example.com/t/task_desk/term/",
     });
@@ -233,12 +236,46 @@ describe("ChatPanel desktop", () => {
     expect(createDesktopTicket).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the desktop starting, and loads it once it answers", async () => {
+    streamChat.mockImplementation(() =>
+      frames(msgFrame(1, "assistant", "on it", "task_desk")),
+    );
+    getTask.mockResolvedValue({ task: desktopTask() });
+    // The task runs before its desktop is up: the first answer says it is not ready.
+    createDesktopTicket
+      .mockResolvedValueOnce({
+        ready: false,
+        url: "https://podium-desktop.example.com/t/task_desk/early/",
+        terminalUrl: "https://podium-desktop.example.com/t/task_desk/early-term/",
+      })
+      .mockResolvedValue({
+        ready: true,
+        url: "https://podium-desktop.example.com/t/task_desk/desk/",
+        terminalUrl: "https://podium-desktop.example.com/t/task_desk/term/",
+      });
+    mount();
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Starting the desktop…"),
+    );
+    // Nothing loads the early link: its frame would keep the error page it got.
+    expect(screen.queryByTitle("The agent's desktop")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Open the desktop in a new tab" }),
+    ).not.toBeInTheDocument();
+
+    const frame = await screen.findByTitle("The agent's desktop", undefined, { timeout: 5000 });
+    expect(frame).toHaveAttribute("src", "https://podium-desktop.example.com/t/task_desk/desk/");
+    expect(createDesktopTicket).toHaveBeenCalledTimes(2);
+  });
+
   it("has no terminal tab for a task that serves none", async () => {
     streamChat.mockImplementation(() =>
       frames(msgFrame(1, "assistant", "on it", "task_desk")),
     );
     getTask.mockResolvedValue({ task: desktopTask() });
     createDesktopTicket.mockResolvedValue({
+      ready: true,
       url: "https://podium-desktop.example.com/t/task_desk/desk/",
       terminalUrl: "",
     });

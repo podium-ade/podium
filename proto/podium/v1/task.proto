@@ -167,6 +167,9 @@ message CreateDesktopTicketResponse {
   // terminal_url is a terminal in the task's workspace, ready to be an iframe's src; empty
   // when the task exposes none. It expires with url.
   string terminal_url = 3;
+  // ready is whether the desktop answers yet. A task runs before its desktop is up, and a
+  // frame loaded in between shows an error page it never leaves: ask again until it is.
+  bool ready = 4;
 }
 
 message StreamTaskEventsRequest {
