@@ -93,7 +93,10 @@ export function ChatThread({
               <ThreadPrimitive.Empty>{welcome}</ThreadPrimitive.Empty>
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, SystemMessage }} />
             </div>
-            <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex justify-center">
+            {/* h-0: the footer takes no room in the transcript and the button hangs above it.
+                With height, the transcript grew by a button's height whenever the button showed
+                and shrank again when it hid at the bottom, which jumped the conversation. */}
+            <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex h-0 items-end justify-center">
               <ThreadPrimitive.ScrollToBottom asChild>
                 <Button
                   type="button"
