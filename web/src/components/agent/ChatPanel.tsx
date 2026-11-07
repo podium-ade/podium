@@ -26,6 +26,7 @@ import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
+import { mentionsPodium } from "../../lib/mentions";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
@@ -52,7 +53,7 @@ import {
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
@@ -1432,20 +1433,22 @@ function Conversation({
   const multiplayer = stream.chat?.multiplayer === true || mirrored;
   const personalityName = stream.chat?.personalityDisplay ?? "";
   const me = viewer?.login ?? "";
-  const queue = useMemo(() => {
-    const turns = stream.queue;
-    let firstMine = -1;
-    const mine: bigint[] = [];
-    turns.forEach((t, i) => {
-      if (me !== "" && t.login === me && t.seq > 0n) {
-        if (firstMine < 0) firstMine = i;
-        mine.push(t.seq);
-      }
-    });
-    // Ahead of my first waiting turn: everything queued before it, and the turn running.
-    const ahead = firstMine < 0 ? 0 : firstMine + (stream.running ? 1 : 0);
-    return { ahead, mine, waiting: turns.length };
-  }, [stream.queue, stream.running, me]);
+  // The chat's shared queue, as everybody in it sees it: what was put to Podium while it was
+  // answering, oldest first, each to be a turn of its own.
+  const queued = useMemo<QueuedItem[]>(
+    () =>
+      stream.queue.map((t) => {
+        const mine = me !== "" && t.login === me;
+        return {
+          id: t.id.toString(),
+          text: t.text,
+          author: t.author || t.login,
+          mine,
+          editable: mine && t.seq === 0n && t.id !== 0n,
+        };
+      }),
+    [stream.queue, me],
+  );
   useEffect(() => {
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
@@ -1492,7 +1495,7 @@ function Conversation({
   );
 
   const send = useMutation({
-    mutationFn: (v: { text: string; choice: AgentChoice }) =>
+    mutationFn: (v: { text: string; choice: AgentChoice; queues?: boolean }) =>
       agent.sendChatMessage({
         chatId,
         text: v.text,
@@ -1503,6 +1506,9 @@ function Conversation({
         effort: v.choice.effort,
       }),
     onMutate: (v) => {
+      // A message that will wait in the queue is drawn there, not in the transcript: it goes
+      // into the record when its turn starts.
+      if (v.queues) return;
       setPendingUser({
         text: v.text,
         before: stream.messages.filter((m) => m.role === "user").length,
@@ -1510,8 +1516,9 @@ function Conversation({
     },
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-      // A message nobody put to Podium is not waiting for an answer.
-      if (!res.addressed) setPendingUser(null);
+      // A message nobody put to Podium is not waiting for an answer, and one the server
+      // queued behind somebody else's turn is drawn in the queue instead.
+      if (!res.addressed || res.queuedPosition > 0) setPendingUser(null);
     },
     onError: (err) => {
       setPendingUser(null);
@@ -1533,7 +1540,7 @@ function Conversation({
     onError: (err) => toast(errorMessage(err)),
   });
   const takeBack = useMutation({
-    mutationFn: (seq: bigint) => agent.cancelQueuedTurn({ chatId, seq }),
+    mutationFn: (id: string) => agent.cancelQueuedTurn({ chatId, id: BigInt(id) }),
     onError: (err) => toast(errorMessage(err)),
   });
 
@@ -1548,9 +1555,16 @@ function Conversation({
     !stream.awaiting &&
     last?.role !== "assistant";
   const busy = (stream.running && !stream.awaiting) || send.isPending || holdBusy;
-  // The composer is only held while a send is in flight. A turn running no longer blocks it:
-  // what is sent meanwhile is queued as a turn of its own (phase 4).
-  const sending = send.isPending;
+  // Whether a message for Podium sent now waits in the queue: something is being answered,
+  // or somebody is already waiting. Never an answer to a task's question.
+  const queueing = !stream.awaiting && (busy || queued.length > 0);
+  // submit is the composer's send. The server decides where a message goes — it queues what
+  // is put to Podium while it is answering, and records talk between people at once — and
+  // this only decides whether to draw the message in the transcript while the send is out.
+  const submit = (text: string, choice: AgentChoice) => {
+    const toPodium = !multiplayer || mentionsPodium(text, personalityName);
+    send.mutate({ text, choice, queues: queueing && toPodium });
+  };
   // Still loading until the stream says the replay is done: the chat's own frames arrive
   // before its messages, so going by the stream's phase showed the new-chat welcome for a
   // moment on every chat that has history.
@@ -1634,7 +1648,7 @@ function Conversation({
             botName={botName}
             progress={stream.progress}
             taskId={stream.taskId}
-            onSend={(text) => send.mutate({ text, choice })}
+            onSend={(text) => submit(text, choice)}
             top={
               <>
                 {connecting ? <TranscriptSkeleton /> : null}
@@ -1651,7 +1665,7 @@ function Conversation({
                 <ArrivalWell
                   botName={botName}
                   playbookNames={playbookNames}
-                  onSuggest={(text) => send.mutate({ text, choice })}
+                  onSuggest={(text) => submit(text, choice)}
                   suggesting={busy}
                 />
               ) : null
@@ -1678,19 +1692,24 @@ function Conversation({
           </div>
         ) : (
           <ChatComposer
-            disabled={sending}
+            // Never held: what is typed while a send is in flight is queued like anything else
+            // sent while Podium is busy, and a box that disabled itself as each send went out
+            // would take the caret away mid-sentence.
+            disabled={false}
             running={stream.running && !stream.awaiting}
             onStop={() => stop.mutate()}
+            queued={queued}
+            queueing={queueing}
+            onInterrupt={() => stop.mutate()}
+            onRemoveQueued={(id) => takeBack.mutate(id)}
             multiplayer={multiplayer}
             mirrored={mirrored ? origin : ""}
             personality={personalityName}
-            queue={queue}
-            onTakeBack={(seq) => takeBack.mutate(seq)}
             agents={agents}
             assistant={assistant}
             choice={choice}
             onChoiceChange={setChoice}
-            onSend={(text, choice) => send.mutate({ text, choice })}
+            onSend={submit}
           />
         )}
       </div>
