@@ -30,7 +30,7 @@ export function DesktopPanel({
     <section
       aria-label="Desktop"
       data-testid="desktop-panel"
-      className="flex min-h-0 min-w-0 flex-col border-l border-border bg-panel"
+      className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-border bg-panel"
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-sm">
         <Monitor className="size-4 text-muted" aria-hidden />
