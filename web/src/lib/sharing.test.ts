@@ -31,7 +31,7 @@ describe("sharing helpers", () => {
   });
 
   it("names general access and counts unread", () => {
-    expect(generalAccessLabel("link")).toBe("Anyone with the link");
+    expect(generalAccessLabel("link")).toBe("Anyone in Podium with the link");
     expect(generalAccessLabel("restricted")).toBe("Restricted");
     expect(unread({ unreadCount: 3n })).toBe(3);
   });
