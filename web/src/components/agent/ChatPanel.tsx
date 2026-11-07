@@ -29,9 +29,8 @@ import { comparePersonalities, inheritedAssistant } from "../../lib/personality"
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
-import { PanelResizer } from "../task/PanelResizer";
 import { desktopCandidate, useDesktopTask } from "../../lib/desktop";
-import { DesktopPanel } from "./DesktopPanel";
+import { DesktopPane } from "./DesktopPane";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -1456,18 +1455,14 @@ function Conversation({
         )}
       </div>
       {desktopShown ? (
-        <>
-          <PanelResizer
-            width={desktopWidth}
-            onWidth={setDesktopWidth}
-            onReset={() => setDesktopWidth(undefined)}
-            container={split}
-            label="Resize the desktop"
-          />
-          <div className="flex min-h-[60vh] min-w-0 flex-col lg:min-h-0 lg:w-[var(--desktop-width,55%)]">
-            <DesktopPanel taskId={desktopTaskId} onHide={() => setDesktopHidden(true)} />
-          </div>
-        </>
+        <DesktopPane
+          taskId={desktopTaskId}
+          width={desktopWidth}
+          onWidth={setDesktopWidth}
+          onReset={() => setDesktopWidth(undefined)}
+          container={split}
+          onHide={() => setDesktopHidden(true)}
+        />
       ) : null}
     </div>
   );
