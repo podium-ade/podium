@@ -1153,6 +1153,14 @@ function Conversation({
   const desktopTaskId = desktopCandidate(stream.messages, stream.taskId);
   const desktop = useDesktopTask(desktopTaskId);
   const [desktopHidden, setDesktopHidden] = useState(false);
+  const desktopShown = desktop.desktop && !desktopHidden && desktopTaskId !== undefined;
+  // The task whose pane is mounted: the one shown, and, while it animates out after the
+  // desktop goes — hidden, or its session ended — the one that was. The pane says when it has
+  // finished closing.
+  const [paneTask, setPaneTask] = useState<string | undefined>(undefined);
+  if (desktopShown && desktopTaskId !== paneTask) {
+    setPaneTask(desktopTaskId);
+  }
   const split = useRef<HTMLDivElement>(null);
   const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
   const desktopStyle =
@@ -1345,7 +1353,6 @@ function Conversation({
     );
   }
 
-  const desktopShown = desktop.desktop && !desktopHidden && desktopTaskId !== undefined;
   return (
     <div ref={split} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row" style={desktopStyle}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1454,9 +1461,12 @@ function Conversation({
           />
         )}
       </div>
-      {desktopShown ? (
+      {paneTask !== undefined ? (
         <DesktopPane
-          taskId={desktopTaskId}
+          key={paneTask}
+          taskId={paneTask}
+          shown={desktopShown && desktopTaskId === paneTask}
+          onClosed={() => setPaneTask(undefined)}
           width={desktopWidth}
           onWidth={setDesktopWidth}
           onReset={() => setDesktopWidth(undefined)}
