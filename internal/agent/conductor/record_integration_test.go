@@ -60,6 +60,59 @@ func TestARetriedMessageIsOneRowAndOneTurn(t *testing.T) {
 	assert.Equal(t, 1, users, "one message, one row")
 }
 
+// A source that names its conversation names the chat — a pull request's number, repository
+// and title rather than "alice opened https://…" — and renames it when the name changes. A
+// shorter name the title already starts with (a Slack mention knows no PR title) does not
+// undo it, and a title somebody set in Podium is never overwritten.
+func TestASourceNamesItsMirroredChat(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	title := func(key string) string {
+		c, err := st.ChatBySourceKey(ctx, key)
+		if err != nil {
+			return ""
+		}
+		return c.Title
+	}
+	say := func(ext, name string, record bool) conductor.InboundEvent {
+		ev := inbound("C1/1.1", "alice opened https://github.com/acme/api/pull/12 for review")
+		ev.ExternalID = ext
+		ev.Title = name
+		ev.RecordOnly = record
+		require.NoError(t, src.Send(ctx, ev))
+		return ev
+	}
+
+	ev := say("1.1", "#12: Retry uploads", false)
+	waitFor(t, 30*time.Second, "the chat", func() bool { return title(ev.SourceKey) == "#12: Retry uploads" })
+
+	say("1.2", "#12", true)
+	say("1.3", "#12: Retry uploads with backoff", true)
+	waitFor(t, 10*time.Second, "the rename", func() bool {
+		return title(ev.SourceKey) == "#12: Retry uploads with backoff"
+	})
+
+	chat, err := st.ChatBySourceKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	_, err = st.RenameChat(ctx, chat.ID, "alice", "Upload fix", true)
+	require.NoError(t, err)
+	say("1.4", "#12: Something else", true)
+	waitFor(t, 10*time.Second, "the record", func() bool {
+		msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
+		return err == nil && len(msgs) > 0 && msgs[len(msgs)-1].ExternalID == "1.4"
+	})
+	assert.Equal(t, "Upload fix", title(ev.SourceKey), "a name somebody chose is theirs")
+}
+
 // Chatter nobody put to Podium is recorded into a conversation Podium holds, never into one
 // it does not, and never starts a turn.
 func TestUnaddressedChatterIsRecordedOnlyWherePodiumIs(t *testing.T) {

@@ -158,3 +158,110 @@ describe("ChatPanel sharing", () => {
     expect(await screen.findByTestId("chat-composer")).toBeInTheDocument();
   });
 });
+
+describe("ChatPanel rail groups", () => {
+  beforeEach(() => {
+    for (const f of [listChats, streamChat, leaveChat, markChatRead, getChatSharing]) f.mockReset();
+    markChatRead.mockResolvedValue({});
+    window.localStorage.clear();
+  });
+
+  const prs = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      row({
+        id: `c_pr${i}`,
+        title: `#${100 + i}: Change ${i}`,
+        origin: "github",
+        startedBy: "octocat",
+        surfaces: [{ kind: "github", label: `acme/api#${100 + i}`, url: "" }],
+        lastMessageAt: timestampFromDate(new Date(Date.now() - (i + 1) * 60_000)),
+      }),
+    );
+
+  it("lists a page of each origin and shows more on demand", async () => {
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace" ? { chats: [] } : { chats: [row({ id: "c_web", title: "Mine" }), ...prs(11)] },
+    );
+    const user = userEvent.setup();
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("Change 0"));
+    expect(list).toHaveTextContent("Change 7");
+    expect(list).not.toHaveTextContent("Change 8");
+    const where = within(list).getAllByTestId("chat-row-where")[0];
+    expect(where).toHaveTextContent("acme/api");
+    expect(where).toHaveTextContent("octocat");
+    const more = screen.getByTestId("chat-more-github");
+    expect(more).toHaveTextContent("Show 3 more· 3 left");
+    await user.click(more);
+    expect(list).toHaveTextContent("Change 10");
+    expect(screen.queryByTestId("chat-more-github")).not.toBeInTheDocument();
+  });
+
+  it("narrows the list to one source and remembers the choice", async () => {
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace" ? { chats: [] } : { chats: [row({ id: "c_web", title: "Mine" }), ...prs(2)] },
+    );
+    const user = userEvent.setup();
+    const { unmount } = mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("Mine"));
+    expect(screen.getByTestId("chat-source-all")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("chat-source-github")).toHaveTextContent("2");
+    await user.click(screen.getByTestId("chat-source-github"));
+    expect(screen.getByTestId("chat-source-github")).toHaveAttribute("aria-checked", "true");
+    expect(list).toHaveTextContent("Change 0");
+    expect(list).not.toHaveTextContent("Mine");
+    expect(screen.queryByTestId("chat-origin-github")).not.toBeInTheDocument();
+    unmount();
+
+    mount();
+    const again = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(again).toHaveTextContent("Change 0"));
+    expect(again).not.toHaveTextContent("Mine");
+  });
+
+  it("draws only marks past four sources, keeping the chosen count and an unread dot", async () => {
+    const chats = [
+      row({ id: "c_web", title: "Mine" }),
+      ...prs(2),
+      row({ id: "c_sl", title: "Oncall", origin: "slack", channel: "eng", unreadCount: 2n }),
+      row({ id: "c_sh", title: "Plan", login: "alice", myRole: "editor", accessReason: "shared", sharedWithMe: true }),
+      row({ id: "c_ws", title: "Runbook", login: "carol", myRole: "viewer", accessReason: "workspace" }),
+    ];
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace" ? { chats: [] } : { chats },
+    );
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("Runbook"));
+    expect(screen.getByTestId("chat-source-all")).toHaveTextContent("6");
+    expect(screen.getByTestId("chat-source-github")).not.toHaveTextContent("2");
+    expect(screen.getByTestId("chat-source-unread-slack")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-source-slack")).toHaveAccessibleName("Slack, 2 unread");
+    expect(screen.queryByTestId("chat-source-unread-github")).not.toBeInTheDocument();
+  });
+
+  it("folds an origin away and remembers it", async () => {
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace" ? { chats: [] } : { chats: [row({ id: "c_web", title: "Mine" }), ...prs(2)] },
+    );
+    const user = userEvent.setup();
+    const { unmount } = mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("Change 0"));
+    const github = screen.getByTestId("chat-origin-github");
+    expect(github).toHaveAttribute("aria-expanded", "true");
+    await user.click(github);
+    expect(github).toHaveAttribute("aria-expanded", "false");
+    expect(list).not.toHaveTextContent("Change 0");
+    expect(list).toHaveTextContent("Mine");
+    unmount();
+
+    mount();
+    const again = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(again).toHaveTextContent("Mine"));
+    expect(screen.getByTestId("chat-origin-github")).toHaveAttribute("aria-expanded", "false");
+    expect(again).not.toHaveTextContent("Change 0");
+  });
+});

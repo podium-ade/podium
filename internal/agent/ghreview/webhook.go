@@ -245,6 +245,7 @@ func (s *Source) inbound(c classified, text string) conductor.InboundEvent {
 		Text:            text,
 		TS:              c.ts,
 		URL:             PRURL(c.owner, c.repo, c.number),
+		Title:           ChatTitle(c.number, c.title),
 		BriefKind:       conductor.SourceGitHub,
 	}
 	if c.change != "" {
@@ -318,6 +319,8 @@ type classified struct {
 	action string
 	// base is the branch the pull request merges into. An issue_comment leaves it empty.
 	base string
+	// title is the pull request's own title, as the payload carried it. It names the chat.
+	title string
 	// pushed is new commits on the pull request's head branch (synchronize).
 	pushed bool
 	// reason is why classify rejected the delivery. Empty when it accepted it.
@@ -437,6 +440,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"comment"`
 			Issue struct {
 				Number      int             `json:"number"`
+				Title       string          `json:"title"`
 				PullRequest json.RawMessage `json:"pull_request"`
 			} `json:"issue"`
 		}
@@ -448,6 +452,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			return base, false
 		}
 		base.number = p.Issue.Number
+		base.title = p.Issue.Title
 		base.kind = KindIssueComment
 		base.commentID = p.Comment.ID
 		base.body = p.Comment.Body
@@ -481,6 +486,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"comment"`
 			PullRequest struct {
 				Number int        `json:"number"`
+				Title  string     `json:"title"`
 				Base   branchJSON `json:"base"`
 			} `json:"pull_request"`
 		}
@@ -488,6 +494,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.title = p.PullRequest.Title
 		base.base = p.PullRequest.Base.Ref
 		base.kind = KindReviewComment
 		base.commentID = p.Comment.ID
@@ -528,6 +535,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"review"`
 			PullRequest struct {
 				Number int        `json:"number"`
+				Title  string     `json:"title"`
 				Base   branchJSON `json:"base"`
 			} `json:"pull_request"`
 		}
@@ -535,6 +543,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.title = p.PullRequest.Title
 		base.base = p.PullRequest.Base.Ref
 		base.kind = KindReview
 		base.commentID = p.Review.ID
@@ -569,6 +578,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		var p struct {
 			PullRequest struct {
 				Number    int        `json:"number"`
+				Title     string     `json:"title"`
 				Draft     bool       `json:"draft"`
 				UpdatedAt time.Time  `json:"updated_at"`
 				Base      branchJSON `json:"base"`
@@ -583,6 +593,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			return base, false
 		}
 		base.number = p.PullRequest.Number
+		base.title = p.PullRequest.Title
 		base.base = p.PullRequest.Base.Ref
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
@@ -832,6 +843,7 @@ func (s *Source) handlePush(ctx context.Context, event, delivery string, c class
 		Text:      followUpInstruction("Podium pushed new commits to "+prURL+" to address the review.", commit, head),
 		TS:        c.ts,
 		URL:       prURL,
+		Title:     ChatTitle(c.number, c.title),
 		BriefKind: conductor.SourceGitHub,
 		Automatic: true,
 	})

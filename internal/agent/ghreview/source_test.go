@@ -232,9 +232,15 @@ func readyForReview() map[string]any {
 		},
 		"sender": map[string]any{"login": "alice", "type": "User"},
 		"pull_request": map[string]any{
-			"number": 12, "draft": false, "updated_at": "2026-09-14T12:00:00Z",
+			"number": 12, "title": "Retry the  flaky upload", "draft": false, "updated_at": "2026-09-14T12:00:00Z",
 		},
 	}
+}
+
+func TestChatTitleNamesThePullRequest(t *testing.T) {
+	assert.Equal(t, "#12: Retry the flaky upload", ChatTitle(12, " Retry the\n flaky upload "))
+	assert.Equal(t, "#12", ChatTitle(12, ""))
+	assert.Equal(t, "", ChatTitle(0, "anything"))
 }
 
 func TestReadyForReviewStartsAReview(t *testing.T) {
@@ -268,6 +274,7 @@ func TestAnOpenPullRequestStartsAReview(t *testing.T) {
 	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
 	assert.Contains(t, evs[0].Text, "opened")
 	assert.Contains(t, evs[0].Text, "for review")
+	assert.Equal(t, "#12: Retry the flaky upload", evs[0].Title, "the chat is named for the pull request, not its first line")
 	assert.NotContains(t, evs[0].Text, "ready for review")
 	assert.True(t, evs[0].Automatic)
 	p, err := ParseRef(evs[0].Ref)
