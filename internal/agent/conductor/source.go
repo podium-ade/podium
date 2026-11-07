@@ -104,6 +104,13 @@ type InboundEvent struct {
 	// one and URL is a link to this message instead: a Slack thread's permalink. The mirror
 	// records it so the chat's surface chip opens the thread.
 	ThreadURL string
+	// Title is the name the source gives the whole conversation — a pull request's number
+	// and title — when it has a better one than the first thing said in it. The
+	// mirror names a new chat with it, and renames one it named itself when it changes (a
+	// pull request retitled). A shorter name the chat's title already starts with does not
+	// replace it, so a source that knows only part of the name cannot undo a fuller one.
+	// Empty leaves the chat named from its first message.
+	Title string
 	// ChannelPrivacy is whether Channel is public, as the source knows it: store.ChannelPublic,
 	// ChannelPrivate, ChannelIM or ChannelMPIM. Empty is not known. The mirror records it so
 	// sharing a chat of a private conversation is warned about with the source's own word.

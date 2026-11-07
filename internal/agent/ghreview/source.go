@@ -347,7 +347,10 @@ func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
 		Text:        text,
 		TS:          m.TS,
 		URL:         m.PR.URL,
-		BriefKind:   conductor.SourceGitHub,
+		// Slack does not carry the pull request's title. The number names a new chat; a chat
+		// GitHub already named keeps its fuller title.
+		Title:     ChatTitle(m.PR.Number, ""),
+		BriefKind: conductor.SourceGitHub,
 	})
 	return nil
 }
