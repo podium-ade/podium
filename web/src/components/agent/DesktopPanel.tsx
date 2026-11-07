@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Monitor, RotateCw, SquareTerminal, X } from "lucide-react";
+import { ExternalLink, LoaderCircle, Monitor, RotateCw, SquareTerminal, X } from "lucide-react";
 import { Code, connectCode, errorMessage, tasks } from "../../lib/client";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 
 type Tab = "desktop" | "terminal";
+
+/** How often the panel asks whether a starting desktop answers yet. */
+const READY_POLL_MS = 2000;
 
 const TABS: { id: Tab; label: string; icon: typeof Monitor; frameTitle: string }[] = [
   { id: "desktop", label: "Desktop", icon: Monitor, frameTitle: "The agent's desktop" },
@@ -36,7 +39,12 @@ export function DesktopPanel({
     staleTime: 60 * 60_000,
     retry: (count, err) =>
       connectCode(err) !== Code.FailedPrecondition && count < 2,
+    // A task runs before its desktop is up, and a frame loaded in between keeps the error page
+    // it got. Until the server says the desktop answers, ask again; the links it mints
+    // meanwhile are never loaded, so the one in use does not change under the frame.
+    refetchInterval: (q) => (q.state.data && !q.state.data.ready ? READY_POLL_MS : false),
   });
+  const ready = ticket.data?.ready ?? false;
   const urls: Record<Tab, string | undefined> = {
     desktop: ticket.data?.url || undefined,
     terminal: ticket.data?.terminalUrl || undefined,
@@ -47,7 +55,7 @@ export function DesktopPanel({
   const [opened, setOpened] = useState<ReadonlySet<Tab>>(() => new Set(["desktop"]));
   const active = tabs.some((t) => t.id === tab) ? tab : "desktop";
   const activeLabel = active === "desktop" ? "desktop" : "terminal";
-  const activeURL = urls[active];
+  const activeURL = ready ? urls[active] : undefined;
 
   return (
     <section
@@ -114,7 +122,7 @@ export function DesktopPanel({
               forceMount
               className="relative min-h-0 flex-1 bg-black pt-0 data-[state=inactive]:hidden"
             >
-              {url && opened.has(id) ? (
+              {url && ready && opened.has(id) ? (
                 <iframe
                   key={url}
                   src={url}
@@ -124,19 +132,39 @@ export function DesktopPanel({
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <p
-                  role="status"
-                  className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-muted"
-                >
-                  {ticket.isError
-                    ? errorMessage(ticket.error)
-                    : `Connecting to the ${id}…`}
-                </p>
+                <Starting what={id} error={ticket.isError ? errorMessage(ticket.error) : undefined} />
               )}
             </TabsContent>
           );
         })}
       </Tabs>
     </section>
+  );
+}
+
+/**
+ * Starting is a tab before its frame loads: the desktop coming up, or why it cannot. The
+ * display, XFCE, the browser and the stream take seconds, and the first desktop on a machine
+ * waits for its image.
+ */
+function Starting({ what, error }: { what: Tab; error?: string }) {
+  return (
+    <div
+      role="status"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
+    >
+      {error ? (
+        <p className="max-w-sm text-sm text-muted">{error}</p>
+      ) : (
+        <>
+          <LoaderCircle className="size-5 animate-spin text-muted" aria-hidden />
+          <p className="text-sm text-fg">Starting the {what}…</p>
+          <p className="max-w-xs text-xs leading-relaxed text-faint">
+            The display, the browser and the stream take a few seconds. The first desktop on a
+            machine can take a minute or two.
+          </p>
+        </>
+      )}
+    </div>
   );
 }

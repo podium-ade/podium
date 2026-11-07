@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -96,6 +97,42 @@ func (s *Service) Mint(taskID, port, login string) (string, time.Time, error) {
 		return "", time.Time{}, err
 	}
 	return s.Origin() + pathPrefix + taskID + "/" + tok + "/", exp, nil
+}
+
+// readyTimeout bounds Ready's probe: the panel asks every couple of seconds while a desktop
+// starts, and a desktop that takes longer than this to answer its health check is not up.
+const readyTimeout = 3 * time.Second
+
+// Ready reports whether a task's desktop answers yet: voxl's health check, through the same
+// route and with the same credentials a viewer's requests take. podium-desktop starts the
+// terminal before it waits for voxl, so a desktop that answers has its terminal too. A task
+// is running before its desktop is up — the display, XFCE, Chromium and the stream take
+// seconds, and the first run on a machine pulls the image — and a frame loaded in that window
+// shows an error page it never recovers from: the panel waits on this instead.
+func (s *Service) Ready(ctx context.Context, taskID string) bool {
+	up, err := s.resolver.Resolve(ctx, taskID, PortName)
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, readyTimeout)
+	defer cancel()
+	u := *up.URL
+	u.Path = strings.TrimSuffix(up.URL.Path, "/") + "/healthz"
+	u.RawPath = ""
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return false
+	}
+	if up.Apply != nil {
+		up.Apply(req)
+	}
+	res, err := (&http.Client{Transport: s.transport}).Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = res.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<10))
+	return res.StatusCode == http.StatusOK
 }
 
 // Handles reports whether r is addressed to the desktop origin. Everything that is, and only
