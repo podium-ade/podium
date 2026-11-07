@@ -82,22 +82,11 @@ if ! "$here/xfce-setup.sh" >"$logs/xfce-setup.log" 2>&1; then
 	echo "podium-desktop: warning: XFCE kept its defaults (see $logs/xfce-setup.log)" >&2
 fi
 
-# 3. The browser, once. Its DevTools port is on loopback only: the agent's browser tools are
-#    in this box, and nothing else should drive it. Closing its window closes it; the dock
-#    opens it again. Relaunching it in a loop instead only opens tabs in the running one.
-#
-#    There is no GPU here, and without one Chromium turns WebGL off. --use-angle=swiftshader
-#    renders it on the CPU with the SwiftShader Chromium bundles, which is what gives pages
-#    WebGL at all — and what lets the image leave Mesa's OpenGL out (Dockerfile.desktop).
-#    --enable-unsafe-swiftshader is the opt-in Chromium asks for: "unsafe" is about a
-#    software GPU being a larger attack surface than a sandboxed real one, a trade this
-#    single-user, disposable box makes.
-chromium --no-sandbox --test-type --disable-dev-shm-usage --no-first-run \
-	--no-default-browser-check --disable-session-crashed-bubble --hide-crash-restore-bubble \
-	--use-angle=swiftshader --enable-unsafe-swiftshader \
-	--user-data-dir="$HOME/.config/podium-desktop/chromium" \
-	--remote-debugging-address=127.0.0.1 --remote-debugging-port="$cdp_port" \
-	--start-maximized "$start_url" >"$logs/chromium.log" 2>&1 &
+# 3. The browser, once. Its flags, the profile and the DevTools port included, are in
+#    /etc/chromium.d/podium-desktop (desktop/chromium-flags), so the dock and the app menu
+#    start the same browser: a later launch opens its URL in this one. Relaunching it in a
+#    loop instead would only open tabs in the running one.
+chromium --start-maximized "$start_url" >"$logs/chromium.log" 2>&1 &
 chromium=$!
 
 # 4. The stream. Its own login is off: the port is reachable only through the provider's
