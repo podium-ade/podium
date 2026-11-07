@@ -20,6 +20,7 @@ export function PanelResizer({
   onReset,
   container,
   label = "Resize the entry panel",
+  minRest = MIN_SIDE_PX,
 }: {
   /** width is the panel's current width in px, or undefined while it is the default. */
   width: number | undefined;
@@ -29,12 +30,14 @@ export function PanelResizer({
   container: React.RefObject<HTMLElement | null>;
   /** label names the handle for assistive technology: what it resizes. */
   label?: string;
+  /** minRest is the narrowest the other side may get, when it needs more than MIN_SIDE_PX. */
+  minRest?: number;
 }) {
   const dragging = useRef(false);
 
   const clamp = (px: number) => {
     const total = container.current?.getBoundingClientRect().width ?? 0;
-    const max = Math.max(MIN_SIDE_PX, total - MIN_SIDE_PX);
+    const max = Math.max(MIN_SIDE_PX, total - minRest);
     return Math.round(Math.min(max, Math.max(MIN_SIDE_PX, px)));
   };
   const current = () => {
@@ -81,7 +84,8 @@ export function PanelResizer({
       onKeyDown={key}
       title="Drag to resize · double-click to reset"
       className={cn(
-        "group/resize relative hidden cursor-col-resize touch-none outline-none select-none lg:block",
+        // w-3: a handle with room to grab, not a hairline flush against the scroll bar beside it.
+        "group/resize relative hidden w-3 shrink-0 cursor-col-resize touch-none outline-none select-none lg:block",
         "before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-hairline before:transition-all",
         "hover:before:w-0.5 hover:before:bg-accent focus-visible:before:w-0.5 focus-visible:before:bg-accent",
       )}
