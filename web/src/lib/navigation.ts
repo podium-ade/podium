@@ -34,6 +34,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Work",
     pages: [
       { id: "chat", label: "Chat", to: "/agent/chat", icon: "chat", desc: "", keys: "conversation messages talk", show: agent },
+      { id: "routines", label: "Routines", to: "/agent/routines", icon: "routines", desc: "Jobs an assistant does on a schedule.", keys: "schedule cron recurring routine automation timer", show: agent },
       { id: "tasks", label: "Tasks", to: "/tasks", end: true, icon: "tasks", desc: "", keys: "jobs runs work queue" },
       // Hidden from the sidebar for now and maybe removed later. The entry stays so the
       // page, still reachable by URL, keeps its group in the top bar.

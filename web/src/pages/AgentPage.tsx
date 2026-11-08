@@ -14,6 +14,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { RoutinesPanel } from "../components/agent/RoutinesPanel";
 import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybookPage, PlaybooksPanel } from "../components/agent/PlaybooksPanel";
@@ -81,6 +82,7 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "skills/:name", element: <SkillPage /> },
   { path: "mcp", element: <McpPanel /> },
   { path: "channels", element: <ChannelsPanel /> },
+  { path: "routines", element: <RoutinesPanel /> },
   // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.

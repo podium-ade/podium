@@ -56,6 +56,7 @@ import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
+import { RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
@@ -359,6 +360,7 @@ export function ChatPanel() {
               listedRole={railChats.find((c) => c.id === active)?.myRole}
               listedSharedWithMe={railChats.find((c) => c.id === active)?.sharedWithMe}
               listedMultiplayer={railChats.find((c) => c.id === active)?.multiplayer}
+              listedRoutineId={railChats.find((c) => c.id === active)?.routineId}
               listedEmpty={railChats.find((c) => c.id === active)?.preview === ""}
               onRename={(title) => renameChat(active, title)}
               onLeave={() => navigate(blank)}
@@ -455,6 +457,7 @@ function originKey(origin: string | undefined): string {
 
 function originLabel(key: string): string {
   if (key === "web") return "Web";
+  if (key === "routine") return "Routines";
   if (key === "shared") return "Shared with me";
   if (key === "workspace") return "Workspace";
   if (key === "slack") return "Slack";
@@ -462,7 +465,7 @@ function originLabel(key: string): string {
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "shared", "slack", "github", "workspace"];
+const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "workspace"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {
@@ -474,8 +477,10 @@ function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat
     // Phase 5: a chat somebody shared with the viewer (by name, or that they opened from a
     // link) is "Shared with me" wherever it lives, and a members-shared chat they have not
     // opened is "Workspace". A Slack thread or PR they spoke in stays under its surface.
-    const key =
-      c.accessReason === "workspace"
+    // A routine's chat is its own list: it is never shared, so it is always the viewer's own.
+    const key = c.routineId
+      ? "routine"
+      : c.accessReason === "workspace"
         ? "workspace"
         : c.accessReason === "shared" || (c.sharedWithMe && originKey(c.origin) === "web")
           ? "shared"
@@ -1335,6 +1340,7 @@ function Conversation({
   listedRole,
   listedSharedWithMe,
   listedMultiplayer,
+  listedRoutineId,
   onRename,
   onLeave,
   assistant,
@@ -1369,6 +1375,8 @@ function Conversation({
   listedSharedWithMe?: boolean;
   /** listedMultiplayer is whether the list row says other people are in it: faces to come. */
   listedMultiplayer?: boolean;
+  /** listedRoutineId is the routine the list row says this chat belongs to, if any. */
+  listedRoutineId?: string;
   onRename: (title: string) => Promise<void>;
   onLeave: () => void;
   assistant?: Assistant;
@@ -1419,6 +1427,8 @@ function Conversation({
   // write. The dev token is "owner" of everything but writes nobody's chat but its own, so the
   // note for somebody else's chat still stands for it.
   const role = roleOf(stream.chat ?? { myRole: listedRole ?? "" });
+  // A routine's chat is never shared, and carries the routine's card instead.
+  const routineId = stream.chat?.routineId || listedRoutineId || "";
   // Until either says, the bottom of the screen is held rather than guessed: offering the
   // composer and then taking it away is the flash this avoids.
   const roleKnown = stream.chat !== undefined || role !== "" || stream.gone === true;
@@ -1616,7 +1626,7 @@ function Conversation({
                   Desktop
                 </Button>
               ) : null}
-              {role !== "" ? (
+              {role !== "" && !routineId ? (
                 <ShareButton
                   chatId={chatId}
                   title={title || stream.chat?.title || ""}
@@ -1639,6 +1649,7 @@ function Conversation({
             (stream.chat?.people.length ?? 0) > 0 ? <ChatPeople people={stream.chat?.people ?? []} /> : undefined
           }
         />
+        {routineId ? <RoutineCard chatId={chatId} /> : null}
         {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
             title and above the composer, it read as a new chat. */}
         <Suspense fallback={<ThreadLoading />}>
@@ -1661,7 +1672,9 @@ function Conversation({
               </>
             }
             welcome={
-              showWelcome ? (
+              showWelcome && routineId ? (
+                <RoutineWelcome />
+              ) : showWelcome ? (
                 <ArrivalWell
                   botName={botName}
                   playbookNames={playbookNames}
@@ -1779,6 +1792,20 @@ function Arrival({
         onChoiceChange={setPicked}
         onSend={onSend}
       />
+    </div>
+  );
+}
+
+/** RoutineWelcome is a routine's chat before any run has answered: where its answers will
+ * land, and what writing here does. */
+function RoutineWelcome() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center-safe gap-1.5 px-6 py-6 text-center">
+      <p className="text-lg font-medium tracking-tight text-fg">Nothing from this routine yet</p>
+      <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
+        A run that finds something answers here; one that finds nothing leaves no trace. Write here to ask
+        about its runs or to change what it keeps an eye on.
+      </p>
     </div>
   );
 }
