@@ -231,3 +231,82 @@ func TestCreateRoutineSetsOneUpForThePersonWhoAsked(t *testing.T) {
 	_, err = f.cond.CreateRoutine(ctx, nobody, conductor.CreateRoutineRequest{Name: "x", Instruction: "y", Schedule: "0 9 * * *"})
 	assert.ErrorIs(t, err, conductor.ErrNoRoutineHere, "a turn nobody started has nobody to own it")
 }
+
+// Nobody watches a routine run, so it starts at most three tasks, and a routine has at most
+// three running at once across its runs.
+func TestARoutineRunStartsAtMostThreeTasks(t *testing.T) {
+	ctx := context.Background()
+	f := newRoutineFixture(t)
+	for range conductor.MaxRoutineDelegationsPerRun {
+		require.NoError(t, f.cond.CheckRoutineDelegationsForTest(ctx, f.token))
+		_, err := f.st.CreateDelegation(ctx, store.NewDelegation{
+			SessionID: f.sessID, TurnID: f.turnID, TriggerRef: f.routine.ChatID, Playbook: "fix", Instruction: "fix it",
+		})
+		require.NoError(t, err)
+	}
+	err := f.cond.CheckRoutineDelegationsForTest(ctx, f.token)
+	require.ErrorIs(t, err, conductor.ErrRoutineDelegationCap)
+	assert.Contains(t, err.Error(), "at most 3")
+
+	// The next run is capped by the three still running, not by its own count.
+	run2, ok, err := f.st.ClaimRoutineRun(ctx, f.routine.ID, time.Now().Add(time.Minute).Truncate(time.Second),
+		store.RoutineTriggerManual, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	turn2, err := f.st.CreateTurnFor(ctx, f.sessID, f.routine.ChatID, testSpeaker, store.Backend{})
+	require.NoError(t, err)
+	f.cond.NoteRoutineTurnForTest(ctx, turn2.ID, conductor.InboundEvent{
+		Ref: f.routine.ChatID, Routine: &conductor.RoutineRef{RoutineID: f.routine.ID, RunID: run2.ID},
+	})
+	token2, err := f.cond.MintChatTurnTokenForTest(f.web, f.sessID, turn2.ID, f.routine.ChatID, testSpeaker)
+	require.NoError(t, err)
+	err = f.cond.CheckRoutineDelegationsForTest(ctx, token2)
+	require.ErrorIs(t, err, conductor.ErrRoutineDelegationCap)
+	assert.Contains(t, err.Error(), "still running")
+
+	// A person's own message in the chat is not a run, and is not capped here.
+	turn3, err := f.st.CreateTurnFor(ctx, f.sessID, f.routine.ChatID, testSpeaker, store.Backend{})
+	require.NoError(t, err)
+	token3, err := f.cond.MintChatTurnTokenForTest(f.web, f.sessID, turn3.ID, f.routine.ChatID, testSpeaker)
+	require.NoError(t, err)
+	assert.NoError(t, f.cond.CheckRoutineDelegationsForTest(ctx, token3))
+}
+
+// A system routine's run goes into a chat nobody owns, as nobody; a person's routine is not
+// run as a system one, nor the other way round.
+func TestASystemRoutineRunsInItsUnownedChatAsNobody(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	require.NoError(t, err)
+
+	sys, err := st.CreateSystemRoutine(ctx, "admin@acme.com", store.RoutineDraft{
+		Name: "Fix failing CI", Schedule: "*/5 * * * *", Timezone: "UTC",
+		Instruction: "Report failing checks.", Repos: []string{"acme/api"}, NextRunAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	c, err := st.GetChat(ctx, sys.ChatID)
+	require.NoError(t, err)
+	assert.Empty(t, c.Login, "a system routine's chat is nobody's")
+	assert.Equal(t, sys.ID, c.RoutineID)
+
+	require.Error(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: sys.ChatID, Login: testSpeaker, Instruction: sys.Instruction, RoutineID: sys.ID, RunID: "rrun_1",
+	}), "a system routine is never run as a person")
+	require.NoError(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: sys.ChatID, Instruction: sys.Instruction, RoutineID: sys.ID, RunID: "rrun_1", System: true,
+	}))
+	ev := <-web.Events()
+	assert.Empty(t, ev.Login)
+	require.NotNil(t, ev.Routine)
+	assert.Equal(t, sys.ID, ev.Routine.RoutineID)
+
+	personal, err := st.CreateRoutine(ctx, testSpeaker, store.RoutineDraft{
+		Name: "Digest", Schedule: "0 9 * * *", Timezone: "UTC", Instruction: "Summarise.",
+		NextRunAt: time.Now().Add(time.Hour),
+	}, "")
+	require.NoError(t, err)
+	assert.Error(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: personal.ChatID, Instruction: personal.Instruction, RoutineID: personal.ID, RunID: "rrun_2", System: true,
+	}))
+}

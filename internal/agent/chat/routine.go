@@ -31,6 +31,8 @@ type RoutineRun struct {
 	RunID       string
 	// Override is the routine's own model and effort. Empty follows the chat's assistant.
 	Override profiles.Override
+	// System is a system routine's run: its chat has no owner, and it runs as nobody.
+	System bool
 }
 
 // ErrChatBusy is a run for a chat that is answering, or has something waiting.
@@ -53,7 +55,12 @@ func (s *Source) RunRoutine(ctx context.Context, run RoutineRun) error {
 	if err != nil {
 		return err
 	}
-	if chat.Login == "" || chat.Login != run.Login {
+	switch {
+	case run.System:
+		if chat.Login != "" || run.Login != "" {
+			return fmt.Errorf("run routine: a system routine's chat %s must have no owner", run.ChatID)
+		}
+	case chat.Login == "" || chat.Login != run.Login:
 		return fmt.Errorf("run routine: chat %s is not %s's", run.ChatID, run.Login)
 	}
 	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)

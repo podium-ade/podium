@@ -204,6 +204,17 @@ func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 // installation has, and a turn that asked for nothing getting everything is the wrong way
 // round for a default.
 func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token, error) {
+	return c.mint(ctx, owner, repos, false)
+}
+
+// ReadToken is Token minted read-only: contents and pull requests read, and checks, statuses
+// and actions read when the installation has them. A system routine reads GitHub with one, so
+// that a bug in a read tool, or a later tool that forwards a token, can never write.
+func (c *Client) ReadToken(ctx context.Context, owner string, repos []string) (Token, error) {
+	return c.mint(ctx, owner, repos, true)
+}
+
+func (c *Client) mint(ctx context.Context, owner string, repos []string, readOnly bool) (Token, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" {
 		return Token{}, errors.New("github: an owner is required to find the installation")
@@ -216,6 +227,9 @@ func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token
 	slices.Sort(scope)
 	scope = slices.Compact(scope)
 	key := owner + "\x00" + strings.Join(scope, "\x00")
+	if readOnly {
+		key = "read\x00" + key
+	}
 
 	c.mu.Lock()
 	if tok, ok := c.tokens[key]; ok && c.now().Add(renewBefore).Before(tok.ExpiresAt) {
@@ -228,9 +242,13 @@ func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token
 	if err != nil {
 		return Token{}, err
 	}
+	perms := install.tokenPermissions()
+	if readOnly {
+		perms.Contents, perms.PullRequests = "read", "read"
+	}
 	body, err := json.Marshal(tokenRequest{
 		Repositories: scope,
-		Permissions:  install.tokenPermissions(),
+		Permissions:  perms,
 	})
 	if err != nil {
 		return Token{}, fmt.Errorf("github: encode token request: %w", err)
@@ -514,6 +532,18 @@ func (c *Client) GetAs(ctx context.Context, token, path string, out any) error {
 		return errors.New("github: a token is required")
 	}
 	return c.roundTrip(ctx, http.MethodGet, path, nil, token, out)
+}
+
+// PostAs makes one POST with an installation token: a comment the App writes on a pull request.
+func (c *Client) PostAs(ctx context.Context, token, path string, body any, out any) error {
+	if strings.TrimSpace(token) == "" {
+		return errors.New("github: a token is required")
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("github: encode POST %s: %w", path, err)
+	}
+	return c.roundTrip(ctx, http.MethodPost, path, raw, token, out)
 }
 
 // GetTextAs reads a plain-text resource — a job's log — with a person's own token, keeping at

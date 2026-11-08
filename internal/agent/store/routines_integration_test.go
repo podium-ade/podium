@@ -170,7 +170,7 @@ func TestNotesAndProposedNotes(t *testing.T) {
 	got, err := s.GetRoutine(ctx, r.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "leave #42 alone", got.ProposedNote)
-	got, err = s.SetRoutineNotes(ctx, r.ID, got.Notes+"\n- leave #42 alone", "")
+	got, err = s.SetRoutineNotes(ctx, r.ID, "ana@acme.com", got.Notes+"\n- leave #42 alone", "")
 	require.NoError(t, err)
 	assert.Equal(t, "- skip drafts\n- leave #42 alone", got.Notes)
 	assert.Empty(t, got.ProposedNote)

@@ -49,6 +49,8 @@ const (
 	MaxRoutineInstructionRunes = 8000
 	MaxRoutineNotesRunes       = 4000
 	MaxRoutineStateBytes       = 16 * 1024
+	// MaxRoutineRepos bounds a system routine's repositories: each is read through the App.
+	MaxRoutineRepos = 20
 )
 
 // Routine is one recurring job.
@@ -80,9 +82,20 @@ type Routine struct {
 	// IdleCount is how many runs in a row, since the last one that did something, found
 	// nothing to do.
 	IdleCount int
+	// Repos is a system routine's GitHub reach, owner/name each. Empty for a personal one.
+	Repos []string
+	// DailyCapUSD is what its runs may spend in a day in its timezone; nil is no cap of its own.
+	DailyCapUSD *float64
+	// PausedUntil is when a routine Podium paused for the day resumes by itself.
+	PausedUntil *time.Time
+	// CreatedBy is who set it up.
+	CreatedBy string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// System reports whether the routine runs as nobody, configured by admins.
+func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
 
 // RoutineDraft is what a person saves. The schedule has already been checked and NextRunAt
 // worked out by the caller, which owns the cron arithmetic.
@@ -95,7 +108,10 @@ type RoutineDraft struct {
 	PersonalityID string
 	Model         string
 	Effort        string
-	NextRunAt     time.Time
+	// Repos and DailyCapUSD: see Routine.
+	Repos       []string
+	DailyCapUSD *float64
+	NextRunAt   time.Time
 }
 
 // RoutineRun is one firing of a routine.
@@ -125,6 +141,19 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	out.PersonalityID = strings.TrimSpace(in.PersonalityID)
 	out.Model = strings.TrimSpace(in.Model)
 	out.Effort = strings.TrimSpace(in.Effort)
+	repos, err := cleanRepos(in.Repos)
+	if err != nil {
+		return RoutineDraft{}, err
+	}
+	out.Repos = repos
+	if in.DailyCapUSD != nil {
+		if *in.DailyCapUSD < 0 {
+			return RoutineDraft{}, fmt.Errorf("%w: a daily spend cap cannot be negative", ErrInvalidRoutine)
+		}
+		if *in.DailyCapUSD == 0 {
+			out.DailyCapUSD = nil
+		}
+	}
 	switch {
 	case out.Name == "":
 		return RoutineDraft{}, fmt.Errorf("%w: a name is required", ErrInvalidRoutine)
@@ -142,6 +171,33 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 		return RoutineDraft{}, fmt.Errorf("%w: a timezone is required", ErrInvalidRoutine)
 	case out.NextRunAt.IsZero():
 		return RoutineDraft{}, fmt.Errorf("%w: the schedule names no time to run", ErrInvalidRoutine)
+	}
+	return out, nil
+}
+
+// cleanRepos is a repository list as GitHub names them, owner/name, each once.
+func cleanRepos(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, r := range in {
+		r = strings.Trim(strings.TrimSpace(r), "/")
+		r = strings.TrimSuffix(strings.TrimPrefix(r, "https://github.com/"), ".git")
+		if r == "" {
+			continue
+		}
+		owner, name, ok := strings.Cut(r, "/")
+		if !ok || owner == "" || name == "" || strings.ContainsAny(name, "/ ") || strings.Contains(owner, " ") {
+			return nil, fmt.Errorf("%w: %q is not a repository; write it as owner/name", ErrInvalidRoutine, r)
+		}
+		key := strings.ToLower(r)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	if len(out) > MaxRoutineRepos {
+		return nil, fmt.Errorf("%w: a routine reads at most %d repositories", ErrInvalidRoutine, MaxRoutineRepos)
 	}
 	return out, nil
 }
@@ -199,6 +255,9 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		Effort:        d.Effort,
 		ChatID:        chat.ID,
 		NextRunAt:     d.NextRunAt.UTC(),
+		Repos:         []string{},
+		DailyCapUsd:   d.DailyCapUSD,
+		CreatedBy:     owner,
 	})
 	if err == nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: chat.ID, RoutineID: &row.ID})
@@ -207,7 +266,100 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		_, _ = s.q.DeleteChat(context.WithoutCancel(ctx), db.DeleteChatParams{ID: chat.ID, Login: &owner})
 		return Routine{}, fmt.Errorf("create routine: %w", err)
 	}
-	return routineFromRow(row), nil
+	r := routineFromRow(row)
+	s.recordRevision(ctx, r, owner)
+	return r, nil
+}
+
+// CreateSystemRoutine opens a system routine and its chat. The chat has no owner: admins read
+// it through the API, and nobody writes in it. actor is the admin who set it up.
+func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft RoutineDraft) (Routine, error) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return Routine{}, errors.New("create system routine: who is setting it up is required")
+	}
+	d, err := PrepareRoutine(draft)
+	if err != nil {
+		return Routine{}, err
+	}
+	chatID := ids.New("chat")
+	key := ChatSourceKey(chatID)
+	chatRow, err := s.q.CreateChat(ctx, db.CreateChatParams{
+		ID: chatID, Title: d.Name, CreatedAt: time.Now().UTC(), SourceKey: &key, Origin: OriginWeb,
+		StartedBy: actor,
+	})
+	if err != nil {
+		return Routine{}, fmt.Errorf("create system routine: open its chat: %w", err)
+	}
+	now := time.Now().UTC()
+	repos := d.Repos
+	if repos == nil {
+		repos = []string{}
+	}
+	row, err := s.q.InsertRoutine(ctx, db.InsertRoutineParams{
+		ID:          ids.New("rtn"),
+		Scope:       RoutineScopeSystem,
+		Name:        d.Name,
+		Schedule:    d.Schedule,
+		Timezone:    d.Timezone,
+		Instruction: d.Instruction,
+		CreatedAt:   now,
+		Notes:       d.Notes,
+		Model:       d.Model,
+		Effort:      d.Effort,
+		ChatID:      chatRow.ID,
+		NextRunAt:   d.NextRunAt.UTC(),
+		Repos:       repos,
+		DailyCapUsd: d.DailyCapUSD,
+		CreatedBy:   actor,
+	})
+	if err == nil {
+		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: chatRow.ID, RoutineID: &row.ID})
+	}
+	if err != nil {
+		_, _ = s.pool.Exec(context.WithoutCancel(ctx), "delete from chats where id = $1", chatRow.ID)
+		return Routine{}, fmt.Errorf("create system routine: %w", err)
+	}
+	r := routineFromRow(row)
+	s.recordRevision(ctx, r, actor)
+	return r, nil
+}
+
+// recordRevision adds r's instruction as it now stands to its history. A history that missed
+// one change is still worth more than a routine that failed to save, so the change stands
+// whether or not this lands; it is written outside the caller's cancellation for that reason.
+func (s *Store) recordRevision(ctx context.Context, r Routine, actor string) {
+	_ = s.q.InsertRoutineRevision(context.WithoutCancel(ctx), db.InsertRoutineRevisionParams{
+		RoutineID: r.ID, Instruction: r.Instruction, Notes: r.Notes, Schedule: r.Schedule,
+		Timezone: r.Timezone, ChangedBy: actor, ChangedAt: time.Now().UTC(),
+	})
+}
+
+// RoutineRevision is one entry in a routine's instruction history.
+type RoutineRevision struct {
+	ID          int64
+	Instruction string
+	Notes       string
+	Schedule    string
+	Timezone    string
+	ChangedBy   string
+	ChangedAt   time.Time
+}
+
+// ListRoutineRevisions is a routine's history, newest first.
+func (s *Store) ListRoutineRevisions(ctx context.Context, routineID string, limit int) ([]RoutineRevision, error) {
+	rows, err := s.q.ListRoutineRevisions(ctx, db.ListRoutineRevisionsParams{RoutineID: routineID, PageLimit: int32(clampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("list the revisions of routine %s: %w", routineID, err)
+	}
+	out := make([]RoutineRevision, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, RoutineRevision{
+			ID: r.ID, Instruction: r.Instruction, Notes: r.Notes, Schedule: r.Schedule, Timezone: r.Timezone,
+			ChangedBy: r.ChangedBy, ChangedAt: r.ChangedAt.UTC(),
+		})
+	}
+	return out, nil
 }
 
 // GetRoutine is one routine by id.
@@ -234,6 +386,69 @@ func (s *Store) RoutineByChat(ctx context.Context, chatID string) (Routine, erro
 	return routineFromRow(row), nil
 }
 
+// ListVisibleRoutines is owner's routines and, withSystem, every system routine: what a person
+// sees on the Routines page, an admin's including the system ones.
+func (s *Store) ListVisibleRoutines(ctx context.Context, owner string, withSystem bool) ([]Routine, error) {
+	rows, err := s.q.ListVisibleRoutines(ctx, db.ListVisibleRoutinesParams{OwnerLogin: &owner, WithSystem: withSystem})
+	if err != nil {
+		return nil, fmt.Errorf("list routines: %w", err)
+	}
+	out := make([]Routine, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, routineFromRow(r))
+	}
+	return out, nil
+}
+
+// ListPersonalRoutines is every person's routines, for an admin's metadata view.
+func (s *Store) ListPersonalRoutines(ctx context.Context) ([]Routine, error) {
+	rows, err := s.q.ListPersonalRoutines(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list personal routines: %w", err)
+	}
+	out := make([]Routine, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, routineFromRow(r))
+	}
+	return out, nil
+}
+
+// CountRoutines is how many routines owner has.
+func (s *Store) CountRoutines(ctx context.Context, owner string) (int, error) {
+	n, err := s.q.CountRoutinesByOwner(ctx, &owner)
+	if err != nil {
+		return 0, fmt.Errorf("count the routines of %s: %w", owner, err)
+	}
+	return int(n), nil
+}
+
+// RoutineLastRun is the status and time of a routine's latest run that was not skipped.
+type RoutineLastRun struct {
+	Status string
+	At     time.Time
+}
+
+// LastRoutineRuns is each named routine's latest run, by routine id. A routine that has not
+// run is missing.
+func (s *Store) LastRoutineRuns(ctx context.Context, routineIDs []string) (map[string]RoutineLastRun, error) {
+	out := map[string]RoutineLastRun{}
+	if len(routineIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.q.LastRoutineRuns(ctx, routineIDs)
+	if err != nil {
+		return nil, fmt.Errorf("read the last runs of %d routines: %w", len(routineIDs), err)
+	}
+	for _, r := range rows {
+		at := r.CreatedAt
+		if r.FinishedAt != nil {
+			at = *r.FinishedAt
+		}
+		out[r.RoutineID] = RoutineLastRun{Status: r.Status, At: at.UTC()}
+	}
+	return out, nil
+}
+
 // ListRoutines is owner's routines by name. An empty owner is every routine, for the dev token.
 func (s *Store) ListRoutines(ctx context.Context, owner string) ([]Routine, error) {
 	var rows []db.Routine
@@ -253,11 +468,20 @@ func (s *Store) ListRoutines(ctx context.Context, owner string) ([]Routine, erro
 	return out, nil
 }
 
-// UpdateRoutine replaces what a person edits. Access is the caller's to check.
-func (s *Store) UpdateRoutine(ctx context.Context, id string, draft RoutineDraft) (Routine, error) {
+// UpdateRoutine replaces what a person edits. Access is the caller's to check. actor is who
+// made the change; a change to what the routine is told to do is added to its history.
+func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft RoutineDraft) (Routine, error) {
 	d, err := PrepareRoutine(draft)
 	if err != nil {
 		return Routine{}, err
+	}
+	before, err := s.GetRoutine(ctx, id)
+	if err != nil {
+		return Routine{}, err
+	}
+	repos := d.Repos
+	if repos == nil {
+		repos = []string{}
 	}
 	row, err := s.q.UpdateRoutine(ctx, db.UpdateRoutineParams{
 		ID:            id,
@@ -269,6 +493,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, id string, draft RoutineDraft
 		PersonalityID: nullable(d.PersonalityID),
 		Model:         d.Model,
 		Effort:        d.Effort,
+		Repos:         repos,
+		DailyCapUsd:   d.DailyCapUSD,
 		NextRunAt:     d.NextRunAt.UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
@@ -278,7 +504,16 @@ func (s *Store) UpdateRoutine(ctx context.Context, id string, draft RoutineDraft
 	if err != nil {
 		return Routine{}, fmt.Errorf("update routine %s: %w", id, err)
 	}
-	return routineFromRow(row), nil
+	r := routineFromRow(row)
+	if revised(before, r) {
+		s.recordRevision(ctx, r, actor)
+	}
+	return r, nil
+}
+
+// revised reports whether what a routine is told to do, or when, changed.
+func revised(a, b Routine) bool {
+	return a.Instruction != b.Instruction || a.Notes != b.Notes || a.Schedule != b.Schedule || a.Timezone != b.Timezone
 }
 
 // DeleteRoutine removes a routine and its runs. Its chat stays, as an ordinary chat.
@@ -298,8 +533,18 @@ func (s *Store) SetRoutineEnabled(ctx context.Context, id string, enabled bool, 
 	if enabled {
 		reason = ""
 	}
+	return s.setRoutineEnabled(ctx, id, enabled, reason, nil, next)
+}
+
+// PauseRoutineUntil pauses a routine that resumes by itself at until: a spend cap's day.
+func (s *Store) PauseRoutineUntil(ctx context.Context, id, reason string, until, next time.Time) (Routine, error) {
+	u := until.UTC()
+	return s.setRoutineEnabled(ctx, id, false, reason, &u, next)
+}
+
+func (s *Store) setRoutineEnabled(ctx context.Context, id string, enabled bool, reason string, until *time.Time, next time.Time) (Routine, error) {
 	row, err := s.q.SetRoutineEnabled(ctx, db.SetRoutineEnabledParams{
-		ID: id, Enabled: enabled, PausedReason: strings.TrimSpace(reason),
+		ID: id, Enabled: enabled, PausedReason: strings.TrimSpace(reason), PausedUntil: until,
 		NextRunAt: next.UTC(), UpdatedAt: time.Now().UTC(),
 	})
 	if noRows(err) {
@@ -328,8 +573,9 @@ func (s *Store) SetRoutineState(ctx context.Context, id string, state json.RawMe
 	return routineFromRow(row), nil
 }
 
-// SetRoutineNotes stores the owner's notes and what is still proposed.
-func (s *Store) SetRoutineNotes(ctx context.Context, id, notes, proposed string) (Routine, error) {
+// SetRoutineNotes stores the owner's notes and what is still proposed. A change to the notes
+// is added to the routine's history as actor's.
+func (s *Store) SetRoutineNotes(ctx context.Context, id, actor, notes, proposed string) (Routine, error) {
 	notes = strings.TrimSpace(notes)
 	if utf8.RuneCountInString(notes) > MaxRoutineNotesRunes {
 		return Routine{}, fmt.Errorf("%w: the notes are longer than %d characters", ErrInvalidRoutine, MaxRoutineNotesRunes)
@@ -343,7 +589,11 @@ func (s *Store) SetRoutineNotes(ctx context.Context, id, notes, proposed string)
 	if err != nil {
 		return Routine{}, fmt.Errorf("set the notes of routine %s: %w", id, err)
 	}
-	return routineFromRow(row), nil
+	r := routineFromRow(row)
+	if before, ok := s.lastRevision(ctx, id); !ok || before.Notes != r.Notes {
+		s.recordRevision(ctx, r, actor)
+	}
+	return r, nil
 }
 
 // ProposeRoutineNote records a note the agent suggested, replacing any still pending.
@@ -536,6 +786,56 @@ func (s *Store) CountChatsStartedByRoutineSince(ctx context.Context, routineID s
 	return int(n), nil
 }
 
+func (s *Store) lastRevision(ctx context.Context, id string) (RoutineRevision, bool) {
+	revs, err := s.ListRoutineRevisions(ctx, id, 1)
+	if err != nil || len(revs) == 0 {
+		return RoutineRevision{}, false
+	}
+	return revs[0], true
+}
+
+// DueToResume is every routine paused until a moment that has passed.
+func (s *Store) DueToResume(ctx context.Context, now time.Time, limit int) ([]Routine, error) {
+	rows, err := s.q.DueToResume(ctx, db.DueToResumeParams{Now: utcPtr(&now), PageLimit: int32(clampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("list routines due to resume: %w", err)
+	}
+	out := make([]Routine, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, routineFromRow(r))
+	}
+	return out, nil
+}
+
+// PersonRoutineSpendSince is what owner's routines spent since a moment, in US dollars.
+func (s *Store) PersonRoutineSpendSince(ctx context.Context, owner string, since time.Time) (float64, error) {
+	v, err := s.q.PersonSpendSince(ctx, db.PersonSpendSinceParams{OwnerLogin: &owner, Since: since.UTC()})
+	if err != nil {
+		return 0, fmt.Errorf("sum the routine spend of %s: %w", owner, err)
+	}
+	return v, nil
+}
+
+// RunningRoutineRun is a routine's run still going, or ErrNotFound.
+func (s *Store) RunningRoutineRun(ctx context.Context, routineID string) (RoutineRun, error) {
+	row, err := s.q.RunningRoutineRunOf(ctx, routineID)
+	if noRows(err) {
+		return RoutineRun{}, fmt.Errorf("%w: a running run of routine %s", ErrNotFound, routineID)
+	}
+	if err != nil {
+		return RoutineRun{}, fmt.Errorf("read the running run of routine %s: %w", routineID, err)
+	}
+	return routineRunFromRow(row), nil
+}
+
+// NotifyRoutine puts a routine notice in login's inbox: their routine was paused, and why.
+func (s *Store) NotifyRoutine(ctx context.Context, login, chatID, actor, detail string) error {
+	if err := s.q.NotifyRoutine(ctx, db.NotifyRoutineParams{Login: login, ChatID: chatID, Actor: actor, Detail: detail}); err != nil {
+		return fmt.Errorf("notify %s about a routine: %w", login, err)
+	}
+	return nil
+}
+
 // RoutineSpendSince is what a routine's turns spent since a moment, in US dollars.
 func (s *Store) RoutineSpendSince(ctx context.Context, routineID string, since time.Time) (float64, error) {
 	v, err := s.q.RoutineSpendSince(ctx, db.RoutineSpendSinceParams{RoutineID: routineID, Since: since.UTC()})
@@ -572,6 +872,10 @@ func routineFromRow(r db.Routine) Routine {
 		NextRunAt:            r.NextRunAt.UTC(),
 		LastRunAt:            utcPtr(r.LastRunAt),
 		IdleCount:            int(r.IdleCount),
+		Repos:                append([]string{}, r.Repos...),
+		DailyCapUSD:          r.DailyCapUsd,
+		PausedUntil:          utcPtr(r.PausedUntil),
+		CreatedBy:            r.CreatedBy,
 		CreatedAt:            r.CreatedAt.UTC(),
 		UpdatedAt:            r.UpdatedAt.UTC(),
 	}
@@ -591,4 +895,50 @@ func routineRunFromRow(r db.RoutineRun) RoutineRun {
 		CreatedAt:    r.CreatedAt.UTC(),
 		FinishedAt:   utcPtr(r.FinishedAt),
 	}
+}
+
+// RoutineLimits bound what one person's routines may do. Admins set them.
+type RoutineLimits struct {
+	// MaxPerPerson is how many routines one person may have.
+	MaxPerPerson int `json:"max_per_person"`
+	// PersonDailyCapUSD is what one person's routines may spend together in 24 hours; 0 is none.
+	PersonDailyCapUSD float64 `json:"person_daily_cap_usd"`
+}
+
+// DefaultRoutineLimits are the limits until an admin sets them.
+var DefaultRoutineLimits = RoutineLimits{MaxPerPerson: 10}
+
+// MaxRoutinesPerPersonCeiling bounds what an admin may allow one person.
+const MaxRoutinesPerPersonCeiling = 100
+
+const routineLimitsKey = "routines.limits"
+
+// GetRoutineLimits is the per-person limits, the defaults until an admin sets them.
+func (s *Store) GetRoutineLimits(ctx context.Context) (RoutineLimits, error) {
+	out := DefaultRoutineLimits
+	err := s.GetSetting(ctx, routineLimitsKey, &out)
+	if errors.Is(err, ErrNotFound) {
+		return DefaultRoutineLimits, nil
+	}
+	if err != nil {
+		return DefaultRoutineLimits, err
+	}
+	if out.MaxPerPerson <= 0 {
+		out.MaxPerPerson = DefaultRoutineLimits.MaxPerPerson
+	}
+	return out, nil
+}
+
+// PutRoutineLimits stores the per-person limits.
+func (s *Store) PutRoutineLimits(ctx context.Context, l RoutineLimits) (RoutineLimits, error) {
+	switch {
+	case l.MaxPerPerson < 1 || l.MaxPerPerson > MaxRoutinesPerPersonCeiling:
+		return RoutineLimits{}, fmt.Errorf("%w: a person may have between 1 and %d routines", ErrInvalidRoutine, MaxRoutinesPerPersonCeiling)
+	case l.PersonDailyCapUSD < 0:
+		return RoutineLimits{}, fmt.Errorf("%w: a daily spend cap cannot be negative", ErrInvalidRoutine)
+	}
+	if err := s.PutSetting(ctx, routineLimitsKey, l); err != nil {
+		return RoutineLimits{}, err
+	}
+	return l, nil
 }

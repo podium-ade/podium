@@ -1,8 +1,12 @@
 package api
 
-// Routines (docs/agent.md, "Routines"). A routine is its owner's alone: every handler here
-// answers only for routines the caller owns, and the dev token for all of them. Another
+// Routines (docs/agent.md, "Routines"). A personal routine is its owner's alone: every handler
+// here answers only for routines the caller owns, and the dev token for all of them. Another
 // person's routine is not found, the same answer every other personal read gives.
+//
+// A system routine runs as nobody. Admins and owners (Infra) create, edit and run it with the
+// same handlers; a member never sees one. An admin also sees every person's routines as
+// metadata (ListMemberRoutines) and may pause one, never read it.
 
 import (
 	"context"
@@ -46,11 +50,12 @@ func (s *AgentService) ListRoutines(
 	if err != nil {
 		return nil, err
 	}
-	owner := login
+	var rows []store.Routine
 	if SeesAll(ctx) {
-		owner = ""
+		rows, err = s.store.ListRoutines(ctx, "")
+	} else {
+		rows, err = s.store.ListVisibleRoutines(ctx, login, Infra(ctx))
 	}
-	rows, err := s.store.ListRoutines(ctx, owner)
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -96,11 +101,42 @@ func (s *AgentService) CreateRoutine(
 	if err != nil {
 		return nil, err
 	}
-	r, err := s.createRoutine(ctx, login, req.Msg.GetDraft())
+	var r store.Routine
+	switch strings.TrimSpace(req.Msg.GetScope()) {
+	case "", store.RoutineScopePersonal:
+		r, err = s.createRoutine(ctx, login, req.Msg.GetDraft())
+	case store.RoutineScopeSystem:
+		r, err = s.createSystemRoutine(ctx, login, req.Msg.GetDraft())
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("scope %q is not personal or system", req.Msg.GetScope()))
+	}
 	if err != nil {
 		return nil, err
 	}
+	s.auditRoutine(ctx, login, AuditRoutineCreate, r, map[string]any{"scope": r.Scope, "schedule": r.Schedule})
 	return connect.NewResponse(&agentv1.CreateRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
+}
+
+// createSystemRoutine opens a routine that runs as nobody, for an admin or owner.
+func (s *AgentService) createSystemRoutine(ctx context.Context, login string, in *agentv1.RoutineDraft) (store.Routine, error) {
+	if !Infra(ctx) {
+		return store.Routine{}, connect.NewError(connect.CodePermissionDenied,
+			errors.New("only admins and owners can set up a system routine"))
+	}
+	if err := s.chatEnabled(); err != nil {
+		return store.Routine{}, err
+	}
+	draft, _, err := s.routineDraft(ctx, in, "", "", store.RoutineScopeSystem)
+	if err != nil {
+		return store.Routine{}, err
+	}
+	r, err := s.store.CreateSystemRoutine(ctx, login, draft)
+	if err != nil {
+		return store.Routine{}, routineError(err)
+	}
+	s.logger.InfoContext(ctx, "a system routine was created", "routine_id", r.ID, "login", login, "schedule", r.Schedule)
+	return r, nil
 }
 
 // CreateRoutineFor opens a routine for owner that an assistant set up in a conversation at
@@ -126,15 +162,19 @@ func (s *AgentService) createRoutine(ctx context.Context, login string, in *agen
 	if err := s.chatEnabled(); err != nil {
 		return store.Routine{}, err
 	}
-	existing, err := s.store.ListRoutines(ctx, login)
+	limits, err := s.store.GetRoutineLimits(ctx)
 	if err != nil {
 		return store.Routine{}, storeError(err)
 	}
-	if len(existing) >= MaxRoutinesPerPerson {
-		return store.Routine{}, connect.NewError(connect.CodeResourceExhausted,
-			fmt.Errorf("you have %d routines, which is as many as one person may; delete one first", len(existing)))
+	have, err := s.store.CountRoutines(ctx, login)
+	if err != nil {
+		return store.Routine{}, storeError(err)
 	}
-	draft, display, err := s.routineDraft(ctx, in, login, "")
+	if have >= limits.MaxPerPerson {
+		return store.Routine{}, connect.NewError(connect.CodeResourceExhausted,
+			fmt.Errorf("you have %d routines, which is as many as one person may; delete one first", have))
+	}
+	draft, display, err := s.routineDraft(ctx, in, login, "", store.RoutineScopePersonal)
 	if err != nil {
 		return store.Routine{}, err
 	}
@@ -158,7 +198,7 @@ func (s *AgentService) UpdateRoutine(
 	if err != nil {
 		return nil, err
 	}
-	draft, _, err := s.routineDraft(ctx, req.Msg.GetDraft(), r.OwnerLogin, r.ID)
+	draft, _, err := s.routineDraft(ctx, req.Msg.GetDraft(), r.OwnerLogin, r.ID, r.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -168,10 +208,15 @@ func (s *AgentService) UpdateRoutine(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("a routine's assistant is chosen when it is created and cannot be changed"))
 	}
-	updated, err := s.store.UpdateRoutine(ctx, r.ID, draft)
+	updated, err := s.store.UpdateRoutine(ctx, r.ID, login, draft)
 	if err != nil {
 		return nil, routineError(err)
 	}
+	s.auditRoutine(ctx, login, AuditRoutineUpdate, updated, map[string]any{
+		"instruction_changed": r.Instruction != updated.Instruction,
+		"notes_changed":       r.Notes != updated.Notes,
+		"schedule":            updated.Schedule,
+	})
 	return connect.NewResponse(&agentv1.UpdateRoutineResponse{Routine: s.routineToProto(ctx, updated)}), nil
 }
 
@@ -190,6 +235,7 @@ func (s *AgentService) DeleteRoutine(
 	if err := s.store.DeleteRoutine(ctx, r.ID); err != nil {
 		return nil, routineError(err)
 	}
+	s.auditRoutine(ctx, login, AuditRoutineDelete, r, nil)
 	s.logger.InfoContext(ctx, "a routine was deleted", "routine_id", r.ID, "login", login)
 	return connect.NewResponse(&agentv1.DeleteRoutineResponse{}), nil
 }
@@ -203,12 +249,26 @@ func (s *AgentService) PauseRoutine(
 		return nil, err
 	}
 	r, err := s.ownedRoutine(ctx, req.Msg.GetId(), login)
+	reason := ""
 	if err != nil {
-		return nil, err
+		// An admin may pause anybody's routine, never read it: the routine is found here only
+		// to be paused, and what goes back is its metadata.
+		other, oerr := s.store.GetRoutine(ctx, req.Msg.GetId())
+		if !Infra(ctx) || oerr != nil {
+			return nil, err
+		}
+		r, reason = other, "Paused by an admin."
 	}
-	r, err = s.store.SetRoutineEnabled(ctx, r.ID, false, "", r.NextRunAt)
+	r, err = s.store.SetRoutineEnabled(ctx, r.ID, false, reason, r.NextRunAt)
 	if err != nil {
 		return nil, routineError(err)
+	}
+	s.auditRoutine(ctx, login, AuditRoutinePause, r, nil)
+	if reason != "" && r.OwnerLogin != "" && r.OwnerLogin != login {
+		if err := s.store.NotifyRoutine(ctx, r.OwnerLogin, r.ChatID, login, reason); err != nil {
+			s.logger.WarnContext(ctx, "telling a routine's owner it was paused failed", "routine_id", r.ID, "error", err)
+		}
+		return connect.NewResponse(&agentv1.PauseRoutineResponse{Routine: memberView(s.routineToProto(ctx, r))}), nil
 	}
 	return connect.NewResponse(&agentv1.PauseRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
 }
@@ -234,6 +294,7 @@ func (s *AgentService) ResumeRoutine(
 	if err != nil {
 		return nil, routineError(err)
 	}
+	s.auditRoutine(ctx, login, AuditRoutineResume, r, nil)
 	return connect.NewResponse(&agentv1.ResumeRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
 }
 
@@ -260,6 +321,7 @@ func (s *AgentService) RunRoutineNow(
 	if err != nil {
 		return nil, routineError(err)
 	}
+	s.auditRoutine(ctx, login, AuditRoutineRun, r, map[string]any{"run_id": run.ID})
 	return connect.NewResponse(&agentv1.RunRoutineNowResponse{Run: routineRunToProto(run)}), nil
 }
 
@@ -298,7 +360,7 @@ func (s *AgentService) ResolveRoutineNote(
 	if req.Msg.GetAccept() && strings.TrimSpace(r.ProposedNote) != "" {
 		notes = strings.TrimSpace(strings.TrimSpace(notes) + "\n- " + strings.TrimPrefix(strings.TrimSpace(r.ProposedNote), "- "))
 	}
-	r, err = s.store.SetRoutineNotes(ctx, r.ID, notes, "")
+	r, err = s.store.SetRoutineNotes(ctx, r.ID, login, notes, "")
 	if err != nil {
 		return nil, routineError(err)
 	}
@@ -329,8 +391,189 @@ func (s *AgentService) ListRoutineRuns(
 	return connect.NewResponse(&agentv1.ListRoutineRunsResponse{Runs: out, NextCursor: next}), nil
 }
 
-// MaxRoutinesPerPerson bounds how many routines one person may have.
-const MaxRoutinesPerPerson = 10
+// ListRoutineRevisions is the history of what one of the caller's routines was told to do.
+func (s *AgentService) ListRoutineRevisions(
+	ctx context.Context, req *connect.Request[agentv1.ListRoutineRevisionsRequest],
+) (*connect.Response[agentv1.ListRoutineRevisionsResponse], error) {
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.ownedRoutine(ctx, req.Msg.GetId(), login)
+	if err != nil {
+		return nil, err
+	}
+	revs, err := s.store.ListRoutineRevisions(ctx, r.ID, 50)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	out := make([]*agentv1.RoutineRevision, 0, len(revs))
+	for _, v := range revs {
+		out = append(out, &agentv1.RoutineRevision{
+			Id: v.ID, Instruction: v.Instruction, Notes: v.Notes, Schedule: v.Schedule, Timezone: v.Timezone,
+			ChangedBy: v.ChangedBy, ChangedAt: timestamppb.New(v.ChangedAt),
+		})
+	}
+	return connect.NewResponse(&agentv1.ListRoutineRevisionsResponse{Revisions: out}), nil
+}
+
+// CancelRoutineRun stops the run going now in one of the caller's routines. It is how an admin
+// stops a system routine's run, whose chat nobody may write in.
+func (s *AgentService) CancelRoutineRun(
+	ctx context.Context, req *connect.Request[agentv1.CancelRoutineRunRequest],
+) (*connect.Response[agentv1.CancelRoutineRunResponse], error) {
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.ownedRoutine(ctx, req.Msg.GetId(), login)
+	if err != nil {
+		return nil, err
+	}
+	if s.canceller == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel routine run: no conductor is wired in"))
+	}
+	stopped, err := s.canceller.CancelChatTurn(ctx, r.ChatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !stopped {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("the routine is not running"))
+	}
+	s.auditRoutine(ctx, login, AuditRoutineCancel, r, nil)
+	return connect.NewResponse(&agentv1.CancelRoutineRunResponse{Routine: s.routineToProto(ctx, r)}), nil
+}
+
+// ListMemberRoutines is every person's routines as an admin sees them: metadata only.
+func (s *AgentService) ListMemberRoutines(
+	ctx context.Context, _ *connect.Request[agentv1.ListMemberRoutinesRequest],
+) (*connect.Response[agentv1.ListMemberRoutinesResponse], error) {
+	if _, err := requireLogin(ctx); err != nil {
+		return nil, err
+	}
+	if !Infra(ctx) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins and owners see other people's routines"))
+	}
+	rows, err := s.store.ListPersonalRoutines(ctx)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	last := s.lastRuns(ctx, rows)
+	since := time.Now().Add(-24 * time.Hour)
+	out := make([]*agentv1.MemberRoutine, 0, len(rows))
+	for _, r := range rows {
+		m := &agentv1.MemberRoutine{
+			Id: r.ID, Name: r.Name, OwnerLogin: r.OwnerLogin, ScheduleText: routines.Describe(r.Schedule),
+			Timezone: r.Timezone, Enabled: r.Enabled, PausedReason: r.PausedReason,
+			NextRunAt: timestamppb.New(r.NextRunAt),
+		}
+		if spend, err := s.store.RoutineSpendSince(ctx, r.ID, since); err == nil {
+			m.SpendTodayUsd = spend
+		}
+		if l, ok := last[r.ID]; ok {
+			m.LastRunStatus, m.LastRunAt = l.Status, timestamppb.New(l.At)
+		}
+		out = append(out, m)
+	}
+	return connect.NewResponse(&agentv1.ListMemberRoutinesResponse{Routines: out}), nil
+}
+
+// GetRoutineLimits is the per-person limits, for anyone: a person may want to know theirs.
+func (s *AgentService) GetRoutineLimits(
+	ctx context.Context, _ *connect.Request[agentv1.GetRoutineLimitsRequest],
+) (*connect.Response[agentv1.GetRoutineLimitsResponse], error) {
+	if _, err := requireLogin(ctx); err != nil {
+		return nil, err
+	}
+	l, err := s.store.GetRoutineLimits(ctx)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	return connect.NewResponse(&agentv1.GetRoutineLimitsResponse{Limits: limitsToProto(l)}), nil
+}
+
+// SetRoutineLimits sets the per-person limits. Admins and owners only.
+func (s *AgentService) SetRoutineLimits(
+	ctx context.Context, req *connect.Request[agentv1.SetRoutineLimitsRequest],
+) (*connect.Response[agentv1.SetRoutineLimitsResponse], error) {
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !Infra(ctx) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins and owners set routine limits"))
+	}
+	in := req.Msg.GetLimits()
+	l, err := s.store.PutRoutineLimits(ctx, store.RoutineLimits{
+		MaxPerPerson: int(in.GetMaxPerPerson()), PersonDailyCapUSD: in.GetPersonDailyCapUsd(),
+	})
+	if err != nil {
+		return nil, routineError(err)
+	}
+	s.auditSubject(ctx, login, AuditRoutineLimits, "routines", map[string]any{
+		"max_per_person": l.MaxPerPerson, "person_daily_cap_usd": l.PersonDailyCapUSD,
+	})
+	return connect.NewResponse(&agentv1.SetRoutineLimitsResponse{Limits: limitsToProto(l)}), nil
+}
+
+func limitsToProto(l store.RoutineLimits) *agentv1.RoutineLimits {
+	return &agentv1.RoutineLimits{MaxPerPerson: int32(l.MaxPerPerson), PersonDailyCapUsd: l.PersonDailyCapUSD}
+}
+
+// memberView is what an admin who paused somebody else's routine gets back: no instruction,
+// notes, state or chat.
+func memberView(r *agentv1.Routine) *agentv1.Routine {
+	return &agentv1.Routine{
+		Id: r.Id, Name: r.Name, Schedule: r.Schedule, Timezone: r.Timezone, ScheduleText: r.ScheduleText,
+		Enabled: r.Enabled, PausedReason: r.PausedReason, NextRunAt: r.NextRunAt, LastRunAt: r.LastRunAt,
+		OwnerLogin: r.OwnerLogin, SpendTodayUsd: r.SpendTodayUsd, Scope: r.Scope,
+	}
+}
+
+func (s *AgentService) lastRuns(ctx context.Context, rows []store.Routine) map[string]store.RoutineLastRun {
+	idsOf := make([]string, 0, len(rows))
+	for _, r := range rows {
+		idsOf = append(idsOf, r.ID)
+	}
+	last, err := s.store.LastRoutineRuns(ctx, idsOf)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading routines' last runs failed", "error", err)
+		return map[string]store.RoutineLastRun{}
+	}
+	return last
+}
+
+// Audit actions on routines. The control plane takes these from the conductor (audit.go).
+const (
+	AuditRoutineCreate = "routine.create"
+	AuditRoutineUpdate = "routine.update"
+	AuditRoutineDelete = "routine.delete"
+	AuditRoutinePause  = "routine.pause"
+	AuditRoutineResume = "routine.resume"
+	AuditRoutineRun    = "routine.run"
+	AuditRoutineCancel = "routine.cancel"
+	AuditRoutineLimits = "routine.limits"
+)
+
+// auditRoutine records one change a person made to a routine. details never carry the
+// instruction or notes themselves: those are in the routine's own history.
+func (s *AgentService) auditRoutine(ctx context.Context, actor, action string, r store.Routine, details map[string]any) {
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["name"], details["scope"] = r.Name, r.Scope
+	if r.OwnerLogin != "" {
+		details["owner"] = r.OwnerLogin
+	}
+	s.auditSubject(ctx, actor, action, r.ID, details)
+}
+
+func (s *AgentService) auditSubject(ctx context.Context, actor, action, subject string, details map[string]any) {
+	if SeesAll(ctx) {
+		actor = "dev-token"
+	}
+	s.auditChat(ctx, actor, action, subject, details)
+}
 
 // ownedRoutine is a routine the caller may manage, or not found.
 func (s *AgentService) ownedRoutine(ctx context.Context, id, login string) (store.Routine, error) {
@@ -348,13 +591,21 @@ func (s *AgentService) ownedRoutine(ctx context.Context, id, login string) (stor
 }
 
 func (s *AgentService) mayManageRoutine(ctx context.Context, r store.Routine, login string) bool {
-	return SeesAll(ctx) || (r.Scope == store.RoutineScopePersonal && r.OwnerLogin != "" && r.OwnerLogin == login)
+	switch {
+	case SeesAll(ctx):
+		return true
+	case r.System():
+		return Infra(ctx)
+	default:
+		return r.OwnerLogin != "" && r.OwnerLogin == login
+	}
 }
 
 // routineDraft checks a draft from the wire and works out its next run. owner is whose
-// personal assistant it may name; id is the routine's own id for its jitter, "" for a new one.
+// personal assistant it may name; id is the routine's own id for its jitter, "" for a new one;
+// scope is the routine's, which sets its schedule floor and what it may name.
 func (s *AgentService) routineDraft(
-	ctx context.Context, in *agentv1.RoutineDraft, owner, id string,
+	ctx context.Context, in *agentv1.RoutineDraft, owner, id, scope string,
 ) (store.RoutineDraft, string, error) {
 	if in == nil {
 		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, errors.New("a draft is required"))
@@ -362,7 +613,21 @@ func (s *AgentService) routineDraft(
 	d := store.RoutineDraft{
 		Name: in.GetName(), Schedule: in.GetSchedule(), Timezone: in.GetTimezone(),
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
-		Model: in.GetModel(), Effort: in.GetEffort(),
+		Model: in.GetModel(), Effort: in.GetEffort(), Repos: in.GetRepos(),
+	}
+	if c := in.GetDailyCapUsd(); c != 0 {
+		d.DailyCapUSD = &c
+	}
+	floor := routines.MinPersonalInterval
+	if scope == store.RoutineScopeSystem {
+		floor = routines.MinSystemInterval
+		if d.PersonalityID != "" {
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
+				errors.New("a system routine runs as Podium; it cannot use a personal assistant"))
+		}
+	} else if len(d.Repos) > 0 {
+		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
+			errors.New("a personal routine reads GitHub as its owner; repositories are for system routines"))
 	}
 	if strings.TrimSpace(d.Timezone) == "" {
 		d.Timezone = "UTC"
@@ -372,7 +637,7 @@ func (s *AgentService) routineDraft(
 		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	now := time.Now()
-	if err := sched.CheckFloor(routines.MinPersonalInterval, now); err != nil {
+	if err := sched.CheckFloor(floor, now); err != nil {
 		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	// A new routine's jitter is worked out from a placeholder id; the routine's own takes
@@ -441,6 +706,15 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		IdleCount:     int32(r.IdleCount),
 		OwnerLogin:    r.OwnerLogin,
 		CreatedAt:     timestamppb.New(r.CreatedAt),
+		Scope:         r.Scope,
+		Repos:         r.Repos,
+		CreatedBy:     r.CreatedBy,
+	}
+	if r.DailyCapUSD != nil {
+		out.DailyCapUsd = *r.DailyCapUSD
+	}
+	if r.PausedUntil != nil {
+		out.PausedUntil = timestamppb.New(*r.PausedUntil)
 	}
 	if r.LastRunAt != nil {
 		out.LastRunAt = timestamppb.New(*r.LastRunAt)
@@ -450,6 +724,9 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 	}
 	if running, err := s.store.ChatTurnRunning(ctx, r.ChatID); err == nil {
 		out.Running = running
+	}
+	if last, err := s.store.LastRoutineRuns(ctx, []string{r.ID}); err == nil {
+		out.LastRunStatus = last[r.ID].Status
 	}
 	return out
 }

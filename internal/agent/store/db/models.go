@@ -181,6 +181,7 @@ type Notification struct {
 	Actor     string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+	Detail    string
 }
 
 type Personality struct {
@@ -231,6 +232,21 @@ type Routine struct {
 	IdleCount            int32
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	Repos                []string
+	DailyCapUsd          *float64
+	PausedUntil          *time.Time
+	CreatedBy            string
+}
+
+type RoutineRevision struct {
+	ID          int64
+	RoutineID   string
+	Instruction string
+	Notes       string
+	Schedule    string
+	Timezone    string
+	ChangedBy   string
+	ChangedAt   time.Time
 }
 
 type RoutineRun struct {

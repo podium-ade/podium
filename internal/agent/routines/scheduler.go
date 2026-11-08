@@ -42,6 +42,12 @@ type Store interface {
 	GetSessionByKey(ctx context.Context, sourceKey string) (store.Session, error)
 	SessionBusy(ctx context.Context, sessionID string) (bool, error)
 	CanonicalWebLogin(ctx context.Context, typed string) (string, bool, error)
+	RoutineSpendSince(ctx context.Context, routineID string, since time.Time) (float64, error)
+	PersonRoutineSpendSince(ctx context.Context, owner string, since time.Time) (float64, error)
+	GetRoutineLimits(ctx context.Context) (store.RoutineLimits, error)
+	PauseRoutineUntil(ctx context.Context, id, reason string, until, next time.Time) (store.Routine, error)
+	DueToResume(ctx context.Context, now time.Time, limit int) ([]store.Routine, error)
+	NotifyRoutine(ctx context.Context, login, chatID, actor, detail string) error
 }
 
 // Runner starts a run in a routine's chat. The web chat implements it.
@@ -102,10 +108,34 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
-// Tick settles what has ended, then fires what is due.
+// Tick settles what has ended, resumes what was paused for a day that is over, then fires
+// what is due.
 func (s *Scheduler) Tick(ctx context.Context) {
 	s.settle(ctx)
+	s.resumeDue(ctx)
 	s.fireDue(ctx)
+}
+
+// resumeDue starts again every routine Podium paused until a moment that has passed: the day
+// its spend cap was reached is over in its timezone.
+func (s *Scheduler) resumeDue(ctx context.Context) {
+	now := s.now().UTC()
+	due, err := s.store.DueToResume(ctx, now, dueBatch)
+	if err != nil {
+		s.logger.WarnContext(ctx, "listing routines to resume failed", "error", err)
+		return
+	}
+	for _, r := range due {
+		sched, err := Parse(r.Schedule, r.Timezone)
+		if err != nil {
+			continue
+		}
+		if _, err := s.store.SetRoutineEnabled(ctx, r.ID, true, "", sched.NextFor(r.ID, now)); err != nil {
+			s.logger.WarnContext(ctx, "resuming a routine after its capped day failed", "routine_id", r.ID, "error", err)
+			continue
+		}
+		s.logger.InfoContext(ctx, "resumed a routine after its capped day", "routine_id", r.ID)
+	}
 }
 
 func (s *Scheduler) fireDue(ctx context.Context) {
@@ -142,8 +172,74 @@ func (s *Scheduler) fire(ctx context.Context, r store.Routine, now time.Time) {
 			return
 		}
 	}
+	if capped, reason := s.overCap(ctx, r, now); capped {
+		if _, _, err := s.store.ClaimRoutineRun(ctx, r.ID, scheduledFor, store.RoutineTriggerSchedule, store.RoutineRunSkippedPaused); err != nil {
+			s.logger.WarnContext(ctx, "recording a capped routine run failed", "routine_id", r.ID, "error", err)
+		}
+		s.logger.InfoContext(ctx, "a routine did not run: over its spend cap", "routine_id", r.ID, "reason", reason)
+		return
+	}
 	if _, err := s.start(ctx, r, scheduledFor, store.RoutineTriggerSchedule); err != nil && !errors.Is(err, errClaimed) {
 		s.logger.InfoContext(ctx, "a routine did not run", "routine_id", r.ID, "reason", err)
+	}
+}
+
+// overCap reports whether a routine may not run now for what has been spent. A routine at its
+// own daily cap is paused until midnight in its timezone, and its owner told. A person at
+// their cap across all their routines is skipped, not paused: the 24 hours roll on, and the
+// next tick under the cap runs.
+func (s *Scheduler) overCap(ctx context.Context, r store.Routine, now time.Time) (bool, string) {
+	if r.DailyCapUSD != nil && *r.DailyCapUSD > 0 {
+		midnight, next := DayBounds(r.Timezone, now)
+		spent, err := s.store.RoutineSpendSince(ctx, r.ID, midnight)
+		if err == nil && spent >= *r.DailyCapUSD {
+			reason := fmt.Sprintf("Reached its daily spend cap of $%.2f. It runs again after midnight (%s).",
+				*r.DailyCapUSD, r.Timezone)
+			sched, perr := Parse(r.Schedule, r.Timezone)
+			after := next
+			if perr == nil {
+				after = sched.NextFor(r.ID, next)
+			}
+			if _, err := s.store.PauseRoutineUntil(ctx, r.ID, reason, next, after); err != nil {
+				s.logger.WarnContext(ctx, "pausing a capped routine failed", "routine_id", r.ID, "error", err)
+			} else {
+				s.notify(ctx, r, reason)
+			}
+			return true, reason
+		}
+	}
+	if r.Scope == store.RoutineScopePersonal && r.OwnerLogin != "" {
+		limits, err := s.store.GetRoutineLimits(ctx)
+		if err != nil || limits.PersonDailyCapUSD <= 0 {
+			return false, ""
+		}
+		spent, err := s.store.PersonRoutineSpendSince(ctx, r.OwnerLogin, now.Add(-24*time.Hour))
+		if err == nil && spent >= limits.PersonDailyCapUSD {
+			return true, fmt.Sprintf("its owner's routines spent $%.2f in 24 hours, the most one person's may", spent)
+		}
+	}
+	return false, ""
+}
+
+// DayBounds is the start of the day now falls in, in tz, and the start of the next one.
+func DayBounds(tz string, now time.Time) (start, next time.Time) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.UTC
+	}
+	local := now.In(loc)
+	start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	return start, start.AddDate(0, 0, 1)
+}
+
+// notify tells a personal routine's owner, in their inbox, that Podium paused it. A system
+// routine has no owner; its card says why, and the audit log has who resumes it.
+func (s *Scheduler) notify(ctx context.Context, r store.Routine, reason string) {
+	if r.OwnerLogin == "" {
+		return
+	}
+	if err := s.store.NotifyRoutine(ctx, r.OwnerLogin, r.ChatID, "", reason); err != nil {
+		s.logger.WarnContext(ctx, "telling a routine's owner it was paused failed", "routine_id", r.ID, "error", err)
 	}
 }
 
@@ -180,6 +276,7 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 		RoutineID:   r.ID,
 		RunID:       run.ID,
 		Override:    profiles.Override{Model: r.Model, Effort: r.Effort},
+		System:      r.System(),
 	})
 	if err != nil {
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
@@ -299,4 +396,5 @@ func (s *Scheduler) pause(ctx context.Context, r store.Routine, reason string, n
 		return
 	}
 	s.logger.InfoContext(ctx, "paused a routine", "routine_id", r.ID, "reason", reason, "at", now)
+	s.notify(ctx, r, reason)
 }
