@@ -3196,8 +3196,10 @@ missed while paused are not made up.
 
 The card at the top of a routine's chat shows when it runs next, the last run, how many quiet runs
 since its last answer, and what it spent in 24 hours, with Run now, Pause/Resume, Edit, the note
-the agent suggested as a standing note (Add to notes or Dismiss), what it remembers (and Forget),
-and Delete. Deleting a routine keeps its chat as an ordinary chat.
+the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
+the standing notes and Delete, which open over the chat rather than pushing it down. The state a
+run keeps is the agent's own bookkeeping and is not shown. Deleting a routine keeps its chat as an
+ordinary chat.
 
 **Standing notes** are the owner's rules on top of the instruction ("skip draft pull requests"),
 one `- ` line each, and every run's brief gives them as binding as the instruction. A run may
