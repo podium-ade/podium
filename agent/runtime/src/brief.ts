@@ -311,10 +311,8 @@ const briefSchema = z.strictObject({
       state: z.record(z.string(), z.unknown()),
       idle_runs: z.number().int().nonnegative().optional(),
       instruction_changed_at: z.string().optional(),
-      // A system routine runs as nobody: admins set it up, and it reads GitHub as the App,
-      // only in repos.
+      // A system routine runs as nobody: admins set it up, and it reads GitHub as the App.
       system: z.boolean().optional(),
-      repos: z.array(z.string()).optional(),
     })
     .optional(),
 }).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {

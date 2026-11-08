@@ -33,8 +33,7 @@ func (f chatFixture) adminClient(login string) agentv1connect.AgentServiceClient
 func ciFixerDraft() *agentv1.RoutineDraft {
 	return &agentv1.RoutineDraft{
 		Name: "Fix failing CI", Schedule: "*/5 * * * *", Timezone: "UTC",
-		Instruction: "Look for failed checks on open pull requests and report what you would change.",
-		Repos:       []string{"acme/api", "https://github.com/acme/web.git", "acme/api"},
+		Instruction: "Look for failed checks on open pull requests in the API repo and report what you would change.",
 		DailyCapUsd: 5,
 	}
 }
@@ -57,7 +56,7 @@ func TestASystemRoutineIsSetUpAndSeenByAdminsAlone(t *testing.T) {
 	assert.Equal(t, store.RoutineScopeSystem, r.GetScope())
 	assert.Empty(t, r.GetOwnerLogin(), "a system routine is nobody's")
 	assert.Equal(t, "alice", r.GetCreatedBy())
-	assert.Equal(t, []string{"acme/api", "acme/web"}, r.GetRepos())
+	assert.Empty(t, r.GetRepos(), "the instruction names its repositories; nobody lists them")
 	assert.InDelta(t, 5.0, r.GetDailyCapUsd(), 0.001)
 
 	// Every five minutes is under a person's floor, and fine for a system routine.
@@ -123,14 +122,15 @@ func TestASystemRoutineIsSetUpAndSeenByAdminsAlone(t *testing.T) {
 	assert.Contains(t, seen, "carol routine.update "+r.GetId())
 }
 
-// A personal routine's repositories are its owner's GitHub account's: it cannot list any.
-func TestAPersonalRoutineNamesNoRepositories(t *testing.T) {
+// Repositories are named in the instruction, so a draft's list is ignored, not stored.
+func TestARoutineDraftsRepositoriesAreIgnored(t *testing.T) {
 	ctx := context.Background()
 	f := newSharingFixture(t)
 	d := digestDraft()
 	d.Repos = []string{"acme/api"}
-	_, err := f.clientAs("bob").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: d}))
-	assert.Equal(t, "invalid_argument", codeOf(err))
+	created, err := f.clientAs("bob").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: d}))
+	require.NoError(t, err)
+	assert.Empty(t, created.Msg.GetRoutine().GetRepos())
 }
 
 // An admin sees everybody's routines as metadata, may pause one, and the owner is told.

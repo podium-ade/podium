@@ -70,9 +70,9 @@ type BriefRoutine struct {
 	// InstructionChangedAt is set when the instruction was edited after the last run, so the
 	// agent knows the runs above it followed an older one.
 	InstructionChangedAt string `json:"instruction_changed_at,omitempty"`
-	// System is a system routine: nobody owns it, and it reads GitHub as the App in Repos only.
-	System bool     `json:"system,omitempty"`
-	Repos  []string `json:"repos,omitempty"`
+	// System is a system routine: nobody owns it, and it reads GitHub as the App, in any
+	// repository the App is installed on. Which ones it works on, its instruction says.
+	System bool `json:"system,omitempty"`
 }
 
 // Outcomes routine_finish takes.
@@ -232,9 +232,6 @@ func (c *Conductor) briefRoutine(ctx context.Context, src Source, ev InboundEven
 		State:     r.State,
 		IdleRuns:  r.IdleCount,
 		System:    r.System(),
-	}
-	if r.System() {
-		b.Repos = r.Repos
 	}
 	if len(b.State) == 0 {
 		b.State = json.RawMessage("{}")

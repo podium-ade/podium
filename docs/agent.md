@@ -3122,7 +3122,7 @@ what runs as them. Share, general access and links are refused for it.
 |---|---|---|
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
-| GitHub | read with the owner's connected account | read as the **Podium App**, with a token minted **read-only** and only for the repositories listed on the routine; it may also comment on their pull requests as the App |
+| GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
 | Floor | every 15 minutes | every minute |
@@ -3138,7 +3138,7 @@ The scope is chosen once, when the routine is made. A system routine cannot open
   for one run, a schedule and a timezone, an assistant, an optional daily spend cap, and optional
   standing notes. Each row opens its chat, runs it now, pauses or resumes it, edits it or deletes
   it. An admin also sees every system routine there, and the dialog asks them who the new one
-  **runs as**; choosing Podium swaps the assistant for a **Repositories** list and offers to start
+  **runs as**; choosing Podium removes the assistant and offers to start
   from **Fix failing CI** (below).
 - **Asking in a chat.** There is no button for it in a chat. Say "every morning, send me…" and the
   assistant sets the routine up with **`create_routine`**: a name, the instruction for one run
@@ -3201,10 +3201,14 @@ tick ─► due? ─► chat busy? ── yes ─► skipped (never queued)
   server: list pull requests, one pull request and its files, a commit's check runs, the end of a
   failed job's log, recent commits — every one a GET, read with the **owner's own** connected GitHub
   account (Settings → Account), never the App's, so a routine cannot read what its owner cannot.
+  Nobody lists a routine's repositories: its instruction or notes name them in words ("the API
+  repo"), and `list_repositories` — the owner's repositories, or for a system routine every one
+  the App is installed on, most recently pushed first — is how the agent finds the owner/name.
   A system routine reads the same tools as the App, with an installation token minted read-only
-  (contents and pull requests read, and checks, statuses and actions read where installed) for one
-  of its listed repositories; any other repository is refused before GitHub is asked. It also gets
-  `comment_on_pull_request`, which posts as the App in its repositories. Checking whether
+  (contents and pull requests read, and checks, statuses and actions read where installed) for the
+  one repository a call names; where the App is installed is the boundary. The listing itself uses a
+  token that carries metadata read and nothing else. It also gets `comment_on_pull_request`, which
+  posts as the App. Checking whether
   anything needs doing then costs a model turn on the conductor and no task.
 
 ### Settling, pausing and failing
@@ -3234,7 +3238,7 @@ The card at the top of a routine's chat shows when it runs next, the last run, h
 since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going),
 Pause/Resume, Edit, the note
 the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
-the standing notes, a system routine's repositories, the spend cap, the history and Delete, which
+the standing notes, the spend cap, the history and Delete, which
 open over the chat rather than pushing it down. A system routine's card is marked **System** and
 "Runs as Podium", and its chat shows no composer. The state a
 run keeps is the agent's own bookkeeping and is not shown. Deleting a routine keeps its chat as an
@@ -3257,8 +3261,8 @@ person's routines may spend in 24 hours (no cap by default).
 ### Fix failing CI
 
 The system routine phase 2 is proven on. **Start from "Fix failing CI"** in the dialog fills an
-instruction that, every ten minutes, finds failed checks on the open pull requests of the listed
-repositories and, for each, skips it when the same check fails on the base branch, skips a commit
+instruction that, every ten minutes, finds failed checks on the open pull requests of the
+repositories it names — the template leaves a blank for them, filled in words — and, for each, skips it when the same check fails on the base branch, skips a commit
 it already handled, gives up after three attempts on a pull request, and otherwise **comments the
 fix it would make** — and pushes nothing. To let it push, an admin edits the instruction to
 delegate the fix to a playbook that can (one with `repos:` and the App's write capability, as in

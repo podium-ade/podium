@@ -18,7 +18,6 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
     personalityId: r.personalityId,
     model: r.model,
     effort: r.effort,
-    repos: [...r.repos],
     dailyCapUsd: r.dailyCapUsd,
   };
 }
@@ -31,19 +30,6 @@ export function isSystem(r: Pick<Routine, "scope">): boolean {
   return r.scope === "system";
 }
 
-/** REPO_PATTERN is a repository as GitHub names one: owner/name. */
-const REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
-
-/** parseRepo reads a repository as typed — owner/name, or its github.com address — or null. */
-export function parseRepo(text: string): string | null {
-  const r = text
-    .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/\.git$/i, "")
-    .replace(/^\/+|\/+$/g, "");
-  return REPO_PATTERN.test(r) ? r : null;
-}
-
 /**
  * CI_FIXER is the system routine phase 2 is proven on: it starts out only proposing, and an
  * admin lets it act by editing the instruction. The guard rails are written into it.
@@ -52,7 +38,7 @@ export const CI_FIXER: Pick<RoutineDraft, "name" | "instruction" | "notes" | "sc
   name: "Fix failing CI",
   schedule: "*/10 * * * *",
   instruction: [
-    "Look at the open pull requests in this routine's repositories for failed CI checks.",
+    "Look at the open pull requests in [name the repositories, like \"the API and the web app\"] for failed CI checks.",
     "",
     "For each pull request whose latest commit has a failed check:",
     "1. Skip it if the same check is also failing on its base branch — the fault is not in the pull request. Say so once.",

@@ -11,7 +11,6 @@ import {
   Trash2,
   User,
   Wrench,
-  X,
   Zap,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,7 +24,6 @@ import {
   draftOf,
   isSystem,
   money,
-  parseRepo,
   routineKey,
   routinesKey,
   routineStatus,
@@ -354,24 +352,6 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                   </p>
                 )}
               </div>
-              {system ? (
-                <div>
-                  <h3 className="mb-1 font-semibold text-muted uppercase tracking-[0.08em]">
-                    Repositories
-                  </h3>
-                  {r.repos.length > 0 ? (
-                    <p className="flex flex-wrap gap-1">
-                      {r.repos.map((repo) => (
-                        <span key={repo} className="rounded-sm bg-raised px-1.5 py-0.5 font-mono text-fg">
-                          {repo}
-                        </span>
-                      ))}
-                    </p>
-                  ) : (
-                    <p className="text-muted">None, so it reads nothing on GitHub. Add them under Edit.</p>
-                  )}
-                </div>
-              ) : null}
               <div>
                 <h3 className="mb-1 font-semibold text-muted uppercase tracking-[0.08em]">
                   Daily spend cap
@@ -606,7 +586,7 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   {
     scope: "system",
     label: "Podium (system)",
-    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, only in the repositories you list. Admins see it; nobody writes in its chat.",
+    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names. Admins see it; nobody writes in its chat.",
   },
 ];
 
@@ -654,13 +634,12 @@ export function RoutineDialog({
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
   );
-  const [repos, setRepos] = useState<string[]>(initial.repos ?? []);
   const [cap, setCap] = useState(
     initial.dailyCapUsd ? String(initial.dailyCapUsd) : "",
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), repos: useId(), scope: useId() };
+  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId() };
   // The assistant is chosen when the routine is made: its chat is labelled with it for good.
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -702,7 +681,7 @@ export function RoutineDialog({
               : personalityId,
           model: initial.model ?? "",
           effort: initial.effort ?? "",
-          repos: system ? repos : [],
+          repos: [],
           dailyCapUsd: capValue,
         },
         scope,
@@ -803,15 +782,12 @@ export function RoutineDialog({
               onChange={(e) => setInstruction(e.target.value)}
               placeholder={
                 system
-                  ? "Look for failed checks on open pull requests in these repositories and comment on each with the fix you would make. Do not push."
+                  ? "Look for failed checks on open pull requests in the API and web repos, and comment on each with the fix you would make. Do not push."
                   : "Check acme/api for pull requests whose CI failed since the last run, and tell me which ones and why."
               }
               className="min-h-32"
             />
           </label>
-          {system ? (
-            <RepoField id={ids.repos} value={repos} onChange={setRepos} />
-          ) : null}
           {!system && !lockAssistant && assistants.length > 0 ? (
             <div className="grid gap-1.5">
               <label htmlFor={ids.assistant} className="text-sm font-medium">
@@ -916,88 +892,3 @@ export function RoutineDialog({
   );
 }
 
-/**
- * RepoField is a system routine's repositories, owner/name each, as chips. What it reads on
- * GitHub is these and nothing else, so the list is the routine's reach.
- */
-function RepoField({ id, value, onChange }: { id: string; value: string[]; onChange: (repos: string[]) => void }) {
-  const [text, setText] = useState("");
-  const [problem, setProblem] = useState("");
-  const add = () => {
-    const parts = text.split(/[\s,]+/).filter(Boolean);
-    if (parts.length === 0) return;
-    const next = [...value];
-    for (const p of parts) {
-      const repo = parseRepo(p);
-      if (!repo) {
-        setProblem(`“${p}” is not a repository. Write it as owner/name, like acme/api.`);
-        return;
-      }
-      if (!next.some((r) => r.toLowerCase() === repo.toLowerCase())) next.push(repo);
-    }
-    onChange(next);
-    setText("");
-    setProblem("");
-  };
-  return (
-    <div className="grid gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
-        Repositories
-      </label>
-      <div
-        className={cn(
-          "flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-line-strong bg-panel px-2 py-1.5",
-          "focus-within:border-accent focus-within:ring-2 focus-within:ring-ring/35",
-        )}
-      >
-        {value.map((r) => (
-          <span
-            key={r}
-            data-testid="routine-repo"
-            className="inline-flex items-center gap-1 rounded-sm bg-raised py-0.5 pr-0.5 pl-2 font-mono text-xs text-fg"
-          >
-            {r}
-            <button
-              type="button"
-              aria-label={`Remove ${r}`}
-              onClick={() => onChange(value.filter((x) => x !== r))}
-              className="grid size-4 place-items-center rounded-xs text-muted outline-none hover:bg-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <X className="size-3" aria-hidden />
-            </button>
-          </span>
-        ))}
-        <input
-          id={id}
-          data-testid="routine-repos-input"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (problem) setProblem("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === "," || e.key === "Tab") {
-              if (text.trim()) {
-                e.preventDefault();
-                add();
-              }
-            } else if (e.key === "Backspace" && text === "" && value.length > 0) {
-              onChange(value.slice(0, -1));
-            }
-          }}
-          onBlur={() => text.trim() && add()}
-          placeholder={value.length ? "Add another" : "owner/name, e.g. acme/api"}
-          autoComplete="off"
-          spellCheck={false}
-          className="min-w-[10rem] flex-1 bg-transparent px-1 py-0.5 font-mono text-sm text-fg outline-none placeholder:font-sans placeholder:text-faint"
-        />
-      </div>
-      <p className={cn("text-xs", problem ? "text-warn" : "text-muted")} role={problem ? "alert" : undefined}>
-        {problem ||
-          (value.length === 0
-            ? "It reads GitHub only here, as the Podium App, read-only, and may comment on their pull requests. With none, it reads nothing on GitHub."
-            : "It reads GitHub only here, as the Podium App, read-only, and may comment on their pull requests.")}
-      </p>
-    </div>
-  );
-}

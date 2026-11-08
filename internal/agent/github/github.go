@@ -133,6 +133,13 @@ type Client struct {
 	installations map[string]installationResponse
 	tokens        map[string]Token
 	identity      *Identity
+	repos         *repoList
+}
+
+// repoList is InstallationRepos' answer and when it was read.
+type repoList struct {
+	at    time.Time
+	repos []Repo
 }
 
 // New returns a Client, or an error naming what is missing.
@@ -575,4 +582,73 @@ func (c *Client) GetTextAs(ctx context.Context, token, path string, limit int64)
 		raw = raw[int64(len(raw))-limit:]
 	}
 	return string(raw), nil
+}
+
+// Repo is one repository the App is installed on, as a routine sees it to pick one by name.
+type Repo struct {
+	FullName    string    `json:"full_name"`
+	Description string    `json:"description,omitempty"`
+	Private     bool      `json:"private"`
+	Archived    bool      `json:"archived,omitempty"`
+	PushedAt    time.Time `json:"pushed_at"`
+}
+
+// reposFresh is how long InstallationRepos answers from memory. A repository added to the
+// installation shows up within it.
+const reposFresh = 5 * time.Minute
+
+// maxInstallationRepos bounds the list: past it, a routine names its repository exactly.
+const maxInstallationRepos = 1000
+
+// InstallationRepos is every repository the App is installed on, across every account,
+// most recently pushed first. It is how a system routine turns "the API repo" in its
+// instruction into owner/name. Each installation is listed with a token that carries
+// metadata read and nothing else, so the listing itself can read no code.
+func (c *Client) InstallationRepos(ctx context.Context) ([]Repo, error) {
+	c.mu.Lock()
+	if c.repos != nil && c.now().Sub(c.repos.at) < reposFresh {
+		out := c.repos.repos
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+
+	var installs []struct {
+		ID int64 `json:"id"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/app/installations?per_page=100", nil, &installs); err != nil {
+		return nil, err
+	}
+	var out []Repo
+	for _, in := range installs {
+		body, err := json.Marshal(map[string]any{"permissions": map[string]string{"metadata": "read"}})
+		if err != nil {
+			return nil, err
+		}
+		var tok tokenResponse
+		path := fmt.Sprintf("/app/installations/%d/access_tokens", in.ID)
+		if err := c.do(ctx, http.MethodPost, path, body, &tok); err != nil {
+			return nil, err
+		}
+		for page := 1; len(out) < maxInstallationRepos; page++ {
+			var res struct {
+				Repositories []Repo `json:"repositories"`
+			}
+			if err := c.GetAs(ctx, tok.Token, fmt.Sprintf("/installation/repositories?per_page=100&page=%d", page), &res); err != nil {
+				return nil, err
+			}
+			out = append(out, res.Repositories...)
+			if len(res.Repositories) < 100 {
+				break
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b Repo) int { return b.PushedAt.Compare(a.PushedAt) })
+	if len(out) > maxInstallationRepos {
+		out = out[:maxInstallationRepos]
+	}
+	c.mu.Lock()
+	c.repos = &repoList{at: c.now(), repos: out}
+	c.mu.Unlock()
+	return out, nil
 }
