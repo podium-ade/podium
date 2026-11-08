@@ -177,6 +177,12 @@ type BriefPlaybook struct {
 	// writes the harness one entry per server here and no others — so a playbook that names
 	// none has no MCP tools beyond the ones the conductor wires up itself.
 	MCPServers []BriefMCPServer `json:"mcp_servers,omitempty"`
+	// UnavailableMCPServers is the servers the ASSISTANT names that this turn does not get —
+	// not registered, not connected by this person, turned off. The runtime wires none of
+	// them up; the prompt names them so the agent can say it has no access instead of the
+	// turn failing. Always absent for a playbook, whose turn fails on such a server instead,
+	// and absent when every named server resolved.
+	UnavailableMCPServers []BriefUnavailableMCPServer `json:"unavailable_mcp_servers,omitempty"`
 	// Interactive is true when this turn may ask a human a question and wait. Absent
 	// (false) is the default: the runtime has no ask tool and the prompt says so.
 	Interactive bool `json:"interactive,omitempty"`
@@ -204,6 +210,13 @@ type BriefMCPServer struct {
 	// Config is the server's JSON config, parsed (mcp.ParseConfig). The runtime merges it
 	// into the harness's entry for this server.
 	Config map[string]any `json:"config,omitempty"`
+}
+
+// BriefUnavailableMCPServer is one named server this turn runs without, and why, in words
+// the agent repeats to the person.
+type BriefUnavailableMCPServer struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // BriefSkill names one Agent Skill the turn may use. It carries a NAME and a DIGEST, never
