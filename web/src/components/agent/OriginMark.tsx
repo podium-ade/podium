@@ -1,4 +1,4 @@
-import { Building2, Users } from "lucide-react";
+import { Building2, Repeat, Users } from "lucide-react";
 import linear from "../../assets/marks/linear.svg";
 import slack from "../../assets/marks/slack.svg";
 
@@ -37,6 +37,8 @@ function Glyph({ origin }: { origin: string }) {
       return <img src={linear} alt="" className="block size-[13px]" />;
     case "shared":
       return <Users className="size-[13px]" strokeWidth={2} />;
+    case "routine":
+      return <Repeat className="size-[13px]" strokeWidth={2} />;
     default:
       return <Building2 className="size-[13px]" strokeWidth={2} />;
   }
