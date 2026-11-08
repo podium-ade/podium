@@ -251,6 +251,140 @@ service AgentService {
   // DeletePersonality removes one of the caller's voices. Chats that used it stay
   // readable under the name they had. A new message in one of those chats is refused.
   rpc DeletePersonality(DeletePersonalityRequest) returns (DeletePersonalityResponse);
+
+  // Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+  // own. A routine is its owner's: every RPC below answers only for routines the caller owns,
+  // and the dev token for all of them.
+  rpc ListRoutines(ListRoutinesRequest) returns (ListRoutinesResponse);
+  rpc GetRoutine(GetRoutineRequest) returns (GetRoutineResponse);
+  // CreateRoutine opens the routine and its chat.
+  rpc CreateRoutine(CreateRoutineRequest) returns (CreateRoutineResponse);
+  rpc UpdateRoutine(UpdateRoutineRequest) returns (UpdateRoutineResponse);
+  // DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+  rpc DeleteRoutine(DeleteRoutineRequest) returns (DeleteRoutineResponse);
+  rpc PauseRoutine(PauseRoutineRequest) returns (PauseRoutineResponse);
+  rpc ResumeRoutine(ResumeRoutineRequest) returns (ResumeRoutineResponse);
+  // RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+  rpc RunRoutineNow(RunRoutineNowRequest) returns (RunRoutineNowResponse);
+  rpc ResetRoutineState(ResetRoutineStateRequest) returns (ResetRoutineStateResponse);
+  // ResolveRoutineNote accepts or dismisses the note the agent proposed.
+  rpc ResolveRoutineNote(ResolveRoutineNoteRequest) returns (ResolveRoutineNoteResponse);
+  rpc ListRoutineRuns(ListRoutineRunsRequest) returns (ListRoutineRunsResponse);
+}
+
+// Routine is one recurring job.
+message Routine {
+  string id = 1;
+  string name = 2;
+  // schedule is a five-field cron expression, read in timezone (an IANA name).
+  string schedule = 3;
+  string timezone = 4;
+  // schedule_text is the schedule in words ("weekdays at 09:00").
+  string schedule_text = 5;
+  string instruction = 6;
+  // notes are the owner's standing instructions, briefed with every run.
+  string notes = 7;
+  // proposed_note is a note the agent suggested, waiting to be accepted or dismissed.
+  string proposed_note = 8;
+  string personality_id = 9;
+  string model = 10;
+  string effort = 11;
+  bool enabled = 12;
+  // paused_reason says why a routine was paused by Podium rather than by its owner.
+  string paused_reason = 13;
+  // state is the agent's JSON object across runs, "{}" when it has kept nothing.
+  string state = 14;
+  string chat_id = 15;
+  google.protobuf.Timestamp next_run_at = 16;
+  google.protobuf.Timestamp last_run_at = 17;
+  // idle_count is how many runs since the last one that did something found nothing to do.
+  int32 idle_count = 18;
+  string owner_login = 19;
+  // spend_today_usd is what the routine's turns cost in the last 24 hours.
+  double spend_today_usd = 20;
+  // running is whether a run is going now.
+  bool running = 21;
+  google.protobuf.Timestamp created_at = 22;
+}
+
+// RoutineRun is one firing of a routine.
+message RoutineRun {
+  string id = 1;
+  google.protobuf.Timestamp scheduled_for = 2;
+  // trigger is "schedule" or "manual".
+  string trigger = 3;
+  // status is running, done, idle, failed, skipped_overlap or skipped_paused.
+  string status = 4;
+  string summary = 5;
+  string turn_id = 6;
+  // cost_usd is the run's turn's cost, 0 while it runs or when it reported none.
+  double cost_usd = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+}
+
+// RoutineDraft is what a person writes.
+message RoutineDraft {
+  string name = 1;
+  string schedule = 2;
+  string timezone = 3;
+  string instruction = 4;
+  string notes = 5;
+  string personality_id = 6;
+  string model = 7;
+  string effort = 8;
+}
+
+message ListRoutinesRequest {}
+message ListRoutinesResponse { repeated Routine routines = 1; }
+
+message GetRoutineRequest {
+  // id, or chat_id to find the routine a chat belongs to.
+  string id = 1;
+  string chat_id = 2;
+}
+message GetRoutineResponse { Routine routine = 1; }
+
+message CreateRoutineRequest { RoutineDraft draft = 1; }
+message CreateRoutineResponse { Routine routine = 1; }
+
+message UpdateRoutineRequest {
+  string id = 1;
+  RoutineDraft draft = 2;
+}
+message UpdateRoutineResponse { Routine routine = 1; }
+
+message DeleteRoutineRequest { string id = 1; }
+message DeleteRoutineResponse {}
+
+message PauseRoutineRequest { string id = 1; }
+message PauseRoutineResponse { Routine routine = 1; }
+
+message ResumeRoutineRequest { string id = 1; }
+message ResumeRoutineResponse { Routine routine = 1; }
+
+message RunRoutineNowRequest { string id = 1; }
+message RunRoutineNowResponse { RoutineRun run = 1; }
+
+message ResetRoutineStateRequest { string id = 1; }
+message ResetRoutineStateResponse { Routine routine = 1; }
+
+message ResolveRoutineNoteRequest {
+  string id = 1;
+  // accept appends the proposed note to the notes; false dismisses it.
+  bool accept = 2;
+}
+message ResolveRoutineNoteResponse { Routine routine = 1; }
+
+message ListRoutineRunsRequest {
+  string id = 1;
+  // include_idle adds the runs that did nothing: idle and skipped.
+  bool include_idle = 2;
+  Page page = 3;
+}
+message ListRoutineRunsResponse {
+  repeated RoutineRun runs = 1;
+  string next_cursor = 2;
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -1067,6 +1201,9 @@ message Chat {
   // general_access is "restricted", "members" or "link"; general_role is what it grants.
   string general_access = 27;
   string general_role = 28;
+  // routine_id is the routine this chat belongs to, empty for any other chat. A routine chat
+  // is never shared.
+  string routine_id = 29;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id

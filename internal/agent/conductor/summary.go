@@ -161,9 +161,15 @@ func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
 // chatComplete is one model call on the chat host with no tools, through the gateway, on the
 // assistant's own backend. It is for the conductor's own housekeeping, never a person's turn.
 func (c *Conductor) chatComplete(ctx context.Context, system, prompt string) (string, error) {
+	return c.chatCompleteIn(ctx, summaryLocation, system, prompt)
+}
+
+// chatCompleteIn is chatComplete in a location of its own, so two kinds of housekeeping do not
+// wait on each other's one turn.
+func (c *Conductor) chatCompleteIn(ctx context.Context, location, system, prompt string) (string, error) {
 	choice := c.profiles.Current().ResolveAssistant(profiles.Override{})
 	provider := c.providerFor(choice.Agent, "")
-	cv, err := c.chatConvFor(summaryLocation)
+	cv, err := c.chatConvFor(location)
 	if err != nil {
 		return "", err
 	}

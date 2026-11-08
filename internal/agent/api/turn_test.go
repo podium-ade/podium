@@ -19,13 +19,15 @@ import (
 // fakeDelegator is the conductor, scripted. Every call records the token it was given,
 // because "which turn asked" is the whole of this service's authorisation.
 type fakeDelegator struct {
-	chats  []conductor.StartChatRequest
-	tokens []string
-	opts   []conductor.DelegateOptions
-	dlg    store.Delegation
-	list   []store.Delegation
-	prog   string
-	err    error
+	chats    []conductor.StartChatRequest
+	finishes []conductor.RoutineFinishRequest
+	routines []conductor.CreateRoutineRequest
+	tokens   []string
+	opts     []conductor.DelegateOptions
+	dlg      store.Delegation
+	list     []store.Delegation
+	prog     string
+	err      error
 }
 
 func (f *fakeDelegator) Delegate(
@@ -80,6 +82,24 @@ func (f *fakeDelegator) ReleaseDelegationPreview(_ context.Context, token, id st
 	}
 	f.dlg.ID = id
 	return f.dlg, nil
+}
+
+func (f *fakeDelegator) FinishRoutine(_ context.Context, token string, req conductor.RoutineFinishRequest) (string, error) {
+	f.tokens = append(f.tokens, token)
+	f.finishes = append(f.finishes, req)
+	if f.err != nil {
+		return "", f.err
+	}
+	return "Recorded as idle.", nil
+}
+
+func (f *fakeDelegator) CreateRoutine(_ context.Context, token string, req conductor.CreateRoutineRequest) (string, error) {
+	f.tokens = append(f.tokens, token)
+	f.routines = append(f.routines, req)
+	if f.err != nil {
+		return "", f.err
+	}
+	return "Created.", nil
 }
 
 func (f *fakeDelegator) StartChat(_ context.Context, token string, req conductor.StartChatRequest) (conductor.StartedChat, error) {

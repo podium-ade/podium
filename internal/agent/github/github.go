@@ -506,3 +506,43 @@ type appResponse struct {
 type userResponse struct {
 	ID int64 `json:"id"`
 }
+
+// GetAs reads one GitHub API resource with a person's own token, for a turn that reads as the
+// person it runs for rather than as the App. It never writes: there is no method to choose.
+func (c *Client) GetAs(ctx context.Context, token, path string, out any) error {
+	if strings.TrimSpace(token) == "" {
+		return errors.New("github: a token is required")
+	}
+	return c.roundTrip(ctx, http.MethodGet, path, nil, token, out)
+}
+
+// GetTextAs reads a plain-text resource — a job's log — with a person's own token, keeping at
+// most the last limit bytes. GitHub answers a log with a redirect to a signed URL, which the
+// client follows without the token.
+func (c *Client) GetTextAs(ctx context.Context, token, path string, limit int64) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", errors.New("github: a token is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+path, nil)
+	if err != nil {
+		return "", fmt.Errorf("github: GET %s: %w", path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github: GET %s: %w", path, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode >= 300 {
+		return "", c.failure(http.MethodGet, path, res)
+	}
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+	if err != nil {
+		return "", fmt.Errorf("github: read GET %s: %w", path, err)
+	}
+	if int64(len(raw)) > limit {
+		raw = raw[int64(len(raw))-limit:]
+	}
+	return string(raw), nil
+}
