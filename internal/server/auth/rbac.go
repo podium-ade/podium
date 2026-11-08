@@ -138,6 +138,20 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
+	// Routines are personal: any member keeps their own, and the conductor answers only for
+	// routines the caller owns (another person's is not found), so member is the gate and
+	// ownership is the check, as for personalities.
+	agentv1connect.AgentServiceListRoutinesProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceCreateRoutineProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceUpdateRoutineProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceDeleteRoutineProcedure:      store.RoleMember,
+	agentv1connect.AgentServicePauseRoutineProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceResumeRoutineProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceRunRoutineNowProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceResetRoutineStateProcedure:  store.RoleMember,
+	agentv1connect.AgentServiceResolveRoutineNoteProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRunsProcedure:    store.RoleMember,
 
 	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
 	// A member saves their own model credential; the handler refuses a global write from
