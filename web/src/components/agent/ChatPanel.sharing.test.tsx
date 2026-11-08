@@ -281,7 +281,8 @@ describe("ChatPanel rail groups", () => {
     expect(github).toHaveAttribute("aria-expanded", "true");
     await user.click(github);
     expect(github).toHaveAttribute("aria-expanded", "false");
-    expect(list).not.toHaveTextContent("Change 0");
+    // A folded group stays mounted so it can slide shut; it is hidden, not removed.
+    expect(screen.getByText("Change 0")).not.toBeVisible();
     expect(list).toHaveTextContent("Mine");
     unmount();
 
@@ -289,6 +290,6 @@ describe("ChatPanel rail groups", () => {
     const again = await screen.findByTestId("chat-list");
     await waitFor(() => expect(again).toHaveTextContent("Mine"));
     expect(screen.getByTestId("chat-origin-github")).toHaveAttribute("aria-expanded", "false");
-    expect(again).not.toHaveTextContent("Change 0");
+    expect(screen.getByText("Change 0")).not.toBeVisible();
   });
 });
