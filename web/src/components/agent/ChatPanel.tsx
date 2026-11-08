@@ -867,7 +867,7 @@ function ChatRail({
         {listed.map((origin) => {
           const folded = split && !searching && collapsed.has(origin.key);
           const limit = searching ? origin.chats.length : (shown[origin.key] ?? RAIL_PAGE);
-          const visible = folded ? [] : visibleChats(origin.chats, limit, active);
+          const visible = visibleChats(origin.chats, limit, active);
           const hidden = origin.chats.length - visible.length;
           const listId = `chat-origin-list-${origin.key}`;
           const unreadIn = origin.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
@@ -908,11 +908,8 @@ function ChatRail({
                   />
                 </button>
               ) : null}
-              {folded ? null : (
-                <ul
-                  id={listId}
-                  className="space-y-px animate-in fade-in-0 slide-in-from-top-1 duration-200 ease-out motion-reduce:animate-none"
-                >
+              <RailFold open={!folded}>
+                <ul id={listId} className="space-y-px">
                   {visible.map((c) => (
                     <ChatRow
                       key={c.id}
@@ -944,11 +941,36 @@ function ChatRail({
                     </li>
                   ) : null}
                 </ul>
-              )}
+              </RailFold>
             </li>
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * RailFold slides an origin's chats open and shut by its grid row, the way a sidebar group
+ * does. It clips while it moves, then lets go once open so a focus ring on its first or last
+ * row is not cut off. Visibility rides the transition, so a closing group stays painted until
+ * it has folded away and its rows leave the tab order once it has.
+ */
+function RailFold({ open, children }: { open: boolean; children: ReactNode }) {
+  const [settled, setSettled] = useState(open);
+  if (!open && settled) setSettled(false);
+  return (
+    <div
+      style={open ? undefined : { visibility: "hidden" }}
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget && e.propertyName === "grid-template-rows" && open) setSettled(true);
+      }}
+      className={cn(
+        "grid transition-[grid-template-rows,visibility] duration-200 ease-out",
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}
+    >
+      <div className={cn("min-h-0", !settled && "overflow-hidden")}>{children}</div>
     </div>
   );
 }
