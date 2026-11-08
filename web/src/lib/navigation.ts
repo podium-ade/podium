@@ -79,6 +79,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Organization",
     pages: [
       { id: "members", label: "Members", to: "/agent/settings/users", icon: "members", desc: "Who can sign in, and their roles.", keys: "users roles team permissions owner admin" },
+      // Everyone's routines as metadata, and the per-person limits: admins and owners.
+      { id: "routines-admin", label: "Routines", to: "/agent/settings/routines", icon: "routines", desc: "Everyone's routines, and how many each person may have.", keys: "routines schedules cron limits spend", show: (who) => who.agentEnabled && canManageInfra(who) },
       // Cost is recorded per agent turn, so with no conductor there is nothing to report.
       { id: "usage", label: "Usage", to: "/usage", icon: "usage", desc: "Spend and activity across the organization.", keys: "cost spend billing tokens", show: agent },
     ],

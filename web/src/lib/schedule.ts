@@ -12,6 +12,10 @@ export const WEEKDAYS: Day[] = [1, 2, 3, 4, 5];
 
 /** The intervals offered: each divides the hour or the day evenly, and none is under 15 minutes. */
 export const MINUTE_STEPS = [15, 20, 30] as const;
+/** A system routine may run as often as every minute: its spend cap, not its floor, bounds it. */
+export const SYSTEM_MINUTE_STEPS = [1, 5, 10, 15, 20, 30] as const;
+/** Every step that divides the hour, which is what Repeat can read back from cron. */
+const READABLE_MINUTE_STEPS = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30];
 export const HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const;
 
 export type Repeat =
@@ -110,7 +114,7 @@ export function fromCron(expr: string): Repeat | null {
   const step = /^\*\/(\d+)$/.exec(min);
   if (step && hour === "*" && dom === "*") {
     const every = Number(step[1]);
-    return (MINUTE_STEPS as readonly number[]).includes(every) ? { kind: "minutes", every, days } : null;
+    return READABLE_MINUTE_STEPS.includes(every) ? { kind: "minutes", every, days } : null;
   }
   const minute = num(min, 0, 59);
   if (minute === null) return null;
@@ -160,7 +164,7 @@ function onDays(days: Day[]): string {
 export function describe(r: Repeat): string {
   switch (r.kind) {
     case "minutes":
-      return [`Every ${r.every} minutes`, onDays(r.days)].filter(Boolean).join(" ");
+      return [r.every === 1 ? "Every minute" : `Every ${r.every} minutes`, onDays(r.days)].filter(Boolean).join(" ");
     case "hourly":
       return [
         `${r.every === 1 ? "Every hour" : `Every ${r.every} hours`} at :${String(r.minute).padStart(2, "0")}`,

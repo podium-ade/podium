@@ -22,7 +22,7 @@ group("toCron and fromCron", () => {
   });
 
   it("leaves to cron what the builder cannot say", () => {
-    for (const expr of ["0 9,17 * * *", "*/10 * * * *", "0 9 * 1 *", "0 9 1 * 1", "0 */5 * * *", "nonsense", "0 9 * *"]) {
+    for (const expr of ["0 9,17 * * *", "*/7 * * * *", "0 9 * 1 *", "0 9 1 * 1", "0 */5 * * *", "nonsense", "0 9 * *"]) {
       expect(fromCron(expr), expr).toBeNull();
     }
   });
@@ -73,5 +73,13 @@ group("parseTime and parseMinute", () => {
     expect(parseMinute("7")).toBe(7);
     expect(parseMinute(":45")).toBe(45);
     expect(parseMinute("60")).toBeNull();
+  });
+});
+
+group("a system routine's schedule", () => {
+  it("reads every minute, and every few minutes, back into Repeat", () => {
+    expect(fromCron("*/1 * * * *")).toEqual({ kind: "minutes", every: 1, days: [0, 1, 2, 3, 4, 5, 6] });
+    expect(describe(fromCron("*/1 * * * *")!)).toBe("Every minute");
+    expect(describe(fromCron("*/5 * * * 1-5")!)).toBe("Every 5 minutes on weekdays");
   });
 });

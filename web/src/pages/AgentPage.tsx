@@ -14,6 +14,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { RoutinesAdminPanel } from "../components/agent/RoutinesAdminPanel";
 import { RoutinesPanel } from "../components/agent/RoutinesPanel";
 import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
@@ -197,6 +198,13 @@ const SETTINGS_SECTIONS: {
     lead: "The outside apps your assistants work with. GitHub lets them read code and open pull requests, and Slack lets people message them.",
     show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v),
   },
+  // Everyone's routines, and the per-person limits, are an admin's.
+  {
+    id: "routines",
+    title: "Routines",
+    lead: "Everyone's routines at a glance, and how many routines each person may have and spend on.",
+    show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v),
+  },
   {
     id: "models",
     title: "Models",
@@ -228,7 +236,7 @@ function SettingsTab() {
   }
 
   const current = section.id;
-  const flush = current === "users" || current === "connections" || current === "models";
+  const flush = current === "users" || current === "connections" || current === "models" || current === "routines";
 
   return (
     <PageFrame title={section.title} lead={section.lead} bodyClassName="space-y-5 p-6">
@@ -247,6 +255,7 @@ function SettingsTab() {
           {current === "runs-on" ? <RunsOnSettings /> : null}
           {current === "connections" ? <ConnectionsPanel /> : null}
           {current === "models" ? <ModelsPanel /> : null}
+          {current === "routines" ? <RoutinesAdminPanel /> : null}
         </div>
       </section>
     </PageFrame>

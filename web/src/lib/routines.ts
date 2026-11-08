@@ -18,8 +18,53 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
     personalityId: r.personalityId,
     model: r.model,
     effort: r.effort,
+    repos: [...r.repos],
+    dailyCapUsd: r.dailyCapUsd,
   };
 }
+
+/** Scope is who a routine runs as: a person, or nobody (a system routine admins set up). */
+export type Scope = "personal" | "system";
+
+/** isSystem is a routine that runs as nobody, configured by admins. */
+export function isSystem(r: Pick<Routine, "scope">): boolean {
+  return r.scope === "system";
+}
+
+/** REPO_PATTERN is a repository as GitHub names one: owner/name. */
+const REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
+
+/** parseRepo reads a repository as typed — owner/name, or its github.com address — or null. */
+export function parseRepo(text: string): string | null {
+  const r = text
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+  return REPO_PATTERN.test(r) ? r : null;
+}
+
+/**
+ * CI_FIXER is the system routine phase 2 is proven on: it starts out only proposing, and an
+ * admin lets it act by editing the instruction. The guard rails are written into it.
+ */
+export const CI_FIXER: Pick<RoutineDraft, "name" | "instruction" | "notes" | "schedule"> = {
+  name: "Fix failing CI",
+  schedule: "*/10 * * * *",
+  instruction: [
+    "Look at the open pull requests in this routine's repositories for failed CI checks.",
+    "",
+    "For each pull request whose latest commit has a failed check:",
+    "1. Skip it if the same check is also failing on its base branch — the fault is not in the pull request. Say so once.",
+    "2. Skip it if the state shows you already handled this commit (key: owner/repo#number@sha).",
+    "3. Skip it, and say you are giving up, if the state shows 3 attempts on this pull request already.",
+    "4. Read the failed job's log and work out the smallest change that fixes it.",
+    "5. Propose it: comment on the pull request with what failed, why, and the change you would make. Do not push anything.",
+    "",
+    "Record every commit you handled and the attempts per pull request in the state. Finish idle when nothing failed since the last run.",
+  ].join("\n"),
+  notes: "- Never fix CI by disabling a lint rule or skipping a test.",
+};
 
 /** routineChatPath is the address of a routine's chat, under its assistant when it has one. */
 export function routineChatPath(r: Pick<Routine, "personalityId" | "chatId">): string {
@@ -49,6 +94,7 @@ export function money(usd: number): string {
 export function routineStatus(r: Routine): string {
   if (r.running) return "Running now";
   if (r.enabled) return `Next ${upcoming(r.nextRunAt)}`;
+  if (r.pausedUntil) return `Paused until ${upcoming(r.pausedUntil)}`;
   return r.pausedReason ? "Paused by Podium" : "Paused";
 }
 

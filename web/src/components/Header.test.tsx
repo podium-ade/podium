@@ -77,7 +77,7 @@ describe("Header", () => {
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
     expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
     expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Snapshots", "Registries"]);
-    expect(groupLinks("Organization")).toEqual(["Members", "Usage"]);
+    expect(groupLinks("Organization")).toEqual(["Members", "Routines", "Usage"]);
   });
 
   it("links each former settings section to its own address", () => {

@@ -6,7 +6,8 @@ import type { Routine } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
-import { draftOf, money, routineChatPath, routinesKey, upcoming } from "../../lib/routines";
+import { canManageInfra } from "../../lib/rbac";
+import { draftOf, isSystem, money, routineChatPath, routinesKey, upcoming } from "../../lib/routines";
 import { Badge } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
@@ -29,18 +30,23 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { ConductorDown } from "./ConductorDown";
-import { RoutineDialog } from "./RoutineCard";
+import { RoutineDialog, SystemBadge } from "./RoutineCard";
 
 /**
  * RoutinesPanel is the viewer's routines: what each does, when it runs next, and the controls.
  * A routine is made here, or by asking an assistant for one in a chat; either way it gets a
  * chat of its own, which is where its answers land.
+ *
+ * An admin also sees the system routines here, in the same list, each marked System and
+ * "runs as Podium", and may make one: "Runs as" in the new-routine dialog.
  */
 export function RoutinesPanel() {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const viewerLogin = useViewer()?.login ?? "";
+  const viewer = useViewer();
+  const viewerLogin = viewer?.login ?? "";
+  const admin = canManageInfra(viewer);
   const list = useQuery({
     queryKey: routinesKey,
     queryFn: () => agent.listRoutines({}),
@@ -66,6 +72,7 @@ export function RoutinesPanel() {
     onSuccess: async (_res, { r, what }) => {
       await refresh();
       if (what === "run") toast(`${r.name} is running. Its answer appears in its chat if it finds something.`, "ok");
+      if (what === "pause" && isSystem(r)) toast(`${r.name} is paused for everyone until an admin resumes it.`, "ok");
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -85,7 +92,11 @@ export function RoutinesPanel() {
   return (
     <PageFrame
       title="Routines"
-      lead="Jobs an assistant does on a schedule, each in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."
+      lead={
+        admin
+          ? "Jobs an assistant does on a schedule, each in a chat of its own. Yours run as you; system routines run as Podium and are shared by every admin."
+          : "Jobs an assistant does on a schedule, each in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."
+      }
       actions={
         <Button size="sm" data-testid="routines-new" onClick={() => setCreating(true)}>
           <Plus />
@@ -145,9 +156,10 @@ export function RoutinesPanel() {
           open
           title="New routine"
           initial={{}}
+          canChooseScope={admin}
           onClose={() => setCreating(false)}
-          onSave={async (draft) => {
-            const res = await agent.createRoutine({ draft });
+          onSave={async (draft, scope) => {
+            const res = await agent.createRoutine({ draft, scope });
             setCreating(false);
             await refresh();
             toast(`${res.routine?.name ?? "Routine"} runs ${res.routine?.scheduleText ?? ""}.`, "ok");
@@ -161,6 +173,7 @@ export function RoutinesPanel() {
           title="Edit routine"
           initial={draftOf(editing)}
           lockAssistant
+          scope={isSystem(editing) ? "system" : "personal"}
           onClose={() => setEditing(null)}
           onSave={async (draft) => {
             await agent.updateRoutine({ id: editing.id, draft });
@@ -220,6 +233,9 @@ function RoutineRow({
   onDelete: () => void;
 }) {
   const flagged = !r.enabled && r.pausedReason !== "";
+  const system = isSystem(r);
+  // An admin's pause says so itself; Podium's own say what Podium saw.
+  const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by Podium. ${r.pausedReason}`;
   return (
     <li
       data-testid="routine-row"
@@ -233,6 +249,7 @@ function RoutineRow({
           >
             {r.name}
           </Link>
+          {system ? <SystemBadge /> : null}
           {r.running ? (
             <Badge tone="run">running</Badge>
           ) : r.enabled ? (
@@ -240,16 +257,17 @@ function RoutineRow({
           ) : (
             <Badge tone={flagged ? "warn" : "idle"}>paused</Badge>
           )}
-          {owner ? <span className="text-xs text-faint">{owner}</span> : null}
+          {owner && !system ? <span className="text-xs text-faint">{owner}</span> : null}
         </div>
         <p className="text-sm text-muted">
           Runs {r.scheduleText}
           {r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {system ? <span className="text-faint"> · as Podium{r.repos.length ? ` on ${repoSummary(r.repos)}` : ""}</span> : null}
         </p>
         {flagged ? (
           <p className="flex items-start gap-1.5 pt-0.5 text-xs leading-relaxed text-warn">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            <span>Paused by Podium. {r.pausedReason}</span>
+            <span>{why}</span>
           </p>
         ) : null}
       </div>
@@ -261,7 +279,13 @@ function RoutineRow({
         <div className="min-w-0">
           <dt className="text-faint">Next run</dt>
           <dd className="m-0 truncate text-fg">
-            {r.running ? "running now" : r.enabled ? upcoming(r.nextRunAt) : "paused"}
+            {r.running
+              ? "running now"
+              : r.enabled
+                ? upcoming(r.nextRunAt)
+                : r.pausedUntil
+                  ? upcoming(r.pausedUntil)
+                  : "paused"}
           </dd>
         </div>
         <div className="min-w-0">
@@ -311,4 +335,9 @@ function RoutineRow({
       </div>
     </li>
   );
+}
+
+/** repoSummary names a few repositories and counts the rest. */
+function repoSummary(repos: string[]): string {
+  return repos.length <= 2 ? repos.join(", ") : `${repos.slice(0, 2).join(", ")} and ${repos.length - 2} more`;
 }

@@ -13,6 +13,8 @@ const getRoutine = vi.fn();
 const pauseRoutine = vi.fn();
 const runRoutineNow = vi.fn();
 const resolveRoutineNote = vi.fn();
+const cancelRoutineRun = vi.fn();
+const listRoutineRevisions = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -23,6 +25,8 @@ vi.mock("../../lib/client", async () => {
       pauseRoutine: (...a: unknown[]) => pauseRoutine(...a),
       runRoutineNow: (...a: unknown[]) => runRoutineNow(...a),
       resolveRoutineNote: (...a: unknown[]) => resolveRoutineNote(...a),
+      cancelRoutineRun: (...a: unknown[]) => cancelRoutineRun(...a),
+      listRoutineRevisions: (...a: unknown[]) => listRoutineRevisions(...a),
       listPersonalities: async () => ({ personalities: [] }),
     },
   };
@@ -56,7 +60,9 @@ function mount(node: React.ReactNode) {
 }
 
 beforeEach(() => {
-  for (const fn of [getRoutine, pauseRoutine, runRoutineNow, resolveRoutineNote]) fn.mockReset();
+  for (const fn of [getRoutine, pauseRoutine, runRoutineNow, resolveRoutineNote, cancelRoutineRun, listRoutineRevisions])
+    fn.mockReset();
+  listRoutineRevisions.mockResolvedValue({ revisions: [] });
 });
 
 describe("RoutineCard", () => {
@@ -117,7 +123,7 @@ describe("RoutineCard", () => {
 
 describe("RoutineDialog", () => {
   it("saves a preset schedule, and shows the server's refusal as it says it", async () => {
-    const onSave = vi.fn<(d: RoutineDraft) => Promise<void>>();
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>();
     onSave.mockRejectedValueOnce(
       new ConnectError("invalid schedule: runs every 5 minutes", Code.InvalidArgument),
     );
@@ -141,11 +147,12 @@ describe("RoutineDialog", () => {
         schedule: "*/5 * * * *",
         timezone: "America/Toronto",
       }),
+      "personal",
     );
   });
 
   it("builds a schedule the way a calendar does, and says it in words", async () => {
-    const onSave = vi.fn<(d: RoutineDraft) => Promise<void>>().mockResolvedValue();
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog
         open
@@ -167,11 +174,11 @@ describe("RoutineDialog", () => {
     await userEvent.click(await screen.findByRole("option", { name: "2 hours" }));
     expect(summary).toHaveTextContent("Every 2 hours at :00");
     await userEvent.click(screen.getByTestId("routine-save"));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ schedule: "0 */2 * * 1-4,6" })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ schedule: "0 */2 * * 1-4,6" }), "personal"));
   });
 
   it("takes any time typed, not only the listed ones", async () => {
-    const onSave = vi.fn<(d: RoutineDraft) => Promise<void>>().mockResolvedValue();
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog
         open
@@ -186,7 +193,7 @@ describe("RoutineDialog", () => {
     await userEvent.type(await screen.findByRole("searchbox", { name: "Time: type one" }), "5:42pm{Enter}");
     expect(screen.getByTestId("schedule-summary")).toHaveTextContent("Weekdays at 17:42");
     await userEvent.click(screen.getByTestId("routine-save"));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ schedule: "42 17 * * 1-5" })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ schedule: "42 17 * * 1-5" }), "personal"));
   });
 
   it("opens a schedule Repeat cannot say on the Cron tab", () => {
@@ -205,7 +212,7 @@ describe("RoutineDialog", () => {
   });
 
   it("picks a timezone by searching for the place it is known by", async () => {
-    const onSave = vi.fn<(d: RoutineDraft) => Promise<void>>().mockResolvedValue();
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog
         open
@@ -224,6 +231,83 @@ describe("RoutineDialog", () => {
     await userEvent.click(await screen.findByRole("option", { name: /Central Europe/ }));
     expect(zone).toHaveTextContent("Central Europe · Paris");
     await userEvent.click(screen.getByTestId("routine-save"));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ timezone: "Europe/Paris" })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ timezone: "Europe/Paris" }), "personal"));
+  });
+});
+
+describe("system routines", () => {
+  it("are marked System and as running as Podium, stop a run, and show who changed what", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({ scope: "system", repos: ["acme/api"], running: true, dailyCapUsd: 5, createdBy: "ana" }),
+    });
+    cancelRoutineRun.mockResolvedValue({
+      routine: routine({ scope: "system", repos: ["acme/api"], running: false, dailyCapUsd: 5 }),
+    });
+    listRoutineRevisions.mockResolvedValue({
+      revisions: [
+        { id: 2n, instruction: "Fix it.", notes: "", schedule: "0 9 * * 1-5", timezone: "UTC", changedBy: "bo" },
+        { id: 1n, instruction: "Report it.", notes: "", schedule: "0 9 * * 1-5", timezone: "UTC", changedBy: "ana" },
+      ],
+    });
+    mount(<RoutineCard chatId="chat_r" />);
+
+    expect(await screen.findByTestId("routine-system-badge")).toHaveTextContent("System");
+    expect(screen.getByTestId("routine-status")).toHaveTextContent("Runs as Podium");
+    await userEvent.click(screen.getByRole("button", { name: "Stop run" }));
+    await waitFor(() => expect(cancelRoutineRun).toHaveBeenCalledWith({ id: "rtn_1" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Show details" }));
+    const details = await screen.findByTestId("routine-details");
+    expect(details).toHaveTextContent("acme/api");
+    expect(details).toHaveTextContent("$5.00 a day");
+    const history = await screen.findByTestId("routine-history");
+    await waitFor(() => expect(history).toHaveTextContent("Changed the instruction"));
+    expect(history).toHaveTextContent("bo");
+    expect(history).toHaveTextContent("Set up");
+  });
+});
+
+describe("RoutineDialog for an admin", () => {
+  it("makes a system routine: no assistant, its repositories, and a template to start from", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="New routine" canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
+    );
+    expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as you");
+    expect(screen.queryByTestId("routine-repos-input")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("routine-scope-system"));
+    expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as nobody");
+    await userEvent.click(screen.getByTestId("routine-template-ci"));
+    expect(screen.getByTestId("routine-name")).toHaveValue("Fix failing CI");
+    expect(screen.getByTestId("schedule-summary")).toHaveTextContent("Every 10 minutes");
+
+    const repos = screen.getByTestId("routine-repos-input");
+    await userEvent.type(repos, "nope{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("Write it as owner/name");
+    await userEvent.clear(repos);
+    await userEvent.type(repos, "https://github.com/acme/api.git, acme/web{Enter}");
+    expect(screen.getAllByTestId("routine-repo").map((e) => e.textContent)).toEqual(["acme/api", "acme/web"]);
+    await userEvent.type(screen.getByTestId("routine-cap"), "4.5");
+    await userEvent.click(screen.getByTestId("routine-save"));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Fix failing CI", repos: ["acme/api", "acme/web"], dailyCapUsd: 4.5, personalityId: "" }),
+        "system",
+      ),
+    );
+  });
+
+  it("offers no choice of who it runs as to a member, nor when editing", () => {
+    mount(<RoutineDialog open title="New routine" initial={{}} onClose={() => {}} onSave={vi.fn()} />);
+    expect(screen.queryByTestId("routine-scope-system")).not.toBeInTheDocument();
+  });
+
+  it("refuses a spend cap that is not an amount", async () => {
+    mount(<RoutineDialog open title="New routine" initial={{ name: "x", instruction: "y" }} onClose={() => {}} onSave={vi.fn()} />);
+    await userEvent.type(screen.getByTestId("routine-cap"), "lots");
+    expect(screen.getByText(/amount in dollars/)).toBeInTheDocument();
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
   });
 });
