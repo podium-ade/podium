@@ -357,12 +357,12 @@ function routineBlock(brief: TurnBrief): string {
     ? `\nThe instruction was changed at ${r.instruction_changed_at}. Earlier runs in this chat followed an older one; do not copy what they did.`
     : "";
   const hasReader = (brief.playbook.mcp_servers ?? []).some((s) => s.name === GitHubReadServer);
-  const repos = (r.repos ?? []).map((x) => `\`${x}\``).join(", ");
+  const find = ` The instruction and the notes name repositories in words; \`list_repositories\` turns them into owner/name. Use the repositories it names, or that clearly fit, and nothing else.`;
   const reads = !hasReader
     ? ""
     : r.system
-      ? `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the Podium App, in this routine's repositories only: ${repos || "none are listed yet, so you can read none"}. To tell the people on a pull request what you found or propose, use \`comment_on_pull_request\`. Reach for a task only when the work needs a machine.`
-      : `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the routine's owner. Reach for a task only when the work needs a machine.`;
+      ? `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the Podium App, in any repository it is installed on.${find} To tell the people on a pull request what you found or propose, use \`comment_on_pull_request\`. Reach for a task only when the work needs a machine.`
+      : `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the routine's owner.${find} Reach for a task only when the work needs a machine.`;
   const who = r.system
     ? `\n\nThis is a **system routine**: admins set it up, it belongs to nobody, and it runs with the company's credentials. Nobody can write in this chat; admins steer it by editing the instruction and the notes. "The owner" below means the admins who read this chat.`
     : "";

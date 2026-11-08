@@ -262,7 +262,7 @@ function RoutineRow({
         <p className="text-sm text-muted">
           Runs {r.scheduleText}
           {r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
-          {system ? <span className="text-faint"> · as Podium{r.repos.length ? ` on ${repoSummary(r.repos)}` : ""}</span> : null}
+          {system ? <span className="text-faint"> · as Podium</span> : null}
         </p>
         {flagged ? (
           <p className="flex items-start gap-1.5 pt-0.5 text-xs leading-relaxed text-warn">
@@ -337,7 +337,3 @@ function RoutineRow({
   );
 }
 
-/** repoSummary names a few repositories and counts the rest. */
-function repoSummary(repos: string[]): string {
-  return repos.length <= 2 ? repos.join(", ") : `${repos.slice(0, 2).join(", ")} and ${repos.length - 2} more`;
-}

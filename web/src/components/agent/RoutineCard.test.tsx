@@ -242,10 +242,10 @@ describe("RoutineDialog", () => {
 describe("system routines", () => {
   it("are marked System and as running as Podium, stop a run, and show who changed what", async () => {
     getRoutine.mockResolvedValue({
-      routine: routine({ scope: "system", repos: ["acme/api"], running: true, dailyCapUsd: 5, createdBy: "ana" }),
+      routine: routine({ scope: "system", running: true, dailyCapUsd: 5, createdBy: "ana" }),
     });
     cancelRoutineRun.mockResolvedValue({
-      routine: routine({ scope: "system", repos: ["acme/api"], running: false, dailyCapUsd: 5 }),
+      routine: routine({ scope: "system", running: false, dailyCapUsd: 5 }),
     });
     listRoutineRevisions.mockResolvedValue({
       revisions: [
@@ -262,7 +262,7 @@ describe("system routines", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Show details" }));
     const details = await screen.findByTestId("routine-details");
-    expect(details).toHaveTextContent("acme/api");
+    expect(details).not.toHaveTextContent("Repositories");
     expect(details).toHaveTextContent("$5.00 a day");
     const history = await screen.findByTestId("routine-history");
     await waitFor(() => expect(history).toHaveTextContent("Changed the instruction"));
@@ -272,13 +272,12 @@ describe("system routines", () => {
 });
 
 describe("RoutineDialog for an admin", () => {
-  it("makes a system routine: no assistant, its repositories, and a template to start from", async () => {
+  it("makes a system routine: no assistant, no repository list, and a template to start from", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog open title="New routine" canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
     );
     expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as you");
-    expect(screen.queryByTestId("routine-repos-input")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("routine-scope-system"));
     expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as nobody");
@@ -286,18 +285,15 @@ describe("RoutineDialog for an admin", () => {
     expect(screen.getByTestId("routine-name")).toHaveValue("Fix failing CI");
     expect(screen.getByTestId("schedule-summary")).toHaveTextContent("Every 10 minutes");
 
-    const repos = screen.getByTestId("routine-repos-input");
-    await userEvent.type(repos, "nope{Enter}");
-    expect(screen.getByRole("alert")).toHaveTextContent("Write it as owner/name");
-    await userEvent.clear(repos);
-    await userEvent.type(repos, "https://github.com/acme/api.git, acme/web{Enter}");
-    expect(screen.getAllByTestId("routine-repo").map((e) => e.textContent)).toEqual(["acme/api", "acme/web"]);
+    // Repositories are named in the instruction, in words; there is no list to fill.
+    expect((screen.getByTestId("routine-instruction") as HTMLTextAreaElement).value).toContain("[name the repositories");
+    expect(screen.queryByText("Repositories")).not.toBeInTheDocument();
     await userEvent.type(screen.getByTestId("routine-cap"), "4.5");
     await userEvent.click(screen.getByTestId("routine-save"));
 
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "Fix failing CI", repos: ["acme/api", "acme/web"], dailyCapUsd: 4.5, personalityId: "" }),
+        expect.objectContaining({ name: "Fix failing CI", repos: [], dailyCapUsd: 4.5, personalityId: "" }),
         "system",
       ),
     );

@@ -513,3 +513,40 @@ func TestATurnLongerThanATokenKeepsWorking(t *testing.T) {
 	assert.True(t, atPush.ExpiresAt.After(clock), "and the one it gets must still be alive")
 	assert.Equal(t, 2, minted)
 }
+
+// A system routine finds its repository by name among every one the App is installed on, and
+// the listing is done with a token that can read metadata and nothing else.
+func TestInstallationRepos(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	f := newFake()
+	f.route("GET /app/installations", 200, `[{"id":42},{"id":7}]`)
+	f.route("POST /app/installations/42/access_tokens", 201, `{"token":"ghs_a","expires_at":"2026-11-08T13:00:00Z"}`)
+	f.route("POST /app/installations/7/access_tokens", 201, `{"token":"ghs_b","expires_at":"2026-11-08T13:00:00Z"}`)
+	f.routes["GET /installation/repositories"] = func() (int, string) {
+		f.mu.Lock()
+		auth := f.calls[len(f.calls)-1].Auth
+		f.mu.Unlock()
+		if auth == "Bearer ghs_a" {
+			return 200, `{"repositories":[{"full_name":"acme/api","pushed_at":"2026-11-01T00:00:00Z"}]}`
+		}
+		return 200, `{"repositories":[{"full_name":"ada/podium","description":"the ADE","pushed_at":"2026-11-07T00:00:00Z"}]}`
+	}
+	c := client(t, f, now)
+
+	repos, err := c.InstallationRepos(t.Context())
+	require.NoError(t, err)
+	require.Len(t, repos, 2)
+	assert.Equal(t, "ada/podium", repos[0].FullName, "most recently pushed first")
+	assert.Equal(t, "acme/api", repos[1].FullName)
+
+	for _, got := range f.seen() {
+		if got.Method == "POST" {
+			assert.JSONEq(t, `{"permissions":{"metadata":"read"}}`, got.Body)
+		}
+	}
+
+	n := len(f.seen())
+	_, err = c.InstallationRepos(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, f.seen(), n, "a second ask within minutes is answered from memory")
+}

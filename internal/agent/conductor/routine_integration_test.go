@@ -295,7 +295,7 @@ func TestASystemRoutineRunsInItsUnownedChatAsNobody(t *testing.T) {
 
 	sys, err := st.CreateSystemRoutine(ctx, "admin@acme.com", store.RoutineDraft{
 		Name: "Fix failing CI", Schedule: "*/5 * * * *", Timezone: "UTC",
-		Instruction: "Report failing checks.", Repos: []string{"acme/api"}, NextRunAt: time.Now().Add(time.Hour),
+		Instruction: "Report failing checks on the API repo.", NextRunAt: time.Now().Add(time.Hour),
 	})
 	require.NoError(t, err)
 	c, err := st.GetChat(ctx, sys.ChatID)

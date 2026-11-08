@@ -145,17 +145,17 @@ describe("RoutinesPanel", () => {
 });
 
 describe("RoutinesPanel for an admin", () => {
-  it("marks a system routine as such, and as running as Podium on its repositories", async () => {
+  it("marks a system routine as such, and as running as Podium", async () => {
     listRoutines.mockResolvedValue({
       routines: [
-        routine({ id: "rtn_sys", name: "Fix failing CI", scope: "system", repos: ["acme/api", "acme/web", "acme/docs"] }),
+        routine({ id: "rtn_sys", name: "Fix failing CI", scope: "system" }),
         routine({ id: "rtn_mine", name: "PR digest", scope: "personal", ownerLogin: "ana" }),
       ],
     });
     mount();
     const rows = await screen.findAllByTestId("routine-row");
     expect(within(rows[0]!).getByTestId("routine-system-badge")).toBeInTheDocument();
-    expect(rows[0]).toHaveTextContent("as Podium on acme/api, acme/web and 1 more");
+    expect(rows[0]).toHaveTextContent("as Podium");
     expect(within(rows[1]!).queryByTestId("routine-system-badge")).not.toBeInTheDocument();
   });
 

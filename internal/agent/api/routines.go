@@ -613,7 +613,7 @@ func (s *AgentService) routineDraft(
 	d := store.RoutineDraft{
 		Name: in.GetName(), Schedule: in.GetSchedule(), Timezone: in.GetTimezone(),
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
-		Model: in.GetModel(), Effort: in.GetEffort(), Repos: in.GetRepos(),
+		Model: in.GetModel(), Effort: in.GetEffort(),
 	}
 	if c := in.GetDailyCapUsd(); c != 0 {
 		d.DailyCapUSD = &c
@@ -625,9 +625,6 @@ func (s *AgentService) routineDraft(
 			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
 				errors.New("a system routine runs as Podium; it cannot use a personal assistant"))
 		}
-	} else if len(d.Repos) > 0 {
-		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
-			errors.New("a personal routine reads GitHub as its owner; repositories are for system routines"))
 	}
 	if strings.TrimSpace(d.Timezone) == "" {
 		d.Timezone = "UTC"

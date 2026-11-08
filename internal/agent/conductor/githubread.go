@@ -4,12 +4,14 @@ package conductor
 // checks, a failed job's log, and recent commits. A personal routine reads as its OWNER, with
 // the GitHub account they connected under Settings → Account — never as the App: a routine
 // must not let a person read a repository they cannot read themselves. A system routine has
-// no owner and reads as the App, with an installation token minted read-only and only for the
-// repositories an admin listed on the routine; any other repository is refused here.
+// no owner and reads as the App, in any repository the App is installed on, with an
+// installation token minted read-only for the one repository each call names. Nobody lists a
+// routine's repositories: its instruction names them in words, and list_repositories is how
+// the agent turns "the API repo" into owner/name. Where the App is installed is the boundary.
 //
 // A system routine also gets one write, comment_on_pull_request: a comment the App posts on a
-// pull request in one of its repositories, which is how a routine that proposes says so where
-// the people concerned will see it.
+// pull request, which is how a routine that proposes says so where the people concerned will
+// see it.
 //
 // It exists so a routine's check costs a model turn on this host and nothing more. Without it,
 // "are there failed PRs?" is a container started every fifteen minutes to run `gh`, because a
@@ -29,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/mcp"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -40,6 +43,14 @@ const GitHubReadMCPName = mcp.ReservedGitHub
 const githubLogTail = 48 * 1024
 
 var githubReadTools = []chatTool{
+	{Name: "list_repositories", Description: "The GitHub repositories you can read, most recently pushed first: " +
+		"owner/name, description, whether it is private or archived. Your instruction names repositories in words " +
+		"(\"the API\", \"podium\"); call this first to find the owner/name the other tools take. If more than one " +
+		"fits, say which you chose and why.",
+		InputSchema: objectSchema(map[string]any{
+			"query": str("Only repositories whose name or description contains this, any case. Optional."),
+			"limit": map[string]any{"type": "integer", "description": "At most this many, 1–100. Default 30."},
+		})},
 	{Name: "list_pull_requests", Description: "List pull requests in a repository you can read, newest first. " +
 		"Returns number, title, author, head and base branch, head commit, draft, labels and when it was updated.",
 		InputSchema: objectSchema(map[string]any{
@@ -67,7 +78,7 @@ var githubReadTools = []chatTool{
 
 // commentOnPullTool is the one write a system routine has on GitHub.
 var commentOnPullTool = chatTool{Name: "comment_on_pull_request", Description: "Post a comment on a pull " +
-	"request, as the Podium App, in one of this routine's repositories. Use it to tell the people on the pull " +
+	"request, as the Podium App. Use it to tell the people on the pull " +
 	"request what you found or propose; it is visible to everyone who can see the pull request. Write it to " +
 	"stand on its own, in Markdown, and say that it comes from the routine.",
 	InputSchema: objectSchema(map[string]any{
@@ -97,14 +108,10 @@ func (c *Conductor) commentOnPull(ctx context.Context, token, repo string, args 
 	if turnOwner(g.login) != "" {
 		return "", errors.New("comment_on_pull_request is for system routines; a personal routine reports in its own chat")
 	}
-	r, err := c.systemRoutineFor(ctx, g)
-	if err != nil {
+	if _, err := c.systemRoutineFor(ctx, g); err != nil {
 		return "", err
 	}
-	owner, name, err := routineRepo(r, repo)
-	if err != nil {
-		return "", err
-	}
+	owner, name := splitRepo(repo)
 	number := intArg(args, "number", 0, 0, 1<<30)
 	body, _ := args["body"].(string)
 	body = strings.TrimSpace(body)
@@ -222,17 +229,17 @@ func (c *Conductor) githubReaderFor(ctx context.Context, token, repo string) (gi
 	}
 	login := turnOwner(g.login)
 	if login == "" {
-		r, err := c.systemRoutineFor(ctx, g)
-		if err != nil {
+		if _, err := c.systemRoutineFor(ctx, g); err != nil {
 			return githubReader{}, err
 		}
-		owner, name, err := routineRepo(r, repo)
-		if err != nil {
-			return githubReader{}, err
-		}
+		owner, name := splitRepo(repo)
 		tok, err := app.ReadToken(ctx, owner, []string{name})
+		if errors.Is(err, github.ErrNotInstalled) {
+			return githubReader{}, fmt.Errorf("the Podium App is not installed on %s, so it cannot read %s; "+
+				"list_repositories shows what it can read", owner, unescapeRepo(repo))
+		}
 		if err != nil {
-			return githubReader{}, fmt.Errorf("reading %s as the Podium App: %w", repo, err)
+			return githubReader{}, fmt.Errorf("reading %s as the Podium App: %w", unescapeRepo(repo), err)
 		}
 		return githubReader{
 			get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, tok.Value, path, out) },
@@ -270,22 +277,72 @@ func (c *Conductor) systemRoutineFor(ctx context.Context, g turnGrant) (store.Ro
 	return r, nil
 }
 
-// routineRepo checks that repo (escaped owner/name) is one the system routine lists, and
-// splits it.
-func routineRepo(r store.Routine, repo string) (owner, name string, err error) {
-	plain, _ := url.PathUnescape(repo)
-	for _, allowed := range r.Repos {
-		if strings.EqualFold(allowed, plain) {
-			owner, name, _ = strings.Cut(allowed, "/")
-			return owner, name, nil
+// splitRepo splits repo (escaped owner/name, as repoArg makes it) into its parts.
+func splitRepo(repo string) (owner, name string) {
+	owner, name, _ = strings.Cut(unescapeRepo(repo), "/")
+	return owner, name
+}
+
+func unescapeRepo(repo string) string {
+	plain, err := url.PathUnescape(repo)
+	if err != nil {
+		return repo
+	}
+	return plain
+}
+
+// listRepositories is what the turn can read: the App's installations for a system routine,
+// the owner's own repositories for a personal one.
+func (c *Conductor) listRepositories(ctx context.Context, token string, args map[string]any) (string, error) {
+	g, ok := c.grantFor(ctx, token)
+	if !ok {
+		return "", ErrNoTurn
+	}
+	app := c.githubApp()
+	if app == nil {
+		return "", errors.New("GitHub is not connected to Podium (Settings → Connections), so there is nothing to read with")
+	}
+	var repos []github.Repo
+	if login := turnOwner(g.login); login == "" {
+		if _, err := c.systemRoutineFor(ctx, g); err != nil {
+			return "", err
+		}
+		all, err := app.InstallationRepos(ctx)
+		if err != nil {
+			return "", fmt.Errorf("listing the repositories the Podium App is installed on: %w", err)
+		}
+		repos = all
+	} else {
+		tokens, err := c.userTokenClient(ctx)
+		if err != nil {
+			return "", err
+		}
+		personal, err := c.personToken(ctx, login, tokens)
+		if err != nil {
+			return "", fmt.Errorf("reading GitHub as the routine's owner needs their GitHub account "+
+				"connected under Settings → Account: %w", err)
+		}
+		if err := app.GetAs(ctx, personal, "/user/repos?per_page=100&sort=pushed", &repos); err != nil {
+			return "", err
 		}
 	}
-	if len(r.Repos) == 0 {
-		return "", "", fmt.Errorf("this system routine lists no repositories, so it reads none; an admin adds them " +
-			"on the Routines page (Edit → Repositories)")
+	query, _ := args["query"].(string)
+	query = strings.ToLower(strings.TrimSpace(query))
+	limit := intArg(args, "limit", 30, 1, 100)
+	out := make([]github.Repo, 0, limit)
+	for _, r := range repos {
+		if query != "" && !strings.Contains(strings.ToLower(r.FullName+" "+r.Description), query) {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == limit {
+			break
+		}
 	}
-	return "", "", fmt.Errorf("%s is not one of this routine's repositories (%s); an admin adds it on the "+
-		"Routines page", plain, strings.Join(r.Repos, ", "))
+	if len(out) == 0 && query != "" {
+		return fmt.Sprintf("No repository you can read matches %q. Call list_repositories without a query to see them all.", query), nil
+	}
+	return jsonText(out)
 }
 
 func repoArg(args map[string]any) (string, error) {
@@ -307,6 +364,9 @@ func intArg(args map[string]any, key string, def, lo, hi int) int {
 }
 
 func (c *Conductor) githubRead(ctx context.Context, token, name string, args map[string]any) (string, error) {
+	if name == "list_repositories" {
+		return c.listRepositories(ctx, token, args)
+	}
 	repo, err := repoArg(args)
 	if err != nil {
 		return "", err

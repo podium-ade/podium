@@ -208,7 +208,7 @@ describe("buildSystemPrompt", () => {
     expect(reply).not.toContain("scheduled run of a routine");
   });
 
-  it("tells a system routine run it belongs to nobody and reads only its repositories, as the App", () => {
+  it("tells a system routine run it belongs to nobody and finds its repositories by name, as the App", () => {
     const brief: TurnBrief = {
       ...golden(),
       runs_on: "host",
@@ -225,12 +225,12 @@ describe("buildSystemPrompt", () => {
         scheduled: true,
         state: {},
         system: true,
-        repos: ["acme/api", "acme/web"],
       },
     };
     const prompt = buildSystemPrompt(brief);
     expect(prompt).toContain("**system routine**");
-    expect(prompt).toContain("as the Podium App, in this routine's repositories only: `acme/api`, `acme/web`");
+    expect(prompt).toContain("as the Podium App, in any repository it is installed on.");
+    expect(prompt).toContain("`list_repositories` turns them into owner/name");
     expect(prompt).toContain("comment_on_pull_request");
     expect(prompt).not.toContain("as the routine's owner");
   });
