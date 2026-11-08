@@ -7,8 +7,11 @@ import { describe, expect, it } from "vitest";
 import {
   endedOnModelTurn,
   errorOf,
+  harnessTools,
   lostToNetwork,
+  mcpCount,
   resetTakesThinking,
+  serverEnv,
   takesThinking,
   AgentName,
   BrowserBinary,
@@ -17,12 +20,14 @@ import {
   HumanServer,
   invocation,
   KnownTools,
+  LegacyTools,
   MemoryServer,
   ReservedServers,
   TitleServer,
   resolveBrowserURL,
-  skillPermission,
+  skillRules,
   writeConfig,
+  type Rule,
 } from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
@@ -30,15 +35,23 @@ function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
   writeConfig({
     dir,
     systemPrompt: "be direct",
-    tools: ["read", "bash"],
+    tools: ["read", "shell"],
     providerID: "anthropic",
     ...over,
   });
+  const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8")) as Record<string, any>;
   return {
     dir,
-    config: JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8")) as Record<string, any>,
+    config,
     prompt: readFileSync(join(dir, "system.md"), "utf8"),
+    rules: config.agents[AgentName].permissions as Rule[],
+    servers: (config.mcp?.servers ?? undefined) as Record<string, any> | undefined,
   };
+}
+
+/** denied is the set of actions the agent's rules deny outright. */
+function denied(rules: Rule[]): Set<string> {
+  return new Set(rules.filter((r) => r.resource === "*" && r.effect === "deny").map((r) => r.action));
 }
 
 describe("writeConfig", () => {
@@ -48,54 +61,79 @@ describe("writeConfig", () => {
     const contract = 'Answer directly.\n\n"Quoted", \\backslashed\\, and \ttabbed.\n';
     const { config, prompt } = write({ systemPrompt: contract });
     expect(prompt).toBe(contract);
-    expect(config.agent[AgentName].prompt).toBe("{file:./system.md}");
+    expect(config.agents[AgentName].system).toBe("{file:./system.md}");
+    expect(config.agents[AgentName].mode).toBe("primary");
   });
 
-  it("is an allow-list: a tool not named is disabled, not left to the harness's default", () => {
-    const { config } = write({ tools: ["read", "grep"] });
-    const tools = config.agent[AgentName].tools as Record<string, boolean>;
-    expect(tools.read).toBe(true);
-    expect(tools.grep).toBe(true);
+  it("turns off opencode's own titling and sharing", () => {
+    const { config } = write();
+    expect(config.agents.title).toEqual({ disabled: true });
+    expect(config.share).toBe("disabled");
+  });
+
+  it("is an allow-list: a built-in tool not named is denied, not left to the harness's default", () => {
+    const { rules } = write({ tools: ["read", "grep"] });
+    const off = denied(rules);
+    expect(off.has("read")).toBe(false);
+    expect(off.has("grep")).toBe(false);
     // The ones the playbook did not name are explicitly off. Omitting them would leave the
     // harness's own defaults in place, which is the opposite of an allow-list.
-    expect(tools.bash).toBe(false);
-    expect(tools.write).toBe(false);
-    expect(tools.edit).toBe(false);
-    // Every tool the harness has is decided one way or the other.
-    for (const t of KnownTools) {
-      expect(tools).toHaveProperty(t);
+    for (const t of KnownTools.filter((t) => t !== "read" && t !== "grep")) {
+      expect(off.has(t)).toBe(true);
     }
   });
 
-  it("omits the provider block when there is no endpoint opinion", () => {
+  it("always denies the question tool and Code Mode", () => {
+    // Nobody answers a question at a headless turn, and Code Mode is the only way to the
+    // harness's own session and worktree tools.
+    const off = denied(write({ tools: [...KnownTools] }).rules);
+    expect(off.has("question")).toBe(true);
+    expect(off.has("execute")).toBe(true);
+  });
+
+  it("denies opencode's own tools, which no playbook may grant", () => {
+    // session_move would take the session out of the workspace; worktree_create makes
+    // directories outside it.
+    expect(denied(write({ tools: [...KnownTools] }).rules).has("opencode_*")).toBe(true);
+  });
+
+  it("reads a playbook's opencode 1 tool names as the tools they became", () => {
+    const off = denied(write({ tools: ["bash", "task", "list", "patch", "todoread"] }).rules);
+    for (const t of ["shell", "subagent", "glob", "edit", "todowrite"]) {
+      expect(off.has(t)).toBe(false);
+    }
+    expect(off.has("write")).toBe(true);
+    for (const [legacy, now] of Object.entries(LegacyTools)) {
+      expect(harnessTools(legacy)).toEqual(now);
+      for (const t of now) expect(KnownTools).toContain(t);
+    }
+    expect(harnessTools("read")).toEqual(["read"]);
+  });
+
+  it("switches the experimental todo tool on only when the playbook asked for it", () => {
+    expect(write({ tools: ["todowrite"] }).config.experimental).toEqual({ todo: true });
+    expect(write({ tools: ["read"] }).config.experimental).toBeUndefined();
+  });
+
+  it("omits the provider block when there is no endpoint opinion and no key", () => {
     // An empty baseURL would override the harness's own default with nothing.
-    expect(write().config.provider).toBeUndefined();
+    expect(write().config.providers).toBeUndefined();
   });
 
   it("overrides the endpoint when one is given, under that provider's id", () => {
     const { config } = write({ providerID: "xai", baseURL: "https://xai.proxy.internal" });
-    expect(config.provider.xai.options.baseURL).toBe("https://xai.proxy.internal");
+    expect(config.providers.xai.settings.baseURL).toBe("https://xai.proxy.internal");
   });
 
-  it("names Google's key variable, since the harness would look for another one", () => {
-    const { config } = write({
-      providerID: "google",
-      apiKeyEnv: "GOOGLE_API_KEY",
-      baseURL: "https://generativelanguage.googleapis.com/v1beta",
-    });
-    expect(config.provider.google.options.apiKey).toBe("{env:GOOGLE_API_KEY}");
-    expect(config.provider.google.options.baseURL).toBe(
-      "https://generativelanguage.googleapis.com/v1beta",
-    );
-  });
-
-  it("leaves the key to the harness for a provider that has one variable", () => {
-    const { config } = write({
-      providerID: "xai",
-      apiKeyEnv: "XAI_API_KEY",
-      baseURL: "https://api.x.ai/v1",
-    });
-    expect(config.provider.xai.options.apiKey).toBeUndefined();
+  it("names the key variable for every provider, never its value", () => {
+    for (const [providerID, env] of [
+      ["google", "GOOGLE_API_KEY"],
+      ["xai", "XAI_API_KEY"],
+      ["anthropic", "ANTHROPIC_API_KEY"],
+    ] as const) {
+      const { config } = write({ providerID, apiKeyEnv: env });
+      expect(config.providers[providerID].settings.apiKey).toBe(`{env:${env}}`);
+    }
   });
 
   it("adds the ChatGPT account header when an OpenAI token is a JWT", () => {
@@ -111,8 +149,9 @@ describe("writeConfig", () => {
         apiKeyEnv: "OPENAI_API_KEY",
         baseURL: "https://chatgpt.com/backend-api/codex",
       });
-      expect(config.provider.openai.options.headers["ChatGPT-Account-Id"]).toBe("acct-9");
-      expect(config.provider.openai.options.headers.originator).toBe("podium");
+      expect(config.providers.openai.headers["ChatGPT-Account-Id"]).toBe("acct-9");
+      expect(config.providers.openai.headers.originator).toBe("podium");
+      expect(JSON.stringify(config)).not.toContain(jwt);
     } finally {
       if (prev === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -123,106 +162,94 @@ describe("writeConfig", () => {
   });
 
   it("wires memory as a remote MCP server without writing the token to disk", () => {
-    const { config } = write({
+    const { config, servers } = write({
       memory: { url: "http://host.docker.internal:8888/mcp/podium/", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
     });
-    const mcp = config.mcp[MemoryServer];
+    const mcp = servers![MemoryServer];
     expect(mcp.type).toBe("remote");
-    expect(mcp.enabled).toBe(true);
     // {env:...} is resolved by the harness at run time. The config file on disk holds the
     // NAME of the variable and never its value.
     expect(mcp.headers.Authorization).toBe("Bearer {env:PODIUM_MEMORY_API_KEY}");
     expect(JSON.stringify(config)).not.toContain("PODIUM_MEMORY_API_KEY=");
   });
 
-  it("enables the memory tools when the host has memory, whatever the playbook listed", () => {
-    // A playbook cannot opt out of memory: the conductor decides whether a turn gets one.
-    const { config } = write({
-      tools: ["read"],
-      memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
+  it("turns Code Mode off on every MCP server, so their tools are plain `<server>_<tool>` calls", () => {
+    const { servers } = write({
+      memory: { url: "http://x/mcp", apiKeyEnv: "K" },
+      browser: { cdpURL: "http://chrome:9222" },
+      delegation: { url: "http://127.0.0.1:8090", entry: "/opt/podium-agent/dist/mcp.js" },
+      interactive: { entry: "/opt/podium-agent/dist/ask.js" },
+      title: { entry: "/opt/podium-agent/dist/title.js" },
+      mcpServers: [{ name: "linear", url: "https://mcp.linear.app/mcp" }],
     });
-    expect(config.agent[AgentName].tools[`${MemoryServer}*`]).toBe(true);
+    expect(Object.keys(servers!).length).toBe(6);
+    for (const s of Object.values(servers!)) {
+      expect(s.codemode).toBe(false);
+    }
   });
 
   it("leaves memory out entirely on a host that has none", () => {
-    const { config } = write();
-    expect(config.mcp).toBeUndefined();
-    expect(config.agent[AgentName].tools[`${MemoryServer}*`]).toBeUndefined();
+    expect(write().config.mcp).toBeUndefined();
   });
 
   it("denies every skill when the playbook named none", () => {
-    // Not an omission: with everything denied the harness drops the `skill` tool from the
-    // agent, so the skills built into the harness itself cannot be loaded either.
-    expect(write().config.permission).toEqual({ skill: { "*": "deny" } });
+    // Not an omission: with everything denied, the skills built into the harness itself
+    // cannot be loaded either.
+    const skill = write().rules.filter((r) => r.action === "skill");
+    expect(skill).toEqual([{ action: "skill", resource: "*", effect: "deny" }]);
   });
 
   it("denies every skill and allows the ones the playbook named, in that order", () => {
-    const { config } = write({ skills: ["pr-review", "release-notes"] });
-    expect(config.permission.skill).toEqual({
-      "*": "deny",
-      "pr-review": "allow",
-      "release-notes": "allow",
-    });
+    const skill = write({ skills: ["pr-review", "release-notes"] }).rules.filter((r) => r.action === "skill");
     // The harness evaluates the LAST matching rule, so the wildcard has to be written
     // first or it denies the skills that follow it.
-    expect(Object.keys(config.permission.skill)[0]).toBe("*");
+    expect(skill).toEqual([
+      { action: "skill", resource: "*", effect: "deny" },
+      { action: "skill", resource: "pr-review", effect: "allow" },
+      { action: "skill", resource: "release-notes", effect: "allow" },
+    ]);
   });
 
   it("points the harness at the mounted skills directory, and nowhere without one", () => {
     const { config } = write({ skills: ["pr-review"], skillsDir: "/podium/files/skills" });
-    expect(config.skills).toEqual({ paths: ["/podium/files/skills"] });
+    expect(config.skills).toEqual(["/podium/files/skills"]);
     expect(write({ skills: ["pr-review"] }).config.skills).toBeUndefined();
+  });
+
+  it("counts the MCP servers it named, for the server start to wait on", () => {
+    const { dir } = write({
+      memory: { url: "http://x/mcp", apiKeyEnv: "K" },
+      mcpServers: [{ name: "linear", url: "https://mcp.linear.app/mcp" }],
+    });
+    expect(mcpCount(dir)).toBe(2);
+    expect(mcpCount(write().dir)).toBe(0);
+    expect(mcpCount("/nonexistent")).toBe(0);
   });
 });
 
-describe("skillPermission", () => {
-  it("is a deny-by-default map with the wildcard first", () => {
-    expect(skillPermission([])).toEqual({ "*": "deny" });
-    expect(Object.keys(skillPermission(["a", "b"]))).toEqual(["*", "a", "b"]);
+describe("skillRules", () => {
+  it("is deny-by-default with the wildcard first", () => {
+    expect(skillRules([])).toEqual([{ action: "skill", resource: "*", effect: "deny" }]);
+    expect(skillRules(["a", "b"]).map((r) => r.resource)).toEqual(["*", "a", "b"]);
   });
 });
 
 describe("writeConfig with a browser", () => {
   it("drives the sidecar browser with a local server that attaches over CDP", () => {
-    const { config } = write({ browser: { cdpURL: "http://chrome:9222" } });
-    const mcp = config.mcp[BrowserServer];
+    const { servers } = write({ browser: { cdpURL: "http://chrome:9222" } });
+    const mcp = servers![BrowserServer];
     // Local, not remote: the server runs in this container and the browser it drives is
     // the sidecar. That split is why no Chromium is installed here.
     expect(mcp.type).toBe("local");
-    expect(mcp.enabled).toBe(true);
     expect(mcp.command).toEqual([BrowserBinary, "--browserUrl", "http://chrome:9222"]);
   });
 
-  it("enables the browser tools when the turn has a browser, whatever the playbook listed", () => {
-    const { config } = write({ tools: ["read"], browser: { cdpURL: "http://chrome:9222" } });
-    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBe(true);
-  });
-
-  it("leaves the browser out entirely for a playbook that did not ask for one", () => {
-    const { config } = write();
-    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBeUndefined();
-  });
-
-  it("carries memory and a browser together, each keyed by its own server name", () => {
-    const { config } = write({
-      memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
-      browser: { cdpURL: "http://chrome:9222" },
-    });
-    expect(Object.keys(config.mcp).sort()).toEqual([BrowserServer, MemoryServer].sort());
-  });
-
-  // The combination the QA playbook uses, and the one nothing else covers: a browser puts
-  // an MCP server and a `browser*` tool entry in the config, skills put a `permission.skill`
-  // map in it, and each is written where the other is not looking.
+  // The combination the QA playbook uses: a browser puts an MCP server in the config, and
+  // skills put rules in the agent's permissions, and neither replaces the other.
   it("carries a browser and Agent Skills together, keyed separately", () => {
-    const { config } = write({
-      browser: { cdpURL: "http://chrome:9222" },
-      skills: ["pr-review"],
-    });
-    expect(Object.keys(config.mcp)).toEqual([BrowserServer]);
-    expect(config.mcp[BrowserServer].command).toEqual([BrowserBinary, "--browserUrl", "http://chrome:9222"]);
-    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBe(true);
-    expect(config.permission.skill).toEqual({ "*": "deny", "pr-review": "allow" });
+    const { servers, rules } = write({ browser: { cdpURL: "http://chrome:9222" }, skills: ["pr-review"] });
+    expect(Object.keys(servers!)).toEqual([BrowserServer]);
+    expect(rules).toContainEqual({ action: "skill", resource: "pr-review", effect: "allow" });
   });
 });
 
@@ -230,78 +257,51 @@ describe("writeConfig with delegation", () => {
   const delegation = { url: "http://127.0.0.1:8090", entry: "/opt/podium-agent/dist/mcp.js" };
 
   it("runs this runtime's own second entrypoint, with the address as an argument", () => {
-    const { config } = write({ delegation });
-    expect(config.mcp.podium.type).toBe("local");
+    const { config, servers } = write({ delegation });
+    expect(servers!.podium.type).toBe("local");
     // node, the entrypoint, then --url and the address. The TOKEN is not here: an argument
     // is visible in a process list, so it travels in the environment.
-    expect(config.mcp.podium.command).toEqual([
+    expect(servers!.podium.command).toEqual([
       process.execPath,
       "/opt/podium-agent/dist/mcp.js",
       "--url",
       "http://127.0.0.1:8090",
     ]);
-    expect(config.mcp.podium.enabled).toBe(true);
     expect(JSON.stringify(config)).not.toContain("PODIUM_TURN_TOKEN");
   });
 
-  it("turns the podium tools on, because a host turn's short tool list depends on them", () => {
-    const { config } = write({ delegation, tools: ["webfetch"] });
-    expect(config.agent.podium.tools["podium*"]).toBe(true);
-    expect(config.agent.podium.tools.webfetch).toBe(true);
-    expect(config.agent.podium.tools.bash).toBe(false);
-  });
-
-  it("writes no server and no tools when the turn cannot delegate", () => {
-    const { config } = write({});
-    expect(config.mcp).toBeUndefined();
-    expect(config.agent.podium.tools["podium*"]).toBeUndefined();
+  it("does not deny the podium tools, which a host turn's short tool list depends on", () => {
+    const off = denied(write({ delegation, tools: ["webfetch"] }).rules);
+    expect([...off].some((a) => a.startsWith("podium"))).toBe(false);
+    expect(off.has("webfetch")).toBe(false);
+    expect(off.has("shell")).toBe(true);
   });
 
   it("sits beside memory and the browser rather than replacing either", () => {
-    const { config } = write({
+    const { servers } = write({
       delegation,
       memory: { url: "http://memory/mcp/", apiKeyEnv: "K" },
       browser: { cdpURL: "http://127.0.0.1:9222" },
     });
-    expect(Object.keys(config.mcp).sort()).toEqual(["browser", "memory", "podium"]);
-    expect(config.agent.podium.tools["memory*"]).toBe(true);
-    expect(config.agent.podium.tools["browser*"]).toBe(true);
-    expect(config.agent.podium.tools["podium*"]).toBe(true);
+    expect(Object.keys(servers!).sort()).toEqual(["browser", "memory", "podium"]);
   });
 });
 
 describe("writeConfig with a title tool", () => {
-  it("runs the title entrypoint and enables its tools, without putting the file path in the config", () => {
-    const { config } = write({ title: { entry: "/opt/podium-agent/dist/title.js" } });
-    expect(config.mcp[TitleServer].type).toBe("local");
-    expect(config.mcp[TitleServer].command).toEqual([
-      process.execPath,
-      "/opt/podium-agent/dist/title.js",
-    ]);
-    expect(config.agent[AgentName].tools[`${TitleServer}*`]).toBe(true);
+  it("runs the title entrypoint, without putting the file path in the config", () => {
+    const { config, servers } = write({ title: { entry: "/opt/podium-agent/dist/title.js" } });
+    expect(servers![TitleServer].type).toBe("local");
+    expect(servers![TitleServer].command).toEqual([process.execPath, "/opt/podium-agent/dist/title.js"]);
     expect(JSON.stringify(config)).not.toContain("PODIUM_CHAT_TITLE_FILE");
     expect(JSON.stringify(config)).not.toContain("chat-title.txt");
-  });
-
-  it("writes no title server when the turn can name the chat by writing the file", () => {
-    const { config } = write({});
-    expect(config.mcp).toBeUndefined();
-    expect(config.agent[AgentName].tools[`${TitleServer}*`]).toBeUndefined();
   });
 });
 
 describe("writeConfig with interactive", () => {
-  it("runs the ask entrypoint as a local MCP server and enables its tools", () => {
-    const { config } = write({ interactive: { entry: "/opt/podium-agent/dist/ask.js" } });
-    expect(config.mcp[HumanServer].type).toBe("local");
-    expect(config.mcp[HumanServer].command).toEqual([process.execPath, "/opt/podium-agent/dist/ask.js"]);
-    expect(config.agent[AgentName].tools[`${HumanServer}*`]).toBe(true);
-  });
-
-  it("writes no server when the playbook is not interactive", () => {
-    const { config } = write({});
-    expect(config.mcp).toBeUndefined();
-    expect(config.agent[AgentName].tools[`${HumanServer}*`]).toBeUndefined();
+  it("runs the ask entrypoint as a local MCP server", () => {
+    const { servers } = write({ interactive: { entry: "/opt/podium-agent/dist/ask.js" } });
+    expect(servers![HumanServer].type).toBe("local");
+    expect(servers![HumanServer].command).toEqual([process.execPath, "/opt/podium-agent/dist/ask.js"]);
   });
 });
 
@@ -309,10 +309,9 @@ describe("writeConfig with the playbook's own MCP servers", () => {
   const linear = { name: "linear", url: "https://mcp.linear.app/mcp", token_env: "PODIUM_MCP_LINEAR_TOKEN" };
 
   it("wires a playbook's server as a remote server without writing the token to disk", () => {
-    const { config } = write({ mcpServers: [linear] });
-    const mcp = config.mcp.linear;
+    const { config, servers } = write({ mcpServers: [linear] });
+    const mcp = servers!.linear;
     expect(mcp.type).toBe("remote");
-    expect(mcp.enabled).toBe(true);
     expect(mcp.url).toBe("https://mcp.linear.app/mcp");
     // The MCP authorization specification's own scheme, and the NAME of the variable: the
     // token is resolved by the harness at run time and is never in this file.
@@ -321,12 +320,12 @@ describe("writeConfig with the playbook's own MCP servers", () => {
   });
 
   it("sends no authorization header for a server registered without a token", () => {
-    const { config } = write({ mcpServers: [{ name: "wiki", url: "http://wiki:9000/mcp" }] });
-    expect(config.mcp.wiki.url).toBe("http://wiki:9000/mcp");
-    expect(config.mcp.wiki.headers).toBeUndefined();
+    const { servers } = write({ mcpServers: [{ name: "wiki", url: "http://wiki:9000/mcp" }] });
+    expect(servers!.wiki.url).toBe("http://wiki:9000/mcp");
+    expect(servers!.wiki.headers).toBeUndefined();
   });
 
-  it("merges a server's config beside its token, with the form's fields winning", () => {
+  it("keeps a server's headers beside its token, and translates what opencode 2 reads differently", () => {
     const grafana = {
       name: "grafana",
       url: "https://mcp.grafana.com/mcp",
@@ -338,38 +337,22 @@ describe("writeConfig with the playbook's own MCP servers", () => {
         url: "https://elsewhere/mcp",
       },
     };
-    const { config } = write({ mcpServers: [grafana] });
-    expect(config.mcp.grafana.headers).toEqual({
+    const { servers } = write({ mcpServers: [grafana] });
+    expect(servers!.grafana.headers).toEqual({
       "X-Grafana-URL": "https://stack.grafana.net",
       Authorization: "Bearer {env:PODIUM_MCP_GRAFANA_TOKEN}",
     });
-    expect(config.mcp.grafana.timeout).toBe(30000);
-    expect(config.mcp.grafana.whatever).toEqual({ nested: true });
-    expect(config.mcp.grafana.url).toBe("https://mcp.grafana.com/mcp");
+    // One number was opencode 1's timeout for everything; opencode 2 has one per phase.
+    expect(servers!.grafana.timeout).toEqual({ startup: 30000, catalog: 30000, execution: 30000 });
+    // A key opencode 2 does not read is dropped rather than failing the whole config, and
+    // the form's own fields win.
+    expect(servers!.grafana.whatever).toBeUndefined();
+    expect(servers!.grafana.url).toBe("https://mcp.grafana.com/mcp");
   });
 
   it("refuses a config the harness would expand", () => {
     const leak = { name: "wiki", url: "http://wiki/mcp", config: { deep: ["{env:PODIUM_TURN_TOKEN}"] } };
     expect(() => write({ mcpServers: [leak] })).toThrow(/may not reference/);
-  });
-
-  it("enables the server's tools wholesale, whatever the playbook listed", () => {
-    // Naming the server in mcp_servers is what granting it means. A playbook cannot
-    // describe individual tools of a server whose tool list only exists once it is
-    // connected to.
-    const { config } = write({ tools: ["read"], mcpServers: [linear] });
-    expect(config.agent[AgentName].tools["linear*"]).toBe(true);
-    expect(config.agent[AgentName].tools.bash).toBe(false);
-  });
-
-  it("carries memory, a browser and the playbook's servers together, each under its own key", () => {
-    const { config } = write({
-      memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
-      browser: { cdpURL: "http://chrome:9222" },
-      mcpServers: [linear],
-    });
-    expect(Object.keys(config.mcp).sort()).toEqual([BrowserServer, MemoryServer, "linear"].sort());
-    expect(config.mcp[MemoryServer].url).toBe("http://x/mcp");
   });
 
   it("refuses a server that would take the name of one the runtime wires up itself", () => {
@@ -385,25 +368,14 @@ describe("writeConfig with the playbook's own MCP servers", () => {
     );
   });
 
-  it("sits beside the delegation server rather than replacing it", () => {
-    const { config } = write({
-      delegation: { url: "http://127.0.0.1:8090", entry: "/opt/podium-agent/dist/mcp.js" },
-      mcpServers: [linear],
-    });
-    expect(Object.keys(config.mcp).sort()).toEqual([DelegateServer, "linear"].sort());
-    expect(config.agent[AgentName].tools[`${DelegateServer}*`]).toBe(true);
-    expect(config.agent[AgentName].tools["linear*"]).toBe(true);
-  });
-
   it("leaves the mcp block out for a playbook that named none", () => {
-    const { config } = write({ mcpServers: [] });
-    expect(config.mcp).toBeUndefined();
+    expect(write({ mcpServers: [] }).config.mcp).toBeUndefined();
   });
 });
 
 describe("invocation", () => {
   const base = {
-    configDir: "/tmp/podium-turn-abc",
+    server: { url: "http://127.0.0.1:41234", password: "pw" },
     workdir: "/workspace",
     providerID: "xai",
     model: "grok-4.6",
@@ -411,18 +383,12 @@ describe("invocation", () => {
     env: { PATH: "/usr/bin" },
   };
 
-  it("points the harness at the config it just wrote", () => {
-    // Without this the harness looks for a config in the project --dir names, finds none,
-    // and runs `--agent podium` as its own default agent: no system prompt, no allow-list.
-    const { env } = invocation(base);
-    expect(env["OPENCODE_CONFIG"]).toBe("/tmp/podium-turn-abc/opencode.json");
-    expect(env["PATH"]).toBe("/usr/bin");
-  });
-
-  it("runs the turn's agent against the workspace", () => {
-    const { argv, cwd } = invocation(base);
+  it("runs the turn's agent on the turn's server, in the workspace", () => {
+    const { argv, cwd, env } = invocation(base);
     expect(argv).toEqual([
       "run",
+      "--server",
+      "http://127.0.0.1:41234",
       "--format",
       "json",
       "--agent",
@@ -430,11 +396,12 @@ describe("invocation", () => {
       "--auto",
       "--model",
       "xai/grok-4.6",
-      "--dir",
-      "/workspace",
       "do the thing",
     ]);
-    expect(cwd).toBe("/tmp/podium-turn-abc");
+    // opencode 2 has no --dir: the run's directory is the session's project.
+    expect(cwd).toBe("/workspace");
+    expect(env["OPENCODE_SERVER_PASSWORD"]).toBe("pw");
+    expect(env["PATH"]).toBe("/usr/bin");
   });
 
   it("asks for reasoning only when the harness takes the flag", () => {
@@ -442,10 +409,9 @@ describe("invocation", () => {
     expect(invocation(base).argv).not.toContain("--thinking");
   });
 
-  it("passes an effort through as the variant, and omits it when the profile names none", () => {
-    expect(invocation({ ...base, effort: "high" }).argv).toContain("--variant");
-    expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
-    expect(invocation(base).argv).not.toContain("--variant");
+  it("passes an effort as the model's variant, and omits it when the profile names none", () => {
+    expect(invocation({ ...base, effort: "high" }).argv).toContain("xai/grok-4.6#high");
+    expect(invocation(base).argv).toContain("xai/grok-4.6");
   });
 
   it("continues a session when one is named, so an inject does not start from scratch", () => {
@@ -454,6 +420,17 @@ describe("invocation", () => {
     expect(argv).toContain("ses_01");
     expect(argv.at(-1)).toBe("use main");
     expect(invocation(base).argv).not.toContain("--session");
+  });
+});
+
+describe("serverEnv", () => {
+  it("points the server at the config it was written and gives it its password", () => {
+    // Without the config the server runs `--agent podium` as its own default agent: no
+    // system prompt of ours, and no allow-list.
+    const env = serverEnv({ PATH: "/usr/bin" }, "/tmp/podium-turn-abc", "pw");
+    expect(env["OPENCODE_CONFIG"]).toBe("/tmp/podium-turn-abc/opencode.json");
+    expect(env["OPENCODE_SERVER_PASSWORD"]).toBe("pw");
+    expect(env["PATH"]).toBe("/usr/bin");
   });
 });
 
@@ -485,6 +462,11 @@ describe("errorOf", () => {
       errorOf({ type: "error", error: { name: "APIError", data: { message: "credit balance is too low" } } }),
     ).toBe("credit balance is too low");
     expect(errorOf({ type: "error", error: { name: "UnknownError" } })).toBe("UnknownError");
+    // opencode 2's shape.
+    expect(
+      errorOf({ type: "error", error: { type: "provider.invalid-request", message: "prompt is too long" } }),
+    ).toBe("prompt is too long");
+    expect(errorOf({ type: "error", error: { type: "unknown" } })).toBe("unknown");
     expect(errorOf({ type: "error" })).toBe("an unnamed error");
     expect(errorOf({ type: "text" })).toBeUndefined();
   });

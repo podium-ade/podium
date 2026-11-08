@@ -18,8 +18,8 @@ export const WorkspaceDir = "/workspace";
  * For a task it is WorkspaceDir, the volume the node mounted. For a HOST turn there is no
  * such directory — the conductor forked this process in a jail of its own and made that the
  * working directory — so it is process.cwd(). Getting this wrong is not subtle: the harness
- * is given the workspace as `--dir` and refuses to start with "Failed to change directory
- * to /workspace", which is a turn that dies before its first request.
+ * runs in the workspace, and a run started in a directory that does not exist is a turn that
+ * dies before its first request.
  */
 export function workspaceOf(brief: { runs_on?: string }, cwd = process.cwd()): string {
   return brief.runs_on === "host" ? cwd : WorkspaceDir;

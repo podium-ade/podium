@@ -102,7 +102,7 @@ var hostDrainGrace = 100 * time.Millisecond
 //
 // The first turn of a chat still names the conversation. It does not get `write` to do that.
 // The runtime adds title_set, which writes only chat-title.txt inside this turn's jail.
-var hostTools = []string{"webfetch", "todoread", "todowrite"}
+var hostTools = []string{"webfetch", "todowrite"}
 
 // Everything a host turn ever says about its own failures. None of them names a path, a
 // binary or a provider: that is what the log is for.

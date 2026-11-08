@@ -359,10 +359,19 @@ async function main(): Promise<number> {
   let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
+  let server: oc.Server | undefined;
   try {
+    // One server for the whole turn: every run below, the resumes and a warm turn's
+    // follow-ups, attaches to it. See oc.Server for why the runs do not start their own.
+    server = await oc.serve({
+      configDir,
+      workdir: workspace,
+      env,
+      warn: (line) => warn(redact(line, token)),
+    });
     for (;;) {
       const run = oc.start({
-        configDir,
+        server,
         workdir: workspace,
         providerID: brief.provider.id,
         model: brief.profile.model,
@@ -568,6 +577,7 @@ async function main(): Promise<number> {
       finalText = `The turn failed before I could answer: ${redact(messageOf(err), token)}`;
     }
   } finally {
+    server?.stop();
     stopHub();
   }
 
