@@ -697,9 +697,17 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 
 // reviewAction is the GitHub event for this answer. An approval that a later
 // answer no longer stands behind becomes a request for changes.
+//
+// A pull request this App opened is reviewed but never approved: the App vouching for its
+// own work is not a review, and a branch protection rule counting it would let Podium merge
+// what nobody looked at. Nor does it request changes there, which GitHub refuses from a pull
+// request's own author. Its verdict is still in the review's words; the event is a comment.
 func (s *Source) reviewAction(ctx context.Context, p Parsed, body string) string {
 	event := reviewEvent(body)
 	if event == eventApprove {
+		if s.ownPull(ctx, p) {
+			return eventComment
+		}
 		return event
 	}
 	id, err := s.reviewID(ctx, SourceKey(p.Owner, p.Repo, p.Number))
@@ -710,10 +718,21 @@ func (s *Source) reviewAction(ctx context.Context, p Parsed, body string) string
 	if err != nil {
 		return event
 	}
-	if s.reviewState(ctx, install, p, id) == "APPROVED" {
+	if s.reviewState(ctx, install, p, id) == "APPROVED" && !s.ownPull(ctx, p) {
 		return eventRequestChanges
 	}
 	return event
+}
+
+// ownPull reports whether this App opened the pull request. A pull request that cannot be
+// read counts as the App's own, for the same reason a missing verdict line is a comment: a
+// review must not approve by accident.
+func (s *Source) ownPull(ctx context.Context, p Parsed) bool {
+	info := s.pullInfo(ctx, p)
+	if !info.OK {
+		return true
+	}
+	return s.isAppUser(info.Author, info.AuthorType)
 }
 
 func statusTitle(event string) string {
