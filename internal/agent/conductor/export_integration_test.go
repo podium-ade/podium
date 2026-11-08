@@ -98,3 +98,47 @@ func SharedConversationForTest(ctx context.Context, st *store.Store, sess store.
 	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	return c.sharedConversation(ctx, sess)
 }
+
+// MintChatTurnTokenForTest mints a token for a turn of the chat ref, answered through src.
+func (c *Conductor) MintChatTurnTokenForTest(src Source, sessionID, turnID, ref, login string) (string, error) {
+	return c.mintTurnToken(turnGrant{turnID: turnID, sessionID: sessionID, ref: ref, src: src, login: login})
+}
+
+// NoteRoutineTurnForTest records turnID as the scheduled run ev carries, as runTurn does.
+func (c *Conductor) NoteRoutineTurnForTest(ctx context.Context, turnID string, ev InboundEvent) {
+	c.noteRoutineTurn(ctx, turnID, ev)
+}
+
+// PostForTest says out through src, as a turn would.
+func (c *Conductor) PostForTest(ctx context.Context, src Source, ref string, out Outbound) string {
+	return c.post(ctx, src, ref, out)
+}
+
+// FinishForTest shows a turn's outcome, as a turn would.
+func (c *Conductor) FinishForTest(ctx context.Context, src Source, ref string, kind Reaction) {
+	c.finish(ctx, src, ref, kind)
+}
+
+// RoutineMenuForTest is the delegation menu a turn for ev is shown.
+func (c *Conductor) RoutineMenuForTest(ev InboundEvent) []DelegablePlaybook {
+	return c.routineMenu(c.DelegablePlaybooks(), ev)
+}
+
+// ChatToolNamesForTest is the names of the podium server's tools the turn token holds is offered.
+func (c *Conductor) ChatToolNamesForTest(ctx context.Context, token string) []string {
+	var out []string
+	for _, t := range c.chatDelegateToolsFor(ctx, token) {
+		out = append(out, t.Name)
+	}
+	return out
+}
+
+// CheckRoutineDelegationsForTest is the routine caps a delegation from the turn token holds
+// meets, before its playbook is looked at.
+func (c *Conductor) CheckRoutineDelegationsForTest(ctx context.Context, token string) error {
+	g, ok := c.grantFor(ctx, token)
+	if !ok {
+		return ErrNoTurn
+	}
+	return c.checkRoutineDelegations(ctx, g)
+}

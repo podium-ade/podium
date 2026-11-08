@@ -261,7 +261,49 @@ func (c *Conductor) Delegate(
 		return store.Delegation{}, fmt.Errorf("%w: %q; this turn was offered %v",
 			ErrPlaybookNotOffered, playbookName, g.playbooks)
 	}
+	if err := c.checkRoutineDelegations(ctx, g); err != nil {
+		return store.Delegation{}, err
+	}
 	return c.delegate(ctx, g, playbookName, instruction, opts)
+}
+
+// A scheduled routine run delegates at most MaxRoutineDelegationsPerRun tasks, and a routine has
+// at most MaxRoutineConcurrentDelegations running at once, across its runs: nobody is watching
+// a routine, so a run that loops on "delegate another" must stop on its own.
+const (
+	MaxRoutineDelegationsPerRun     = 3
+	MaxRoutineConcurrentDelegations = 3
+)
+
+// ErrRoutineDelegationCap is a routine run that has started as many tasks as it may.
+var ErrRoutineDelegationCap = errors.New("conductor: this routine has started as many tasks as it may")
+
+// checkRoutineDelegations refuses a delegation from a scheduled run past either cap. A person's
+// own message in a routine's chat is not a run and is not capped here.
+func (c *Conductor) checkRoutineDelegations(ctx context.Context, g turnGrant) error {
+	c.mu.Lock()
+	rt := c.routineTurns[g.turnID]
+	c.mu.Unlock()
+	if rt == nil || c.store == nil {
+		return nil
+	}
+	mine, err := c.store.DelegationsForTurn(ctx, g.turnID)
+	if err != nil {
+		return err
+	}
+	if len(mine) >= MaxRoutineDelegationsPerRun {
+		return fmt.Errorf("%w: a routine run starts at most %d; list the rest in your answer and the next run "+
+			"can take them", ErrRoutineDelegationCap, MaxRoutineDelegationsPerRun)
+	}
+	running, err := c.store.RunningDelegationsForSession(ctx, g.sessionID)
+	if err != nil {
+		return err
+	}
+	if len(running) >= MaxRoutineConcurrentDelegations {
+		return fmt.Errorf("%w: %d of its tasks are still running, the most a routine may have at once; "+
+			"leave the rest for a later run", ErrRoutineDelegationCap, len(running))
+	}
+	return nil
 }
 
 // delegate starts playbookName for the conversation g names. Delegate has already checked

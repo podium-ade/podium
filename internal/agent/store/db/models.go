@@ -34,6 +34,7 @@ type Chat struct {
 	HistorySeeded      bool
 	StartedFromChat    *string
 	StartedByTurn      *string
+	RoutineID          *string
 }
 
 type ChatAccess struct {
@@ -180,6 +181,7 @@ type Notification struct {
 	Actor     string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+	Detail    string
 }
 
 type Personality struct {
@@ -204,6 +206,61 @@ type ReviewSurface struct {
 	Kind      string
 	Ref       string
 	CreatedAt time.Time
+}
+
+type Routine struct {
+	ID                   string
+	Scope                string
+	OwnerLogin           *string
+	Name                 string
+	Schedule             string
+	Timezone             string
+	Instruction          string
+	InstructionUpdatedAt time.Time
+	Notes                string
+	ProposedNote         string
+	PersonalityID        *string
+	Model                string
+	Effort               string
+	Enabled              bool
+	PausedReason         string
+	State                []byte
+	StateUpdatedAt       *time.Time
+	ChatID               string
+	NextRunAt            time.Time
+	LastRunAt            *time.Time
+	IdleCount            int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Repos                []string
+	DailyCapUsd          *float64
+	PausedUntil          *time.Time
+	CreatedBy            string
+}
+
+type RoutineRevision struct {
+	ID          int64
+	RoutineID   string
+	Instruction string
+	Notes       string
+	Schedule    string
+	Timezone    string
+	ChangedBy   string
+	ChangedAt   time.Time
+}
+
+type RoutineRun struct {
+	ID           string
+	RoutineID    string
+	ScheduledFor time.Time
+	Trigger      string
+	Status       string
+	Summary      string
+	Reported     string
+	TurnID       *string
+	CostUsd      *float64
+	CreatedAt    time.Time
+	FinishedAt   *time.Time
 }
 
 type Session struct {
@@ -231,21 +288,22 @@ type SlackChannel struct {
 }
 
 type Turn struct {
-	ID         string
-	SessionID  string
-	TaskID     *string
-	TriggerRef string
-	Status     string
-	StartedAt  time.Time
-	FinishedAt *time.Time
-	NumTurns   *int32
-	CostUsd    *float64
-	FinalText  *string
-	Agent      *string
-	Model      *string
-	Effort     *string
-	Provider   *string
-	StartedBy  string
+	ID           string
+	SessionID    string
+	TaskID       *string
+	TriggerRef   string
+	Status       string
+	StartedAt    time.Time
+	FinishedAt   *time.Time
+	NumTurns     *int32
+	CostUsd      *float64
+	FinalText    *string
+	Agent        *string
+	Model        *string
+	Effort       *string
+	Provider     *string
+	StartedBy    string
+	RoutineRunID *string
 }
 
 type TurnQueue struct {

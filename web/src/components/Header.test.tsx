@@ -71,13 +71,13 @@ describe("Header", () => {
       .getAllByRole("button", { expanded: true })
       .map((button) => button.textContent);
     expect(toggles).toEqual(["Work", "Agents", "Access", "Compute", "Organization"]);
-    expect(groupLinks("Work")).toEqual(["Chat", "Tasks"]);
+    expect(groupLinks("Work")).toEqual(["Chat", "Routines", "Tasks"]);
     // Sessions is hidden for now, though its page still answers at its address.
     expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
     expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
     expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Snapshots", "Registries"]);
-    expect(groupLinks("Organization")).toEqual(["Members", "Usage"]);
+    expect(groupLinks("Organization")).toEqual(["Members", "Routines", "Usage"]);
   });
 
   it("links each former settings section to its own address", () => {

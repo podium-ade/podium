@@ -46,6 +46,16 @@ var conductorActions = map[string]bool{
 	"chat.leave":          true,
 	"chat.delete":         true,
 	"chat.start":          true,
+	// Routines (docs/agent.md, "Routines"): who set one up, changed what it is told, paused,
+	// resumed, ran or stopped it, and the per-person limits.
+	"routine.create": true,
+	"routine.update": true,
+	"routine.delete": true,
+	"routine.pause":  true,
+	"routine.resume": true,
+	"routine.run":    true,
+	"routine.cancel": true,
+	"routine.limits": true,
 }
 
 // RecordAudit writes one row, for the conductor only.

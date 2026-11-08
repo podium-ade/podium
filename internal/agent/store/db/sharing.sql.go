@@ -139,7 +139,7 @@ func (q *Queries) ListChatAccess(ctx context.Context, chatID string) ([]ListChat
 
 const listNotifications = `-- name: ListNotifications :many
 select n.id, n.login, n.kind, n.chat_id, n.seq, n.actor, n.created_at, n.read_at,
-       c.title as chat_title
+       n.detail, c.title as chat_title
   from notifications n
   join chats c on c.id = n.chat_id
  where n.login = $1
@@ -164,6 +164,7 @@ type ListNotificationsRow struct {
 	Actor     string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+	Detail    string
 	ChatTitle string
 }
 
@@ -188,6 +189,7 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 			&i.Actor,
 			&i.CreatedAt,
 			&i.ReadAt,
+			&i.Detail,
 			&i.ChatTitle,
 		); err != nil {
 			return nil, err
@@ -266,6 +268,29 @@ func (q *Queries) MemberProfile(ctx context.Context, login string) (MemberProfil
 	return i, err
 }
 
+const notifyRoutine = `-- name: NotifyRoutine :exec
+insert into notifications (login, kind, chat_id, actor, detail)
+values ($1, 'routine', $2, $3, $4)
+`
+
+type NotifyRoutineParams struct {
+	Login  string
+	ChatID string
+	Actor  string
+	Detail string
+}
+
+// NotifyRoutine tells a routine's owner that Podium or an admin paused it, and why.
+func (q *Queries) NotifyRoutine(ctx context.Context, arg NotifyRoutineParams) error {
+	_, err := q.db.Exec(ctx, notifyRoutine,
+		arg.Login,
+		arg.ChatID,
+		arg.Actor,
+		arg.Detail,
+	)
+	return err
+}
+
 const notifyShare = `-- name: NotifyShare :exec
 insert into notifications (login, kind, chat_id, actor)
 values ($1, 'share', $2, $3)
@@ -303,7 +328,7 @@ func (q *Queries) RevokeChatAccess(ctx context.Context, arg RevokeChatAccessPara
 const setChatGeneralAccess = `-- name: SetChatGeneralAccess :one
 update chats set general_access = $1, general_role = $2
  where id = $3
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type SetChatGeneralAccessParams struct {
@@ -341,13 +366,14 @@ func (q *Queries) SetChatGeneralAccess(ctx context.Context, arg SetChatGeneralAc
 		&i.HistorySeeded,
 		&i.StartedFromChat,
 		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
 
 const setChatLinkToken = `-- name: SetChatLinkToken :one
 update chats set link_token = $1 where id = $2
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type SetChatLinkTokenParams struct {
@@ -384,6 +410,7 @@ func (q *Queries) SetChatLinkToken(ctx context.Context, arg SetChatLinkTokenPara
 		&i.HistorySeeded,
 		&i.StartedFromChat,
 		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }

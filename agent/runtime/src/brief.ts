@@ -281,13 +281,17 @@ const briefSchema = z.strictObject({
     .strictObject({
       url: z.string().min(1),
       token_env: z.string().min(1),
-      playbooks: z.array(delegablePlaybookSchema).min(1),
+      // Empty only for a turn that has a token for something else: routine_finish in a
+      // routine's chat, create_routine in a person's web chat.
+      playbooks: z.array(delegablePlaybookSchema),
       // What this conversation already has in flight. Absent when nothing is, which is
       // the common case; present, it is what stops a second task being started for a job
       // that is already running.
       running: z.array(runningDelegationSchema).optional(),
       // Finished tasks whose environment is still up, which "I'm done" releases.
       previews: z.array(livePreviewSchema).optional(),
+      // The turn may set up a routine for the person it answers (create_routine).
+      routines: z.boolean().optional(),
     })
     .optional(),
   // Where this turn is running. Absent means a task container, which is what every brief
@@ -295,6 +299,28 @@ const briefSchema = z.strictObject({
   // container around it, no repository checked out and nothing collecting its files. The
   // prompt says different things in the two cases and must not have to guess which it is.
   runs_on: z.enum(["task", "host"]).optional(),
+  // Present on a turn in a routine's chat: a run the schedule started, or the owner's own
+  // message there. See internal/agent/conductor/routine.go.
+  routine: z
+    .strictObject({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      schedule: z.string(),
+      scheduled: z.boolean(),
+      notes: z.string().optional(),
+      state: z.record(z.string(), z.unknown()),
+      idle_runs: z.number().int().nonnegative().optional(),
+      instruction_changed_at: z.string().optional(),
+      // A system routine runs as nobody: admins set it up, and it reads GitHub as the App.
+      system: z.boolean().optional(),
+    })
+    .optional(),
+}).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {
+  // An empty menu is not a menu. A routine's turn and a turn that may create a routine are the
+  // exceptions: they carry the block for the token their tools need, whether or not they may
+  // delegate anything.
+  message: "delegation needs at least one playbook",
+  path: ["delegation", "playbooks"],
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;

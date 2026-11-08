@@ -139,8 +139,18 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const last = new Map<string, TaskBlock>();
 
   let current: Assistant | undefined;
+  // A routine run that found nothing to do is kept quietly: under a "… · nothing to do"
+  // divider, its answer is stored as a progress row so it is not history. It is still what
+  // the run concluded, so it is drawn as the turn's words, after its folded steps.
+  let quiet = false;
+  let quietAnswer = -1;
   const close = () => {
     if (!current) return;
+    if (quiet && quietAnswer >= 0 && quietAnswer === current.parts.length - 1) {
+      const part = current.parts[quietAnswer];
+      if (part?.type === "reasoning") current.parts[quietAnswer] = { type: "text", text: part.text };
+    }
+    quietAnswer = -1;
     out.push(current);
     current = undefined;
   };
@@ -150,6 +160,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
       // Podium saying something about the chat itself (it became multiplayer): a divider
       // between turns, never part of one.
       close();
+      quiet = isQuietRun(m.text);
       out.push({
         id: `n${m.seq}`,
         role: "system",
@@ -160,6 +171,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
     }
     if (m.role === "user") {
       close();
+      quiet = false;
       out.push({
         id: `u${m.seq}`,
         role: "user",
@@ -183,6 +195,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
     if (m.taskId === "") {
       const part = rowPart(m);
       if (part) current.parts.push(part);
+      quietAnswer = part && m.role === "progress" ? current.parts.length - 1 : -1;
       continue;
     }
 
@@ -224,6 +237,11 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
     thread[thread.length - 1] = { ...tail, status: { type: "running" } };
   }
   return thread;
+}
+
+/** isQuietRun is a routine run's divider for a run that found nothing to do. */
+export function isQuietRun(divider: string): boolean {
+  return divider.startsWith("Routine run ·") && divider.endsWith("· nothing to do");
 }
 
 /** rowPart is one non-answer row, or an answer, as a part; undefined for what draws nothing. */

@@ -73,12 +73,17 @@ insert into notifications (login, kind, chat_id, actor)
 values (@login, 'share', @chat_id, @actor)
 on conflict (login, chat_id) where kind = 'share' do nothing;
 
+-- NotifyRoutine tells a routine's owner that Podium or an admin paused it, and why.
+-- name: NotifyRoutine :exec
+insert into notifications (login, kind, chat_id, actor, detail)
+values (@login, 'routine', @chat_id, @actor, @detail);
+
 -- ListNotifications is a person's inbox, newest first, with the chat's title for the toast.
 -- A notification for a chat they can no longer open is left out rather than deleted: access
 -- can come back, and the row is harmless.
 -- name: ListNotifications :many
 select n.id, n.login, n.kind, n.chat_id, n.seq, n.actor, n.created_at, n.read_at,
-       c.title as chat_title
+       n.detail, c.title as chat_title
   from notifications n
   join chats c on c.id = n.chat_id
  where n.login = @login

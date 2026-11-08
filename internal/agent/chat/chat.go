@@ -130,6 +130,9 @@ type live struct {
 	// awaiting is true while an interactive turn has asked a question and is waiting for
 	// a reply. Send is allowed then: the text is injected into the running task.
 	awaiting bool
+	// held is a routine's scheduled run going in this chat, whose output is held until it
+	// ends (routine.go). Nil otherwise.
+	held *held
 }
 
 // Source is the chat as the conductor sees it: a conductor.Source like any other.
@@ -832,13 +835,17 @@ func (s *Source) progress(ctx context.Context, ref string, out conductor.Outboun
 	}
 	// Deliberately no noteSpoke: a thought is not an answer, so a turn that dies after only
 	// thinking still leaves its plain-words failure behind.
-	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+	m := store.ChatMessage{
 		ChatID: ref,
 		Role:   store.RoleProgress,
 		Text:   text,
 		TS:     time.Now().UTC(),
 		TaskID: out.TaskID,
-	})
+	}
+	if s.hold(ref, m) {
+		return nil
+	}
+	msg, err := s.store.AppendChatMessage(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -850,13 +857,17 @@ func (s *Source) progress(ctx context.Context, ref string, out conductor.Outboun
 // own row so a reload draws the same trail a watcher saw. Like progress it is not an
 // answer, so it does not count as the turn having spoken.
 func (s *Source) PostActivity(ctx context.Context, ref string, out conductor.Outbound) error {
-	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+	m := store.ChatMessage{
 		ChatID: ref,
 		Role:   store.RoleActivity,
 		Text:   out.Text,
 		TS:     time.Now().UTC(),
 		TaskID: out.TaskID,
-	})
+	}
+	if s.hold(ref, m) {
+		return nil
+	}
+	msg, err := s.store.AppendChatMessage(ctx, m)
 	if err != nil {
 		return err
 	}

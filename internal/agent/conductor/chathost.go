@@ -420,6 +420,9 @@ func (c *Conductor) chatLocation(ctx context.Context, cv *chatConv, h *hostRun) 
 	if h.pullRequest {
 		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: PullRequestMCPName, URL: mcpURL(PullRequestMCPName)})
 	}
+	if h.githubRead {
+		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: GitHubReadMCPName, URL: mcpURL(GitHubReadMCPName)})
+	}
 	if h.memoryURL != "" && c.host.MemoryAPIKey != "" {
 		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: "memory", URL: h.memoryURL,
 			Headers: map[string]string{"Authorization": "Bearer " + c.host.MemoryAPIKey}})

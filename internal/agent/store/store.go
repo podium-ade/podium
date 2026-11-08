@@ -138,11 +138,17 @@ type Turn struct {
 	// TurnStartedByApp for a review nobody in Podium asked for, and empty for a turn from
 	// before the column or one with no person.
 	StartedBy string
+	// RoutineRunID is the routine run this turn is, "" for a turn somebody asked for (0043).
+	RoutineRunID string
 }
 
 // TurnStartedByApp is turns.started_by for a review the GitHub App ran on nobody's behalf:
 // an automatic review, or a review command from somebody who has not linked GitHub.
 const TurnStartedByApp = "github-app"
+
+// TurnStartedByRoutine is turns.started_by for a system routine's run, which nobody started:
+// "routine:<id>". Usage shows each system routine as its own line.
+func TurnStartedByRoutine(routineID string) string { return "routine:" + routineID }
 
 // Backend is the resolved agent, model and effort a turn ran on, and the provider that was
 // billed for it. Provider is stored rather than derived from Agent so that remapping a
@@ -527,16 +533,17 @@ func (s *Store) SetGitHubReviewID(ctx context.Context, sourceKey string, reviewI
 
 func turnFromRow(r db.Turn) Turn {
 	t := Turn{
-		ID:         r.ID,
-		SessionID:  r.SessionID,
-		TaskID:     deref(r.TaskID),
-		TriggerRef: r.TriggerRef,
-		Status:     r.Status,
-		StartedAt:  r.StartedAt.UTC(),
-		FinishedAt: utcPtr(r.FinishedAt),
-		CostUSD:    r.CostUsd,
-		FinalText:  deref(r.FinalText),
-		StartedBy:  r.StartedBy,
+		ID:           r.ID,
+		SessionID:    r.SessionID,
+		TaskID:       deref(r.TaskID),
+		TriggerRef:   r.TriggerRef,
+		Status:       r.Status,
+		StartedAt:    r.StartedAt.UTC(),
+		FinishedAt:   utcPtr(r.FinishedAt),
+		CostUSD:      r.CostUsd,
+		FinalText:    deref(r.FinalText),
+		StartedBy:    r.StartedBy,
+		RoutineRunID: deref(r.RoutineRunID),
 		Backend: Backend{
 			Agent:    deref(r.Agent),
 			Model:    deref(r.Model),
@@ -643,6 +650,9 @@ type Chat struct {
 	// StartedFromChat is the conversation the assistant opened this chat from, "" for a chat
 	// somebody opened themselves or one whose origin was deleted (0041).
 	StartedFromChat string
+	// RoutineID is the routine this chat belongs to, "" for any other chat (0043). A routine
+	// chat is a web chat its owner writes in, and is never shared.
+	RoutineID string
 	// SourceURL is the link to a mirrored chat's conversation where it lives (a Slack
 	// thread's permalink), "" when the source gave none (0038).
 	SourceURL string
@@ -993,6 +1003,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			GeneralAccess:      r.GeneralAccess,
 			GeneralRole:        r.GeneralRole,
 			LinkToken:          deref(r.LinkToken),
+			RoutineID:          deref(r.RoutineID),
 			Sharing: ChatSharing{
 				MyRole: r.MyRole, AccessReason: r.AccessReason,
 				SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
@@ -1340,6 +1351,7 @@ func chatFromRow(row db.Chat) Chat {
 		SourceURL:          row.SourceUrl,
 		HistorySeeded:      row.HistorySeeded,
 		StartedFromChat:    deref(row.StartedFromChat),
+		RoutineID:          deref(row.RoutineID),
 	}
 }
 

@@ -251,7 +251,222 @@ service AgentService {
   // DeletePersonality removes one of the caller's voices. Chats that used it stay
   // readable under the name they had. A new message in one of those chats is refused.
   rpc DeletePersonality(DeletePersonalityRequest) returns (DeletePersonalityResponse);
+
+  // Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+  // own. A personal routine is its owner's: every RPC below answers only for routines the
+  // caller owns, and the dev token for all of them. A system routine runs as nobody and is
+  // configured by admins and owners, who manage it with the same RPCs.
+  rpc ListRoutines(ListRoutinesRequest) returns (ListRoutinesResponse);
+  rpc GetRoutine(GetRoutineRequest) returns (GetRoutineResponse);
+  // CreateRoutine opens the routine and its chat.
+  rpc CreateRoutine(CreateRoutineRequest) returns (CreateRoutineResponse);
+  rpc UpdateRoutine(UpdateRoutineRequest) returns (UpdateRoutineResponse);
+  // DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+  rpc DeleteRoutine(DeleteRoutineRequest) returns (DeleteRoutineResponse);
+  rpc PauseRoutine(PauseRoutineRequest) returns (PauseRoutineResponse);
+  rpc ResumeRoutine(ResumeRoutineRequest) returns (ResumeRoutineResponse);
+  // RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+  rpc RunRoutineNow(RunRoutineNowRequest) returns (RunRoutineNowResponse);
+  rpc ResetRoutineState(ResetRoutineStateRequest) returns (ResetRoutineStateResponse);
+  // ResolveRoutineNote accepts or dismisses the note the agent proposed.
+  rpc ResolveRoutineNote(ResolveRoutineNoteRequest) returns (ResolveRoutineNoteResponse);
+  rpc ListRoutineRuns(ListRoutineRunsRequest) returns (ListRoutineRunsResponse);
+  // ListRoutineRevisions is the history of what a routine was told to do: each change to its
+  // instruction, notes or schedule, who made it, and when.
+  rpc ListRoutineRevisions(ListRoutineRevisionsRequest) returns (ListRoutineRevisionsResponse);
+  // CancelRoutineRun stops the run going now.
+  rpc CancelRoutineRun(CancelRoutineRunRequest) returns (CancelRoutineRunResponse);
+  // ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+  // last run's status, never the chat, the instruction or what a run said. Admins only.
+  rpc ListMemberRoutines(ListMemberRoutinesRequest) returns (ListMemberRoutinesResponse);
+  // GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+  rpc GetRoutineLimits(GetRoutineLimitsRequest) returns (GetRoutineLimitsResponse);
+  rpc SetRoutineLimits(SetRoutineLimitsRequest) returns (SetRoutineLimitsResponse);
 }
+
+// Routine is one recurring job.
+message Routine {
+  string id = 1;
+  string name = 2;
+  // schedule is a five-field cron expression, read in timezone (an IANA name).
+  string schedule = 3;
+  string timezone = 4;
+  // schedule_text is the schedule in words ("weekdays at 09:00").
+  string schedule_text = 5;
+  string instruction = 6;
+  // notes are the owner's standing instructions, briefed with every run.
+  string notes = 7;
+  // proposed_note is a note the agent suggested, waiting to be accepted or dismissed.
+  string proposed_note = 8;
+  string personality_id = 9;
+  string model = 10;
+  string effort = 11;
+  bool enabled = 12;
+  // paused_reason says why a routine was paused by Podium rather than by its owner.
+  string paused_reason = 13;
+  // state is the agent's JSON object across runs, "{}" when it has kept nothing.
+  string state = 14;
+  string chat_id = 15;
+  google.protobuf.Timestamp next_run_at = 16;
+  google.protobuf.Timestamp last_run_at = 17;
+  // idle_count is how many runs since the last one that did something found nothing to do.
+  int32 idle_count = 18;
+  string owner_login = 19;
+  // spend_today_usd is what the routine's turns cost in the last 24 hours.
+  double spend_today_usd = 20;
+  // running is whether a run is going now.
+  bool running = 21;
+  google.protobuf.Timestamp created_at = 22;
+  // scope is "personal" (runs as its owner) or "system" (runs as nobody, set up by admins).
+  string scope = 23;
+  // repos is a system routine's GitHub reach, owner/name each, read through the App.
+  repeated string repos = 24;
+  // daily_cap_usd is what the routine may spend in a day in its timezone; 0 is no cap of its own.
+  double daily_cap_usd = 25;
+  // paused_until is when a routine Podium paused for the day resumes by itself.
+  google.protobuf.Timestamp paused_until = 26;
+  // created_by is who set the routine up.
+  string created_by = 27;
+  // last_run_status is the latest run's status that was not skipped, "" before the first.
+  string last_run_status = 28;
+}
+
+// RoutineRun is one firing of a routine.
+message RoutineRun {
+  string id = 1;
+  google.protobuf.Timestamp scheduled_for = 2;
+  // trigger is "schedule" or "manual".
+  string trigger = 3;
+  // status is running, done, idle, failed, skipped_overlap or skipped_paused.
+  string status = 4;
+  string summary = 5;
+  string turn_id = 6;
+  // cost_usd is the run's turn's cost, 0 while it runs or when it reported none.
+  double cost_usd = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+}
+
+// RoutineDraft is what a person writes.
+message RoutineDraft {
+  string name = 1;
+  string schedule = 2;
+  string timezone = 3;
+  string instruction = 4;
+  string notes = 5;
+  string personality_id = 6;
+  string model = 7;
+  string effort = 8;
+  // repos: see Routine. Only a system routine has them.
+  repeated string repos = 9;
+  // daily_cap_usd: see Routine. 0 is no cap of its own.
+  double daily_cap_usd = 10;
+}
+
+message ListRoutinesRequest {}
+message ListRoutinesResponse { repeated Routine routines = 1; }
+
+message GetRoutineRequest {
+  // id, or chat_id to find the routine a chat belongs to.
+  string id = 1;
+  string chat_id = 2;
+}
+message GetRoutineResponse { Routine routine = 1; }
+
+message CreateRoutineRequest {
+  RoutineDraft draft = 1;
+  // scope is "personal" (the default) or "system", which only admins and owners may create.
+  string scope = 2;
+}
+message CreateRoutineResponse { Routine routine = 1; }
+
+message UpdateRoutineRequest {
+  string id = 1;
+  RoutineDraft draft = 2;
+}
+message UpdateRoutineResponse { Routine routine = 1; }
+
+message DeleteRoutineRequest { string id = 1; }
+message DeleteRoutineResponse {}
+
+message PauseRoutineRequest { string id = 1; }
+message PauseRoutineResponse { Routine routine = 1; }
+
+message ResumeRoutineRequest { string id = 1; }
+message ResumeRoutineResponse { Routine routine = 1; }
+
+message RunRoutineNowRequest { string id = 1; }
+message RunRoutineNowResponse { RoutineRun run = 1; }
+
+message ResetRoutineStateRequest { string id = 1; }
+message ResetRoutineStateResponse { Routine routine = 1; }
+
+message ResolveRoutineNoteRequest {
+  string id = 1;
+  // accept appends the proposed note to the notes; false dismisses it.
+  bool accept = 2;
+}
+message ResolveRoutineNoteResponse { Routine routine = 1; }
+
+message ListRoutineRunsRequest {
+  string id = 1;
+  // include_idle adds the runs that did nothing: idle and skipped.
+  bool include_idle = 2;
+  Page page = 3;
+}
+message ListRoutineRunsResponse {
+  repeated RoutineRun runs = 1;
+  string next_cursor = 2;
+}
+
+// RoutineRevision is one change to what a routine is told to do.
+message RoutineRevision {
+  int64 id = 1;
+  string instruction = 2;
+  string notes = 3;
+  string schedule = 4;
+  string timezone = 5;
+  string changed_by = 6;
+  google.protobuf.Timestamp changed_at = 7;
+}
+
+message ListRoutineRevisionsRequest { string id = 1; }
+message ListRoutineRevisionsResponse { repeated RoutineRevision revisions = 1; }
+
+message CancelRoutineRunRequest { string id = 1; }
+message CancelRoutineRunResponse { Routine routine = 1; }
+
+// MemberRoutine is a person's routine as an admin sees it: what it is called, whose it is, when
+// it runs, what it spends, and how its last run went. Nothing a run said.
+message MemberRoutine {
+  string id = 1;
+  string name = 2;
+  string owner_login = 3;
+  string schedule_text = 4;
+  string timezone = 5;
+  bool enabled = 6;
+  string paused_reason = 7;
+  double spend_today_usd = 8;
+  string last_run_status = 9;
+  google.protobuf.Timestamp last_run_at = 10;
+  google.protobuf.Timestamp next_run_at = 11;
+}
+
+message ListMemberRoutinesRequest {}
+message ListMemberRoutinesResponse { repeated MemberRoutine routines = 1; }
+
+// RoutineLimits bound what one person's routines may do.
+message RoutineLimits {
+  // max_per_person is how many routines one person may have.
+  int32 max_per_person = 1;
+  // person_daily_cap_usd is what one person's routines may spend together in 24 hours; 0 is no cap.
+  double person_daily_cap_usd = 2;
+}
+
+message GetRoutineLimitsRequest {}
+message GetRoutineLimitsResponse { RoutineLimits limits = 1; }
+message SetRoutineLimitsRequest { RoutineLimits limits = 1; }
+message SetRoutineLimitsResponse { RoutineLimits limits = 1; }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
 // source_key, which the source computes and the conductor never parses.
@@ -1067,6 +1282,9 @@ message Chat {
   // general_access is "restricted", "members" or "link"; general_role is what it grants.
   string general_access = 27;
   string general_role = 28;
+  // routine_id is the routine this chat belongs to, empty for any other chat. A routine chat
+  // is never shared.
+  string routine_id = 29;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1477,7 +1695,7 @@ message MarkChatReadResponse {}
 // Notification is one entry in the caller's inbox.
 message Notification {
   int64 id = 1;
-  // kind is "share" or "mention".
+  // kind is "share", "mention" or "routine" (a routine of yours was paused).
   string kind = 2;
   string chat_id = 3;
   string chat_title = 4;
@@ -1487,6 +1705,8 @@ message Notification {
   string actor = 6;
   google.protobuf.Timestamp created_at = 7;
   bool read = 8;
+  // detail is what a routine notice says happened ("5 runs failed within an hour").
+  string detail = 9;
 }
 
 message ListNotificationsRequest {
