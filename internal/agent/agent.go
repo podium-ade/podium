@@ -37,6 +37,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/notify"
 	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/routines"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/netlisten"
@@ -73,6 +74,9 @@ type Agent struct {
 	chatHost *chathost.Host
 	live     *liveConnections
 	linear   *agentlinear.Source
+	// routines fires routines on a schedule (internal/agent/routines). Nil when this conductor
+	// has no host runtime: a routine's run is a conversation, which only a host turn answers.
+	routines *routines.Scheduler
 	chat     *chat.Source
 	dev      *api.DevSource
 	memory   memory.Client
@@ -314,6 +318,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		if host.TurnURL != "" {
 			host.PullRequestMCPURL = host.TurnURL + api.PullRequestMCPRESTPath
+			host.GitHubReadMCPURL = host.TurnURL + api.GitHubReadMCPRESTPath
 		}
 		if cfg.MemoryEnabled() {
 			// The memory server as THIS PROCESS reaches it. A task is told
@@ -470,6 +475,18 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Logger:                     a.logger,
 	})
 	a.live.conductor, a.live.svc = a.conductor, a.svc
+	// Routines run in their chats, so they need the web chat and a host runtime to answer it.
+	conductor.DescribeSchedule = routines.Describe
+	if a.chat != nil && host != nil {
+		a.routines, err = routines.New(routines.Options{Store: st, Runner: a.chat, Logger: logger})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		a.svc.SetRoutines(a.routines)
+		// Only where routines run may an assistant set one up for the person it talks to.
+		a.conductor.SetRoutineCreator(a.svc)
+	}
 	// The turn surface. It is the conductor itself, and it is always mounted: a turn on the
 	// host delegates through here, and a playbook's task anywhere redeems its git capability
 	// here. Every call is authenticated by a live turn's own token or a signed capability, so
@@ -581,6 +598,10 @@ func (a *Agent) mountSurface(mux *http.ServeMux) {
 	if a.gitcred != nil {
 		gitPath, gitHandler := agentv1connect.NewGitCredentialServiceHandler(a.gitcred, opts...)
 		mux.Handle(gitPath, gitHandler)
+	}
+	if a.turns != nil {
+		// The GitHub reader a routine's turn gets, read as the routine's owner.
+		mux.Handle(api.GitHubReadMCPRESTPath, a.conductor.GitHubReadMCP())
 	}
 	if a.turns != nil || a.gitcred != nil {
 		mux.Handle(api.TurnRESTPrefix, api.NewTurnREST(a.turns, a.gitcred, prMCP))
@@ -776,6 +797,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.linear != nil {
 		// One conductor polls Linear: every one that did would start the same ticket.
 		go func() { sourceErr <- a.conductor.WhileLeader(runCtx, "source:linear", a.linear.Run) }()
+	}
+	if a.routines != nil {
+		// One conductor fires routines: every one that did would fire each of them twice, and
+		// the run rows' unique key would turn the second into nothing but noise.
+		go func() { _ = a.conductor.WhileLeader(runCtx, "source:routines", a.routines.Run) }()
 	}
 	conductorDone := make(chan struct{})
 	go func() {

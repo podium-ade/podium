@@ -54,6 +54,12 @@ const (
 	TurnServiceReleasePreviewProcedure = "/podium.agent.v1.TurnService/ReleasePreview"
 	// TurnServiceStartChatProcedure is the fully-qualified name of the TurnService's StartChat RPC.
 	TurnServiceStartChatProcedure = "/podium.agent.v1.TurnService/StartChat"
+	// TurnServiceFinishRoutineProcedure is the fully-qualified name of the TurnService's FinishRoutine
+	// RPC.
+	TurnServiceFinishRoutineProcedure = "/podium.agent.v1.TurnService/FinishRoutine"
+	// TurnServiceCreateRoutineProcedure is the fully-qualified name of the TurnService's CreateRoutine
+	// RPC.
+	TurnServiceCreateRoutineProcedure = "/podium.agent.v1.TurnService/CreateRoutine"
 	// GitCredentialServiceMintTokenProcedure is the fully-qualified name of the GitCredentialService's
 	// MintToken RPC.
 	GitCredentialServiceMintTokenProcedure = "/podium.agent.v1.GitCredentialService/MintToken"
@@ -85,6 +91,13 @@ type TurnServiceClient interface {
 	// assistant's opening message, optionally shared, and returns the link to it: "starting a
 	// triage on this session — click here to join".
 	StartChat(context.Context, *connect.Request[v1.StartChatRequest]) (*connect.Response[v1.StartChatResponse], error)
+	// FinishRoutine ends a routine run: whether it did something, its one-line summary, the
+	// state it keeps for the next run, and a standing note it proposes. Only a turn in a
+	// routine's chat may call it.
+	FinishRoutine(context.Context, *connect.Request[v1.FinishRoutineRequest]) (*connect.Response[v1.FinishRoutineResponse], error)
+	// CreateRoutine opens a routine for the person who asked for it in this conversation, with
+	// its own chat. Only a turn in a web chat that is not itself a routine may call it.
+	CreateRoutine(context.Context, *connect.Request[v1.TurnServiceCreateRoutineRequest]) (*connect.Response[v1.TurnServiceCreateRoutineResponse], error)
 }
 
 // NewTurnServiceClient constructs a client for the podium.agent.v1.TurnService service. By default,
@@ -140,6 +153,18 @@ func NewTurnServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(turnServiceMethods.ByName("StartChat")),
 			connect.WithClientOptions(opts...),
 		),
+		finishRoutine: connect.NewClient[v1.FinishRoutineRequest, v1.FinishRoutineResponse](
+			httpClient,
+			baseURL+TurnServiceFinishRoutineProcedure,
+			connect.WithSchema(turnServiceMethods.ByName("FinishRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		createRoutine: connect.NewClient[v1.TurnServiceCreateRoutineRequest, v1.TurnServiceCreateRoutineResponse](
+			httpClient,
+			baseURL+TurnServiceCreateRoutineProcedure,
+			connect.WithSchema(turnServiceMethods.ByName("CreateRoutine")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -152,6 +177,8 @@ type turnServiceClient struct {
 	injectDelegation *connect.Client[v1.InjectDelegationRequest, v1.InjectDelegationResponse]
 	releasePreview   *connect.Client[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse]
 	startChat        *connect.Client[v1.StartChatRequest, v1.StartChatResponse]
+	finishRoutine    *connect.Client[v1.FinishRoutineRequest, v1.FinishRoutineResponse]
+	createRoutine    *connect.Client[v1.TurnServiceCreateRoutineRequest, v1.TurnServiceCreateRoutineResponse]
 }
 
 // Delegate calls podium.agent.v1.TurnService.Delegate.
@@ -189,6 +216,16 @@ func (c *turnServiceClient) StartChat(ctx context.Context, req *connect.Request[
 	return c.startChat.CallUnary(ctx, req)
 }
 
+// FinishRoutine calls podium.agent.v1.TurnService.FinishRoutine.
+func (c *turnServiceClient) FinishRoutine(ctx context.Context, req *connect.Request[v1.FinishRoutineRequest]) (*connect.Response[v1.FinishRoutineResponse], error) {
+	return c.finishRoutine.CallUnary(ctx, req)
+}
+
+// CreateRoutine calls podium.agent.v1.TurnService.CreateRoutine.
+func (c *turnServiceClient) CreateRoutine(ctx context.Context, req *connect.Request[v1.TurnServiceCreateRoutineRequest]) (*connect.Response[v1.TurnServiceCreateRoutineResponse], error) {
+	return c.createRoutine.CallUnary(ctx, req)
+}
+
 // TurnServiceHandler is an implementation of the podium.agent.v1.TurnService service.
 type TurnServiceHandler interface {
 	// Delegate starts a Podium task for this turn's conversation and returns immediately. A
@@ -215,6 +252,13 @@ type TurnServiceHandler interface {
 	// assistant's opening message, optionally shared, and returns the link to it: "starting a
 	// triage on this session — click here to join".
 	StartChat(context.Context, *connect.Request[v1.StartChatRequest]) (*connect.Response[v1.StartChatResponse], error)
+	// FinishRoutine ends a routine run: whether it did something, its one-line summary, the
+	// state it keeps for the next run, and a standing note it proposes. Only a turn in a
+	// routine's chat may call it.
+	FinishRoutine(context.Context, *connect.Request[v1.FinishRoutineRequest]) (*connect.Response[v1.FinishRoutineResponse], error)
+	// CreateRoutine opens a routine for the person who asked for it in this conversation, with
+	// its own chat. Only a turn in a web chat that is not itself a routine may call it.
+	CreateRoutine(context.Context, *connect.Request[v1.TurnServiceCreateRoutineRequest]) (*connect.Response[v1.TurnServiceCreateRoutineResponse], error)
 }
 
 // NewTurnServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -266,6 +310,18 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(turnServiceMethods.ByName("StartChat")),
 		connect.WithHandlerOptions(opts...),
 	)
+	turnServiceFinishRoutineHandler := connect.NewUnaryHandler(
+		TurnServiceFinishRoutineProcedure,
+		svc.FinishRoutine,
+		connect.WithSchema(turnServiceMethods.ByName("FinishRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	turnServiceCreateRoutineHandler := connect.NewUnaryHandler(
+		TurnServiceCreateRoutineProcedure,
+		svc.CreateRoutine,
+		connect.WithSchema(turnServiceMethods.ByName("CreateRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.TurnService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TurnServiceDelegateProcedure:
@@ -282,6 +338,10 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 			turnServiceReleasePreviewHandler.ServeHTTP(w, r)
 		case TurnServiceStartChatProcedure:
 			turnServiceStartChatHandler.ServeHTTP(w, r)
+		case TurnServiceFinishRoutineProcedure:
+			turnServiceFinishRoutineHandler.ServeHTTP(w, r)
+		case TurnServiceCreateRoutineProcedure:
+			turnServiceCreateRoutineHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -317,6 +377,14 @@ func (UnimplementedTurnServiceHandler) ReleasePreview(context.Context, *connect.
 
 func (UnimplementedTurnServiceHandler) StartChat(context.Context, *connect.Request[v1.StartChatRequest]) (*connect.Response[v1.StartChatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.StartChat is not implemented"))
+}
+
+func (UnimplementedTurnServiceHandler) FinishRoutine(context.Context, *connect.Request[v1.FinishRoutineRequest]) (*connect.Response[v1.FinishRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.FinishRoutine is not implemented"))
+}
+
+func (UnimplementedTurnServiceHandler) CreateRoutine(context.Context, *connect.Request[v1.TurnServiceCreateRoutineRequest]) (*connect.Response[v1.TurnServiceCreateRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.CreateRoutine is not implemented"))
 }
 
 // GitCredentialServiceClient is a client for the podium.agent.v1.GitCredentialService service.

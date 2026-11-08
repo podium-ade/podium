@@ -65,6 +65,15 @@ export { TitleServer };
 /** DelegateURLFlag matches UrlFlag in mcp.ts. */
 export const DelegateURLFlag = "--url";
 
+/** DelegateRoutineFlag matches RoutineFlag in mcp.ts. */
+export const DelegateRoutineFlag = "--routine";
+
+/** DelegateCreateRoutineFlag matches CreateRoutineFlag in mcp.ts. */
+export const DelegateCreateRoutineFlag = "--create-routine";
+
+/** DelegateNoPlaybooksFlag matches NoPlaybooksFlag in mcp.ts. */
+export const DelegateNoPlaybooksFlag = "--no-playbooks";
+
 /**
  * resolveBrowserURL turns the sidecar's name into its address, because Chrome will not
  * answer to a name.
@@ -185,7 +194,9 @@ export interface Config {
    * shape as the browser, and for the same reason: what speaks MCP runs here, and what it
    * drives is somewhere else.
    */
-  delegation?: { url: string; entry: string };
+  /** routine adds routine_finish to the delegation server: the turn is in a routine's chat.
+   * createRoutine adds create_routine. noPlaybooks leaves the delegation tools out. */
+  delegation?: { url: string; entry: string; routine?: boolean; createRoutine?: boolean; noPlaybooks?: boolean };
   /** mcpServers is the playbook's own MCP servers, already resolved by the conductor. */
   mcpServers?: McpServerRef[];
   /**
@@ -377,7 +388,15 @@ export function writeConfig(cfg: Config): string {
     // process list.
     mcp[DelegateServer] = {
       type: "local",
-      command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
+      command: [
+        process.execPath,
+        cfg.delegation.entry,
+        DelegateURLFlag,
+        cfg.delegation.url,
+        ...(cfg.delegation.routine ? [DelegateRoutineFlag] : []),
+        ...(cfg.delegation.createRoutine ? [DelegateCreateRoutineFlag] : []),
+        ...(cfg.delegation.noPlaybooks ? [DelegateNoPlaybooksFlag] : []),
+      ],
       enabled: true,
     };
   }

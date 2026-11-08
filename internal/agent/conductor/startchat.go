@@ -164,6 +164,9 @@ func (c *Conductor) StartChat(ctx context.Context, token string, req StartChatRe
 	if n >= MaxChatsStartedPerTurn {
 		return StartedChat{}, ErrTooManyChats
 	}
+	if err := c.checkRoutineChatCap(ctx, g.turnID); err != nil {
+		return StartedChat{}, err
+	}
 
 	// Where it came from: the chat this turn's conversation is, web or mirrored. A
 	// conversation with no chat row (a dev source, a Linear issue) has nowhere to link back to.

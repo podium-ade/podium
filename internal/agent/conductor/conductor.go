@@ -308,6 +308,11 @@ type Conductor struct {
 	// The durable half is the delegations table; this is only how a turn asking for
 	// progress finds the last thing its task said.
 	liveDelegations map[string]*delegationRun
+	// routineTurns is the scheduled routine runs this conductor is running, by turn id
+	// (routine.go). Guarded by mu.
+	routineTurns map[string]*routineTurn
+	// routineCreator is what create_routine creates routines with (routine.go).
+	routineCreator RoutineCreator
 	// workspaceMu makes claiming a pull request's workspace and recording the delegation
 	// that claimed it one step. See delegate.
 	workspaceMu sync.Mutex
@@ -431,6 +436,7 @@ func New(opts Options) (*Conductor, error) {
 		hostRuns:            map[string]func(){},
 		turnTokens:          map[string]turnGrant{},
 		liveDelegations:     map[string]*delegationRun{},
+		routineTurns:        map[string]*routineTurn{},
 	}
 	// A source that fans answers out to another (the GitHub source, to the Slack threads bound
 	// to a pull request) hands each copy back here, so it is owed and retried like the
@@ -995,6 +1001,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
 	}
+	// A scheduled routine run: the run row learns its turn, and the turn its run.
+	c.noteRoutineTurn(ctx, turn.ID, ev)
 
 	// The playbook's Agent Skills, read off this host and packed. It happens per turn and
 	// not at start-up so that a skill an operator has just edited is the one the next turn
@@ -1058,6 +1066,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	brief.Playbook.UnavailableMCPServers = unavailable
+	brief.Routine = c.briefRoutine(ctx, src, ev)
 	if persona != nil {
 		brief.Git = persona
 	}
@@ -1066,7 +1075,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
-		menu = c.menuFor(src, ev.Role)
+		menu = c.routineMenu(c.menuFor(src, ev.Role), ev)
 		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
@@ -1144,6 +1153,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			}
 			for _, s := range brief.Playbook.MCPServers {
 				host.pullRequest = host.pullRequest || s.Name == PullRequestMCPName
+				host.githubRead = host.githubRead || s.Name == GitHubReadMCPName
 			}
 			chatRun{h: host}.run(ctx)
 			return
@@ -2066,6 +2076,7 @@ func (c *Conductor) failTurn(
 		c.logger.ErrorContext(ctx, "finishing a failed turn failed", "turn_id", turn.ID, "error", err)
 	}
 	c.finish(ctx, src, ref, ReactionFailed)
+	c.forgetRoutineTurn(turn.ID)
 	c.metrics.Turns.WithLabelValues(sess.SourceKind, j.name, status).Inc()
 	c.metrics.TurnDuration.WithLabelValues(j.name).Observe(time.Since(started).Seconds())
 }
@@ -2076,6 +2087,15 @@ func (c *Conductor) failTurn(
 func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbound) string {
 	// An answer, a failure or a question in a conversation that lives elsewhere is recorded
 	// and owed through the outbox (outbox.go), which also makes the first attempt.
+	// A routine run's output is held until it ends (routine.go). Its answer or its failure
+	// ends the hold; an answer from a run that reported idle is not said at all.
+	answer := ""
+	if out.Type == OutFinal {
+		answer = out.Text
+	}
+	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref, answer) && out.Type == OutFinal {
+		return ""
+	}
 	if durableOut(out.Type) {
 		if id, handled := c.postDurable(ctx, src, ref, out); handled {
 			return id
@@ -2094,6 +2114,8 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 
 // finish shows the turn's outcome on the triggering message.
 func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Reaction) {
+	// A routine run that ended without an answer still ends its hold.
+	c.releaseRoutine(ctx, src, ref, "")
 	if err := src.React(ctx, ref, kind); err != nil {
 		c.logger.WarnContext(ctx, "reacting with the turn's outcome failed",
 			"ref", ref, "reaction", kind, "error", err)

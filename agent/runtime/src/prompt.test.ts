@@ -172,6 +172,82 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("tells a scheduled routine run to finish idle or done, with its state and notes", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [] },
+      playbook: {
+        ...golden().playbook,
+        mcp_servers: [{ name: "github-read", url: "http://h/v1/mcp/github-read", token_env: "T" }],
+      },
+      routine: {
+        id: "rtn_1",
+        name: "Morning digest",
+        schedule: "weekdays at 09:00",
+        scheduled: true,
+        notes: "- skip drafts",
+        state: { seen: ["acme/api#42@abc"] },
+        idle_runs: 3,
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("scheduled run of a routine");
+    expect(prompt).toContain("Morning digest");
+    expect(prompt).toContain("- skip drafts");
+    expect(prompt).toContain("acme/api#42@abc");
+    expect(prompt).toContain("The last 3 runs found nothing to do.");
+    expect(prompt).toContain("podium_routine_finish");
+    expect(prompt).toContain("`github-read` tools");
+    // Nothing to delegate to, so no menu.
+    expect(prompt).not.toContain("# Delegating work");
+
+    const reply = buildSystemPrompt({ ...brief, routine: { ...brief.routine!, scheduled: false } });
+    expect(reply).toContain("This is a routine's chat");
+    expect(reply).not.toContain("scheduled run of a routine");
+  });
+
+  it("tells a system routine run it belongs to nobody and finds its repositories by name, as the App", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [] },
+      playbook: {
+        ...golden().playbook,
+        mcp_servers: [{ name: "github-read", url: "http://h/v1/mcp/github-read", token_env: "T" }],
+      },
+      routine: {
+        id: "rtn_1",
+        name: "Fix failing CI",
+        schedule: "every 5 minutes",
+        scheduled: true,
+        state: {},
+        system: true,
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("**system routine**");
+    expect(prompt).toContain("as the Podium App, in any repository it is installed on.");
+    expect(prompt).toContain("`list_repositories` turns them into owner/name");
+    expect(prompt).toContain("comment_on_pull_request");
+    expect(prompt).not.toContain("as the routine's owner");
+  });
+
+  it("tells a web chat that may create routines how, and leaves it out otherwise", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [], routines: true },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("podium_create_routine");
+    expect(prompt).not.toContain("# Delegating work");
+    expect(buildSystemPrompt({ ...brief, delegation: undefined })).not.toContain("podium_create_routine");
+  });
+
   it("does not tell a host turn it has a container, because it has not got one", () => {
     const brief = golden();
     const task = buildSystemPrompt(brief);

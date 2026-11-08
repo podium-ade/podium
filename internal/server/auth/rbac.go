@@ -138,6 +138,27 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
+	// Routines: any member keeps their own, and the conductor answers only for routines the
+	// caller owns (another person's is not found), so member is the gate and ownership is the
+	// check, as for personalities. A system routine is the conductor's to refuse: it checks
+	// the infra header the proxy sets for admins and owners.
+	agentv1connect.AgentServiceListRoutinesProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceCreateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServicePauseRoutineProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceResumeRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceRunRoutineNowProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceResetRoutineStateProcedure:    store.RoleMember,
+	agentv1connect.AgentServiceResolveRoutineNoteProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRunsProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRevisionsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelRoutineRunProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineLimitsProcedure:     store.RoleMember,
+	// Every person's routines as metadata, and the per-person limits: admins.
+	agentv1connect.AgentServiceListMemberRoutinesProcedure: store.RoleAdmin,
+	agentv1connect.AgentServiceSetRoutineLimitsProcedure:   store.RoleAdmin,
 
 	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
 	// A member saves their own model credential; the handler refuses a global write from

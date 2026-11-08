@@ -16,7 +16,7 @@ insert into turns (id, session_id, task_id, trigger_ref, status, started_at,
 values ($1, $2, $3, $4, $5, $6,
         nullif($7::text, ''), nullif($8::text, ''), nullif($9::text, ''), nullif($10::text, ''),
         $11)
-returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by
+returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id
 `
 
 type CreateTurnParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, e
 		&i.Effort,
 		&i.Provider,
 		&i.StartedBy,
+		&i.RoutineRunID,
 	)
 	return i, err
 }
@@ -100,7 +101,7 @@ func (q *Queries) FinishTurn(ctx context.Context, arg FinishTurnParams) error {
 }
 
 const getTurn = `-- name: GetTurn :one
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by from turns where id = $1
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where id = $1
 `
 
 func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
@@ -122,12 +123,13 @@ func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
 		&i.Effort,
 		&i.Provider,
 		&i.StartedBy,
+		&i.RoutineRunID,
 	)
 	return i, err
 }
 
 const listRunningTurns = `-- name: ListRunningTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by from turns where status = 'running' order by started_at
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where status = 'running' order by started_at
 `
 
 func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
@@ -155,6 +157,7 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 			&i.Effort,
 			&i.Provider,
 			&i.StartedBy,
+			&i.RoutineRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -259,7 +262,7 @@ func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([
 }
 
 const listTurns = `-- name: ListTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by from turns
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns
 where session_id = $1
 order by started_at desc, id desc
 limit $2::int
@@ -295,6 +298,7 @@ func (q *Queries) ListTurns(ctx context.Context, arg ListTurnsParams) ([]Turn, e
 			&i.Effort,
 			&i.Provider,
 			&i.StartedBy,
+			&i.RoutineRunID,
 		); err != nil {
 			return nil, err
 		}

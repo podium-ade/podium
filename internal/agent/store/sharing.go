@@ -247,6 +247,8 @@ type Notification struct {
 	ChatTitle string
 	Seq       uint64
 	Actor     string
+	// Detail is what a routine notice says happened.
+	Detail    string
 	CreatedAt time.Time
 	Read      bool
 }
@@ -264,7 +266,7 @@ func (s *Store) ListNotifications(ctx context.Context, login string, unreadOnly 
 	for _, r := range rows {
 		out = append(out, Notification{
 			ID: r.ID, Kind: r.Kind, ChatID: r.ChatID, ChatTitle: r.ChatTitle, Seq: uint64(r.Seq),
-			Actor: r.Actor, CreatedAt: r.CreatedAt.UTC(), Read: r.ReadAt != nil,
+			Actor: r.Actor, Detail: r.Detail, CreatedAt: r.CreatedAt.UTC(), Read: r.ReadAt != nil,
 		})
 	}
 	return out, nil

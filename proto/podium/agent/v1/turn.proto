@@ -48,6 +48,44 @@ service TurnService {
   // assistant's opening message, optionally shared, and returns the link to it: "starting a
   // triage on this session — click here to join".
   rpc StartChat(StartChatRequest) returns (StartChatResponse);
+  // FinishRoutine ends a routine run: whether it did something, its one-line summary, the
+  // state it keeps for the next run, and a standing note it proposes. Only a turn in a
+  // routine's chat may call it.
+  rpc FinishRoutine(FinishRoutineRequest) returns (FinishRoutineResponse);
+  // CreateRoutine opens a routine for the person who asked for it in this conversation, with
+  // its own chat. Only a turn in a web chat that is not itself a routine may call it.
+  rpc CreateRoutine(TurnServiceCreateRoutineRequest) returns (TurnServiceCreateRoutineResponse);
+}
+
+message TurnServiceCreateRoutineRequest {
+  string name = 1;
+  // instruction is the complete brief for one run, which runs with nobody present.
+  string instruction = 2;
+  // schedule is a five-field cron expression, never more often than every 15 minutes.
+  string schedule = 3;
+  // timezone is an IANA name; empty is UTC.
+  string timezone = 4;
+  // notes are standing instructions, one per line.
+  string notes = 5;
+}
+
+message TurnServiceCreateRoutineResponse {
+  // message is what the turn is told, in the words the chat host's tool uses.
+  string message = 1;
+}
+
+message FinishRoutineRequest {
+  // status is "idle" (nothing to do: nothing from the run is kept) or "done".
+  string status = 1;
+  string summary = 2;
+  // state_json replaces the routine's state when set: a JSON object.
+  string state_json = 3;
+  string propose_note = 4;
+}
+
+message FinishRoutineResponse {
+  // message is what the turn is told, in the words the chat host's tool uses.
+  string message = 1;
 }
 
 // Delegation is one task a turn asked for.

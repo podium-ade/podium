@@ -29,8 +29,14 @@ export function buildSystemPrompt(brief: TurnBrief): string {
     channelBlock(brief),
     unavailableServersBlock(brief),
   ];
-  if (brief.delegation) {
+  if (brief.delegation && brief.delegation.playbooks.length > 0) {
     sections.push(delegationBlock(brief));
+  }
+  if (brief.routine) {
+    sections.push(routineBlock(brief));
+  }
+  if (brief.delegation?.routines) {
+    sections.push(createRoutineBlock());
   }
   if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
     sections.push(slackPlaybookBlock(brief));
@@ -308,6 +314,102 @@ How to do it well:
   opening as the brief that conversation starts from, invite people by email, and put the
   link it returns in your answer: "Starting a triage — [click here to join](…)". It is not a
   way to delegate work: that is still \`podium_delegate\`.`;
+}
+
+/**
+ * createRoutineBlock is how a person's web chat sets up a routine: by asking. There is no
+ * button in the chat for it; the Routines page is the other way in.
+ */
+function createRoutineBlock(): string {
+  return `# Routines
+
+When the person asks for something to happen on a schedule ("every morning send me…", "check
+each hour whether…"), you can set it up with \`podium_create_routine\`. Agree what it does and
+when before you call it, and ask their timezone when the time of day matters. Write its
+instruction as the whole brief for one run: the run starts fresh, without this conversation.
+Tell them when it first runs and link its chat from the tool's answer. Do not offer a routine
+for something they asked once.`;
+}
+
+/** GitHubReadServer is the conductor's read-only GitHub reader a routine's turn gets. */
+export const GitHubReadServer = "github-read";
+
+/**
+ * routineBlock is how a turn in a routine's chat behaves. A scheduled run has nobody watching:
+ * it decides, acts, and says whether anything happened. The owner's own message there is a
+ * conversation about the routine.
+ */
+function routineBlock(brief: TurnBrief): string {
+  const r = brief.routine;
+  if (!r) {
+    return "";
+  }
+  const notes =
+    r.notes && r.notes.trim() !== ""
+      ? `\n## Standing notes from the owner\n\nThese hold for every run, as much as the instruction does:\n\n${r.notes.trim()}\n`
+      : "";
+  const state = JSON.stringify(r.state ?? {}, null, 1);
+  const idle =
+    r.idle_runs && r.idle_runs > 0
+      ? `\nThe last ${r.idle_runs} run${r.idle_runs === 1 ? "" : "s"} found nothing to do.`
+      : "";
+  const changed = r.instruction_changed_at
+    ? `\nThe instruction was changed at ${r.instruction_changed_at}. Earlier runs in this chat followed an older one; do not copy what they did.`
+    : "";
+  const hasReader = (brief.playbook.mcp_servers ?? []).some((s) => s.name === GitHubReadServer);
+  const find = ` The instruction and the notes name repositories in words; \`list_repositories\` turns them into owner/name. Use the repositories it names, or that clearly fit, and nothing else.`;
+  const reads = !hasReader
+    ? ""
+    : r.system
+      ? `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the Podium App, in any repository it is installed on.${find} To tell the people on a pull request what you found or propose, use \`comment_on_pull_request\`. Reach for a task only when the work needs a machine.`
+      : `\n- Read GitHub with the \`${GitHubReadServer}\` tools — pull requests, their checks, a failed job's log, recent commits — as the routine's owner.${find} Reach for a task only when the work needs a machine.`;
+  const who = r.system
+    ? `\n\nThis is a **system routine**: admins set it up, it belongs to nobody, and it runs with the company's credentials. Nobody can write in this chat; admins steer it by editing the instruction and the notes. "The owner" below means the admins who read this chat.`
+    : "";
+  if (!r.scheduled) {
+    return `# This is a routine's chat
+
+This chat belongs to the routine **${r.name}**, which runs ${r.schedule}. The owner is writing to you
+between runs: answer them as you would in any chat. Its runs' answers are above.
+${notes}
+## The routine's state
+
+\`\`\`json
+${state}
+\`\`\`
+
+When the owner gives a standing instruction ("skip #42 from now on"), record it: call
+\`podium_routine_finish\` with status "done", the state updated to carry it, and the instruction as
+\`propose_note\` so they can keep it on the routine.`;
+  }
+  return `# This is a scheduled run of a routine
+
+You are running the routine **${r.name}** (${r.schedule}). Nobody asked you this just now and
+nobody is watching: the instruction below is the routine's, and this run is one of many. Earlier
+runs that did something are in this chat above.${idle}${changed}${who}
+${notes}
+## The routine's state
+
+What earlier runs kept, so you know exactly what has already been handled:
+
+\`\`\`json
+${state}
+\`\`\`
+
+## How to run
+
+- Decide first whether there is anything to do. Most runs of most routines find nothing new.${reads}
+- Do not repeat work the state or the delegations in flight say is already done or under way.
+- End EVERY run by calling \`podium_routine_finish\` exactly once:
+  - status \`idle\` when there is nothing worth telling the owner. The run stays in the chat quietly,
+    is not shown to later runs and they are not notified, so do not pad a run into "done" to say that
+    nothing happened.
+  - status \`done\` when you did or found something. Then your answer is what the owner reads:
+    lead with what changed or what needs them, briefly.
+  - pass \`state\` whenever what has been handled changed: the whole object, small, exact facts
+    keyed by id (a pull request and its head commit, a ticket number), not a log.
+- Do not ask questions: nobody will answer until the next run. Act on the instruction and the notes,
+  and say in your answer what you could not decide.`;
 }
 
 /**

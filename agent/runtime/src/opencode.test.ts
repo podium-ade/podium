@@ -244,6 +244,11 @@ describe("writeConfig with delegation", () => {
     expect(JSON.stringify(config)).not.toContain("PODIUM_TURN_TOKEN");
   });
 
+  it("passes which routine tools the server offers, and that there is nothing to delegate to", () => {
+    const { config } = write({ delegation: { ...delegation, createRoutine: true, noPlaybooks: true } });
+    expect(config.mcp.podium.command.slice(4)).toEqual(["--create-routine", "--no-playbooks"]);
+  });
+
   it("turns the podium tools on, because a host turn's short tool list depends on them", () => {
     const { config } = write({ delegation, tools: ["webfetch"] });
     expect(config.agent.podium.tools["podium*"]).toBe(true);

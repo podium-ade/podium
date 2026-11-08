@@ -20,6 +20,7 @@ const streamChat = vi.fn();
 const leaveChat = vi.fn();
 const markChatRead = vi.fn();
 const getChatSharing = vi.fn();
+const listRoutines = vi.fn(async () => ({ routines: [] as unknown[] }));
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -34,6 +35,7 @@ vi.mock("../../lib/client", async () => {
       markChatRead: (...a: unknown[]) => markChatRead(...a),
       getChatSharing: (...a: unknown[]) => getChatSharing(...a),
       searchMembers: async () => ({ members: [] }),
+      listRoutines: (...a: unknown[]) => listRoutines(...(a as [])),
     },
   };
 });
@@ -178,6 +180,31 @@ describe("ChatPanel rail groups", () => {
       }),
     );
 
+  it("says under a routine's chat whether it is a system routine and when it last ran", async () => {
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace"
+        ? { chats: [] }
+        : {
+            chats: [
+              row({ id: "c_sys", title: "Fix failing CI", routineId: "rtn_sys", login: "" }),
+              row({ id: "c_mine", title: "PR digest", routineId: "rtn_mine" }),
+            ],
+          },
+    );
+    listRoutines.mockResolvedValue({
+      routines: [
+        { id: "rtn_sys", chatId: "c_sys", scope: "system", running: false, lastRunAt: timestampFromDate(new Date(Date.now() - 2 * 3_600_000)) },
+        { id: "rtn_mine", chatId: "c_mine", scope: "personal", running: false },
+      ],
+    });
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(within(list).getByTestId("chat-row-system")).toHaveTextContent("System"));
+    const lines = within(list).getAllByTestId("chat-row-where").map((e) => e.textContent);
+    expect(lines).toContain("Systemran 2h ago");
+    expect(lines).toContain("not run yet");
+  });
+
   it("lists a page of each origin and shows more on demand", async () => {
     listChats.mockImplementation(async (req: { section?: string }) =>
       req.section === "workspace" ? { chats: [] } : { chats: [row({ id: "c_web", title: "Mine" }), ...prs(11)] },
@@ -254,7 +281,8 @@ describe("ChatPanel rail groups", () => {
     expect(github).toHaveAttribute("aria-expanded", "true");
     await user.click(github);
     expect(github).toHaveAttribute("aria-expanded", "false");
-    expect(list).not.toHaveTextContent("Change 0");
+    // A folded group stays mounted so it can slide shut; it is hidden, not removed.
+    expect(screen.getByText("Change 0")).not.toBeVisible();
     expect(list).toHaveTextContent("Mine");
     unmount();
 
@@ -262,6 +290,6 @@ describe("ChatPanel rail groups", () => {
     const again = await screen.findByTestId("chat-list");
     await waitFor(() => expect(again).toHaveTextContent("Mine"));
     expect(screen.getByTestId("chat-origin-github")).toHaveAttribute("aria-expanded", "false");
-    expect(again).not.toHaveTextContent("Change 0");
+    expect(screen.getByText("Change 0")).not.toBeVisible();
   });
 });

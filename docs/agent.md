@@ -3102,6 +3102,204 @@ conversation rather than as a line that overwrites the one before it.
 
 ---
 
+## Routines
+
+A **routine** is a recurring job an agent does: "every weekday at 9, summarise yesterday's merged
+pull requests for me", "every 30 minutes, tell me which of our pull requests have failing CI". On
+its schedule the conductor starts a turn with the routine's instruction, and the assistant looks,
+decides and acts the way it would if the person had asked — delegating playbooks when the work
+needs a machine. Nothing about any one job is written into Podium.
+
+**Every routine has one chat.** It is created with the routine, listed under **Routines** in the
+chat rail (as well as on the Routines page), and is where the routine's history lives. It is an ordinary web chat of its owner's in
+every other way — they can write in it, ask "why did you skip #42?", and delete it — except that a
+routine's chat is **never shared**: a run uses its owner's credentials, and nobody else may steer
+what runs as them. Share, general access and links are refused for it.
+
+**Two scopes.** A routine runs as a person or as nobody:
+
+| | personal routine | system routine |
+|---|---|---|
+| Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
+| Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
+| GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
+| Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
+| Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
+| Floor | every 15 minutes | every minute |
+| `turns.started_by` | the owner, so Usage → By person counts it as theirs | `routine:<id>`, its own line in Usage |
+
+The scope is chosen once, when the routine is made. A system routine cannot open chats
+(`start_chat` needs a Podium person to own them).
+
+### Making one
+
+- **The Routines page** (Work → Routines in the sidebar) lists your routines — schedule, next and
+  last run, paused or not — and **New routine** creates one right there: a name, the instruction
+  for one run, a schedule and a timezone, an assistant, an optional daily spend cap, and optional
+  standing notes. Each row opens its chat, runs it now, pauses or resumes it, edits it or deletes
+  it. An admin also sees every system routine there, and the dialog asks them who the new one
+  **runs as**; choosing Podium removes the assistant and offers to start
+  from **Fix failing CI** (below).
+- **Asking in a chat.** There is no button for it in a chat. Say "every morning, send me…" and the
+  assistant sets the routine up with **`create_routine`**: a name, the instruction for one run
+  written to stand alone (a run does not see the conversation it came from), a cron schedule and a
+  timezone, and any standing notes. It is offered in a web chat that is not itself a routine's, on
+  the chat host's `podium` server and the runtime's, and as `POST /v1/routines` on the turn surface.
+  The routine is the person's who sent the message, with the chat's assistant when that assistant
+  is theirs, and it is checked exactly as one made on the page: the same floor, the same count. The
+  tool answers with a link to the routine's chat, which the assistant puts in its reply.
+
+A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
+timezone, so a routine at 09:00 stays at 09:00 across daylight saving. A personal routine may run
+**at most every 15 minutes**; a schedule tighter than that anywhere in the week is refused, with
+the gap it found. Each routine runs a fixed few seconds past its minute (a jitter from its id), so
+every routine that says 9:00 does not start in the same second.
+
+### What a run does
+
+```
+tick ─► due? ─► chat busy? ── yes ─► skipped (never queued)
+                   │
+                   no ─► turn in the routine's chat, instruction + routine block
+                              │
+                              ├─ routine_finish(idle) ─► nothing is kept, chat stays read
+                              └─ routine_finish(done) ─► answer kept under a divider, chat unread
+```
+
+- **The leading conductor ticks** every 15 seconds (`WhileLeader("source:routines")`, like Linear
+  polling). A firing is a row in `routine_runs` with a unique `(routine, scheduled_for, trigger)`,
+  so a change of leader mid-tick cannot fire one twice.
+- **A missed run fires once.** A conductor that was down for six hours runs an hourly routine
+  once when it comes back, not six times.
+- **A busy chat skips the run.** While the routine's chat has a turn running, or a message of the
+  owner's waiting in its queue, the tick records `skipped_overlap` and fires nothing. A run that
+  waited would only read an older record than the next one will.
+- **The instruction is never written into the chat.** It goes into the brief, so a routine that
+  runs a hundred times a day does not repeat it a hundred times in its transcript.
+- **The brief carries a routine block**: the routine's name and schedule in words, the owner's
+  standing notes, the state earlier runs kept, how many runs since the last answer found nothing,
+  and — when the instruction was edited since the last run — when it changed. Delegations still
+  running from earlier runs are in the brief's delegation block, as for any turn.
+- **`routine_finish`** is how a run ends: status `idle` (nothing worth telling the owner) or
+  `done`, one summary line for the run list, the routine's whole `state` (a JSON object, at most
+  16 KB — exact facts such as which pull request and commit it already reported), and optionally a
+  `propose_note` the owner can keep. It is on the chat host's `podium` server and the runtime's,
+  and `POST /v1/routine-runs/finish` on the turn surface. Only a turn in a routine's chat is offered it.
+- **Every run stays in the chat; an idle one quietly.** What a run says is held while it runs —
+  its thinking is still shown live — and written in under a `Routine run · …` divider when it
+  ends, so the chat reads as one continuous history. A run that reports idle is written as rows
+  that are not history (its divider says "nothing to do", and its answer is kept as a progress
+  line): it does not mark the chat unread, is not the chat's preview, is never briefed to a later
+  run, and nothing of it is retained to shared memory. A run that did something posts its answer
+  as usual, which marks the chat unread — how its owner hears about it.
+- **What a run may delegate.** Nobody is watching a routine, so a scheduled run is not offered a
+  `desktop: true` or `interactive:` playbook, starts **at most three tasks**, and is refused a
+  fourth while three of the routine's tasks from any run are still going (`ResourceExhausted`, with
+  the reason for the model to put in its answer). A person's own message in the chat is not capped
+  this way. A personal run may open chats with `start_chat`, at most three a day per routine.
+- **Reading GitHub without a container.** A routine's turn has the conductor's `github-read` MCP
+  server: list pull requests, one pull request and its files, a commit's check runs, the end of a
+  failed job's log, recent commits — every one a GET, read with the **owner's own** connected GitHub
+  account (Settings → Account), never the App's, so a routine cannot read what its owner cannot.
+  Nobody lists a routine's repositories: its instruction or notes name them in words ("the API
+  repo"), and `list_repositories` — the owner's repositories, or for a system routine every one
+  the App is installed on, most recently pushed first — is how the agent finds the owner/name.
+  A system routine reads the same tools as the App, with an installation token minted read-only
+  (contents and pull requests read, and checks, statuses and actions read where installed) for the
+  one repository a call names; where the App is installed is the boundary. The listing itself uses a
+  token that carries metadata read and nothing else. It also gets `comment_on_pull_request`, which
+  posts as the App. Checking whether
+  anything needs doing then costs a model turn on the conductor and no task.
+
+### Settling, pausing and failing
+
+A run is settled once its turn ends: `idle` or `done` from what it reported (`done` when it said
+nothing), `failed` when its turn failed or never started within ten minutes. **Five failed runs
+within an hour pause the routine** with the reason on its card; a routine whose owner is no longer
+a Podium member pauses the same way. Resume runs it from its next scheduled time; the runs it
+missed while paused are not made up.
+
+**Spend.** A routine may have a **daily spend cap** (its turns, in dollars). Reaching it pauses the
+routine until midnight in its timezone, with the reason on its card, and it resumes by itself
+then. Admins may also cap what **one person's routines** spend together in 24 hours (Settings →
+Routines); a person over it has their scheduled runs skipped, not paused, until the 24 hours roll
+on. When Podium or an admin pauses a personal routine, its owner gets a **routine** notice in their
+inbox saying why. A system routine has no owner to tell; its card says why.
+
+**History and audit.** Every change to what a routine is told — its instruction, notes, schedule
+or timezone — is a row in `routine_revisions` with who made it and when, shown under **History** in
+the card's details. Creating, editing, deleting, pausing, resuming, running and stopping a routine,
+and changing the limits, are `routine.*` entries in the control plane's audit log. There is no
+propose/act switch: a routine that should only report says so in its instruction, and an admin lets
+it act by editing that instruction, which the history records. There is no global kill switch;
+pausing is per routine.
+
+The card at the top of a routine's chat shows when it runs next, the last run, how many quiet runs
+since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going),
+Pause/Resume, Edit, the note
+the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
+the standing notes, the spend cap, the history and Delete, which
+open over the chat rather than pushing it down. A system routine's card is marked **System** and
+"Runs as Podium", and its chat shows no composer. The state a
+run keeps is the agent's own bookkeeping and is not shown. Deleting a routine keeps its chat as an
+ordinary chat.
+
+**Standing notes** are the owner's rules on top of the instruction ("skip draft pull requests"),
+one `- ` line each, and every run's brief gives them as binding as the instruction. A run may
+suggest one through `routine_finish`'s `propose_note`; it waits on the card, one at a time (a newer
+suggestion replaces an unanswered one), and only **Add to notes** appends it to the notes, word for
+word. No model rewrites the notes, and the owner edits them by hand under Edit.
+
+### Admins: Settings → Routines
+
+Admins and owners see **everyone's personal routines** there as metadata only — name, owner,
+schedule, 24-hour spend, and the last run's status and time — never the instruction, the chat or
+what a run said. They may **pause** one (its owner is told in their inbox and can resume it), and
+they set the per-person limits: how many routines one person may have (default 10) and what one
+person's routines may spend in 24 hours (no cap by default).
+
+### Fix failing CI
+
+The system routine phase 2 is proven on. **Start from "Fix failing CI"** in the dialog fills an
+instruction that, every ten minutes, finds failed checks on the open pull requests of the
+repositories it names — the template leaves a blank for them, filled in words — and, for each, skips it when the same check fails on the base branch, skips a commit
+it already handled, gives up after three attempts on a pull request, and otherwise **comments the
+fix it would make** — and pushes nothing. To let it push, an admin edits the instruction to
+delegate the fix to a playbook that can (one with `repos:` and the App's write capability, as in
+*Playbooks that clone repositories*), for example:
+
+```yaml
+# playbooks/ci-fixer.yaml
+image: registry.example.com/agent-coder:2026-09-05
+system_prompt: |
+  You fix one failing CI check on one pull request. Read the failed job's log, make the smallest
+  change that fixes it, run the check locally, and push one commit to the pull request's branch.
+  Never disable a test or a lint rule to make it pass. If you cannot fix it, say why and push nothing.
+allowed_tools: [read, edit, write, bash, grep, glob]
+max_turns: 120
+timeout: 45m
+repos:
+  - { name: api, url: https://github.com/acme/api, default_branch: main }
+```
+
+and adds "delegate the fix to `ci-fixer`, once per failing commit" to the instruction. The routine's
+state keeps which commits it handled and how many attempts each pull request has had, so a fix is
+attempted once per commit and three times per pull request at most. Run it against a sandbox
+repository first.
+
+### Needs
+
+Routines run in their chats, so they need the web chat and a host runtime to answer it — without
+one, no scheduler starts. The RPCs are `ListRoutines`, `GetRoutine`, `CreateRoutine`,
+`UpdateRoutine`, `DeleteRoutine`, `PauseRoutine`, `ResumeRoutine`, `RunRoutineNow`,
+`ResetRoutineState`, `ResolveRoutineNote`, `ListRoutineRuns`, `ListRoutineRevisions` and
+`CancelRoutineRun`, which answer for the caller's own routines, a system routine for admins, and
+everything for the dev token; and `ListMemberRoutines` and `SetRoutineLimits` for admins, with
+`GetRoutineLimits` for anyone. Tables: `routines`, `routine_runs`, `routine_revisions`,
+`turns.routine_run_id` and `chats.routine_id` (`0043`, `0044`).
+
+---
+
 ## The conductor's API
 
 One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LISTEN` under
