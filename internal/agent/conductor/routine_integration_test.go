@@ -69,7 +69,7 @@ func newRoutineFixture(t *testing.T) routineFixture {
 	return routineFixture{st: st, cond: r.cond, web: web, routine: routine, run: run, sessID: sess.ID, turnID: turn.ID, token: token}
 }
 
-func TestAnIdleRoutineRunLeavesNothingInItsChat(t *testing.T) {
+func TestAnIdleRoutineRunIsKeptQuietlyInItsChat(t *testing.T) {
 	ctx := context.Background()
 	f := newRoutineFixture(t)
 
@@ -84,12 +84,25 @@ func TestAnIdleRoutineRunLeavesNothingInItsChat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, msg, "Recorded as idle")
 
-	// The answer, the thinking and the tool calls all go nowhere.
+	// The answer, the thinking and the tool calls are kept to read back, and none of it is
+	// history: no answer, so nothing unread and nothing a later run is briefed with.
 	assert.Empty(t, f.cond.PostForTest(ctx, f.web, f.routine.ChatID, conductor.Outbound{Type: conductor.OutFinal, Text: "Nothing to report."}))
 	f.cond.FinishForTest(ctx, f.web, f.routine.ChatID, conductor.ReactionDone)
 	msgs, err := f.st.ListChatMessages(ctx, f.routine.ChatID, 0)
 	require.NoError(t, err)
-	assert.Empty(t, msgs, "an idle run leaves nothing in the chat")
+	require.Len(t, msgs, 3)
+	assert.Equal(t, store.RoleNotice, msgs[0].Role)
+	assert.Contains(t, msgs[0].Text, "nothing to do")
+	assert.Equal(t, store.RoleActivity, msgs[1].Role)
+	assert.Equal(t, store.RoleProgress, msgs[2].Role)
+	assert.Equal(t, "Nothing to report.", msgs[2].Text)
+	chats, _, err := f.st.ListChats(ctx, testSpeaker, false, 50, "")
+	require.NoError(t, err)
+	for _, c := range chats {
+		if c.ID == f.routine.ChatID {
+			assert.Zero(t, c.Sharing.UnreadCount, "a quiet run does not mark the chat unread")
+		}
+	}
 
 	run, err := f.st.GetRoutineRun(ctx, f.run.ID)
 	require.NoError(t, err)

@@ -46,9 +46,9 @@ func TestARoutineRunIsRefusedForSomebodyElsesChat(t *testing.T) {
 	assert.ErrorContains(t, err, "is not bo's")
 }
 
-func TestAnIdleRunLeavesNothingAndADoneOneIsKeptUnderADivider(t *testing.T) {
+func TestEveryRunIsKeptUnderADividerAndAnIdleOneQuietly(t *testing.T) {
 	ctx := context.Background()
-	for _, keep := range []bool{false, true} {
+	for _, quiet := range []bool{true, false} {
 		st := newFakeStore()
 		st.add("chat_r", "ana")
 		src := newSource(t, st)
@@ -66,19 +66,28 @@ func TestAnIdleRunLeavesNothingAndADoneOneIsKeptUnderADivider(t *testing.T) {
 		assert.Equal(t, "Checking the open PRs.", frame.Progress)
 		sub.Close()
 
-		src.ReleaseRun(ctx, "chat_r", keep, "Routine run · Mon 9 Nov 14:00 UTC")
-		assert.False(t, src.HoldsRun("chat_r"))
-		if !keep {
-			assert.Empty(t, st.messages["chat_r"], "an idle run leaves nothing behind")
-			continue
+		if quiet {
+			src.ReleaseRun(ctx, "chat_r", true, "Routine run · Mon 9 Nov 14:00 UTC · nothing to do", "All PRs pass.")
+		} else {
+			src.ReleaseRun(ctx, "chat_r", false, "Routine run · Mon 9 Nov 14:00 UTC", "")
 		}
+		assert.False(t, src.HoldsRun("chat_r"))
 		msgs := st.messages["chat_r"]
-		require.Len(t, msgs, 3)
 		assert.Equal(t, store.RoleNotice, msgs[0].Role)
-		assert.Equal(t, "Routine run · Mon 9 Nov 14:00 UTC", msgs[0].Text)
 		assert.Equal(t, store.RoleActivity, msgs[1].Role)
 		assert.Equal(t, store.RoleProgress, msgs[2].Role)
-
+		if quiet {
+			// Kept to read back, and none of it is history: no answer, nothing unread.
+			require.Len(t, msgs, 4)
+			assert.Equal(t, "Routine run · Mon 9 Nov 14:00 UTC · nothing to do", msgs[0].Text)
+			assert.Equal(t, store.RoleProgress, msgs[3].Role)
+			assert.Equal(t, "All PRs pass.", msgs[3].Text)
+			for _, m := range msgs {
+				assert.NotEqual(t, store.RoleAssistant, m.Role)
+			}
+			continue
+		}
+		require.Len(t, msgs, 3)
 		// After the hold, the answer is written as usual.
 		_, err = src.Post(ctx, "chat_r", conductor.Outbound{Type: conductor.OutFinal, Text: "2 PRs failed CI."})
 		require.NoError(t, err)

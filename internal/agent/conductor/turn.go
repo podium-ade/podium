@@ -206,8 +206,8 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
 	r.linkPullRequests(ctx, answer)
-	// A routine run that found nothing to do leaves nothing behind: not in the chat (finish
-	// drops what it held) and not in shared memory.
+	// A routine run that found nothing to do is kept in its chat only quietly (finish writes
+	// what it held as rows that are not history) and nothing of it goes to shared memory.
 	idle := r.c.routineIdle(r.ref)
 	r.c.finish(ctx, r.src, r.ref, reactionFor(status))
 	r.c.forgetRoutineTurn(r.turn.ID)

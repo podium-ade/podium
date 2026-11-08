@@ -221,7 +221,8 @@ export const routineFinishTool: ToolDefinition = {
   name: "routine_finish",
   description:
     'End this routine run, once, as your last step. status "idle" means there was nothing to do: ' +
-    "nothing you write is kept and the person is not notified, so use it whenever the run found nothing " +
+    "what you write stays in the routine's chat quietly, is not shown to later runs, and the person is not " +
+    "notified, so use it whenever the run found nothing " +
     'worth telling them. status "done" means you did or found something: your answer is kept in the ' +
     "routine's chat. summary is one line for the run list. state, when given, REPLACES the routine's " +
     "state — the exact facts the next run needs (what you already handled, by id) — so pass the whole " +

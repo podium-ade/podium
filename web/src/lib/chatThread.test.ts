@@ -27,6 +27,30 @@ describe("parseActivity", () => {
 });
 
 describe("toThread", () => {
+  it("draws a quiet routine run's last line as what it concluded, after its steps", () => {
+    const thread = toThread({
+      messages: [
+        row("notice", "Routine run · Sun 8 Nov 19:41 UTC · nothing to do"),
+        row("activity", tool("github-read_list_pull_requests")),
+        row("progress", "Checking the checks"),
+        row("activity", tool("podium_routine_finish")),
+        row("progress", "All open pull requests pass."),
+        row("notice", "Routine run · Sun 8 Nov 19:51 UTC"),
+        row("progress", "Looking"),
+        row("assistant", "PR #9 failed."),
+      ],
+      busy: false,
+      taskRunning: false,
+    });
+    const quiet = partsOf(thread[1]!);
+    expect(quiet.at(-1)).toEqual({ type: "text", text: "All open pull requests pass." });
+    expect(quiet[1]).toMatchObject({ type: "reasoning", text: "Checking the checks" });
+    // A run that answered keeps its thinking as thinking.
+    const done = partsOf(thread[3]!);
+    expect(done[0]).toMatchObject({ type: "reasoning", text: "Looking" });
+    expect(done.at(-1)).toMatchObject({ type: "text", text: "PR #9 failed." });
+  });
+
   it("folds everything between two questions into one assistant message", () => {
     const thread = toThread({
       messages: [
