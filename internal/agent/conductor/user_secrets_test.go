@@ -158,57 +158,70 @@ func TestMCPResolutionFollowsTheTurnsPerson(t *testing.T) {
 	bob.Owner = "bob@acme.com"
 	rows := []mcp.Server{global, alice, bob}
 
-	got, err := resolveMCPServers("alice@acme.com", []string{"linear"}, rows)
+	got, none, err := resolveMCPServers("alice@acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
+	assert.Empty(t, none)
 	require.Len(t, got, 1)
 	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
 	assert.Equal(t, "alice@acme.com", got[0].Owner)
 
 	// A Slack email that differs only in case still finds her row, and the stored owner
 	// is what the secret name was derived from.
-	folded, err := resolveMCPServers("Alice@Acme.com", []string{"linear"}, rows)
+	folded, _, err := resolveMCPServers("Alice@Acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
 	require.Len(t, folded, 1)
 	assert.Equal(t, "alice@acme.com", folded[0].Owner)
 
-	noPerson, err := resolveMCPServers("", []string{"linear"}, rows)
+	noPerson, _, err := resolveMCPServers("", []string{"linear"}, rows)
 	require.NoError(t, err)
 	require.Len(t, noPerson, 1)
 	assert.Equal(t, "https://global.example/mcp", noPerson[0].URL)
 	assert.Empty(t, noPerson[0].Owner)
 
-	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, rows)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `"linear"`)
+	// Carol has no row and the global one is not shared: the turn runs without it and the
+	// agent is told she has not connected it.
+	got, unavailable, err := resolveMCPServers("carol@acme.com", []string{"linear"}, rows)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "linear", Reason: mcpReasonNotConnected}}, unavailable)
 
 	shared := rows
 	shared[0].Fallback = true
-	got, err = resolveMCPServers("carol@acme.com", []string{"linear"}, shared)
+	got, _, err = resolveMCPServers("carol@acme.com", []string{"linear"}, shared)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "https://global.example/mcp", got[0].URL)
 
 	// Alice still wins while she has her own server, even with fallback on.
-	got, err = resolveMCPServers("alice@acme.com", []string{"linear"}, shared)
+	got, _, err = resolveMCPServers("alice@acme.com", []string{"linear"}, shared)
 	require.NoError(t, err)
 	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
 
 	off := append([]mcp.Server{}, shared...)
 	off[1].Enabled = false
-	_, err = resolveMCPServers("alice@acme.com", []string{"linear"}, off)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "turned off")
+	got, unavailable, err = resolveMCPServers("alice@acme.com", []string{"linear"}, off)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "linear", Reason: mcpReasonPersonOff}}, unavailable)
 
 	sharedOff := append([]mcp.Server{}, rows...)
 	sharedOff[0].Enabled = false
 	sharedOff[0].Fallback = true
-	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, sharedOff)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "turned off")
+	_, unavailable, err = resolveMCPServers("carol@acme.com", []string{"linear"}, sharedOff)
+	require.NoError(t, err)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "linear", Reason: mcpReasonOff}}, unavailable)
 
-	_, err = resolveMCPServers("carol@acme.com", []string{"notion"}, rows)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `"notion"`)
+	_, unavailable, err = resolveMCPServers("carol@acme.com", []string{"notion"}, rows)
+	require.NoError(t, err)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "notion", Reason: mcpReasonNotConnected}}, unavailable)
+
+	// A sign-in she started and never finished has no token to present.
+	pending := registered("gmail", true, 0)
+	pending.Owner = "alice@acme.com"
+	pending.AuthKind = mcp.AuthOAuth
+	_, unavailable, err = resolveMCPServers("alice@acme.com", []string{"gmail"}, []mcp.Server{pending})
+	require.NoError(t, err)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "gmail", Reason: mcpReasonSignIn}}, unavailable)
 }
 
 type kindSource struct{ kind string }

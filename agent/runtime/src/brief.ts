@@ -139,6 +139,14 @@ const mcpServerSchema = z.strictObject({
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
+// A server the assistant names that this turn does not get, and why. The runtime wires up
+// nothing for it; the prompt names it so the agent says it has no access. A playbook's turn
+// never carries one: the conductor refuses to start it instead.
+const unavailableMcpServerSchema = z.strictObject({
+  name: z.string().min(1),
+  reason: z.string().min(1),
+});
+
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -190,6 +198,8 @@ const briefSchema = z.strictObject({
     // gets: writeConfig writes one entry per server here beside the ones the conductor
     // wires up itself, and no others.
     mcp_servers: z.array(mcpServerSchema).optional(),
+    // The named servers this turn runs without. Absent when every one resolved.
+    unavailable_mcp_servers: z.array(unavailableMcpServerSchema).optional(),
     // Absent means the turn cannot wait for a human: the default, and what every brief
     // before interactive playbooks described.
     interactive: z.boolean().optional(),
