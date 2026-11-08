@@ -538,6 +538,11 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			"source", src.Kind(), "source_key", ev.SourceKey, "external_id", ev.ExternalID)
 		return
 	}
+	// A message the web chat held back (ev.Held) is in nobody's record until a turn takes it.
+	// Whatever path this event leaves by without one — refused, a failed start — the message
+	// is recorded on the way out, so what a person said is never simply gone. A path that
+	// queued it, or put it into a turn, has cleared ev.Held and this does nothing.
+	defer c.recordHeld(ctx, src, &ev)
 	// Whether they may start anything at all. A refused event is reacted to by admit.
 	if !c.admit(ctx, src, &ev) {
 		return
@@ -595,6 +600,11 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// A turn that is still up takes the message when it is from the same person on the same
 	// surface: a warm host turn, a running chat-host turn, a task that asked a question or is
 	// waiting for a follow-up. Anybody else's message is a turn of its own (queue.go).
+	//
+	// Except a running turn, for a message the web chat held back (ev.Held): somebody who
+	// sends from the web while Podium is answering is queueing it, the way other chat clients
+	// queue, and each message gets an answer of its own. Steered into the turn in progress, a
+	// second question was folded into the answer to the first.
 	c.mu.Lock()
 	st := c.state(sess.ID)
 	same := c.sameAsker(st, src, ev)
@@ -603,6 +613,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		// it, and it is working again, so it is no longer a candidate to give its slot up.
 		st.warmHost = nil
 		c.mu.Unlock()
+		c.recordHeld(ctx, src, &ev)
 		if err := wh.inbox.inject(ev.Text); err == nil {
 			c.metrics.WarmInjects.WithLabelValues(profiles.RunsOnHost).Inc()
 			c.logger.InfoContext(ctx, "injected a message into a warm host turn", "session_id", sess.ID)
@@ -614,7 +625,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		c.mu.Lock()
 		st = c.state(sess.ID)
 	}
-	if st.running && c.chatHost != nil && same {
+	if st.running && c.chatHost != nil && same && !ev.Held {
 		// A chat-host turn is answering this conversation: the message goes into it, and is
 		// answered as part of that turn rather than after it.
 		c.mu.Unlock()
@@ -632,6 +643,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	}
 	c.mu.Unlock()
 	if injectID != "" && same {
+		c.recordHeld(ctx, src, &ev)
 		err := c.podium.InjectTask(ctx, injectID, ev.Text)
 		if err == nil {
 			c.logger.InfoContext(ctx, "injected a message into a running task",
@@ -644,7 +656,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	}
 	// Another conductor may be serving this conversation, with a warm task answering this
 	// same person: then the message goes straight into it.
-	if c.injectIntoOwner(ctx, src, sess.ID, ev) {
+	if c.injectIntoOwner(ctx, src, sess.ID, &ev) {
 		placed(ev, 0)
 		return
 	}
@@ -652,6 +664,8 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// Otherwise it is a turn: queued first, then served by whoever serves the session. Nothing
 	// is lost and nothing runs twice — the row is the turn, and only one conductor takes it.
 	c.enqueue(ctx, src, sess, ev)
+	// The queued copy is still held and is recorded when its turn starts; this one is done.
+	ev.Held = false
 	c.kick(ctx, src, sess, j)
 }
 
@@ -922,6 +936,9 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j
 // runTurn is one inbound message, end to end.
 func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	started := time.Now()
+	// A message that waited out of the record goes into it now, ahead of the placeholder: it
+	// is read after the answer it waited for, and before its own.
+	c.recordHeld(ctx, src, &ev)
 
 	// The placeholder goes first and the reaction second, because the placeholder is the
 	// acknowledgement a human is actually waiting for and a source's write path is rate

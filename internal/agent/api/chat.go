@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -381,15 +382,23 @@ func (s *AgentService) CancelQueuedTurn(
 		return nil, err
 	}
 	chatID := req.Msg.GetChatId()
-	if chatID == "" || req.Msg.GetSeq() == 0 {
+	if chatID == "" || (req.Msg.GetSeq() == 0 && req.Msg.GetId() == 0) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("cancel queued turn: chat_id and seq are required"))
+			errors.New("cancel queued turn: chat_id and an id or seq are required"))
 	}
-	if err := s.store.RemoveQueuedTurn(ctx, chatID, req.Msg.GetSeq(), login); err != nil {
+	// By its row when the client names one: a message queued from the web waits unrecorded
+	// and has no seq. Taking it back removes it entirely, which is what the person asked.
+	if id := req.Msg.GetId(); id != 0 {
+		err = s.store.RemoveQueuedTurnByID(ctx, chatID, id, login)
+	} else {
+		err = s.store.RemoveQueuedTurn(ctx, chatID, req.Msg.GetSeq(), login)
+	}
+	if err != nil {
 		return nil, storeError(err)
 	}
 	s.chat.QueueChanged(chatID)
-	s.logger.InfoContext(ctx, "a queued turn was taken back", "chat_id", chatID, "seq", req.Msg.GetSeq())
+	s.logger.InfoContext(ctx, "a queued turn was taken back",
+		"chat_id", chatID, "seq", req.Msg.GetSeq(), "queue_id", req.Msg.GetId())
 	return connect.NewResponse(&agentv1.CancelQueuedTurnResponse{}), nil
 }
 
@@ -922,9 +931,24 @@ func queueToProto(q []store.QueuedTurn) *agentv1.ChatQueue {
 			Via:      queuedVia(t.SourceKind),
 			Seq:      t.MessageSeq,
 			QueuedAt: timestamppb.New(t.CreatedAt),
+			Id:       t.ID,
+			Text:     queuedText(t.Event),
 		})
 	}
 	return out
+}
+
+// queuedText is what a queued turn asked, in the asker's own words, from the event the
+// conductor queued. Empty when the event does not say.
+func queuedText(raw []byte) string {
+	var ev struct{ Text, RecordText string }
+	if len(raw) == 0 || json.Unmarshal(raw, &ev) != nil {
+		return ""
+	}
+	if ev.RecordText != "" {
+		return ev.RecordText
+	}
+	return ev.Text
 }
 
 // queuedVia is a queued turn's surface in the words the UI uses.

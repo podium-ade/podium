@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -419,4 +421,97 @@ func newStoreWithURL(t *testing.T) (*store.Store, string) {
 	t.Cleanup(st.Close)
 	require.NoError(t, st.Migrate(ctx))
 	return st, u.String()
+}
+
+// heldRecorder is a dev source that, like the web chat, can leave a message out of its record
+// until its turn starts (conductor.HeldRecorder). It notes what it was asked to record, and
+// whether a turn was running for its session at that moment.
+type heldRecorder struct {
+	*fakesource.Source
+	mu       sync.Mutex
+	recorded []string
+}
+
+func (h *heldRecorder) RecordHeld(_ context.Context, ev *conductor.InboundEvent) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.recorded = append(h.recorded, ev.Text)
+	ev.ChatSeq = uint64(len(h.recorded))
+	ev.Held = false
+	return nil
+}
+
+func (h *heldRecorder) seen() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.recorded...)
+}
+
+// TestHeldMessagesWaitOutOfTheRecordAndEachGetATurn: what the web composer queues while
+// Podium is answering (ev.Held) is not folded into one turn the way a person's run of Slack
+// messages is. Each message is a turn of its own, in order, and goes into the record only as
+// its turn starts — after the answer it waited for.
+func TestHeldMessagesWaitOutOfTheRecordAndEachGetATurn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := &heldRecorder{Source: fakesource.New(conductor.KindDev)}
+	t.Cleanup(src.Close)
+	ctx := context.Background()
+	r := startWith(t, st, fake, src.Source, func(o *conductor.Options) {
+		o.Host = hostRuntime(t, "sk-test")
+		o.Sources = []conductor.Source{src}
+	})
+
+	first := asker("C1/9.1", "first", "alice@podium.test")
+	first.Env = hostEnv(map[string]string{hostFakeHangEnv: "1"})
+	require.NoError(t, src.Send(ctx, first))
+	waitFor(t, 30*time.Second, "the first turn to be working", func() bool {
+		for _, rec := range src.Records() {
+			if rec.Action == fakesource.ActionEdit && strings.Contains(rec.Text, "still working") {
+				return true
+			}
+		}
+		return false
+	})
+
+	for _, text := range []string{"second", "third"} {
+		ev := asker("C1/9.1", text, "alice@podium.test")
+		ev.Env = hostEnv(nil)
+		ev.Held = true
+		require.NoError(t, src.Send(ctx, ev))
+	}
+	waitFor(t, 30*time.Second, "both to be queued", func() bool { return queued(t, st, first.SourceKey) == 2 })
+	assert.Empty(t, src.seen(), "nothing queued is in the record while the first is answered")
+
+	// The first answer ends; the queue goes, one turn per message, in order.
+	assert.True(t, r.cond.CancelHostTurn(first.Ref))
+	waitFor(t, 60*time.Second, "three turns", func() bool {
+		return len(startedBy(t, st, first.SourceKey)) == 3 && turnStatus(st, first.SourceKey) == store.TurnSucceeded
+	})
+	assert.Equal(t, []string{"second", "third"}, src.seen(), "each recorded as its turn started, in order")
+	assert.Zero(t, queued(t, st, first.SourceKey))
+}
+
+// TestAHeldMessageThatIsRefusedIsStillRecorded: a held message the conductor turns away
+// before it is queued — here a web-chat message on a conductor with no host runtime, which
+// cannot answer a conversation — still goes into the record. What a person said is never
+// simply gone.
+func TestAHeldMessageThatIsRefusedIsStillRecorded(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := &heldRecorder{Source: fakesource.New(conductor.SourceChat)}
+	t.Cleanup(src.Close)
+	startWith(t, st, fake, src.Source, func(o *conductor.Options) {
+		o.Sources = []conductor.Source{src}
+	})
+
+	ev := asker("chat_1", "is anyone there", testSpeaker)
+	ev.SourceKind = conductor.SourceChat
+	ev.SourceKey = "chat:chat_1"
+	ev.Held = true
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 30*time.Second, "the refused message to be recorded", func() bool {
+		return len(src.seen()) == 1
+	})
+	assert.Equal(t, []string{"is anyone there"}, src.seen())
 }

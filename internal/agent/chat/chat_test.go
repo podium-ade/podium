@@ -468,10 +468,49 @@ func TestASecondMessageWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, second.Ahead, "one turn ahead: the one in flight")
 
+	// The second waits out of the record: written now, it would be read in the middle of the
+	// answer to the first. The conductor records it as its turn starts (RecordHeld).
 	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
 	require.NoError(t, err)
-	assert.Len(t, msgs, 2, "both are stored")
-	assert.Len(t, src.Events(), 2, "and both are turns the conductor queues in order")
+	require.Len(t, msgs, 1, "only the first is in the record")
+	assert.Equal(t, "first", msgs[0].Text)
+	require.Len(t, src.Events(), 2, "and both are turns the conductor queues in order")
+	<-src.Events()
+	ev := <-src.Events()
+	assert.True(t, ev.Held)
+	assert.Zero(t, ev.ChatSeq)
+	assert.Equal(t, "second", ev.Text)
+
+	// Its turn starts: now it is in the record, after everything said before it.
+	require.NoError(t, src.RecordHeld(ctx, &ev))
+	assert.False(t, ev.Held)
+	assert.Equal(t, uint64(2), ev.ChatSeq)
+	msgs, err = st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "second", msgs[1].Text)
+	assert.True(t, msgs[1].Addressed)
+	assert.Equal(t, "alice", msgs[1].AuthorLogin)
+}
+
+func TestTalkBetweenPeopleIsNeverHeld(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	c := st.chats["chat_1"]
+	c.Multiplayer = true
+	st.chats["chat_1"] = c
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	_, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "@Podium first"})
+	require.NoError(t, err)
+	res, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "bob, look"})
+	require.NoError(t, err)
+	assert.False(t, res.Addressed)
+	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2, "said to people while Podium works, it is in the record at once")
+	assert.Equal(t, "bob, look", msgs[1].Text)
 }
 
 func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
