@@ -401,8 +401,9 @@ ${state}
 - Decide first whether there is anything to do. Most runs of most routines find nothing new.${reads}
 - Do not repeat work the state or the delegations in flight say is already done or under way.
 - End EVERY run by calling \`podium_routine_finish\` exactly once:
-  - status \`idle\` when there is nothing worth telling the owner. Nothing you write is kept and they
-    are not notified, so do not pad a run into "done" to say that nothing happened.
+  - status \`idle\` when there is nothing worth telling the owner. The run stays in the chat quietly,
+    is not shown to later runs and they are not notified, so do not pad a run into "done" to say that
+    nothing happened.
   - status \`done\` when you did or found something. Then your answer is what the owner reads:
     lead with what changed or what needs them, briefly.
   - pass \`state\` whenever what has been handled changed: the whole object, small, exact facts

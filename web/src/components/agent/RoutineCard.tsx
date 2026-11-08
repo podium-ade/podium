@@ -469,8 +469,8 @@ const RUN_WORDS: Record<string, string> = {
 };
 
 /**
- * RunList is what the routine's last runs did, quiet ones included. A quiet run leaves nothing
- * in the chat, so this is the one place it is seen: when it ran and the line it reported.
+ * RunList is what the routine's last runs did, quiet ones included: when each ran, how it
+ * ended, and the line it reported — the run list a reader would otherwise scroll the chat for.
  */
 function RunList({ routineId }: { routineId: string }) {
   const runs = useRecentRuns(routineId);
@@ -519,7 +519,6 @@ export function QuietRuns({ routineId }: { routineId: string }) {
       Checked {settled.length === 10 ? "10+" : settled.length} {settled.length === 1 ? "time" : "times"} · last{" "}
       {relative(latest.createdAt)}
       {latest.summary ? <span className="text-fg"> — {latest.summary}</span> : null}
-      <span className="block pt-0.5 text-faint">Runs that find nothing leave no message here. Recent runs are under the card’s details.</span>
     </p>
   );
 }

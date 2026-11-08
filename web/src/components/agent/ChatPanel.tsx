@@ -1848,8 +1848,8 @@ function RoutineWelcome({ system, routineId }: { system: boolean; routineId: str
       <p className="text-lg font-medium tracking-tight text-fg">Nothing from this routine yet</p>
       <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
         {system
-          ? "A run that finds something answers here; one that finds nothing leaves no message. To change what it keeps an eye on, edit it from the card above."
-          : "A run that finds something answers here; one that finds nothing leaves no message. Write here to ask about its runs or to change what it keeps an eye on."}
+          ? "Every run shows up here. One that finds nothing is kept quietly and does not mark the chat unread. To change what it keeps an eye on, edit it from the card above."
+          : "Every run shows up here. One that finds nothing is kept quietly and does not mark the chat unread. Write here to ask about its runs or to change what it keeps an eye on."}
       </p>
       <QuietRuns routineId={routineId} />
     </div>

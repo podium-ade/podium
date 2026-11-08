@@ -6,9 +6,11 @@ package chat
 // routine's, and it goes into the brief, not the transcript.
 //
 // While the run is going, what it says is held here rather than stored: its thinking and its
-// tool calls are shown live, as progress, and kept in memory. When it ends the conductor says
-// whether to keep them. A run that found nothing to do leaves nothing in the chat and does not
-// mark it unread; one that did something is written in, under a divider, ahead of its answer.
+// tool calls are shown live, as progress, and kept in memory. When it ends it is written in,
+// under a divider. A run that found nothing to do is written quietly: its answer becomes a
+// progress row, so nothing it said is history — it does not mark the chat unread, is not the
+// chat's preview, and is never briefed to a later run. One that did something is written in
+// ahead of its answer, which the conductor posts as usual.
 
 import (
 	"context"
@@ -126,22 +128,28 @@ func (s *Source) HoldsRun(ref string) bool {
 }
 
 // ReleaseRun implements conductor.RoutineHolder: what the run said goes into the record under
-// a divider, or is dropped.
-func (s *Source) ReleaseRun(ctx context.Context, ref string, keep bool, divider string) {
+// a divider. A quiet run's rows are kept as rows that are not history, its answer among them.
+func (s *Source) ReleaseRun(ctx context.Context, ref string, quiet bool, divider, answer string) {
 	s.mu.Lock()
 	var h *held
 	if st := s.live[ref]; st != nil {
 		h, st.held = st.held, nil
 	}
 	s.mu.Unlock()
-	if h == nil || !keep {
+	if h == nil {
 		return
 	}
 	if strings.TrimSpace(divider) != "" {
 		s.appendAndShow(ctx, store.ChatMessage{ChatID: ref, Role: store.RoleNotice, Text: divider, TS: time.Now().UTC()})
 	}
 	for _, m := range h.msgs {
+		if quiet && m.Role == store.RoleAssistant {
+			m.Role = store.RoleProgress
+		}
 		s.appendAndShow(ctx, m)
+	}
+	if quiet && strings.TrimSpace(answer) != "" {
+		s.appendAndShow(ctx, store.ChatMessage{ChatID: ref, Role: store.RoleProgress, Text: answer, TS: time.Now().UTC()})
 	}
 }
 

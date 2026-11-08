@@ -13,9 +13,11 @@ package conductor
 //     otherwise repeat it a hundred times a day.
 //   - it has a routine_finish tool, through which the agent says whether the run did
 //     something, keeps its state, and proposes a standing note.
-//   - what it says is held (RoutineHolder) until it ends. A run that reported idle leaves
-//     nothing in the chat — no answer, no thinking, no tool calls — and so does not mark the
-//     chat unread. A run that did something is kept, under a divider.
+//   - what it says is held (RoutineHolder) until it ends, then written in under a divider.
+//     A run that reported idle is kept quietly: its thinking, tool calls and answer are in the
+//     chat for anyone reading back, but as rows that are not history — they do not mark the
+//     chat unread and are never briefed to a later run. A run that did something is kept as
+//     an ordinary answer.
 //
 // A person's own message in a routine chat is an ordinary turn of the chat. It gets the
 // routine block too, so "why did you skip #42?" is answered with the state in view, and it
@@ -44,9 +46,10 @@ type RoutineRef struct {
 type RoutineHolder interface {
 	// HoldsRun reports whether a run's output is being held for this conversation.
 	HoldsRun(ref string) bool
-	// ReleaseRun ends the hold. keep writes what was held into the record under a divider
-	// saying divider; otherwise it is dropped.
-	ReleaseRun(ctx context.Context, ref string, keep bool, divider string)
+	// ReleaseRun ends the hold, writing what was held into the record under a divider saying
+	// divider. quiet is a run that found nothing to do: what it said is kept as rows that are
+	// not history, and answer — its final words, which are not posted as an answer — with them.
+	ReleaseRun(ctx context.Context, ref string, quiet bool, divider, answer string)
 }
 
 // BriefRoutine is the routine a turn belongs to, as its brief carries it.
@@ -101,7 +104,8 @@ type RoutineFinishRequest struct {
 var RoutineFinishTool = chatTool{
 	Name: "routine_finish",
 	Description: "End this routine run, once, as your last step. status \"idle\" means there was nothing to do: " +
-		"nothing you write is kept and the person is not notified, so use it whenever the run found nothing " +
+		"what you write stays in the routine's chat quietly, is not shown to later runs, and the person is not " +
+		"notified, so use it whenever the run found nothing " +
 		"worth telling them. status \"done\" means you did or found something: your answer is kept in the " +
 		"routine's chat. summary is one line for the run list. state, when given, REPLACES the routine's " +
 		"state — the exact facts the next run needs (what you already handled, by id) — so pass the whole " +
@@ -187,16 +191,23 @@ func (c *Conductor) routineIdle(ref string) bool {
 	return false
 }
 
-// releaseRoutine ends a held run's hold on ref, keeping what it said unless it reported idle.
-// It reports whether the run was idle, which is what tells post to say nothing more.
-func (c *Conductor) releaseRoutine(ctx context.Context, src Source, ref string) (idle bool) {
+// releaseRoutine ends a held run's hold on ref. answer is the run's final words, "" when it
+// ended without any. It reports whether the run was idle: its answer then went in quietly
+// with the rest, which is what tells post to say nothing more.
+func (c *Conductor) releaseRoutine(ctx context.Context, src Source, ref, answer string) (idle bool) {
 	h, ok := src.(RoutineHolder)
 	if !ok || !h.HoldsRun(ref) {
 		return false
 	}
 	idle = c.routineIdle(ref)
-	h.ReleaseRun(ctx, ref, !idle, "Routine run · "+time.Now().UTC().Format("Mon 2 Jan 15:04 MST"))
-	return idle
+	divider := "Routine run · " + time.Now().UTC().Format("Mon 2 Jan 15:04 MST")
+	if idle {
+		divider += " · nothing to do"
+		h.ReleaseRun(ctx, ref, true, divider, answer)
+		return true
+	}
+	h.ReleaseRun(ctx, ref, false, divider, "")
+	return false
 }
 
 // briefRoutine is the routine block for a turn in a routine's chat, or nil for any other turn.
@@ -316,7 +327,7 @@ func (c *Conductor) FinishRoutine(ctx context.Context, token string, req Routine
 		return "", err
 	}
 	if status == RoutineFinishIdle {
-		return "Recorded as idle. Nothing from this run is kept and nobody is notified; end your turn now " +
+		return "Recorded as idle. This run stays in the chat quietly and nobody is notified; end your turn now " +
 			"without further work.", nil
 	}
 	return "Recorded. End your turn with your answer: it is kept in the routine's chat.", nil

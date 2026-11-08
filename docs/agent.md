@@ -3185,11 +3185,13 @@ tick ─► due? ─► chat busy? ── yes ─► skipped (never queued)
   16 KB — exact facts such as which pull request and commit it already reported), and optionally a
   `propose_note` the owner can keep. It is on the chat host's `podium` server and the runtime's,
   and `POST /v1/routine-runs/finish` on the turn surface. Only a turn in a routine's chat is offered it.
-- **An idle run leaves nothing.** What a run says is held while it runs — its thinking is still
-  shown live — and dropped when it reports idle: no answer, no tool calls, no unread mark, and
-  nothing retained to shared memory. A run that did something is written in under a
-  `Routine run · …` divider, and its answer marks the chat unread, which is how its owner hears
-  about it.
+- **Every run stays in the chat; an idle one quietly.** What a run says is held while it runs —
+  its thinking is still shown live — and written in under a `Routine run · …` divider when it
+  ends, so the chat reads as one continuous history. A run that reports idle is written as rows
+  that are not history (its divider says "nothing to do", and its answer is kept as a progress
+  line): it does not mark the chat unread, is not the chat's preview, is never briefed to a later
+  run, and nothing of it is retained to shared memory. A run that did something posts its answer
+  as usual, which marks the chat unread — how its owner hears about it.
 - **What a run may delegate.** Nobody is watching a routine, so a scheduled run is not offered a
   `desktop: true` or `interactive:` playbook, starts **at most three tasks**, and is refused a
   fourth while three of the routine's tasks from any run are still going (`ResourceExhausted`, with

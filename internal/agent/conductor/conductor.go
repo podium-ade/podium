@@ -2089,7 +2089,11 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 	// and owed through the outbox (outbox.go), which also makes the first attempt.
 	// A routine run's output is held until it ends (routine.go). Its answer or its failure
 	// ends the hold; an answer from a run that reported idle is not said at all.
-	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref) && out.Type == OutFinal {
+	answer := ""
+	if out.Type == OutFinal {
+		answer = out.Text
+	}
+	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref, answer) && out.Type == OutFinal {
 		return ""
 	}
 	if durableOut(out.Type) {
@@ -2111,7 +2115,7 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 // finish shows the turn's outcome on the triggering message.
 func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Reaction) {
 	// A routine run that ended without an answer still ends its hold.
-	c.releaseRoutine(ctx, src, ref)
+	c.releaseRoutine(ctx, src, ref, "")
 	if err := src.React(ctx, ref, kind); err != nil {
 		c.logger.WarnContext(ctx, "reacting with the turn's outcome failed",
 			"ref", ref, "reaction", kind, "error", err)
