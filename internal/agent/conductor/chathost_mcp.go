@@ -119,6 +119,22 @@ var chatTitleTools = []chatTool{{
 	},
 }}
 
+// chatDelegateToolsFor is the podium server's tools for a turn: delegation when it has
+// playbooks to delegate to (start_chat rides with them, as it always has), routine_finish in a
+// routine's chat, and create_routine in a web chat that is not one.
+func (c *Conductor) chatDelegateToolsFor(ctx context.Context, token string) []chatTool {
+	var tools []chatTool
+	if g, ok := c.grantFor(ctx, token); ok && len(g.playbooks) > 0 {
+		tools = append(tools, chatDelegateTools...)
+	}
+	if c.inRoutineChat(ctx, token) {
+		tools = append(tools, RoutineFinishTool)
+	} else if _, ok := c.mayCreateRoutine(ctx, token); ok {
+		tools = append(tools, CreateRoutineTool)
+	}
+	return tools
+}
+
 // ChatHostMCP is the chat host's tool servers. pullRequest is the conductor's read-only
 // pull-request server, which takes a turn's own token as its bearer; it is served here for
 // the turn the conversation is running. Nil leaves that server out.
@@ -129,6 +145,16 @@ func (c *Conductor) ChatHostMCP(pullRequest http.Handler) http.Handler {
 		_, turn := c.chatByToken(token)
 		if turn == nil {
 			http.Error(w, "no turn is running in this conversation", http.StatusUnauthorized)
+			return
+		}
+		if server == GitHubReadMCPName {
+			if turn.delegationToken == "" {
+				http.NotFound(w, r)
+				return
+			}
+			r = r.Clone(r.Context())
+			r.Header.Set("Authorization", "Bearer "+turn.delegationToken)
+			c.GitHubReadMCP().ServeHTTP(w, r)
 			return
 		}
 		if server == PullRequestMCPName {
@@ -148,7 +174,7 @@ func (c *Conductor) ChatHostMCP(pullRequest http.Handler) http.Handler {
 				http.NotFound(w, r)
 				return
 			}
-			tools = chatDelegateTools
+			tools = c.chatDelegateToolsFor(r.Context(), turn.delegationToken)
 		case chatTitleServer:
 			tools = chatTitleTools
 		default:
@@ -322,6 +348,18 @@ func (c *Conductor) chatDelegateTool(ctx context.Context, token, name string, ar
 			return "", err
 		}
 		return fmt.Sprintf("Asked the node to stop %s (task %s).", d.ID, orUnknown(d.TaskID)), nil
+	case RoutineFinishTool.Name:
+		req, err := RoutineFinishArgs(args)
+		if err != nil {
+			return "", err
+		}
+		return c.FinishRoutine(ctx, token, req)
+	case CreateRoutineTool.Name:
+		req, err := CreateRoutineArgs(args)
+		if err != nil {
+			return "", err
+		}
+		return c.CreateRoutine(ctx, token, req)
 	case StartChatTool.Name:
 		req, err := StartChatArgs(args)
 		if err != nil {

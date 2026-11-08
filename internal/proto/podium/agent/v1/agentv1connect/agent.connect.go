@@ -234,6 +234,38 @@ const (
 	// AgentServiceDeletePersonalityProcedure is the fully-qualified name of the AgentService's
 	// DeletePersonality RPC.
 	AgentServiceDeletePersonalityProcedure = "/podium.agent.v1.AgentService/DeletePersonality"
+	// AgentServiceListRoutinesProcedure is the fully-qualified name of the AgentService's ListRoutines
+	// RPC.
+	AgentServiceListRoutinesProcedure = "/podium.agent.v1.AgentService/ListRoutines"
+	// AgentServiceGetRoutineProcedure is the fully-qualified name of the AgentService's GetRoutine RPC.
+	AgentServiceGetRoutineProcedure = "/podium.agent.v1.AgentService/GetRoutine"
+	// AgentServiceCreateRoutineProcedure is the fully-qualified name of the AgentService's
+	// CreateRoutine RPC.
+	AgentServiceCreateRoutineProcedure = "/podium.agent.v1.AgentService/CreateRoutine"
+	// AgentServiceUpdateRoutineProcedure is the fully-qualified name of the AgentService's
+	// UpdateRoutine RPC.
+	AgentServiceUpdateRoutineProcedure = "/podium.agent.v1.AgentService/UpdateRoutine"
+	// AgentServiceDeleteRoutineProcedure is the fully-qualified name of the AgentService's
+	// DeleteRoutine RPC.
+	AgentServiceDeleteRoutineProcedure = "/podium.agent.v1.AgentService/DeleteRoutine"
+	// AgentServicePauseRoutineProcedure is the fully-qualified name of the AgentService's PauseRoutine
+	// RPC.
+	AgentServicePauseRoutineProcedure = "/podium.agent.v1.AgentService/PauseRoutine"
+	// AgentServiceResumeRoutineProcedure is the fully-qualified name of the AgentService's
+	// ResumeRoutine RPC.
+	AgentServiceResumeRoutineProcedure = "/podium.agent.v1.AgentService/ResumeRoutine"
+	// AgentServiceRunRoutineNowProcedure is the fully-qualified name of the AgentService's
+	// RunRoutineNow RPC.
+	AgentServiceRunRoutineNowProcedure = "/podium.agent.v1.AgentService/RunRoutineNow"
+	// AgentServiceResetRoutineStateProcedure is the fully-qualified name of the AgentService's
+	// ResetRoutineState RPC.
+	AgentServiceResetRoutineStateProcedure = "/podium.agent.v1.AgentService/ResetRoutineState"
+	// AgentServiceResolveRoutineNoteProcedure is the fully-qualified name of the AgentService's
+	// ResolveRoutineNote RPC.
+	AgentServiceResolveRoutineNoteProcedure = "/podium.agent.v1.AgentService/ResolveRoutineNote"
+	// AgentServiceListRoutineRunsProcedure is the fully-qualified name of the AgentService's
+	// ListRoutineRuns RPC.
+	AgentServiceListRoutineRunsProcedure = "/podium.agent.v1.AgentService/ListRoutineRuns"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -480,6 +512,24 @@ type AgentServiceClient interface {
 	// DeletePersonality removes one of the caller's voices. Chats that used it stay
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
+	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+	// own. A routine is its owner's: every RPC below answers only for routines the caller owns,
+	// and the dev token for all of them.
+	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
+	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
+	// CreateRoutine opens the routine and its chat.
+	CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error)
+	UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error)
+	// DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+	DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error)
+	PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error)
+	ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error)
+	// RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+	RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error)
+	ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error)
+	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
+	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
+	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -925,6 +975,72 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
 			connect.WithClientOptions(opts...),
 		),
+		listRoutines: connect.NewClient[v1.ListRoutinesRequest, v1.ListRoutinesResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutinesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutines")),
+			connect.WithClientOptions(opts...),
+		),
+		getRoutine: connect.NewClient[v1.GetRoutineRequest, v1.GetRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceGetRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		createRoutine: connect.NewClient[v1.CreateRoutineRequest, v1.CreateRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceCreateRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreateRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		updateRoutine: connect.NewClient[v1.UpdateRoutineRequest, v1.UpdateRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRoutine: connect.NewClient[v1.DeleteRoutineRequest, v1.DeleteRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		pauseRoutine: connect.NewClient[v1.PauseRoutineRequest, v1.PauseRoutineResponse](
+			httpClient,
+			baseURL+AgentServicePauseRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("PauseRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeRoutine: connect.NewClient[v1.ResumeRoutineRequest, v1.ResumeRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceResumeRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResumeRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		runRoutineNow: connect.NewClient[v1.RunRoutineNowRequest, v1.RunRoutineNowResponse](
+			httpClient,
+			baseURL+AgentServiceRunRoutineNowProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RunRoutineNow")),
+			connect.WithClientOptions(opts...),
+		),
+		resetRoutineState: connect.NewClient[v1.ResetRoutineStateRequest, v1.ResetRoutineStateResponse](
+			httpClient,
+			baseURL+AgentServiceResetRoutineStateProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResetRoutineState")),
+			connect.WithClientOptions(opts...),
+		),
+		resolveRoutineNote: connect.NewClient[v1.ResolveRoutineNoteRequest, v1.ResolveRoutineNoteResponse](
+			httpClient,
+			baseURL+AgentServiceResolveRoutineNoteProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResolveRoutineNote")),
+			connect.WithClientOptions(opts...),
+		),
+		listRoutineRuns: connect.NewClient[v1.ListRoutineRunsRequest, v1.ListRoutineRunsResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutineRunsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1002,6 +1118,17 @@ type agentServiceClient struct {
 	createPersonality          *connect.Client[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse]
 	updatePersonality          *connect.Client[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse]
 	deletePersonality          *connect.Client[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse]
+	listRoutines               *connect.Client[v1.ListRoutinesRequest, v1.ListRoutinesResponse]
+	getRoutine                 *connect.Client[v1.GetRoutineRequest, v1.GetRoutineResponse]
+	createRoutine              *connect.Client[v1.CreateRoutineRequest, v1.CreateRoutineResponse]
+	updateRoutine              *connect.Client[v1.UpdateRoutineRequest, v1.UpdateRoutineResponse]
+	deleteRoutine              *connect.Client[v1.DeleteRoutineRequest, v1.DeleteRoutineResponse]
+	pauseRoutine               *connect.Client[v1.PauseRoutineRequest, v1.PauseRoutineResponse]
+	resumeRoutine              *connect.Client[v1.ResumeRoutineRequest, v1.ResumeRoutineResponse]
+	runRoutineNow              *connect.Client[v1.RunRoutineNowRequest, v1.RunRoutineNowResponse]
+	resetRoutineState          *connect.Client[v1.ResetRoutineStateRequest, v1.ResetRoutineStateResponse]
+	resolveRoutineNote         *connect.Client[v1.ResolveRoutineNoteRequest, v1.ResolveRoutineNoteResponse]
+	listRoutineRuns            *connect.Client[v1.ListRoutineRunsRequest, v1.ListRoutineRunsResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -1364,6 +1491,61 @@ func (c *agentServiceClient) DeletePersonality(ctx context.Context, req *connect
 	return c.deletePersonality.CallUnary(ctx, req)
 }
 
+// ListRoutines calls podium.agent.v1.AgentService.ListRoutines.
+func (c *agentServiceClient) ListRoutines(ctx context.Context, req *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error) {
+	return c.listRoutines.CallUnary(ctx, req)
+}
+
+// GetRoutine calls podium.agent.v1.AgentService.GetRoutine.
+func (c *agentServiceClient) GetRoutine(ctx context.Context, req *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error) {
+	return c.getRoutine.CallUnary(ctx, req)
+}
+
+// CreateRoutine calls podium.agent.v1.AgentService.CreateRoutine.
+func (c *agentServiceClient) CreateRoutine(ctx context.Context, req *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error) {
+	return c.createRoutine.CallUnary(ctx, req)
+}
+
+// UpdateRoutine calls podium.agent.v1.AgentService.UpdateRoutine.
+func (c *agentServiceClient) UpdateRoutine(ctx context.Context, req *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error) {
+	return c.updateRoutine.CallUnary(ctx, req)
+}
+
+// DeleteRoutine calls podium.agent.v1.AgentService.DeleteRoutine.
+func (c *agentServiceClient) DeleteRoutine(ctx context.Context, req *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error) {
+	return c.deleteRoutine.CallUnary(ctx, req)
+}
+
+// PauseRoutine calls podium.agent.v1.AgentService.PauseRoutine.
+func (c *agentServiceClient) PauseRoutine(ctx context.Context, req *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error) {
+	return c.pauseRoutine.CallUnary(ctx, req)
+}
+
+// ResumeRoutine calls podium.agent.v1.AgentService.ResumeRoutine.
+func (c *agentServiceClient) ResumeRoutine(ctx context.Context, req *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error) {
+	return c.resumeRoutine.CallUnary(ctx, req)
+}
+
+// RunRoutineNow calls podium.agent.v1.AgentService.RunRoutineNow.
+func (c *agentServiceClient) RunRoutineNow(ctx context.Context, req *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error) {
+	return c.runRoutineNow.CallUnary(ctx, req)
+}
+
+// ResetRoutineState calls podium.agent.v1.AgentService.ResetRoutineState.
+func (c *agentServiceClient) ResetRoutineState(ctx context.Context, req *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error) {
+	return c.resetRoutineState.CallUnary(ctx, req)
+}
+
+// ResolveRoutineNote calls podium.agent.v1.AgentService.ResolveRoutineNote.
+func (c *agentServiceClient) ResolveRoutineNote(ctx context.Context, req *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error) {
+	return c.resolveRoutineNote.CallUnary(ctx, req)
+}
+
+// ListRoutineRuns calls podium.agent.v1.AgentService.ListRoutineRuns.
+func (c *agentServiceClient) ListRoutineRuns(ctx context.Context, req *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error) {
+	return c.listRoutineRuns.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -1608,6 +1790,24 @@ type AgentServiceHandler interface {
 	// DeletePersonality removes one of the caller's voices. Chats that used it stay
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
+	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+	// own. A routine is its owner's: every RPC below answers only for routines the caller owns,
+	// and the dev token for all of them.
+	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
+	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
+	// CreateRoutine opens the routine and its chat.
+	CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error)
+	UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error)
+	// DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+	DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error)
+	PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error)
+	ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error)
+	// RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+	RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error)
+	ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error)
+	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
+	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
+	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -2049,6 +2249,72 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListRoutinesHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutinesProcedure,
+		svc.ListRoutines,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutines")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceGetRoutineProcedure,
+		svc.GetRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("GetRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreateRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceCreateRoutineProcedure,
+		svc.CreateRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("CreateRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateRoutineProcedure,
+		svc.UpdateRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteRoutineProcedure,
+		svc.DeleteRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServicePauseRoutineHandler := connect.NewUnaryHandler(
+		AgentServicePauseRoutineProcedure,
+		svc.PauseRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("PauseRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResumeRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceResumeRoutineProcedure,
+		svc.ResumeRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("ResumeRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceRunRoutineNowHandler := connect.NewUnaryHandler(
+		AgentServiceRunRoutineNowProcedure,
+		svc.RunRoutineNow,
+		connect.WithSchema(agentServiceMethods.ByName("RunRoutineNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResetRoutineStateHandler := connect.NewUnaryHandler(
+		AgentServiceResetRoutineStateProcedure,
+		svc.ResetRoutineState,
+		connect.WithSchema(agentServiceMethods.ByName("ResetRoutineState")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResolveRoutineNoteHandler := connect.NewUnaryHandler(
+		AgentServiceResolveRoutineNoteProcedure,
+		svc.ResolveRoutineNote,
+		connect.WithSchema(agentServiceMethods.ByName("ResolveRoutineNote")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListRoutineRunsHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutineRunsProcedure,
+		svc.ListRoutineRuns,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -2195,6 +2461,28 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceUpdatePersonalityHandler.ServeHTTP(w, r)
 		case AgentServiceDeletePersonalityProcedure:
 			agentServiceDeletePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutinesProcedure:
+			agentServiceListRoutinesHandler.ServeHTTP(w, r)
+		case AgentServiceGetRoutineProcedure:
+			agentServiceGetRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceCreateRoutineProcedure:
+			agentServiceCreateRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateRoutineProcedure:
+			agentServiceUpdateRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteRoutineProcedure:
+			agentServiceDeleteRoutineHandler.ServeHTTP(w, r)
+		case AgentServicePauseRoutineProcedure:
+			agentServicePauseRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceResumeRoutineProcedure:
+			agentServiceResumeRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceRunRoutineNowProcedure:
+			agentServiceRunRoutineNowHandler.ServeHTTP(w, r)
+		case AgentServiceResetRoutineStateProcedure:
+			agentServiceResetRoutineStateHandler.ServeHTTP(w, r)
+		case AgentServiceResolveRoutineNoteProcedure:
+			agentServiceResolveRoutineNoteHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutineRunsProcedure:
+			agentServiceListRoutineRunsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2490,4 +2778,48 @@ func (UnimplementedAgentServiceHandler) UpdatePersonality(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutines is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.PauseRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResumeRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RunRoutineNow is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResetRoutineState is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResolveRoutineNote is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutineRuns is not implemented"))
 }

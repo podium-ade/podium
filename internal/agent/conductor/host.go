@@ -181,6 +181,9 @@ type HostRuntime struct {
 	// reaches it. A turn on a pull request gets it, authenticated with its own token. Empty
 	// leaves it out.
 	PullRequestMCPURL string
+	// GitHubReadMCPURL is the conductor's read-only GitHub reader (githubread.go) as a host
+	// turn reaches it. A routine's turn gets it. Empty leaves it out.
+	GitHubReadMCPURL string
 	// Isolation is how a host turn is fenced from this machine and from every other turn:
 	// IsolationNone, the default, or IsolationBwrap. See isolation.go.
 	Isolation string
@@ -253,13 +256,17 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
 	// container.
-	if c.host.TurnURL != "" && len(menu) > 0 {
+	// A routine's turn has a token even with nothing to delegate to: routine_finish rides on
+	// it. So does a web chat's, where the person may ask for a routine (create_routine).
+	routines := b.Routine == nil && b.Source.Kind == SourceChat && c.creator() != nil
+	if c.host.TurnURL != "" && (len(menu) > 0 || b.Routine != nil || routines) {
 		b.Delegation = &BriefDelegation{
 			URL:       c.host.TurnURL,
 			TokenEnv:  TurnTokenEnv,
 			Playbooks: menu,
 			Running:   running,
 			Previews:  previews,
+			Routines:  routines,
 		}
 	}
 	// A pull request's own diff and files, read here rather than in a container. The turn's
@@ -268,6 +275,12 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 	if b.Delegation != nil && b.Source.Kind == SourceGitHub && c.host.PullRequestMCPURL != "" {
 		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
 			Name: PullRequestMCPName, URL: c.host.PullRequestMCPURL, TokenEnv: TurnTokenEnv,
+		})
+	}
+	// A routine's turn reads GitHub as its owner, here rather than in a container.
+	if b.Delegation != nil && b.Routine != nil && c.host.GitHubReadMCPURL != "" {
+		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
+			Name: GitHubReadMCPName, URL: c.host.GitHubReadMCPURL, TokenEnv: TurnTokenEnv,
 		})
 	}
 	if b.Memory == nil {
@@ -312,6 +325,8 @@ type hostRun struct {
 	// that a runtime would have read out of the brief. See chathost.go.
 	model, effort, instruction, memoryURL string
 	pullRequest                           bool
+	// githubRead is a routine's turn, which reads GitHub as its owner (githubread.go).
+	githubRead bool
 	// who is the person a chat-host turn counts against; login is whose credential it may
 	// spend, empty when no person is signed in.
 	who, login string

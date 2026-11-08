@@ -51,6 +51,9 @@ const (
 	// ReservedPullRequest is the conductor's own read-only view of the pull request a host
 	// turn is answering. It reaches the runtime as an ordinary server, so it is refused here.
 	ReservedPullRequest = "pull-request"
+	// ReservedGitHub is the conductor's read-only GitHub reader a routine's host turn gets: pull
+	// requests, checks and logs, read with the routine owner's own GitHub account.
+	ReservedGitHub = "github-read"
 )
 
 // MaxServers is how many MCP servers one playbook may name. Each one is a connection the
@@ -242,7 +245,7 @@ func ValidateName(name string) error {
 	case !NameRE.MatchString(name):
 		return fmt.Errorf("MCP server name %q must match %s", name, NameRE.String())
 	case name == ReservedMemory, name == ReservedBrowser, name == ReservedDelegate, name == ReservedHuman,
-		name == ReservedTitle, name == ReservedPullRequest:
+		name == ReservedTitle, name == ReservedPullRequest, name == ReservedGitHub:
 		return fmt.Errorf("MCP server name %q is reserved: the runtime gives that name to "+
 			"a server it wires up itself", name)
 	}

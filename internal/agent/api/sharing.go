@@ -291,6 +291,9 @@ func (s *AgentService) UpdateChatSharing(
 	if err != nil {
 		return nil, err
 	}
+	if err := notARoutineChat(row); err != nil {
+		return nil, err
+	}
 	access, role := req.Msg.GetGeneralAccess(), req.Msg.GetGeneralRole()
 	if access == "" {
 		access = row.GeneralAccess
@@ -342,6 +345,9 @@ func (s *AgentService) ShareChat(
 	}
 	row, err := s.ownedChat(ctx, req.Msg.GetChatId(), login)
 	if err != nil {
+		return nil, err
+	}
+	if err := notARoutineChat(row); err != nil {
 		return nil, err
 	}
 	target, err := s.typedLogin(ctx, req.Msg.GetLogin())
@@ -521,4 +527,14 @@ func (s *AgentService) MarkNotificationsRead(
 		return nil, storeError(err)
 	}
 	return connect.NewResponse(&agentv1.MarkNotificationsReadResponse{}), nil
+}
+
+// notARoutineChat refuses to share a routine's chat. A routine runs as its owner, with their
+// credentials, and its chat is theirs alone: somebody else in it could steer what runs as them.
+func notARoutineChat(c store.Chat) error {
+	if c.RoutineID != "" {
+		return connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("chat %s is a routine's chat, and a routine's chat is never shared", c.ID))
+	}
+	return nil
 }

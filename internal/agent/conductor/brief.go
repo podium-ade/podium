@@ -103,6 +103,9 @@ type Brief struct {
 	// prompt tells a container turn it has a disposable filesystem and may leave files to
 	// be attached, and both of those are false on a host.
 	RunsOn string `json:"runs_on,omitempty"`
+	// Routine is set on a turn in a routine's chat: a scheduled run, or the owner's own
+	// message there. See routine.go.
+	Routine *BriefRoutine `json:"routine,omitempty"`
 }
 
 // RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a
@@ -297,6 +300,9 @@ type BriefDelegation struct {
 	// Previews is this conversation's finished tasks whose environment is still up, so a
 	// person saying they are done with one can be taken at their word.
 	Previews []BriefPreview `json:"previews,omitempty"`
+	// Routines is set when the turn may set up a routine for the person it answers
+	// (create_routine): a web chat that is not itself a routine's.
+	Routines bool `json:"routines,omitempty"`
 }
 
 // BriefPreview is one finished delegated task of this conversation that is still up.

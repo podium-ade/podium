@@ -34,6 +34,7 @@ type chatFixture struct {
 	source *chat.Source
 	client agentv1connect.AgentServiceClient
 	url    string
+	svc    *AgentService
 }
 
 func newChatFixture(t *testing.T) chatFixture {
@@ -81,6 +82,7 @@ func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 		store:  st,
 		source: src,
 		url:    srv.URL,
+		svc:    svc,
 		client: agentv1connect.NewAgentServiceClient(srv.Client(), srv.URL,
 			connect.WithInterceptors(proxyHeaders("alice"))),
 	}

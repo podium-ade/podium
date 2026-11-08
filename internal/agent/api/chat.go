@@ -848,6 +848,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		PersonalityId:      c.PersonalityID,
 		PersonalityDisplay: c.PersonalityDisplay,
 		Multiplayer:        c.Multiplayer,
+		RoutineId:          c.RoutineID,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)

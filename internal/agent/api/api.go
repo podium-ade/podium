@@ -281,6 +281,11 @@ type AgentService struct {
 	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
 	// a conductor running a profile older than its stored overrides has to say so.
 	stale atomic.Pointer[string]
+
+	// routineMu guards the scheduler routines.go reaches, which is built after the service
+	// and handed to it by SetRoutines.
+	routineMu     sync.Mutex
+	routineRunner RoutineRunner
 }
 
 // NewAgentService returns the handlers.

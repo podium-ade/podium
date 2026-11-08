@@ -185,6 +185,9 @@ type InboundEvent struct {
 	// of the answer it waited for, and the conductor records it (HeldRecorder) as its turn
 	// starts — or as it goes into a turn that is up. ChatSeq is set then.
 	Held bool `json:",omitempty"`
+	// Routine is set on a run the routine scheduler started (routine.go). Its Text is the
+	// routine's instruction, which is not in the chat's record and never will be.
+	Routine *RoutineRef `json:",omitempty"`
 	// Placed, when set, is told where the message went once the conductor has decided: the
 	// number of turns that run before it (0: it is being answered now — it started a turn,
 	// or went into the turn already answering this person). The web chat sets it so a send
