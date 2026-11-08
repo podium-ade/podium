@@ -319,6 +319,37 @@ func (c *Client) Identity(ctx context.Context) (Identity, error) {
 	return out, nil
 }
 
+// CanPush reports whether a GitHub account can push to every one of repos, as their
+// collaborator permission on each says. It asks with an installation token for those repos,
+// which every installation can read collaborators with (metadata), so it needs nothing from
+// the account itself. An account that is not a collaborator at all answers 404, which is no.
+func (c *Client) CanPush(ctx context.Context, owner string, repos []string, login string) (bool, error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return false, nil
+	}
+	tok, err := c.Token(ctx, owner, repos)
+	if err != nil {
+		return false, err
+	}
+	for _, repo := range repos {
+		var out collaboratorPermission
+		path := fmt.Sprintf("/repos/%s/%s/collaborators/%s/permission",
+			url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(login))
+		err := c.roundTrip(ctx, http.MethodGet, path, nil, tok.Value, &out)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !out.canPush() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // installation is the App's installation on one account, cached. An installation id is
 // stable for the life of the installation; uninstalling and reinstalling makes a new one,
 // which shows up here as a 404 on the token call and is fixed by a restart. So is an owner
@@ -526,6 +557,29 @@ type installationResponse struct {
 
 type appResponse struct {
 	Slug string `json:"slug"`
+}
+
+// collaboratorPermission is GET /repos/{owner}/{repo}/collaborators/{user}/permission.
+// User.Permissions is the precise answer; Permission is the older coarse role, for an
+// answer that leaves the precise one out.
+type collaboratorPermission struct {
+	Permission string `json:"permission"`
+	User       struct {
+		Permissions *struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	} `json:"user"`
+}
+
+func (p collaboratorPermission) canPush() bool {
+	if p.User.Permissions != nil {
+		return p.User.Permissions.Push
+	}
+	switch p.Permission {
+	case "admin", "maintain", "write":
+		return true
+	}
+	return false
 }
 
 type userResponse struct {
