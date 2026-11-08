@@ -12,6 +12,7 @@ import {
   MINUTE_STEPS,
   parseMinute,
   parseTime,
+  SYSTEM_MINUTE_STEPS,
   switchKind,
   toCron,
   WEEKDAYS,
@@ -57,7 +58,16 @@ const SLOTS: string[] = Array.from({ length: 96 }, (_, i) => hhmm(Math.floor(i /
  * Cron takes an expression for anything Repeat cannot say. Its value is always the cron
  * expression the server stores.
  */
-export function ScheduleField({ value, onChange }: { value: string; onChange: (cron: string) => void }) {
+export function ScheduleField({
+  value,
+  onChange,
+  system = false,
+}: {
+  value: string;
+  onChange: (cron: string) => void;
+  /** system is a system routine's schedule, which may run as often as every minute. */
+  system?: boolean;
+}) {
   const labelId = useId();
   const parsed = fromCron(value);
   const [mode, setMode] = useState<"repeat" | "cron">(parsed || !value.trim() ? "repeat" : "cron");
@@ -120,7 +130,7 @@ export function ScheduleField({ value, onChange }: { value: string; onChange: (c
               ))}
             </ToggleGroup>
 
-            <Sentence repeat={repeat} onChange={update} />
+            <Sentence repeat={repeat} onChange={update} system={system} />
 
             {repeat.kind !== "monthly" ? (
               <DayPicker days={repeat.days} onChange={(days) => update({ ...repeat, days })} />
@@ -139,7 +149,8 @@ export function ScheduleField({ value, onChange }: { value: string; onChange: (c
               className="font-mono"
             />
             <p className="text-xs text-muted">
-              Minute, hour, day of month, month, day of week — in the timezone below. At most every 15 minutes.
+              Minute, hour, day of month, month, day of week — in the timezone below. At most every{" "}
+              {system ? "minute" : "15 minutes"}.
             </p>
           </div>
         )}
@@ -169,7 +180,15 @@ export function ScheduleField({ value, onChange }: { value: string; onChange: (c
 }
 
 /** Sentence is the frequency's own controls, read as a sentence: "Every [2 hours] at [:30]". */
-function Sentence({ repeat: r, onChange }: { repeat: Repeat; onChange: (r: Repeat) => void }) {
+function Sentence({
+  repeat: r,
+  onChange,
+  system,
+}: {
+  repeat: Repeat;
+  onChange: (r: Repeat) => void;
+  system: boolean;
+}) {
   const words = "text-sm text-muted";
   switch (r.kind) {
     case "minutes":
@@ -179,7 +198,9 @@ function Sentence({ repeat: r, onChange }: { repeat: Repeat; onChange: (r: Repea
           <Pick
             label="Minutes between runs"
             value={String(r.every)}
-            options={MINUTE_STEPS.map((n) => ({ value: String(n), label: `${n} minutes` }))}
+            options={[...new Set<number>([...(system ? SYSTEM_MINUTE_STEPS : MINUTE_STEPS), r.every])]
+              .sort((a, b) => a - b)
+              .map((n) => ({ value: String(n), label: n === 1 ? "minute" : `${n} minutes` }))}
             onChange={(v) => onChange({ ...r, every: Number(v) })}
           />
         </div>

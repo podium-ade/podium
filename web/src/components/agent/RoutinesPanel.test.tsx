@@ -125,6 +125,7 @@ describe("RoutinesPanel", () => {
     await waitFor(() =>
       expect(createRoutine).toHaveBeenCalledWith({
         draft: expect.objectContaining({ name: "PR digest", instruction: "Report failing PRs.", schedule: "0 9 * * 1-5" }),
+        scope: "personal",
       }),
     );
     expect(await screen.findByTestId("routine-row")).toHaveTextContent("PR digest");
@@ -140,5 +141,31 @@ describe("RoutinesPanel", () => {
     await userEvent.click(screen.getByTestId("routine-delete-confirm"));
     await waitFor(() => expect(deleteRoutine).toHaveBeenCalledWith({ id: "rtn_1" }));
     expect(await screen.findByText("No routines yet")).toBeInTheDocument();
+  });
+});
+
+describe("RoutinesPanel for an admin", () => {
+  it("marks a system routine as such, and as running as Podium on its repositories", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({ id: "rtn_sys", name: "Fix failing CI", scope: "system", repos: ["acme/api", "acme/web", "acme/docs"] }),
+        routine({ id: "rtn_mine", name: "PR digest", scope: "personal", ownerLogin: "ana" }),
+      ],
+    });
+    mount();
+    const rows = await screen.findAllByTestId("routine-row");
+    expect(within(rows[0]!).getByTestId("routine-system-badge")).toBeInTheDocument();
+    expect(rows[0]).toHaveTextContent("as Podium on acme/api, acme/web and 1 more");
+    expect(within(rows[1]!).queryByTestId("routine-system-badge")).not.toBeInTheDocument();
+  });
+
+  it("says an admin's pause as it is, not as Podium's", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [routine({ enabled: false, pausedReason: "Paused by an admin." })],
+    });
+    mount();
+    const row = await screen.findByTestId("routine-row");
+    expect(row).toHaveTextContent("Paused by an admin.");
+    expect(row).not.toHaveTextContent("Paused by Podium");
   });
 });

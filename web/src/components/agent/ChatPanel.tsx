@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Users,
@@ -1673,7 +1674,7 @@ function Conversation({
             }
             welcome={
               showWelcome && routineId ? (
-                <RoutineWelcome />
+                <RoutineWelcome system={owner === "" && stream.chat !== undefined} />
               ) : showWelcome ? (
                 <ArrivalWell
                   botName={botName}
@@ -1688,6 +1689,15 @@ function Conversation({
 
         {!roleKnown ? (
           <ComposerPlaceholder />
+        ) : routineId && !owner && stream.chat !== undefined ? (
+          <div
+            data-testid="chat-system-routine"
+            className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            <ShieldCheck className="size-4 shrink-0" aria-hidden />
+            System routine: nobody writes here. Admins steer it by editing the instruction or its standing notes on the
+            card above.
+          </div>
         ) : viewOnly ? (
           <div
             data-testid="chat-view-only"
@@ -1798,13 +1808,14 @@ function Arrival({
 
 /** RoutineWelcome is a routine's chat before any run has answered: where its answers will
  * land, and what writing here does. */
-function RoutineWelcome() {
+function RoutineWelcome({ system }: { system: boolean }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center-safe gap-1.5 px-6 py-6 text-center">
       <p className="text-lg font-medium tracking-tight text-fg">Nothing from this routine yet</p>
       <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
-        A run that finds something answers here; one that finds nothing leaves no trace. Write here to ask
-        about its runs or to change what it keeps an eye on.
+        {system
+          ? "A run that finds something answers here; one that finds nothing leaves no trace. To change what it keeps an eye on, edit it from the card above."
+          : "A run that finds something answers here; one that finds nothing leaves no trace. Write here to ask about its runs or to change what it keeps an eye on."}
       </p>
     </div>
   );
