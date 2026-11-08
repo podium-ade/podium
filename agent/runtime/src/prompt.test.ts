@@ -208,6 +208,33 @@ describe("buildSystemPrompt", () => {
     expect(reply).not.toContain("scheduled run of a routine");
   });
 
+  it("tells a system routine run it belongs to nobody and reads only its repositories, as the App", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [] },
+      playbook: {
+        ...golden().playbook,
+        mcp_servers: [{ name: "github-read", url: "http://h/v1/mcp/github-read", token_env: "T" }],
+      },
+      routine: {
+        id: "rtn_1",
+        name: "Fix failing CI",
+        schedule: "every 5 minutes",
+        scheduled: true,
+        state: {},
+        system: true,
+        repos: ["acme/api", "acme/web"],
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("**system routine**");
+    expect(prompt).toContain("as the Podium App, in this routine's repositories only: `acme/api`, `acme/web`");
+    expect(prompt).toContain("comment_on_pull_request");
+    expect(prompt).not.toContain("as the routine's owner");
+  });
+
   it("tells a web chat that may create routines how, and leaves it out otherwise", () => {
     const brief: TurnBrief = {
       ...golden(),
