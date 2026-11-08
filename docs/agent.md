@@ -2244,7 +2244,10 @@ and the summary under it stays. An approval uses the same Note callout. The
 review under the comment is the approval. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
 an approval when the first line is `Approve` or `Nits`. Any other verdict is a
-comment review. Every answer submits a review of its own, so each round stays on the
+comment review. A pull request this App opened is reviewed but never approved, and never has
+changes requested: its verdict stays in the review's words and the review is a comment, and
+GitHub refuses both from a pull request's own author anyway. A pull request whose author
+cannot be read is treated the same way, so nothing is approved by accident. Every answer submits a review of its own, so each round stays on the
 pull request beside the ones before it. The latest review's id is stored on the
 session, and its commit is where the next round starts. A follow-up that withdraws an
 approval requests changes, because a comment on top of the approval would leave the
@@ -2484,11 +2487,23 @@ The `user_secrets:` line is what opts a playbook in. The conductor does not atta
 `github.token` to the task, so `GITHUB_TOKEN` is not set: git and `gh` get the scoped token from
 the credential helper and `GH_TOKEN`.
 
+**Written as the App on their behalf** instead, when the conductor has a GitHub App and the
+person cannot be written as:
+
+- they have not connected GitHub, or their connection needs reconnecting, or
+- their account cannot push to every one of the playbook's `repos:`. The conductor asks
+  GitHub for their collaborator permission with an installation token; not being a
+  collaborator is no.
+
+That turn mints App tokens like any App turn and gets the `Requested-by` trailer and the
+"on behalf of" note (see *Writing to GitHub for somebody who has not connected it*). A
+permission check that fails for another reason keeps the person, as before.
+
 The turn fails, and says why, when:
 
-- The person has not connected GitHub, or GitHub no longer accepts their connection: the
-  refresh token went six months unused, or they revoked the App. **Your account** then says
-  the connection expired and offers **Reconnect GitHub**.
+- There is no GitHub App, and the person has not connected GitHub, or GitHub no longer
+  accepts their connection: the refresh token went six months unused, or they revoked the
+  App. **Your account** then says the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.
@@ -2934,15 +2949,17 @@ What that decides:
   breaks the range down by it (`people`), which **Usage → By person** draws. `github-app`
   is a review nobody in Podium asked for. A delegated task's spend is its delegating turn's
   person's.
-- **Writing to GitHub for somebody who has not connected it.** A turn that pushes or
-  comments as the App for a Podium person carries `requested_by` in its brief, and every
+- **Writing to GitHub for somebody who has not connected it** (or cannot push to the
+  repositories). A turn that pushes or comments as the App for a Podium person carries `requested_by` in its brief, and every
   commit it makes gets a `Requested-by: Name <login>` trailer. The runtime points every git it
   starts at a hook directory of its own (`core.hooksPath`, set through `GIT_CONFIG_COUNT`), so
   this covers repositories the agent clones itself. The repository's own hooks still run:
   each Podium hook hands on to them, and `commit-msg` adds the trailer after the repository's
   hook, so a hook that rewrites the message cannot drop it. Only `git commit --no-verify`
-  skips it. The turn is also told to say "requested by Name" in pull requests and comments,
-  which no hook can reach.
+  skips it. The brief also tells the turn to end any pull request's description with
+  `Opened by Podium on behalf of Name (@handle).` (the handle when the person connected
+  GitHub) and to say "requested by Name" in comments. That part is asked, not enforced:
+  nothing checks the pull request afterwards.
 
 ## One record, one transcript
 
