@@ -9,9 +9,11 @@ package conductor
 // was right while a conversation had one person in it and wrong the moment two people tag
 // Podium at once: the second person's turn would have run as the first.
 //
-// One person's run of messages is still one turn. Consecutive rows from the same person on
-// the same surface are taken together and the latest is the instruction, exactly as before;
-// the earlier ones are in the transcript.
+// One person's run of messages is still one turn on Slack and GitHub. Consecutive rows from the
+// same person on the same surface are taken together and the latest is the instruction, exactly
+// as before; the earlier ones are in the transcript. Not from the web chat, whose composer
+// queues: each message there is a turn of its own, and one sent while Podium was answering
+// waits out of the record until its turn starts (InboundEvent.Held).
 //
 // The protocol across conductors is "write first, then try to serve":
 //
@@ -196,7 +198,10 @@ func (c *Conductor) popNext(
 		if !decoded {
 			continue
 		}
-		for {
+		// A run of one person's messages is one turn — except from the web chat, whose
+		// composer queues: there each message was sent to be answered on its own, and a held
+		// one dropped here would never reach the record at all.
+		for row.SourceKind != SourceChat && !ev.Held {
 			more, ok, err := c.store.PopQueuedTurnFrom(ctx, sess.ID, row.Login, row.SourceKind)
 			if err != nil || !ok {
 				break
@@ -410,7 +415,7 @@ func (c *Conductor) queueChanged(ctx context.Context, sess store.Session) {
 // injectIntoOwner gives ev to another conductor's warm task for its session, when that
 // conductor serves the session and the task is answering the same person on the same
 // surface. It reports whether it did; false means queue it.
-func (c *Conductor) injectIntoOwner(ctx context.Context, src Source, sessionID string, ev InboundEvent) bool {
+func (c *Conductor) injectIntoOwner(ctx context.Context, src Source, sessionID string, ev *InboundEvent) bool {
 	if !c.leasing() {
 		return false
 	}
@@ -418,10 +423,11 @@ func (c *Conductor) injectIntoOwner(ctx context.Context, src Source, sessionID s
 	if err != nil || !ok || warm.TaskID == "" {
 		return false
 	}
-	login, kind := c.askerOf(src, ev)
+	login, kind := c.askerOf(src, *ev)
 	if warm.Login != login || warm.Kind != kind {
 		return false
 	}
+	c.recordHeld(ctx, src, ev)
 	if err := c.podium.InjectTask(ctx, warm.TaskID, ev.Text); err != nil {
 		c.logger.WarnContext(ctx, "injecting into another conductor's warm task failed; queueing the turn",
 			"session_id", sessionID, "task_id", warm.TaskID, "error", err)

@@ -54,6 +54,13 @@ delete from turn_queue q
  where q.session_id = s.id and c.source_key = s.source_key
    and c.id = @chat_id and q.message_seq = @message_seq and q.login = @login;
 
+-- RemoveQueuedTurnByID takes back one's own queued turn by its row, which is how a message
+-- that waits unrecorded (it has no seq yet) is named. Zero rows: not queued any more, not in
+-- this chat, or not the caller's.
+-- name: RemoveQueuedTurnByID :execrows
+delete from turn_queue q
+ where q.id = @id and q.chat_id = @chat_id and q.login = @login;
+
 -- OrphanedQueues is every session with queued turns and no live conductor but the caller
 -- serving it: the one that held it died between taking a turn and serving the rest, or it is
 -- the caller itself, restarted. adopt takes them; a session the caller is already serving is

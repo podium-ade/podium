@@ -122,6 +122,19 @@ func (s *Store) RemoveQueuedTurn(ctx context.Context, chatID string, seq uint64,
 	return nil
 }
 
+// RemoveQueuedTurnByID takes back login's queued turn by its row. ErrNotFound means it is not
+// queued (any more), is not in this chat, or is not theirs; the three are one answer.
+func (s *Store) RemoveQueuedTurnByID(ctx context.Context, chatID string, id int64, login string) error {
+	n, err := s.q.RemoveQueuedTurnByID(ctx, db.RemoveQueuedTurnByIDParams{ID: id, ChatID: chatID, Login: login})
+	if err != nil {
+		return fmt.Errorf("remove queued turn %d of %s: %w", id, chatID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: no queued turn %d of yours in %s", ErrNotFound, id, chatID)
+	}
+	return nil
+}
+
 // OrphanedQueues is every session with turns waiting and no live conductor other than owner
 // serving it.
 func (s *Store) OrphanedQueues(ctx context.Context, owner string) ([]string, error) {

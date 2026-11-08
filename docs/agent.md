@@ -431,6 +431,19 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   and the rest are in the transcript. A message from the same person on the same surface still
   goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting
   for its answer); anybody else's never does.
+- **The web chat queues each message as a turn of its own.** A message put to Podium from the web
+  while it is answering — or while others already wait — is queued (`turn_queue`) and is NOT
+  written to the transcript yet (`InboundEvent.Held`): written then, it would be read in the
+  middle of the answer it waits for. The conductor records it as its turn starts
+  (`HeldRecorder`), or as it goes into a turn that is up; a held message the conductor turns away
+  is recorded on the way out, so nothing anybody said is lost. Web messages are never steered into
+  the turn in progress and never folded together, unlike a person's run of Slack messages. The
+  queue frame carries each message's text and asker, so everybody in the chat sees one shared
+  queue above the composer; a person can take their own message back (`CancelQueuedTurn` by `id`)
+  or take it back into the box to edit, and anybody who may write the chat can **Interrupt &
+  send** — stop the answer, and the queue goes on in order. In a multiplayer chat only a message
+  that mentions Podium is queued; talk between people is recorded at once. A reply to a task's
+  question is never queued.
 - **A multiplayer chat answers only a mention.** A web chat becomes multiplayer once a second
   Podium person is in it or it is shared, and stays so; a Slack thread or pull request always is.
   A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it

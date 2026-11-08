@@ -70,6 +70,42 @@ func TestTheQueueRPCsArePermissioned(t *testing.T) {
 	assert.Equal(t, []string{chatID, chatID}, canceller.calls)
 }
 
+// A message queued from the web waits unrecorded, so it has no seq: the queue frame names it
+// by its row and says what it asks, so everybody in the chat sees the same queue, and its
+// asker takes it back by that row.
+func TestAMessageWaitingUnrecordedIsShownAndTakenBackByItsRow(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	_, err = f.store.AddChatParticipant(ctx, chatID, "bob", store.JoinedWeb, time.Now())
+	require.NoError(t, err)
+	row, err := f.store.GetChat(ctx, chatID)
+	require.NoError(t, err)
+	sess, err := f.store.UpsertSession(ctx, store.Session{SourceKind: "chat", SourceKey: row.SourceKey, Profile: "podium"})
+	require.NoError(t, err)
+	q, err := f.store.EnqueueTurn(ctx, store.QueuedTurn{
+		SessionID: sess.ID, SourceKind: "chat", Login: "bob", Author: "bob", ChatID: chatID,
+		Event: []byte(`{"Text":"@Podium and the totals?","Held":true}`),
+	})
+	require.NoError(t, err)
+
+	frame := queueToProto([]store.QueuedTurn{q})
+	require.Len(t, frame.GetTurns(), 1)
+	assert.Equal(t, q.ID, frame.GetTurns()[0].GetId())
+	assert.Equal(t, "@Podium and the totals?", frame.GetTurns()[0].GetText())
+	assert.Zero(t, frame.GetTurns()[0].GetSeq())
+
+	_, err = f.clientAs("alice").CancelQueuedTurn(ctx, connect.NewRequest(&agentv1.CancelQueuedTurnRequest{ChatId: chatID, Id: q.ID}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "only its asker takes it back")
+	_, err = f.clientAs("bob").CancelQueuedTurn(ctx, connect.NewRequest(&agentv1.CancelQueuedTurnRequest{ChatId: chatID, Id: q.ID}))
+	require.NoError(t, err)
+	left, err := f.store.ListQueuedTurnsForChat(ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+}
+
 // The @-mention list is everybody who has signed in, named by whichever account says so.
 func TestSearchMembersFindsPeopleByNameOrLogin(t *testing.T) {
 	f := newChatFixture(t)

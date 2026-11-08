@@ -1145,9 +1145,15 @@ message QueuedTurn {
   string author = 2;
   // via is the surface they asked on: "web", "slack" or "github".
   string via = 3;
-  // seq is the message that asked, in this chat; 0 when it is not in the record.
+  // seq is the message that asked, in this chat; 0 when it is not in the record. A message
+  // sent from the web chat while Podium was answering waits unrecorded, and is written to the
+  // transcript when its turn starts, so it is read after the answer it waited for.
   uint64 seq = 4;
   google.protobuf.Timestamp queued_at = 5;
+  // id names this waiting turn, for CancelQueuedTurn.
+  int64 id = 6;
+  // text is what was asked, so everybody in the chat sees the same queue.
+  string text = 7;
 }
 
 // ChatQueue is the whole set of turns waiting in a chat's session.
@@ -1336,8 +1342,11 @@ message SendChatMessageResponse {
 
 message CancelQueuedTurnRequest {
   string chat_id = 1;
-  // seq is the caller's message whose turn is waiting.
+  // seq is the caller's message whose turn is waiting. Use id for a message that waits
+  // unrecorded (QueuedTurn.seq 0).
   uint64 seq = 2;
+  // id is the waiting turn (QueuedTurn.id). Set, it wins over seq.
+  int64 id = 3;
 }
 
 message CancelQueuedTurnResponse {}

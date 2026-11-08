@@ -304,36 +304,31 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	addressed := !chat.Multiplayer || MentionsPodium(req.Text, personalityName) ||
 		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay))
 
-	// A chat with more than one person in it names who said what on every message, the way
-	// a mirrored thread does. A chat with one person leaves it empty: the reader is the asker.
-	author := ""
-	if chat.Multiplayer {
-		author = req.Login
+	now := time.Now().UTC()
+	// A message for Podium sent while it is answering — or while others already wait — is
+	// QUEUED, the way other chat clients queue: it waits in the session's turn queue, out of
+	// the transcript, where everybody in the chat sees it (the queue frame), and goes into the
+	// record when its turn starts (RecordHeld). Recorded now, it would sit in the middle of
+	// the answer it is waiting for. Talk between people, and anything said to an idle chat,
+	// is recorded at once as it always was.
+	ahead := 0
+	if addressed {
+		ahead = s.ahead(ctx, req.ChatID)
 	}
-	msg, _, err := s.store.RecordChatMessage(ctx, store.ChatMessage{
-		ChatID: req.ChatID,
-		Role:   store.RoleUser,
-		Text:   req.Text,
-		TS:     time.Now().UTC(),
-		Author: author,
-		// Who typed it: a chat's record names its author on every message, because from
-		// phase 4 a chat may have more than one person in it.
-		AuthorLogin: req.Login,
-		Via:         store.ViaWeb,
-		Addressed:   addressed,
-		Mentions:    MentionedLogins(req.Text),
-	})
-	if err != nil {
-		return SendResult{}, err
+	// A task that asked a question is waiting for exactly this: the answer goes in now.
+	held := addressed && ahead > 0 && !s.awaiting(req.ChatID)
+	var msg store.ChatMessage
+	if !held {
+		msg, err = s.record(ctx, chat, req.Login, req.Text, now, addressed)
+		if err != nil {
+			return SendResult{}, err
+		}
 	}
-	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
 	s.joined(ctx, chat, req.Login)
 	s.remember(ctx, chat, req)
 	if !addressed {
 		return SendResult{Message: msg}, nil
 	}
-
-	ahead := s.ahead(ctx, req.ChatID)
 	s.markBusy(req.ChatID)
 
 	// No playbook travels with a chat message. The assistant answers it, and the playbooks
@@ -354,7 +349,7 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		Author:            req.Login,
 		Login:             req.Login,
 		Text:              req.Text,
-		TS:                msg.TS,
+		TS:                now,
 		URL:               s.URL(req.ChatID),
 		Override:          override,
 		BriefKind:         conductor.SourceChat,
@@ -363,6 +358,7 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		Mentioned:         true,
 		ChatID:            req.ChatID,
 		ChatSeq:           msg.Seq,
+		Held:              held,
 	}
 	where := make(chan int, 1)
 	ev.Placed = func(n int) {
@@ -374,8 +370,9 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	select {
 	case s.events <- ev:
 	case <-ctx.Done():
-		// The message is stored and will be in the next turn's transcript, but nothing is
-		// going to answer it, so the composer must not stay busy.
+		// Nothing is going to answer it, so the composer must not stay busy. A message that
+		// was stored will be in the next turn's transcript; a held one was not stored, and
+		// the error says so.
 		s.release(req.ChatID)
 		return SendResult{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
@@ -393,6 +390,60 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		}
 	}
 	return SendResult{Message: msg, Addressed: true, Ahead: ahead}, nil
+}
+
+// record writes one message a person sent from the web into chat's record and tells every
+// screen showing it.
+func (s *Source) record(
+	ctx context.Context, chat store.Chat, login, text string, ts time.Time, addressed bool,
+) (store.ChatMessage, error) {
+	// A chat with more than one person in it names who said what on every message, the way
+	// a mirrored thread does. A chat with one person leaves it empty: the reader is the asker.
+	author := ""
+	if chat.Multiplayer {
+		author = login
+	}
+	msg, _, err := s.store.RecordChatMessage(ctx, store.ChatMessage{
+		ChatID: chat.ID,
+		Role:   store.RoleUser,
+		Text:   text,
+		TS:     ts,
+		Author: author,
+		// Who typed it: a chat's record names its author on every message, because from
+		// phase 4 a chat may have more than one person in it.
+		AuthorLogin: login,
+		Via:         store.ViaWeb,
+		Addressed:   addressed,
+		Mentions:    MentionedLogins(text),
+	})
+	if err != nil {
+		return store.ChatMessage{}, err
+	}
+	s.bcast.Publish(chat.ID, Frame{Kind: FrameMessage, Message: msg})
+	return msg, nil
+}
+
+// RecordHeld implements conductor.HeldRecorder: a message that waited in the turn queue goes
+// into the record as its turn starts. It keeps the time it was sent.
+func (s *Source) RecordHeld(ctx context.Context, ev *conductor.InboundEvent) error {
+	if !ev.Held {
+		return nil
+	}
+	chat, err := s.store.GetChat(ctx, ev.ChatID)
+	if err != nil {
+		return fmt.Errorf("record a queued message in chat %s: %w", ev.ChatID, err)
+	}
+	ts := ev.TS
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	msg, err := s.record(ctx, chat, ev.Login, ev.Text, ts, true)
+	if err != nil {
+		return err
+	}
+	ev.ChatSeq = msg.Seq
+	ev.Held = false
+	return nil
 }
 
 // DefaultPlacedWait is how long Send waits to hear where its message went before it answers

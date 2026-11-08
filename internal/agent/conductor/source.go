@@ -180,6 +180,11 @@ type InboundEvent struct {
 	// so the chat can show whose turns are waiting.
 	ChatID  string `json:",omitempty"`
 	ChatSeq uint64 `json:",omitempty"`
+	// Held is a message that is not in its chat's record yet: the web chat leaves a message
+	// sent while Podium is answering out of the transcript, so it is not read in the middle
+	// of the answer it waited for, and the conductor records it (HeldRecorder) as its turn
+	// starts — or as it goes into a turn that is up. ChatSeq is set then.
+	Held bool `json:",omitempty"`
 	// Placed, when set, is told where the message went once the conductor has decided: the
 	// number of turns that run before it (0: it is being answered now — it started a turn,
 	// or went into the turn already answering this person). The web chat sets it so a send
@@ -283,4 +288,29 @@ type Source interface {
 	Attach(ctx context.Context, ref string, file Attachment) error
 	// React shows a turn's state on the message that started it.
 	React(ctx context.Context, ref string, kind Reaction) error
+}
+
+// HeldRecorder is a source that can leave a message out of its record until it is answered
+// (InboundEvent.Held): the web chat. RecordHeld writes it now, sets ev.ChatSeq and clears
+// ev.Held. The conductor calls it as the message's turn starts, or as the message goes into a
+// turn that is up.
+type HeldRecorder interface {
+	RecordHeld(ctx context.Context, ev *InboundEvent) error
+}
+
+// recordHeld writes a held message into its chat before anything answers it. A source that
+// cannot is left alone, and a failure is logged: the turn still runs on the message, which
+// is in its brief either way.
+func (c *Conductor) recordHeld(ctx context.Context, src Source, ev *InboundEvent) {
+	if !ev.Held {
+		return
+	}
+	r, ok := src.(HeldRecorder)
+	if !ok {
+		return
+	}
+	if err := r.RecordHeld(ctx, ev); err != nil {
+		c.logger.WarnContext(ctx, "recording a queued message as its turn starts failed",
+			"chat_id", ev.ChatID, "error", err)
+	}
 }
