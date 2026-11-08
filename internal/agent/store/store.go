@@ -146,6 +146,10 @@ type Turn struct {
 // an automatic review, or a review command from somebody who has not linked GitHub.
 const TurnStartedByApp = "github-app"
 
+// TurnStartedByRoutine is turns.started_by for a system routine's run, which nobody started:
+// "routine:<id>". Usage shows each system routine as its own line.
+func TurnStartedByRoutine(routineID string) string { return "routine:" + routineID }
+
 // Backend is the resolved agent, model and effort a turn ran on, and the provider that was
 // billed for it. Provider is stored rather than derived from Agent so that remapping a
 // backend to another provider later cannot rewrite what past turns cost whom.

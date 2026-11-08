@@ -27,14 +27,66 @@ type fakeStore struct {
 	members  map[string]bool
 	idle     map[string]int
 	seq      int
+	// spend is each routine's spend since any moment; personSpend each owner's.
+	spend       map[string]float64
+	personSpend map[string]float64
+	limits      store.RoutineLimits
+	notices     []string // login|detail
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		routines: map[string]store.Routine{}, runs: map[string]store.RoutineRun{}, claimed: map[string]bool{},
 		turns: map[string]store.Turn{}, busy: map[string]bool{}, members: map[string]bool{"ana@acme.com": true},
-		idle: map[string]int{},
+		idle: map[string]int{}, spend: map[string]float64{}, personSpend: map[string]float64{},
+		limits: store.DefaultRoutineLimits,
 	}
+}
+
+func (f *fakeStore) RoutineSpendSince(_ context.Context, id string, _ time.Time) (float64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.spend[id], nil
+}
+
+func (f *fakeStore) PersonRoutineSpendSince(_ context.Context, owner string, _ time.Time) (float64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.personSpend[owner], nil
+}
+
+func (f *fakeStore) GetRoutineLimits(context.Context) (store.RoutineLimits, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.limits, nil
+}
+
+func (f *fakeStore) PauseRoutineUntil(_ context.Context, id, reason string, until, next time.Time) (store.Routine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.routines[id]
+	r.Enabled, r.PausedReason, r.PausedUntil, r.NextRunAt = false, reason, &until, next
+	f.routines[id] = r
+	return r, nil
+}
+
+func (f *fakeStore) DueToResume(_ context.Context, now time.Time, _ int) ([]store.Routine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []store.Routine
+	for _, r := range f.routines {
+		if !r.Enabled && r.PausedUntil != nil && !r.PausedUntil.After(now) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) NotifyRoutine(_ context.Context, login, _, _, detail string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notices = append(f.notices, login+"|"+detail)
+	return nil
 }
 
 func (f *fakeStore) DueRoutines(_ context.Context, now time.Time, _ int) ([]store.Routine, error) {
@@ -73,6 +125,9 @@ func (f *fakeStore) SetRoutineEnabled(_ context.Context, id string, enabled bool
 	defer f.mu.Unlock()
 	r := f.routines[id]
 	r.Enabled, r.PausedReason, r.NextRunAt = enabled, reason, next
+	if enabled {
+		r.PausedUntil = nil
+	}
 	f.routines[id] = r
 	return r, nil
 }
@@ -331,4 +386,76 @@ func TestRunNowStartsAManualRunAndRefusesABusyChat(t *testing.T) {
 	runner.err = chat.ErrChatBusy
 	_, err = newScheduler(t, st, runner, now.Add(time.Second)).RunNow(context.Background(), "rtn_digest")
 	assert.ErrorIs(t, err, ErrBusy)
+}
+
+func TestASystemRoutineRunsAsNobody(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 30, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	r := digest(now.Add(-30 * time.Second))
+	r.Scope, r.OwnerLogin = store.RoutineScopeSystem, ""
+	st.routines[r.ID] = r
+	newScheduler(t, st, runner, now).Tick(context.Background())
+
+	require.Len(t, runner.runs, 1)
+	assert.True(t, runner.runs[0].System)
+	assert.Empty(t, runner.runs[0].Login)
+}
+
+func TestARoutineAtItsDailyCapPausesUntilMidnightInItsTimezoneAndTellsItsOwner(t *testing.T) {
+	// 22:00 in Toronto is 03:00 UTC the next day: the day that ends is Toronto's.
+	now := time.Date(2026, 11, 10, 3, 0, 30, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	r := digest(now.Add(-30 * time.Second))
+	r.Schedule, r.Timezone = "0 * * * *", "America/Toronto"
+	capUSD := 1.0
+	r.DailyCapUSD = &capUSD
+	st.routines[r.ID] = r
+	st.spend[r.ID] = 1.25
+	newScheduler(t, st, runner, now).Tick(context.Background())
+
+	assert.Empty(t, runner.runs)
+	got := st.routines[r.ID]
+	assert.False(t, got.Enabled)
+	assert.Contains(t, got.PausedReason, "daily spend cap of $1.00")
+	loc, _ := time.LoadLocation("America/Toronto")
+	require.NotNil(t, got.PausedUntil)
+	assert.True(t, got.PausedUntil.Equal(time.Date(2026, 11, 10, 0, 0, 0, 0, loc)), "%s", got.PausedUntil)
+	require.Len(t, st.notices, 1)
+	assert.Contains(t, st.notices[0], "ana@acme.com|Reached its daily spend cap")
+	for _, run := range st.runs {
+		assert.Equal(t, store.RoutineRunSkippedPaused, run.Status)
+	}
+
+	// After midnight there it resumes by itself, and runs at its next time.
+	st.spend[r.ID] = 0
+	later := got.PausedUntil.Add(time.Minute)
+	newScheduler(t, st, runner, later).Tick(context.Background())
+	assert.True(t, st.routines[r.ID].Enabled)
+	assert.Nil(t, st.routines[r.ID].PausedUntil)
+	assert.True(t, st.routines[r.ID].NextRunAt.After(later))
+}
+
+func TestAPersonOverTheirDailyCapHasTheirRoutinesSkippedNotPaused(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 30, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	st.routines["rtn_digest"] = digest(now.Add(-30 * time.Second))
+	st.limits.PersonDailyCapUSD = 5
+	st.personSpend["ana@acme.com"] = 5.5
+	newScheduler(t, st, runner, now).Tick(context.Background())
+
+	assert.Empty(t, runner.runs)
+	assert.True(t, st.routines["rtn_digest"].Enabled, "a person's cap rolls on; it does not pause the routine")
+	assert.Empty(t, st.notices)
+}
+
+func TestAutoPauseTellsTheOwner(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 30, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	r := digest(now.Add(-30 * time.Second))
+	st.members = map[string]bool{}
+	st.routines[r.ID] = r
+	newScheduler(t, st, runner, now).Tick(context.Background())
+	assert.False(t, st.routines[r.ID].Enabled)
+	require.Len(t, st.notices, 1)
+	assert.Contains(t, st.notices[0], "no longer a Podium member")
 }

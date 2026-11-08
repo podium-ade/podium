@@ -240,6 +240,31 @@ func TestToken(t *testing.T) {
 		}, sent.Permissions, "no actions, which was not granted, and nothing unrelated like issues")
 	})
 
+	// A system routine reads with a token that cannot write, whatever the installation allows.
+	t.Run("a read token asks for read and nothing more, and is cached apart", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 200,
+			`{"id":42,"permissions":{"contents":"write","pull_requests":"write","checks":"write","actions":"read"}}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		c := client(t, f, now)
+
+		_, err := c.ReadToken(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		calls := f.seen()
+		require.Len(t, calls, 2)
+		var sent tokenRequest
+		require.NoError(t, json.Unmarshal([]byte(calls[1].Body), &sent))
+		assert.Equal(t, tokenPermissions{
+			Contents: "read", PullRequests: "read", Checks: "read", Actions: "read",
+		}, sent.Permissions)
+
+		// A write token for the same repository is minted, not the read one handed out.
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		assert.Len(t, f.seen(), 3)
+	})
+
 	t.Run("authenticates with the app JWT and never with an installation token", func(t *testing.T) {
 		c, f := setup(t)
 		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})

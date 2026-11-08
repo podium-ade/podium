@@ -1,9 +1,15 @@
 package conductor
 
 // The GitHub reader a routine's turn gets (docs/agent.md, "Routines"): pull requests, their
-// checks, a failed job's log, and recent commits, read as the routine's OWNER with the GitHub
-// account they connected under Settings → Account. Never as the App: a routine must not let a
-// person read a repository they cannot read themselves.
+// checks, a failed job's log, and recent commits. A personal routine reads as its OWNER, with
+// the GitHub account they connected under Settings → Account — never as the App: a routine
+// must not let a person read a repository they cannot read themselves. A system routine has
+// no owner and reads as the App, with an installation token minted read-only and only for the
+// repositories an admin listed on the routine; any other repository is refused here.
+//
+// A system routine also gets one write, comment_on_pull_request: a comment the App posts on a
+// pull request in one of its repositories, which is how a routine that proposes says so where
+// the people concerned will see it.
 //
 // It exists so a routine's check costs a model turn on this host and nothing more. Without it,
 // "are there failed PRs?" is a container started every fifteen minutes to run `gh`, because a
@@ -24,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // GitHubReadMCPName is the server's name as a routine's turn sees it.
@@ -56,6 +63,75 @@ var githubReadTools = []chatTool{
 			"since":  str("Only commits after this ISO 8601 time. Optional."),
 			"limit":  map[string]any{"type": "integer", "description": "1–50. Default 20."},
 		}, "repo")},
+}
+
+// commentOnPullTool is the one write a system routine has on GitHub.
+var commentOnPullTool = chatTool{Name: "comment_on_pull_request", Description: "Post a comment on a pull " +
+	"request, as the Podium App, in one of this routine's repositories. Use it to tell the people on the pull " +
+	"request what you found or propose; it is visible to everyone who can see the pull request. Write it to " +
+	"stand on its own, in Markdown, and say that it comes from the routine.",
+	InputSchema: objectSchema(map[string]any{
+		"repo":   str("owner/name"),
+		"number": map[string]any{"type": "integer", "description": "The pull request's number."},
+		"body":   str("The comment, in Markdown. At most 8000 characters."),
+	}, "repo", "number", "body")}
+
+// githubToolsFor is the tool list a turn sees: the reads, and for a system routine the comment.
+func (c *Conductor) githubToolsFor(ctx context.Context, token string) []chatTool {
+	g, ok := c.grantFor(ctx, token)
+	if !ok || turnOwner(g.login) != "" {
+		return githubReadTools
+	}
+	if _, err := c.systemRoutineFor(ctx, g); err != nil {
+		return githubReadTools
+	}
+	return append(append([]chatTool{}, githubReadTools...), commentOnPullTool)
+}
+
+// commentOnPull posts a system routine's comment as the App.
+func (c *Conductor) commentOnPull(ctx context.Context, token, repo string, args map[string]any) (string, error) {
+	g, ok := c.grantFor(ctx, token)
+	if !ok {
+		return "", ErrNoTurn
+	}
+	if turnOwner(g.login) != "" {
+		return "", errors.New("comment_on_pull_request is for system routines; a personal routine reports in its own chat")
+	}
+	r, err := c.systemRoutineFor(ctx, g)
+	if err != nil {
+		return "", err
+	}
+	owner, name, err := routineRepo(r, repo)
+	if err != nil {
+		return "", err
+	}
+	number := intArg(args, "number", 0, 0, 1<<30)
+	body, _ := args["body"].(string)
+	body = strings.TrimSpace(body)
+	switch {
+	case number <= 0:
+		return "", errors.New("number must be the pull request's number")
+	case body == "":
+		return "", errors.New("body is required")
+	case len([]rune(body)) > 8000:
+		return "", errors.New("body is longer than 8000 characters; shorten it")
+	}
+	app := c.githubApp()
+	if app == nil {
+		return "", errors.New("GitHub is not connected to Podium (Settings → Connections)")
+	}
+	tok, err := app.Token(ctx, owner, []string{name})
+	if err != nil {
+		return "", fmt.Errorf("commenting on %s as the Podium App: %w", repo, err)
+	}
+	var out struct {
+		HTMLURL string `json:"html_url"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", url.PathEscape(owner), url.PathEscape(name), number)
+	if err := app.PostAs(ctx, tok.Value, path, map[string]string{"body": body}, &out); err != nil {
+		return "", err
+	}
+	return "Posted: " + out.HTMLURL, nil
 }
 
 func objectSchema(props map[string]any, required ...string) map[string]any {
@@ -106,7 +182,7 @@ func (c *Conductor) GitHubReadMCP() http.Handler {
 		case "ping":
 			chatRPC(w, req.ID, map[string]any{}, nil)
 		case "tools/list":
-			chatRPC(w, req.ID, map[string]any{"tools": githubReadTools}, nil)
+			chatRPC(w, req.ID, map[string]any{"tools": c.githubToolsFor(r.Context(), token)}, nil)
 		case "tools/call":
 			var p struct {
 				Name      string         `json:"name"`
@@ -134,18 +210,36 @@ type githubReader struct {
 	getText func(ctx context.Context, path string, limit int64) (string, error)
 }
 
-func (c *Conductor) githubReaderFor(ctx context.Context, token string) (githubReader, error) {
+// githubReaderFor is the reader for the turn token holds, for repo (owner/name).
+func (c *Conductor) githubReaderFor(ctx context.Context, token, repo string) (githubReader, error) {
 	g, ok := c.grantFor(ctx, token)
 	if !ok {
 		return githubReader{}, ErrNoTurn
 	}
-	login := turnOwner(g.login)
-	if login == "" {
-		return githubReader{}, errors.New("this routine has no owner to read GitHub as")
-	}
 	app := c.githubApp()
 	if app == nil {
 		return githubReader{}, errors.New("GitHub is not connected to Podium (Settings → Connections), so there is nothing to read with")
+	}
+	login := turnOwner(g.login)
+	if login == "" {
+		r, err := c.systemRoutineFor(ctx, g)
+		if err != nil {
+			return githubReader{}, err
+		}
+		owner, name, err := routineRepo(r, repo)
+		if err != nil {
+			return githubReader{}, err
+		}
+		tok, err := app.ReadToken(ctx, owner, []string{name})
+		if err != nil {
+			return githubReader{}, fmt.Errorf("reading %s as the Podium App: %w", repo, err)
+		}
+		return githubReader{
+			get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, tok.Value, path, out) },
+			getText: func(ctx context.Context, path string, limit int64) (string, error) {
+				return app.GetTextAs(ctx, tok.Value, path, limit)
+			},
+		}, nil
 	}
 	tokens, err := c.userTokenClient(ctx)
 	if err != nil {
@@ -162,6 +256,36 @@ func (c *Conductor) githubReaderFor(ctx context.Context, token string) (githubRe
 			return app.GetTextAs(ctx, personal, path, limit)
 		},
 	}, nil
+}
+
+// systemRoutineFor is the system routine whose chat g's turn is in.
+func (c *Conductor) systemRoutineFor(ctx context.Context, g turnGrant) (store.Routine, error) {
+	if c.store == nil || g.src == nil || g.src.Kind() != SourceChat {
+		return store.Routine{}, errors.New("this routine has no owner to read GitHub as")
+	}
+	r, err := c.store.RoutineByChat(ctx, g.ref)
+	if err != nil || !r.System() {
+		return store.Routine{}, errors.New("this routine has no owner to read GitHub as")
+	}
+	return r, nil
+}
+
+// routineRepo checks that repo (escaped owner/name) is one the system routine lists, and
+// splits it.
+func routineRepo(r store.Routine, repo string) (owner, name string, err error) {
+	plain, _ := url.PathUnescape(repo)
+	for _, allowed := range r.Repos {
+		if strings.EqualFold(allowed, plain) {
+			owner, name, _ = strings.Cut(allowed, "/")
+			return owner, name, nil
+		}
+	}
+	if len(r.Repos) == 0 {
+		return "", "", fmt.Errorf("this system routine lists no repositories, so it reads none; an admin adds them " +
+			"on the Routines page (Edit → Repositories)")
+	}
+	return "", "", fmt.Errorf("%s is not one of this routine's repositories (%s); an admin adds it on the "+
+		"Routines page", plain, strings.Join(r.Repos, ", "))
 }
 
 func repoArg(args map[string]any) (string, error) {
@@ -187,7 +311,10 @@ func (c *Conductor) githubRead(ctx context.Context, token, name string, args map
 	if err != nil {
 		return "", err
 	}
-	gh, err := c.githubReaderFor(ctx, token)
+	if name == commentOnPullTool.Name {
+		return c.commentOnPull(ctx, token, repo, args)
+	}
+	gh, err := c.githubReaderFor(ctx, token, repo)
 	if err != nil {
 		return "", err
 	}

@@ -19,6 +19,10 @@ import (
 // job.
 const MinPersonalInterval = 15 * time.Minute
 
+// MinSystemInterval is the shortest gap a system routine may leave. An admin sets it up and
+// its spend cap bounds it, so it may watch something every minute.
+const MinSystemInterval = time.Minute
+
 // maxJitter bounds the fixed offset each routine runs at past its scheduled minute, so routines
 // that all say "9:00" do not all start in the same second.
 const maxJitter = 60 * time.Second

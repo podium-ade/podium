@@ -132,3 +132,13 @@ func (c *Conductor) ChatToolNamesForTest(ctx context.Context, token string) []st
 	}
 	return out
 }
+
+// CheckRoutineDelegationsForTest is the routine caps a delegation from the turn token holds
+// meets, before its playbook is looked at.
+func (c *Conductor) CheckRoutineDelegationsForTest(ctx context.Context, token string) error {
+	g, ok := c.grantFor(ctx, token)
+	if !ok {
+		return ErrNoTurn
+	}
+	return c.checkRoutineDelegations(ctx, g)
+}

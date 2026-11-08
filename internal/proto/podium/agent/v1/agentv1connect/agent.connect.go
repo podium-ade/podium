@@ -266,6 +266,21 @@ const (
 	// AgentServiceListRoutineRunsProcedure is the fully-qualified name of the AgentService's
 	// ListRoutineRuns RPC.
 	AgentServiceListRoutineRunsProcedure = "/podium.agent.v1.AgentService/ListRoutineRuns"
+	// AgentServiceListRoutineRevisionsProcedure is the fully-qualified name of the AgentService's
+	// ListRoutineRevisions RPC.
+	AgentServiceListRoutineRevisionsProcedure = "/podium.agent.v1.AgentService/ListRoutineRevisions"
+	// AgentServiceCancelRoutineRunProcedure is the fully-qualified name of the AgentService's
+	// CancelRoutineRun RPC.
+	AgentServiceCancelRoutineRunProcedure = "/podium.agent.v1.AgentService/CancelRoutineRun"
+	// AgentServiceListMemberRoutinesProcedure is the fully-qualified name of the AgentService's
+	// ListMemberRoutines RPC.
+	AgentServiceListMemberRoutinesProcedure = "/podium.agent.v1.AgentService/ListMemberRoutines"
+	// AgentServiceGetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
+	// GetRoutineLimits RPC.
+	AgentServiceGetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/GetRoutineLimits"
+	// AgentServiceSetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
+	// SetRoutineLimits RPC.
+	AgentServiceSetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/SetRoutineLimits"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -513,8 +528,9 @@ type AgentServiceClient interface {
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
-	// own. A routine is its owner's: every RPC below answers only for routines the caller owns,
-	// and the dev token for all of them.
+	// own. A personal routine is its owner's: every RPC below answers only for routines the
+	// caller owns, and the dev token for all of them. A system routine runs as nobody and is
+	// configured by admins and owners, who manage it with the same RPCs.
 	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
 	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
 	// CreateRoutine opens the routine and its chat.
@@ -530,6 +546,17 @@ type AgentServiceClient interface {
 	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
 	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
 	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
+	// ListRoutineRevisions is the history of what a routine was told to do: each change to its
+	// instruction, notes or schedule, who made it, and when.
+	ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error)
+	// CancelRoutineRun stops the run going now.
+	CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error)
+	// ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+	// last run's status, never the chat, the instruction or what a run said. Admins only.
+	ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error)
+	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
+	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -1041,6 +1068,36 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
 			connect.WithClientOptions(opts...),
 		),
+		listRoutineRevisions: connect.NewClient[v1.ListRoutineRevisionsRequest, v1.ListRoutineRevisionsResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutineRevisionsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutineRevisions")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelRoutineRun: connect.NewClient[v1.CancelRoutineRunRequest, v1.CancelRoutineRunResponse](
+			httpClient,
+			baseURL+AgentServiceCancelRoutineRunProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelRoutineRun")),
+			connect.WithClientOptions(opts...),
+		),
+		listMemberRoutines: connect.NewClient[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse](
+			httpClient,
+			baseURL+AgentServiceListMemberRoutinesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListMemberRoutines")),
+			connect.WithClientOptions(opts...),
+		),
+		getRoutineLimits: connect.NewClient[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse](
+			httpClient,
+			baseURL+AgentServiceGetRoutineLimitsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetRoutineLimits")),
+			connect.WithClientOptions(opts...),
+		),
+		setRoutineLimits: connect.NewClient[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse](
+			httpClient,
+			baseURL+AgentServiceSetRoutineLimitsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1129,6 +1186,11 @@ type agentServiceClient struct {
 	resetRoutineState          *connect.Client[v1.ResetRoutineStateRequest, v1.ResetRoutineStateResponse]
 	resolveRoutineNote         *connect.Client[v1.ResolveRoutineNoteRequest, v1.ResolveRoutineNoteResponse]
 	listRoutineRuns            *connect.Client[v1.ListRoutineRunsRequest, v1.ListRoutineRunsResponse]
+	listRoutineRevisions       *connect.Client[v1.ListRoutineRevisionsRequest, v1.ListRoutineRevisionsResponse]
+	cancelRoutineRun           *connect.Client[v1.CancelRoutineRunRequest, v1.CancelRoutineRunResponse]
+	listMemberRoutines         *connect.Client[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse]
+	getRoutineLimits           *connect.Client[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse]
+	setRoutineLimits           *connect.Client[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -1546,6 +1608,31 @@ func (c *agentServiceClient) ListRoutineRuns(ctx context.Context, req *connect.R
 	return c.listRoutineRuns.CallUnary(ctx, req)
 }
 
+// ListRoutineRevisions calls podium.agent.v1.AgentService.ListRoutineRevisions.
+func (c *agentServiceClient) ListRoutineRevisions(ctx context.Context, req *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error) {
+	return c.listRoutineRevisions.CallUnary(ctx, req)
+}
+
+// CancelRoutineRun calls podium.agent.v1.AgentService.CancelRoutineRun.
+func (c *agentServiceClient) CancelRoutineRun(ctx context.Context, req *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error) {
+	return c.cancelRoutineRun.CallUnary(ctx, req)
+}
+
+// ListMemberRoutines calls podium.agent.v1.AgentService.ListMemberRoutines.
+func (c *agentServiceClient) ListMemberRoutines(ctx context.Context, req *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error) {
+	return c.listMemberRoutines.CallUnary(ctx, req)
+}
+
+// GetRoutineLimits calls podium.agent.v1.AgentService.GetRoutineLimits.
+func (c *agentServiceClient) GetRoutineLimits(ctx context.Context, req *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error) {
+	return c.getRoutineLimits.CallUnary(ctx, req)
+}
+
+// SetRoutineLimits calls podium.agent.v1.AgentService.SetRoutineLimits.
+func (c *agentServiceClient) SetRoutineLimits(ctx context.Context, req *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
+	return c.setRoutineLimits.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -1791,8 +1878,9 @@ type AgentServiceHandler interface {
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
-	// own. A routine is its owner's: every RPC below answers only for routines the caller owns,
-	// and the dev token for all of them.
+	// own. A personal routine is its owner's: every RPC below answers only for routines the
+	// caller owns, and the dev token for all of them. A system routine runs as nobody and is
+	// configured by admins and owners, who manage it with the same RPCs.
 	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
 	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
 	// CreateRoutine opens the routine and its chat.
@@ -1808,6 +1896,17 @@ type AgentServiceHandler interface {
 	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
 	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
 	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
+	// ListRoutineRevisions is the history of what a routine was told to do: each change to its
+	// instruction, notes or schedule, who made it, and when.
+	ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error)
+	// CancelRoutineRun stops the run going now.
+	CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error)
+	// ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+	// last run's status, never the chat, the instruction or what a run said. Admins only.
+	ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error)
+	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
+	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -2315,6 +2414,36 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListRoutineRevisionsHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutineRevisionsProcedure,
+		svc.ListRoutineRevisions,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutineRevisions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCancelRoutineRunHandler := connect.NewUnaryHandler(
+		AgentServiceCancelRoutineRunProcedure,
+		svc.CancelRoutineRun,
+		connect.WithSchema(agentServiceMethods.ByName("CancelRoutineRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListMemberRoutinesHandler := connect.NewUnaryHandler(
+		AgentServiceListMemberRoutinesProcedure,
+		svc.ListMemberRoutines,
+		connect.WithSchema(agentServiceMethods.ByName("ListMemberRoutines")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetRoutineLimitsHandler := connect.NewUnaryHandler(
+		AgentServiceGetRoutineLimitsProcedure,
+		svc.GetRoutineLimits,
+		connect.WithSchema(agentServiceMethods.ByName("GetRoutineLimits")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetRoutineLimitsHandler := connect.NewUnaryHandler(
+		AgentServiceSetRoutineLimitsProcedure,
+		svc.SetRoutineLimits,
+		connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -2483,6 +2612,16 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceResolveRoutineNoteHandler.ServeHTTP(w, r)
 		case AgentServiceListRoutineRunsProcedure:
 			agentServiceListRoutineRunsHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutineRevisionsProcedure:
+			agentServiceListRoutineRevisionsHandler.ServeHTTP(w, r)
+		case AgentServiceCancelRoutineRunProcedure:
+			agentServiceCancelRoutineRunHandler.ServeHTTP(w, r)
+		case AgentServiceListMemberRoutinesProcedure:
+			agentServiceListMemberRoutinesHandler.ServeHTTP(w, r)
+		case AgentServiceGetRoutineLimitsProcedure:
+			agentServiceGetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceSetRoutineLimitsProcedure:
+			agentServiceSetRoutineLimitsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2822,4 +2961,24 @@ func (UnimplementedAgentServiceHandler) ResolveRoutineNote(context.Context, *con
 
 func (UnimplementedAgentServiceHandler) ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutineRuns is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutineRevisions is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelRoutineRun is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListMemberRoutines is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRoutineLimits is not implemented"))
 }

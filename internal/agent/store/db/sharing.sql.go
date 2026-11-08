@@ -139,7 +139,7 @@ func (q *Queries) ListChatAccess(ctx context.Context, chatID string) ([]ListChat
 
 const listNotifications = `-- name: ListNotifications :many
 select n.id, n.login, n.kind, n.chat_id, n.seq, n.actor, n.created_at, n.read_at,
-       c.title as chat_title
+       n.detail, c.title as chat_title
   from notifications n
   join chats c on c.id = n.chat_id
  where n.login = $1
@@ -164,6 +164,7 @@ type ListNotificationsRow struct {
 	Actor     string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+	Detail    string
 	ChatTitle string
 }
 
@@ -188,6 +189,7 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 			&i.Actor,
 			&i.CreatedAt,
 			&i.ReadAt,
+			&i.Detail,
 			&i.ChatTitle,
 		); err != nil {
 			return nil, err
@@ -264,6 +266,29 @@ func (q *Queries) MemberProfile(ctx context.Context, login string) (MemberProfil
 	var i MemberProfileRow
 	err := row.Scan(&i.Name, &i.Avatar)
 	return i, err
+}
+
+const notifyRoutine = `-- name: NotifyRoutine :exec
+insert into notifications (login, kind, chat_id, actor, detail)
+values ($1, 'routine', $2, $3, $4)
+`
+
+type NotifyRoutineParams struct {
+	Login  string
+	ChatID string
+	Actor  string
+	Detail string
+}
+
+// NotifyRoutine tells a routine's owner that Podium or an admin paused it, and why.
+func (q *Queries) NotifyRoutine(ctx context.Context, arg NotifyRoutineParams) error {
+	_, err := q.db.Exec(ctx, notifyRoutine,
+		arg.Login,
+		arg.ChatID,
+		arg.Actor,
+		arg.Detail,
+	)
+	return err
 }
 
 const notifyShare = `-- name: NotifyShare :exec

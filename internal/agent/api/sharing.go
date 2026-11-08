@@ -73,6 +73,16 @@ func (s *AgentService) typedLogin(ctx context.Context, typed string) (string, er
 }
 
 func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string) (string, error) {
+	if c.Login == "" && c.RoutineID != "" {
+		// A system routine's chat is nobody's. Admins, owners and the dev token read it; nobody
+		// writes in it, the dev token included: it is steered by editing the routine.
+		if r, err := s.store.GetRoutine(ctx, c.RoutineID); err == nil && r.System() {
+			if Infra(ctx) && c.DeletedAt == nil {
+				return store.RoleViewer, nil
+			}
+			return "", nil
+		}
+	}
 	if SeesAll(ctx) {
 		return store.RoleOwner, nil
 	}
@@ -98,6 +108,11 @@ func (s *AgentService) openChat(ctx context.Context, c store.Chat, login, linkTo
 	role, err := s.chatRole(ctx, c, login)
 	if err != nil || SeesAll(ctx) || role == store.RoleOwner {
 		return role, err
+	}
+	if c.Login == "" && c.RoutineID != "" {
+		// A system routine's chat is read through the admin's role, never joined: opening it
+		// writes no access row, so it stays out of their chat list and is never shared.
+		return role, nil
 	}
 	via := ""
 	switch {
@@ -509,7 +524,7 @@ func (s *AgentService) ListNotifications(
 	for _, n := range rows {
 		out = append(out, &agentv1.Notification{
 			Id: n.ID, Kind: n.Kind, ChatId: n.ChatID, ChatTitle: n.ChatTitle, Seq: n.Seq,
-			Actor: n.Actor, CreatedAt: timestamppb.New(n.CreatedAt), Read: n.Read,
+			Actor: n.Actor, Detail: n.Detail, CreatedAt: timestamppb.New(n.CreatedAt), Read: n.Read,
 		})
 	}
 	return connect.NewResponse(&agentv1.ListNotificationsResponse{Notifications: out}), nil

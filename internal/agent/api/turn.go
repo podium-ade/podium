@@ -339,6 +339,8 @@ func delegationError(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrWorkspaceBusy):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, conductor.ErrRoutineDelegationCap):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

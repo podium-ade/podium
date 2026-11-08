@@ -4,10 +4,12 @@
 -- name: InsertRoutine :one
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
-  notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at
+  notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
+  repos, daily_cap_usd, created_by
 ) values (
   @id, @scope, sqlc.narg('owner_login'), @name, @schedule, @timezone, @instruction, @created_at,
-  @notes, sqlc.narg('personality_id'), @model, @effort, true, @chat_id, @next_run_at, @created_at, @created_at
+  @notes, sqlc.narg('personality_id'), @model, @effort, true, @chat_id, @next_run_at, @created_at, @created_at,
+  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by
 )
 returning *;
 
@@ -20,8 +22,22 @@ select * from routines where chat_id = @chat_id;
 -- name: ListRoutinesByOwner :many
 select * from routines where owner_login = @owner_login order by name, id;
 
+-- ListVisibleRoutines is a person's own routines and, for an admin, every system routine.
+-- name: ListVisibleRoutines :many
+select * from routines
+where owner_login = @owner_login or (@with_system::bool and scope = 'system')
+order by scope desc, name, id;
+
+-- ListPersonalRoutines is every person's routines, for the admin's metadata view.
+-- name: ListPersonalRoutines :many
+select * from routines where scope = 'personal' order by owner_login, name, id;
+
+-- CountRoutinesByOwner is how many routines a person has, against their limit.
+-- name: CountRoutinesByOwner :one
+select count(*)::int from routines where owner_login = @owner_login;
+
 -- name: ListAllRoutines :many
-select * from routines order by scope, owner_login, name, id;
+select * from routines order by scope desc, owner_login, name, id;
 
 -- UpdateRoutine replaces what a person edits. instruction_updated_at moves only when the
 -- instruction itself changed, so the next brief can say so.
@@ -36,6 +52,8 @@ set name = @name,
     personality_id = sqlc.narg('personality_id'),
     model = @model,
     effort = @effort,
+    repos = @repos::text[],
+    daily_cap_usd = sqlc.narg('daily_cap_usd'),
     next_run_at = @next_run_at,
     updated_at = @updated_at
 where id = @id
@@ -50,6 +68,7 @@ delete from routines where id = @id;
 update routines
 set enabled = @enabled,
     paused_reason = @paused_reason,
+    paused_until = sqlc.narg('paused_until'),
     next_run_at = @next_run_at,
     updated_at = @updated_at
 where id = @id
@@ -162,3 +181,36 @@ update chats set routine_id = @routine_id where id = @id;
 select coalesce(sum(t.cost_usd), 0)::float8 from turns t
   join routine_runs r on r.id = t.routine_run_id
 where r.routine_id = @routine_id and t.started_at >= @since;
+
+-- name: InsertRoutineRevision :exec
+insert into routine_revisions (routine_id, instruction, notes, schedule, timezone, changed_by, changed_at)
+values (@routine_id, @instruction, @notes, @schedule, @timezone, @changed_by, @changed_at);
+
+-- name: ListRoutineRevisions :many
+select * from routine_revisions where routine_id = @routine_id order by id desc limit @page_limit::int;
+
+-- LastRoutineRuns is each routine's latest run that was not skipped, for the run status a row
+-- shows.
+-- name: LastRoutineRuns :many
+select distinct on (routine_id) routine_id, status, created_at, finished_at from routine_runs
+where routine_id = any(@routine_ids::text[]) and status not in ('skipped_overlap', 'skipped_paused')
+order by routine_id, created_at desc;
+
+-- DueToResume is every routine Podium paused until a moment that has passed: a spend cap's
+-- day is over.
+-- name: DueToResume :many
+select * from routines
+where not enabled and paused_until is not null and paused_until <= @now
+order by paused_until
+limit @page_limit::int;
+
+-- PersonSpendSince is what a person's routines spent since a moment.
+-- name: PersonSpendSince :one
+select coalesce(sum(t.cost_usd), 0)::float8 from turns t
+  join routine_runs r on r.id = t.routine_run_id
+  join routines o on o.id = r.routine_id
+where o.owner_login = @owner_login and t.started_at >= @since;
+
+-- RunningRoutineRunOf is a routine's run still going, if any.
+-- name: RunningRoutineRunOf :one
+select * from routine_runs where routine_id = @routine_id and status = 'running' order by created_at desc limit 1;

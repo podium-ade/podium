@@ -371,6 +371,11 @@ func (c *Conductor) turnStartedBy(ctx context.Context, src Source, sess store.Se
 	if kind == SourceGitHub {
 		return store.TurnStartedByApp
 	}
+	if ev.Routine != nil && ev.Routine.RoutineID != "" {
+		// A system routine's run: nobody is behind it but the routine itself, which Usage
+		// shows as its own line.
+		return store.TurnStartedByRoutine(ev.Routine.RoutineID)
+	}
 	return ""
 }
 
