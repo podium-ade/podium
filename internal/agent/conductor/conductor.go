@@ -1030,11 +1030,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if mcpOwner == "" {
 		mcpOwner = speaker
 	}
-	servers, err := c.mcpServers(ctx, j, mcpOwner)
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
-		// The name is the operator's own and is safe to say, and saying it is the point: a
-		// playbook naming a server nobody registered is a five-second fix for whoever can
-		// see which name it is.
+		// A playbook naming a server this turn cannot have, a registry that cannot be read,
+		// or a saved config that no longer parses. The assistant's missing servers are not
+		// here: they are in unavailable, and its turn runs and says so itself.
 		c.logger.ErrorContext(ctx, "the turn's mcp servers could not be resolved",
 			"turn_id", turn.ID, "job", j.name, "mcp_servers", j.mcpServers, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, TaskID: "", Text: fmt.Sprintf(
@@ -1042,6 +1042,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
+	c.logUnavailableMCP(ctx, turn.ID, j.name, unavailable)
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, j.onHost && c.chatHost != nil)
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
@@ -1056,6 +1057,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	brief.Playbook.UnavailableMCPServers = unavailable
 	if persona != nil {
 		brief.Git = persona
 	}
@@ -1583,23 +1585,62 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // playbook named them. A playbook that names none reads nothing, so a bot that does not use
 // MCP needs no database for this.
 //
-// An unknown or disabled name fails the turn. It is the same rule a missing skill follows,
-// and for the same reason: a turn that quietly ran with fewer tools than its playbook
-// describes is the one outcome nobody can diagnose afterwards. The error is shown to the
-// human because a server name is the operator's own text, and it is the only part of this
-// failure anybody can act on.
-func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, error) {
+// A name this turn cannot have — nobody registered it, this person has not connected it and
+// there is no shared one, it is turned off, its sign-in was never finished — is handled
+// differently for the two kinds of job:
+//
+//   - The ASSISTANT runs without it. It comes back in the second list, the brief carries it,
+//     and the prompt tells the agent which servers it lacks and why, so the agent answers
+//     "I have no access to Gmail" itself instead of the person getting a system error. That
+//     is not a turn quietly running with fewer tools: the agent knows, and says so.
+//   - A PLAYBOOK fails. It runs unattended in a container with a brief written for the tools
+//     it declares, and a task that ran with fewer than that is the one outcome nobody can
+//     diagnose afterwards — the same rule a missing skill follows. The error names the
+//     server, which is the operator's own text and the part anybody can act on.
+//
+// Either kind fails on what nobody in the conversation can fix: a registry that cannot be
+// read, or a saved config that no longer parses.
+func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	if len(j.mcpServers) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if c.store == nil {
-		return nil, fmt.Errorf("this conductor has no database, so it has no MCP server registry")
+		return nil, nil, fmt.Errorf("this conductor has no database, so it has no MCP server registry")
 	}
 	rows, err := c.store.ListMcpServers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return resolveMCPServers(turnOwner(login), j.mcpServers, rows)
+	servers, unavailable, err := resolveMCPServers(turnOwner(login), j.mcpServers, rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requireMCPServers(j, unavailable); err != nil {
+		return nil, nil, err
+	}
+	return servers, unavailable, nil
+}
+
+// requireMCPServers is the playbook's strictness: any server it names that this turn cannot
+// have is an error. The assistant's turn runs without them, so it never fails here.
+func requireMCPServers(j job, unavailable []BriefUnavailableMCPServer) error {
+	if j.onHost || len(unavailable) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(unavailable))
+	for _, u := range unavailable {
+		errs = append(errs, fmt.Errorf("the MCP server %q is unavailable: %s", u.Name, u.Reason))
+	}
+	return errors.Join(errs...)
+}
+
+// logUnavailableMCP records the servers a turn runs without. The agent tells the person; the
+// log is for the operator who wonders why a turn did not use a server it names.
+func (c *Conductor) logUnavailableMCP(ctx context.Context, turnID, job string, unavailable []BriefUnavailableMCPServer) {
+	for _, u := range unavailable {
+		c.logger.InfoContext(ctx, "the turn runs without an mcp server it names",
+			"turn_id", turnID, "job", job, "mcp_server", u.Name, "reason", u.Reason)
+	}
 }
 
 // credentialOwner is whose model credential a turn spends: the person who asked, when they
@@ -1766,7 +1807,10 @@ func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef
 // uses their own row of that name. When they have none, a global row is used only if it
 // is enabled and its fallback switch is on. A row they turned off is not replaced by the
 // global one. Separated from the read so it can be asserted without a database.
-func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, error) {
+//
+// A name that does not resolve is returned as unavailable, with a reason written for the
+// agent to pass on. Only a config that does not parse is an error.
+func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	personal := map[string]mcp.Server{}
 	global := map[string]mcp.Server{}
 	for _, r := range rows {
@@ -1781,50 +1825,64 @@ func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.S
 		}
 	}
 	out := make([]mcp.Server, 0, len(names))
+	var unavailable []BriefUnavailableMCPServer
 	for _, name := range names {
-		srv, ok, err := pickMCPServer(owner, name, personal, global)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, fmt.Errorf("no MCP server named %q is registered", name)
+		srv, reason := pickMCPServer(owner, name, personal, global)
+		if reason != "" {
+			unavailable = append(unavailable, BriefUnavailableMCPServer{Name: name, Reason: reason})
+			continue
 		}
 		if _, err := mcp.ParseConfig(srv.Config); err != nil {
-			return nil, fmt.Errorf("the MCP server %q: %w", name, err)
+			return nil, nil, fmt.Errorf("the MCP server %q: %w", name, err)
 		}
 		out = append(out, srv)
 	}
-	return out, nil
+	return out, unavailable, nil
 }
 
-// pickMCPServer chooses one name. The bool is false when nothing qualifies, which the
-// caller reports as unregistered. A disabled row is an error of its own: the playbook
-// named a server that exists and was turned off.
-func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, bool, error) {
+// The reasons a named server is unavailable, as the agent is told them. They are written to
+// be repeated to the person, so they say what that person can do about it.
+const (
+	mcpReasonUnregistered = "no MCP server by this name is registered on this Podium; an operator would have to add it"
+	mcpReasonNotConnected = "the person in this conversation has not connected it, and there is no shared one " +
+		"they can use; they can connect their own under MCP servers in Podium"
+	mcpReasonOff       = "it is registered but turned off"
+	mcpReasonPersonOff = "the person in this conversation turned their own connection to it off"
+	mcpReasonSignIn    = "the person in this conversation started connecting it but never finished signing in; " +
+		"they can sign in under MCP servers in Podium"
+)
+
+// pickMCPServer chooses one name, or says why nothing qualifies.
+func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, string) {
 	if owner == "" {
 		srv, ok := global[name]
-		if !ok {
-			return mcp.Server{}, false, nil
+		switch {
+		case !ok:
+			return mcp.Server{}, mcpReasonUnregistered
+		case !srv.Enabled:
+			return mcp.Server{}, mcpReasonOff
 		}
-		if !srv.Enabled {
-			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
-		}
-		return srv, true, nil
+		return srv, ""
 	}
 	if srv, ok := personal[name]; ok {
-		if !srv.Enabled {
-			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		switch {
+		case !srv.Enabled:
+			return mcp.Server{}, mcpReasonPersonOff
+		case srv.Kind() == mcp.AuthOAuth && srv.TokenSecretVersion == 0:
+			// A sign-in that never completed has nothing to present. Handing the harness a
+			// server it cannot authenticate to fails the turn on its config instead.
+			return mcp.Server{}, mcpReasonSignIn
 		}
-		return srv, true, nil
+		return srv, ""
 	}
 	srv, ok := global[name]
-	if !ok || !srv.Fallback {
-		return mcp.Server{}, false, nil
+	switch {
+	case !ok || !srv.Fallback:
+		return mcp.Server{}, mcpReasonNotConnected
+	case !srv.Enabled:
+		return mcp.Server{}, mcpReasonOff
 	}
-	if !srv.Enabled {
-		return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
-	}
-	return srv, true, nil
+	return srv, ""
 }
 
 // skills is the library one turn resolves its names against: the directories under

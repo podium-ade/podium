@@ -189,6 +189,20 @@ describe("decodeBrief", () => {
     expect(decodeBrief(encode(minimal)).playbook.mcp_servers).toBeUndefined();
   });
 
+  it("takes the MCP servers a turn runs without, each with a reason", () => {
+    const unavailable_mcp_servers = [{ name: "gmail", reason: "not connected" }];
+    const brief = decodeBrief(
+      encode({ ...minimal, playbook: { ...minimal.playbook, unavailable_mcp_servers } }),
+    );
+    expect(brief.playbook.unavailable_mcp_servers).toEqual(unavailable_mcp_servers);
+    expect(decodeBrief(encode(minimal)).playbook.unavailable_mcp_servers).toBeUndefined();
+    expect(() =>
+      decodeBrief(
+        encode({ ...minimal, playbook: { ...minimal.playbook, unavailable_mcp_servers: [{ name: "gmail" }] } }),
+      ),
+    ).toThrow(BriefError);
+  });
+
   it("refuses an MCP server ref that is not one", () => {
     const bad = [
       { name: "Linear", url: "https://x/mcp" },
