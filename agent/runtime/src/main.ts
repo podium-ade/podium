@@ -312,7 +312,13 @@ async function main(): Promise<number> {
       skills: skillRefs.map((s) => s.name),
       skillsDir,
       delegation: brief.delegation
-        ? { url: brief.delegation.url, entry: mcpEntrypoint() }
+        ? {
+            url: brief.delegation.url,
+            entry: mcpEntrypoint(),
+            routine: brief.routine !== undefined,
+            createRoutine: brief.delegation.routines === true,
+            noPlaybooks: brief.delegation.playbooks.length === 0,
+          }
         : undefined,
       interactive: brief.playbook.interactive ? { entry: askEntrypoint() } : undefined,
       title: titleByTool(brief) ? { entry: titleEntrypoint() } : undefined,

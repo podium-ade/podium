@@ -38,6 +38,23 @@ export interface StartChatArgs {
   role?: string;
 }
 
+/** FinishRoutineArgs is what routine_finish tells the conductor (podium.agent.v1.FinishRoutineRequest). */
+export interface FinishRoutineArgs {
+  status: string;
+  summary: string;
+  stateJson?: string;
+  proposeNote?: string;
+}
+
+/** CreateRoutineArgs is what create_routine asks for (podium.agent.v1.TurnServiceCreateRoutineRequest). */
+export interface CreateRoutineArgs {
+  name: string;
+  instruction: string;
+  schedule: string;
+  timezone?: string;
+  notes?: string;
+}
+
 /** StartedChat is the chat the conductor opened (podium.agent.v1.StartChatResponse). */
 export interface StartedChat {
   chatId?: string;
@@ -104,6 +121,14 @@ export class Client {
 
   startChat(args: StartChatArgs): Promise<StartedChat> {
     return this.call("POST", "/v1/chats", args);
+  }
+
+  finishRoutine(args: FinishRoutineArgs): Promise<{ message?: string }> {
+    return this.call("POST", "/v1/routine-runs/finish", args);
+  }
+
+  createRoutine(args: CreateRoutineArgs): Promise<{ message?: string }> {
+    return this.call("POST", "/v1/routines", args);
   }
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {

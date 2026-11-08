@@ -32,6 +32,8 @@ function stubClient(overrides: Partial<Record<keyof Client, unknown>> = {}): Cli
       sharedWith: args.share_with ?? [],
       access: "restricted",
     })),
+    finishRoutine: vi.fn(async () => ({ message: "Recorded as idle." })),
+    createRoutine: vi.fn(async () => ({ message: 'Created the routine "Digest".' })),
   };
   return { ...base, ...overrides } as unknown as Client;
 }
@@ -219,6 +221,65 @@ describe("tools/call release_preview", () => {
     expect(client.releasePreview).toHaveBeenCalledWith("dlg_01");
     expect(text(res)).toContain("Released the preview of dlg_01");
     expect(isError(res)).toBe(false);
+  });
+});
+
+describe("routine_finish", () => {
+  it("is listed only for a turn in a routine's chat", async () => {
+    const plain = (await newHandler(stubClient())("tools/list", {})) as { tools: { name: string }[] };
+    expect(plain.tools.map((t) => t.name)).not.toContain("routine_finish");
+    const routine = (await newHandler(stubClient(), { routine: true })("tools/list", {})) as { tools: { name: string }[] };
+    expect(routine.tools.map((t) => t.name)).toContain("routine_finish");
+  });
+
+  it("hands the conductor the outcome, with the state as JSON", async () => {
+    const client = stubClient();
+    const res = await newHandler(client, { routine: true })("tools/call", {
+      name: "routine_finish",
+      arguments: { status: "idle", summary: "nothing new", state: { seen: [1] }, propose_note: "skip drafts" },
+    });
+    expect(client.finishRoutine).toHaveBeenCalledWith({
+      status: "idle",
+      summary: "nothing new",
+      stateJson: '{"seen":[1]}',
+      proposeNote: "skip drafts",
+    });
+    expect(text(res)).toBe("Recorded as idle.");
+  });
+
+  it("refuses a state that is not an object", async () => {
+    await expect(
+      newHandler(stubClient(), { routine: true })("tools/call", {
+        name: "routine_finish",
+        arguments: { status: "done", summary: "x", state: [1, 2] },
+      }),
+    ).rejects.toThrow("state must be a JSON object");
+  });
+});
+
+describe("create_routine", () => {
+  it("is listed only where the person may ask for one, and alone when there is nothing to delegate to", async () => {
+    const names = async (opts: Parameters<typeof newHandler>[1]) =>
+      ((await newHandler(stubClient(), opts)("tools/list", {})) as { tools: { name: string }[] }).tools.map((t) => t.name);
+    expect(await names({})).not.toContain("create_routine");
+    expect(await names({ createRoutine: true })).toContain("create_routine");
+    expect(await names({ createRoutine: true, delegate: false })).toEqual(["create_routine"]);
+  });
+
+  it("hands the conductor the routine to set up and answers with what it said", async () => {
+    const client = stubClient();
+    const res = await newHandler(client, { createRoutine: true })("tools/call", {
+      name: "create_routine",
+      arguments: { name: "Digest", instruction: "Report failing PRs.", schedule: "0 9 * * 1-5", timezone: "UTC" },
+    });
+    expect(client.createRoutine).toHaveBeenCalledWith({
+      name: "Digest",
+      instruction: "Report failing PRs.",
+      schedule: "0 9 * * 1-5",
+      timezone: "UTC",
+      notes: undefined,
+    });
+    expect(text(res)).toBe('Created the routine "Digest".');
   });
 });
 
