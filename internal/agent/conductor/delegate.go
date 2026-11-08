@@ -729,7 +729,8 @@ func (c *Conductor) startDelegatedTask(
 	if mcpOwner == "" {
 		mcpOwner = g.login
 	}
-	servers, err := c.mcpServers(ctx, j, mcpOwner)
+	// A playbook is strict: a server it names that this person cannot have fails here.
+	servers, _, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}

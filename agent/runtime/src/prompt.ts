@@ -27,6 +27,7 @@ export function buildSystemPrompt(brief: TurnBrief): string {
     brief.playbook.system_prompt,
     onHost(brief) ? hostBlock(brief) : runtimeBlock(brief),
     channelBlock(brief),
+    unavailableServersBlock(brief),
   ];
   if (brief.delegation) {
     sections.push(delegationBlock(brief));
@@ -54,6 +55,33 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   }
   sections.push(transcriptBlock(brief));
   return sections.map((s) => s.trim()).filter((s) => s !== "").join("\n\n");
+}
+
+/**
+ * unavailableServersBlock names the MCP servers this turn was meant to have and does not.
+ *
+ * Without it, a message that needs one of them reads to the model like any other: it goes
+ * looking for the tools, delegates the work to a task that lacks them too, or invents an
+ * answer. With it, the model says plainly that it has no access, and why, which is what the
+ * person can act on.
+ */
+function unavailableServersBlock(brief: TurnBrief): string {
+  const missing = brief.playbook.unavailable_mcp_servers ?? [];
+  if (missing.length === 0) {
+    return "";
+  }
+  const lines = missing.map((s) => `- \`${s.name}\`: ${s.reason}.`).join("\n");
+  return `# MCP servers you do not have
+
+You are configured to use these MCP servers, but none of their tools are available in this
+turn:
+
+${lines}
+
+If the message needs one of them, do not try to work around it and do not delegate it — a
+task started for it would not have it either. Tell the person, in a sentence, that you do not
+have access to it and why, and what they can do about it. Then answer whatever else the
+message asks. Do not mention these servers when the message does not need them.`;
 }
 
 function interactiveRule(brief: TurnBrief): string {

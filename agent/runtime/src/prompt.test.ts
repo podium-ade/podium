@@ -360,6 +360,26 @@ describe("buildSystemPrompt", () => {
     expect(flat).toContain("editing a ticket");
   });
 
+  it("names the MCP servers a turn runs without, so the agent says it has no access", () => {
+    const brief = golden();
+    expect(buildSystemPrompt(brief)).not.toContain("MCP servers you do not have");
+    for (const runs_on of ["host", undefined] as const) {
+      const prompt = buildSystemPrompt({
+        ...brief,
+        ...(runs_on ? { runs_on } : {}),
+        playbook: {
+          ...brief.playbook,
+          unavailable_mcp_servers: [{ name: "gmail", reason: "the person has not connected it" }],
+        },
+      });
+      const flat = prompt.replace(/\s+/g, " ");
+      expect(flat).toContain("# MCP servers you do not have");
+      expect(flat).toContain("- `gmail`: the person has not connected it.");
+      expect(flat).toContain("do not have access to it");
+      expect(flat).toContain("do not delegate it");
+    }
+  });
+
   it("tells a host turn to delegate rather than investigate", () => {
     const prompt = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
     const flat = prompt.replace(/\s+/g, " ");
