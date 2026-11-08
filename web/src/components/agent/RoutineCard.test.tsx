@@ -86,7 +86,8 @@ describe("RoutineCard", () => {
 
     expect(await screen.findByTestId("routine-paused-reason")).toHaveTextContent("5 runs failed within an hour.");
     expect(screen.getByTestId("routine-proposed-note")).toHaveTextContent("skip drafts");
-    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.getByTestId("routine-proposed-note")).toHaveTextContent("Suggested standing note:");
+    await userEvent.click(screen.getByRole("button", { name: "Add to notes" }));
     await waitFor(() => expect(resolveRoutineNote).toHaveBeenCalledWith({ id: "rtn_1", accept: true }));
     await waitFor(() => expect(screen.queryByTestId("routine-proposed-note")).not.toBeInTheDocument());
   });
