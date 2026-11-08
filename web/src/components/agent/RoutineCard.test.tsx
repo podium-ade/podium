@@ -7,7 +7,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { RoutineSchema, type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
-import { RoutineCard, RoutineDialog } from "./RoutineCard";
+import { QuietRuns, RoutineCard, RoutineDialog } from "./RoutineCard";
 
 const getRoutine = vi.fn();
 const pauseRoutine = vi.fn();
@@ -15,6 +15,7 @@ const runRoutineNow = vi.fn();
 const resolveRoutineNote = vi.fn();
 const cancelRoutineRun = vi.fn();
 const listRoutineRevisions = vi.fn();
+const listRoutineRuns = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -27,6 +28,7 @@ vi.mock("../../lib/client", async () => {
       resolveRoutineNote: (...a: unknown[]) => resolveRoutineNote(...a),
       cancelRoutineRun: (...a: unknown[]) => cancelRoutineRun(...a),
       listRoutineRevisions: (...a: unknown[]) => listRoutineRevisions(...a),
+      listRoutineRuns: (...a: unknown[]) => listRoutineRuns(...a),
       listPersonalities: async () => ({ personalities: [] }),
     },
   };
@@ -63,6 +65,8 @@ beforeEach(() => {
   for (const fn of [getRoutine, pauseRoutine, runRoutineNow, resolveRoutineNote, cancelRoutineRun, listRoutineRevisions])
     fn.mockReset();
   listRoutineRevisions.mockResolvedValue({ revisions: [] });
+  listRoutineRuns.mockReset();
+  listRoutineRuns.mockResolvedValue({ runs: [] });
 });
 
 describe("RoutineCard", () => {
@@ -309,5 +313,35 @@ describe("RoutineDialog for an admin", () => {
     await userEvent.type(screen.getByTestId("routine-cap"), "lots");
     expect(screen.getByText(/amount in dollars/)).toBeInTheDocument();
     expect(screen.getByTestId("routine-save")).toBeDisabled();
+  });
+});
+
+describe("quiet runs", () => {
+  const ago = (min: number) => timestampFromDate(new Date(Date.now() - min * 60_000));
+  const runs = [
+    { id: "r3", status: "idle", summary: "All open PRs have passing CI checks", createdAt: ago(5) },
+    { id: "r2", status: "skipped_overlap", summary: "", createdAt: ago(15) },
+    { id: "r1", status: "done", summary: "1 PR failing", createdAt: ago(25) },
+  ];
+
+  it("are listed in the card's details, with what each found", async () => {
+    getRoutine.mockResolvedValue({ routine: routine() });
+    listRoutineRuns.mockResolvedValue({ runs });
+    mount(<RoutineCard chatId="chat_r" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Show details" }));
+    const list = await screen.findByTestId("routine-runs");
+    await waitFor(() => expect(list).toHaveTextContent("Nothing to do"));
+    expect(list).toHaveTextContent("All open PRs have passing CI checks");
+    expect(list).toHaveTextContent("Skipped, busy");
+    expect(list).toHaveTextContent("Answered");
+    expect(listRoutineRuns).toHaveBeenCalledWith(expect.objectContaining({ id: "rtn_1", includeIdle: true }));
+  });
+
+  it("say in an empty chat that the routine has been checking", async () => {
+    listRoutineRuns.mockResolvedValue({ runs });
+    mount(<QuietRuns routineId="rtn_1" />);
+    const line = await screen.findByTestId("routine-quiet-runs");
+    expect(line).toHaveTextContent("Checked 2 times");
+    expect(line).toHaveTextContent("All open PRs have passing CI checks");
   });
 });

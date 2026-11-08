@@ -32,7 +32,7 @@ import {
   type Scope,
 } from "../../lib/routines";
 import { agent, errorMessage } from "../../lib/client";
-import { relative } from "../../lib/format";
+import { relative, toDate } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -380,6 +380,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                   {r.dailyCapUsd > 0 ? `${money(r.dailyCapUsd)} a day, ${money(r.spendTodayUsd)} spent in the last 24h` : "None"}
                 </p>
               </div>
+              <RunList routineId={r.id} />
               <RevisionList revisions={history.data} loading={history.isPending} />
             </div>
             <div className="flex shrink-0 justify-end border-t border-border px-2 py-1.5">
@@ -441,6 +442,85 @@ export function RoutineCard({ chatId }: { chatId: string }) {
         </Dialog>
       </section>
     </Collapsible>
+  );
+}
+
+/** runsKey is where a routine's recent runs are cached, quiet ones included. */
+const runsKey = (routineId: string) => ["agent", "routine-runs", routineId];
+
+/** useRecentRuns is a routine's latest runs, quiet ones included, newest first. */
+function useRecentRuns(routineId: string, enabled = true) {
+  return useQuery({
+    queryKey: runsKey(routineId),
+    queryFn: async () =>
+      (await agent.listRoutineRuns({ id: routineId, includeIdle: true, page: { limit: 10 } })).runs,
+    enabled: enabled && routineId !== "",
+    refetchInterval: 30_000,
+  });
+}
+
+const RUN_WORDS: Record<string, string> = {
+  running: "Running",
+  done: "Answered",
+  idle: "Nothing to do",
+  failed: "Failed",
+  skipped_overlap: "Skipped, busy",
+  skipped_paused: "Skipped, over its cap",
+};
+
+/**
+ * RunList is what the routine's last runs did, quiet ones included. A quiet run leaves nothing
+ * in the chat, so this is the one place it is seen: when it ran and the line it reported.
+ */
+function RunList({ routineId }: { routineId: string }) {
+  const runs = useRecentRuns(routineId);
+  return (
+    <div data-testid="routine-runs">
+      <h3 className="mb-1 font-semibold text-muted uppercase tracking-[0.08em]">Recent runs</h3>
+      {runs.isPending ? (
+        <p className="text-muted">Loading…</p>
+      ) : !runs.data || runs.data.length === 0 ? (
+        <p className="text-muted">It has not run yet.</p>
+      ) : (
+        <ol className="m-0 grid list-none gap-1 p-0">
+          {runs.data.map((run) => (
+            <li key={run.id} className="flex min-w-0 items-baseline gap-2">
+              <time className="w-14 shrink-0 text-faint tabular-nums" title={run.createdAt ? toDate(run.createdAt)?.toLocaleString() : undefined}>
+                {relative(run.createdAt)}
+              </time>
+              <span
+                className={cn(
+                  "shrink-0 font-medium",
+                  run.status === "failed" ? "text-err" : run.status === "done" ? "text-fg" : "text-muted",
+                )}
+              >
+                {RUN_WORDS[run.status] ?? run.status}
+              </span>
+              {run.summary ? <span className="min-w-0 truncate text-muted" title={run.summary}>{run.summary}</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/**
+ * QuietRuns says, in a routine's empty chat, that it has been checking: how many times and what
+ * the latest check found. Without it a routine that has found nothing yet looks like it never ran.
+ */
+export function QuietRuns({ routineId }: { routineId: string }) {
+  const runs = useRecentRuns(routineId);
+  const settled = (runs.data ?? []).filter((r) => r.status !== "skipped_overlap" && r.status !== "skipped_paused");
+  const latest = settled[0];
+  if (!latest) return null;
+  return (
+    <p data-testid="routine-quiet-runs" className="mx-auto mt-2 max-w-md rounded-md border border-border bg-panel px-3 py-2 text-xs text-muted">
+      Checked {settled.length === 10 ? "10+" : settled.length} {settled.length === 1 ? "time" : "times"} · last{" "}
+      {relative(latest.createdAt)}
+      {latest.summary ? <span className="text-fg"> — {latest.summary}</span> : null}
+      <span className="block pt-0.5 text-faint">Runs that find nothing leave no message here. Recent runs are under the card’s details.</span>
+    </p>
   );
 }
 

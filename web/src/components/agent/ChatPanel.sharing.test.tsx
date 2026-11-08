@@ -20,6 +20,7 @@ const streamChat = vi.fn();
 const leaveChat = vi.fn();
 const markChatRead = vi.fn();
 const getChatSharing = vi.fn();
+const listRoutines = vi.fn(async () => ({ routines: [] as unknown[] }));
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -34,6 +35,7 @@ vi.mock("../../lib/client", async () => {
       markChatRead: (...a: unknown[]) => markChatRead(...a),
       getChatSharing: (...a: unknown[]) => getChatSharing(...a),
       searchMembers: async () => ({ members: [] }),
+      listRoutines: (...a: unknown[]) => listRoutines(...(a as [])),
     },
   };
 });
@@ -177,6 +179,31 @@ describe("ChatPanel rail groups", () => {
         lastMessageAt: timestampFromDate(new Date(Date.now() - (i + 1) * 60_000)),
       }),
     );
+
+  it("says under a routine's chat whether it is a system routine and when it last ran", async () => {
+    listChats.mockImplementation(async (req: { section?: string }) =>
+      req.section === "workspace"
+        ? { chats: [] }
+        : {
+            chats: [
+              row({ id: "c_sys", title: "Fix failing CI", routineId: "rtn_sys", login: "" }),
+              row({ id: "c_mine", title: "PR digest", routineId: "rtn_mine" }),
+            ],
+          },
+    );
+    listRoutines.mockResolvedValue({
+      routines: [
+        { id: "rtn_sys", chatId: "c_sys", scope: "system", running: false, lastRunAt: timestampFromDate(new Date(Date.now() - 2 * 3_600_000)) },
+        { id: "rtn_mine", chatId: "c_mine", scope: "personal", running: false },
+      ],
+    });
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(within(list).getByTestId("chat-row-system")).toHaveTextContent("System"));
+    const lines = within(list).getAllByTestId("chat-row-where").map((e) => e.textContent);
+    expect(lines).toContain("Systemran 2h ago");
+    expect(lines).toContain("not run yet");
+  });
 
   it("lists a page of each origin and shows more on demand", async () => {
     listChats.mockImplementation(async (req: { section?: string }) =>
