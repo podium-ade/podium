@@ -238,6 +238,9 @@ type pullInfo struct {
 	// whose author has not let maintainers push to that branch, so nothing here can.
 	Fork   bool
 	Locked bool
+	// Author is who opened the pull request: its login and account type ("User", "Bot").
+	Author     string
+	AuthorType string
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
@@ -250,6 +253,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Deletions           int    `json:"deletions"`
 		ChangedFiles        int    `json:"changed_files"`
 		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		User                User   `json:"user"`
 		Head                struct {
 			Ref  string `json:"ref"`
 			SHA  string `json:"sha"`
@@ -273,16 +277,18 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 	fork := out.Head.Repo == nil ||
 		(out.Base.Repo.FullName != "" && !strings.EqualFold(out.Head.Repo.FullName, out.Base.Repo.FullName))
 	return pullInfo{
-		Title:     out.Title,
-		Head:      out.Head.Ref,
-		Base:      out.Base.Ref,
-		SHA:       out.Head.SHA,
-		Commits:   out.Commits,
-		Files:     out.ChangedFiles,
-		Additions: out.Additions,
-		Deletions: out.Deletions,
-		Fork:      fork,
-		Locked:    fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
+		Title:      out.Title,
+		Head:       out.Head.Ref,
+		Base:       out.Base.Ref,
+		SHA:        out.Head.SHA,
+		Commits:    out.Commits,
+		Files:      out.ChangedFiles,
+		Additions:  out.Additions,
+		Deletions:  out.Deletions,
+		Fork:       fork,
+		Locked:     fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
+		Author:     out.User.Login,
+		AuthorType: out.User.Type,
 	}, nil
 }
 
