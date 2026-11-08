@@ -92,12 +92,19 @@ describe("RoutineCard", () => {
     await waitFor(() => expect(screen.queryByTestId("routine-proposed-note")).not.toBeInTheDocument());
   });
 
-  it("shows what it remembers when opened", async () => {
-    getRoutine.mockResolvedValue({ routine: routine() });
+  it("opens its instruction and notes when asked, and keeps what it remembers to itself", async () => {
+    getRoutine.mockResolvedValue({ routine: routine({ notes: "- skip drafts" }) });
     mount(<RoutineCard chatId="chat_r" />);
+    expect(screen.queryByTestId("routine-details")).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Show details" }));
-    expect(screen.getByTestId("routine-state")).toHaveTextContent("acme/api#7@abc");
-    expect(screen.getByText("Report pull requests whose CI failed.")).toBeInTheDocument();
+    const details = screen.getByTestId("routine-details");
+    expect(details).toHaveTextContent("Report pull requests whose CI failed.");
+    expect(details).toHaveTextContent("- skip drafts");
+    // The state is the agent's own bookkeeping; the card does not show it.
+    expect(screen.queryByText(/acme\/api#7@abc/)).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    // Closed; the element itself leaves once its closing animation ends, which jsdom never plays.
+    await waitFor(() => expect(screen.getByTestId("routine-card")).toHaveAttribute("data-state", "closed"));
   });
 
   it("is nothing for a chat with no routine", async () => {
