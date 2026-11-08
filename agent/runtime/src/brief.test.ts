@@ -304,6 +304,22 @@ describe("decodeBrief", () => {
     ).toThrow(BriefError);
   });
 
+  it("accepts an empty menu on a routine's turn, which has a token for routine_finish", () => {
+    const routine = { id: "rtn_1", name: "Digest", schedule: "weekdays at 09:00", scheduled: true, state: {} };
+    const brief = decodeBrief(
+      encode({ ...minimal, routine, delegation: { url: "http://h", token_env: "T", playbooks: [] } }),
+    );
+    expect(brief.routine?.name).toBe("Digest");
+    expect(brief.delegation?.playbooks).toEqual([]);
+  });
+
+  it("accepts an empty menu on a turn that may create a routine, which has a token for create_routine", () => {
+    const brief = decodeBrief(
+      encode({ ...minimal, delegation: { url: "http://h", token_env: "T", playbooks: [], routines: true } }),
+    );
+    expect(brief.delegation?.routines).toBe(true);
+  });
+
   it("refuses an unknown key inside the delegation block", () => {
     // The token travels in the environment. A brief that could carry one is a brief that
     // must never be logged, and this is what keeps that true.
