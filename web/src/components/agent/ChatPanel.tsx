@@ -20,7 +20,9 @@ import {
   type Assistant,
   type Chat,
   type Personality,
+  type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
+import { isSystem, routinesKey } from "../../lib/routines";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -57,7 +59,7 @@ import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
-import { RoutineCard } from "./RoutineCard";
+import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
@@ -590,6 +592,19 @@ function ChatRail({
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
+  // A routine's chat says what kind of routine it is and when it last ran, which the chat's
+  // own row does not know: the routines list does, and is shared with the Routines page.
+  const hasRoutines = chats.some((c) => c.routineId);
+  const routineList = useQuery({
+    queryKey: routinesKey,
+    queryFn: () => agent.listRoutines({}),
+    enabled: hasRoutines,
+    refetchInterval: 60_000,
+  });
+  const routineByChat = useMemo(
+    () => new Map((routineList.data?.routines ?? []).map((r) => [r.chatId, r] as const)),
+    [routineList.data],
+  );
   const activeChat = ordered.find((c) => c.id === active);
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -909,6 +924,7 @@ function ChatRail({
                       onLeave={onLeave}
                       deleting={deletingId === c.id}
                       viewerLogin={viewerLogin}
+                      routine={c.routineId ? routineByChat.get(c.id) : undefined}
                     />
                   ))}
                   {hidden > 0 ? (
@@ -946,8 +962,11 @@ function ChatRow({
   onLeave,
   deleting,
   viewerLogin,
+  routine,
 }: {
   chat: Chat;
+  /** routine is the routine this chat belongs to, when the list of routines has it. */
+  routine?: Routine;
   active: boolean;
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
@@ -1052,7 +1071,15 @@ function ChatRow({
   const where = mirrored ? (chat.channel ? `#${chat.channel}` : repo || chat.origin) : "";
   // The line under the title. A pull request's title is its number and its own title, and
   // its group already says GitHub: the line names the repository and whose it is.
-  const subtitle = chat.origin === "github" ? [repo, chat.startedBy].filter(Boolean) : [where].filter(Boolean);
+  // A routine's chat: whether it is a system routine, and when it last ran.
+  const subtitle = routine
+    ? [
+        isSystem(routine) ? "System" : "",
+        routine.running ? "running now" : routine.lastRunAt ? `ran ${relative(routine.lastRunAt)}` : "not run yet",
+      ].filter(Boolean)
+    : chat.origin === "github"
+      ? [repo, chat.startedBy].filter(Boolean)
+      : [where].filter(Boolean);
   const hint = (
     <span className="block max-w-64 space-y-0.5 py-0.5">
       {where || chat.startedBy ? (
@@ -1115,7 +1142,14 @@ function ChatRow({
                 {subtitle.map((part, i) => (
                   <Fragment key={i}>
                     {i > 0 ? <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-current opacity-70" /> : null}
-                    <span className="truncate">{part}</span>
+                    {routine && isSystem(routine) && i === 0 ? (
+                      <span data-testid="chat-row-system" className="inline-flex shrink-0 items-center gap-1 font-semibold">
+                        <ShieldCheck className="size-3" aria-hidden />
+                        {part}
+                      </span>
+                    ) : (
+                      <span className="truncate">{part}</span>
+                    )}
                   </Fragment>
                 ))}
               </span>
@@ -1674,7 +1708,7 @@ function Conversation({
             }
             welcome={
               showWelcome && routineId ? (
-                <RoutineWelcome system={owner === "" && stream.chat !== undefined} />
+                <RoutineWelcome system={owner === "" && stream.chat !== undefined} routineId={routineId} />
               ) : showWelcome ? (
                 <ArrivalWell
                   botName={botName}
@@ -1808,15 +1842,16 @@ function Arrival({
 
 /** RoutineWelcome is a routine's chat before any run has answered: where its answers will
  * land, and what writing here does. */
-function RoutineWelcome({ system }: { system: boolean }) {
+function RoutineWelcome({ system, routineId }: { system: boolean; routineId: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center-safe gap-1.5 px-6 py-6 text-center">
       <p className="text-lg font-medium tracking-tight text-fg">Nothing from this routine yet</p>
       <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
         {system
-          ? "A run that finds something answers here; one that finds nothing leaves no trace. To change what it keeps an eye on, edit it from the card above."
-          : "A run that finds something answers here; one that finds nothing leaves no trace. Write here to ask about its runs or to change what it keeps an eye on."}
+          ? "A run that finds something answers here; one that finds nothing leaves no message. To change what it keeps an eye on, edit it from the card above."
+          : "A run that finds something answers here; one that finds nothing leaves no message. Write here to ask about its runs or to change what it keeps an eye on."}
       </p>
+      <QuietRuns routineId={routineId} />
     </div>
   );
 }
