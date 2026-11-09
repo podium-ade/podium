@@ -8,7 +8,7 @@
 <h1 align="center">Podium</h1>
 
 <p align="center">
-  <b>Your own AI orchestration system. One deployment, every team, on machines you own.</b>
+  <b>Your own AI orchestration system, for everyone who builds. Configured your way, run on your machines or your sandboxes.</b>
 </p>
 
 <p align="center">
@@ -18,8 +18,10 @@
   <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
 </p>
 
-Podium is how an organization puts AI to work on the jobs that actually move the business, and
-then watches it finish them.
+https://github.com/user-attachments/assets/1d03a0d7-98da-4df2-86d1-975f6e38020c
+
+Podium lets anyone in your company hand real work to AI agents: fixing a bug, reviewing a pull
+request, answering a question about the numbers.
 
 A bug lands in Slack or Linear, and Podium reads the code, runs what it needs to run, and posts
 the cause back on the thread. A pull request needs a review, and Podium reads the diff and
@@ -29,13 +31,21 @@ Someone asks what the numbers did last week, and Podium queries the warehouse an
 the same conversation. Those are four jobs. The next one is a playbook you write, for whatever
 part of the organization needs it.
 
+It is not only for engineers. Anybody who can describe a change can ask for one. A product
+manager spots a broken card on the pricing page and says so in a chat. Podium edits the code,
+runs the tests, checks the page in a browser they can watch from the same chat, and opens a pull
+request. They ask for a different button colour and it lands on the same pull request. An
+engineer reviews it and approves the merge. A conversation is shared the way a document is, so
+the person who asked, the person who reviews, and Podium are in one thread.
+
 One deployment covers all of them. Chat, Slack, Linear, and GitHub are doors into the same
 system. Each team gets its own tools, repositories, model, and credentials. When the work needs
-a machine, it runs in a sandbox on a worker you enrolled, and the answer comes back where the
-question started, with the logs and the files to show for it.
+a machine, it runs in a sandbox on a worker you enrolled, or in a cloud sandbox from a provider
+you connect, and the answer comes back where the question started, with the logs and the files
+to show for it.
 
-You run the whole thing. The control plane, the conductor, the secrets, and the workers are
-yours. The model keys are yours.
+You run the whole thing. There is no hosted Podium: the control plane, the conductor, the
+secrets, and the workers are yours, and so are the model keys and the sandbox accounts.
 
 ---
 
@@ -58,8 +68,9 @@ The jobs are yours to define. Four that the shape is built for:
   is one conversation either way.
 - **Write code.** A playbook with write access to a repository, a toolchain, and, when the
   change has a UI, a browser. It edits, runs the tests, opens the pull request, and can
-  check the result before it says it is done. The playbook that develops Podium itself is
-  that job, pointed at this repository: [profile/README.md](profile/README.md).
+  check the result before it says it is done. With `desktop: true` that browser runs on a
+  desktop the person watches live beside the chat. The playbook that develops Podium itself
+  is that job, pointed at this repository: [profile/README.md](profile/README.md).
 - **Answer an analytics question.** A playbook whose image has the warehouse client, and
   whose secret list is that warehouse's credential. The question is answered in the thread.
   That credential is not mounted into any other job.
@@ -81,6 +92,11 @@ Each task is one container, on one worker, from one image, to one exit code.
   a sidecar the operator allowed on that node.
 - Secrets decrypted by the control plane, delivered onto a tmpfs at `/podium/secrets`, and
   shredded with the container. They are encrypted at rest under a master key you hold.
+
+A task can run in a cloud sandbox instead: a boat.dev VM or a Modal sandbox, made when the
+task is assigned and deleted when it ends. podium-server drives the provider itself, so there is
+nothing to install. Set the default on the **Backend** screen, and pin a playbook to one with
+`runs_on`. [docs/sandboxes.md](docs/sandboxes.md).
 
 Workers dial out. A node opens one stream to the control plane and listens for nothing, so a
 worker on another continent is the same operation as a worker on the same desk. The control
