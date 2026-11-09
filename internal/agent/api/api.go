@@ -286,6 +286,9 @@ type AgentService struct {
 	// and handed to it by SetRoutines.
 	routineMu     sync.Mutex
 	routineRunner RoutineRunner
+
+	// keys is keyhealth.go's: who to tell when a stored key stops working.
+	keys keyHealth
 }
 
 // NewAgentService returns the handlers.

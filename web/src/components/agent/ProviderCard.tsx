@@ -19,7 +19,7 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
-import { oauthExpired } from "../../lib/providerCredential";
+import { keyRefused, oauthExpired } from "../../lib/providerCredential";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Alert } from "../ui/alert";
@@ -304,6 +304,7 @@ export function ProviderCard({
 
   const subscriptionStored = settings?.authKind === "oauth";
   const expired = oauthExpired(settings);
+  const refused = keyRefused(settings);
   const showWork = !readOnly && !loading && (rotating || (!stored && open) || signing !== undefined);
   const signInAgain = () => {
     setRotating(true);
@@ -331,8 +332,8 @@ export function ProviderCard({
               <Skeleton className="h-4 w-16" />
             </div>
           ) : (
-            <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
-              {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+            <Badge tone={refused ? "err" : expired ? "warn" : keySet ? "ok" : "idle"}>
+              {refused ? "Key refused" : expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
             </Badge>
           )}
         </TableCell>
@@ -842,6 +843,12 @@ function Connected({ settings, personal }: { settings?: ProviderSettings; person
         ••••{settings.keyHint}
         {settings.setBy && !personal ? ` · set by ${settings.setBy}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
+        {settings.refusedAt ? (
+          <span className="block text-err" title={settings.refusal || undefined}>
+            refused {relative(settings.refusedAt)}
+            {settings.refusal ? `: ${settings.refusal}` : ""}
+          </span>
+        ) : null}
       </>
     );
   }

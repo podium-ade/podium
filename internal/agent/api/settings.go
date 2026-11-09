@@ -289,6 +289,13 @@ type providerRow struct {
 	// Credential is a copy of the bearer that rows from before the secret store answered the
 	// conductor carried in clear. It is read only to be removed.
 	Credential string `json:"credential,omitempty"`
+	// CheckedAt is when the background pass last asked the provider about this API key, and
+	// RefusedAt when it first found the key refused — zero while it works. Refusal is what
+	// the provider said, scrubbed. A save writes a new row, which clears all three. See
+	// keyhealth.go.
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	RefusedAt time.Time `json:"refused_at,omitzero"`
+	Refusal   string    `json:"refusal,omitempty"`
 }
 
 // refreshSecret is where a provider sign-in's refresh token is stored.
@@ -413,6 +420,13 @@ func (s *AgentService) providerState(ctx context.Context, t credTarget) (*agentv
 		if !row.ExpiresAt.IsZero() {
 			out.ExpiresAt = timestamppb.New(row.ExpiresAt)
 		}
+		if !row.CheckedAt.IsZero() {
+			out.CheckedAt = timestamppb.New(row.CheckedAt)
+		}
+		if !row.RefusedAt.IsZero() {
+			out.RefusedAt = timestamppb.New(row.RefusedAt)
+			out.Refusal = row.Refusal
+		}
 	}
 	return out, nil
 }
@@ -488,12 +502,15 @@ func (s *AgentService) SetProviderKey(
 			fmt.Errorf("could not validate the key with %s; nothing was saved", p.label), said)
 	}
 
+	// Under the key-check lock, so a check of the key this replaces cannot land after it.
+	s.keys.mu.Lock()
 	row, err := s.storeCredential(ctx, t, key, providerRow{
 		KeyHint:  keyHint(key),
 		SetBy:    login,
 		SetAt:    time.Now().UTC(),
 		AuthKind: AuthAPIKey,
 	})
+	s.keys.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -927,6 +944,8 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 	if s.secrets == nil || s.store == nil {
 		return
 	}
+	// API keys do not expire on a clock the conductor can see, but they do stop working.
+	s.checkKeysOnce(ctx)
 	for _, t := range s.signedInTargets(ctx) {
 		client, err := s.oauthFor(t.p)
 		if err != nil {

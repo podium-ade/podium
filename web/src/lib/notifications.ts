@@ -1,7 +1,7 @@
 import type { Chat, Notification, ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
 import type { ChatSeen } from "./chatSeen";
 import { PROVIDERS } from "./agents";
-import { oauthExpired } from "./providerCredential";
+import { keyRefused, oauthExpired } from "./providerCredential";
 
 /** How many resolved alerts this browser keeps. Open ones are never dropped to make room. */
 export const RESOLVED_KEEP = 50;
@@ -44,6 +44,21 @@ export function alertsFromProviders(
   const drafts: AlertDraft[] = [];
   for (const provider of PROVIDERS) {
     const row = providers?.find((p) => p.provider === provider.id);
+    if (keyRefused(row)) {
+      drafts.push({
+        key:
+          scope === "personal"
+            ? `provider-key-refused:personal:${provider.id}`
+            : `provider-key-refused:${provider.id}`,
+        level: "alert",
+        title: `${provider.name} is refusing the API key`,
+        body:
+          "The provider stopped accepting the stored key — it expired or was revoked. Turns that use it are stopped before they start until a working key is saved.",
+        href: "/agent/settings/models",
+        action: "Replace key",
+      });
+      continue;
+    }
     if (!oauthExpired(row, now)) continue;
     drafts.push({
       key:
