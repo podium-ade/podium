@@ -583,6 +583,33 @@ describe("ChatPanel", () => {
     expect(screen.queryByTestId("chat-stop")).toBeNull();
   });
 
+  it("stops waiting once the answer is in, whatever is said after it", async () => {
+    // A sent question is held as pending until the stream carries it, and that hold kept the
+    // chat busy whenever the last row was not an answer. It was never let go after a turn
+    // picked the question up, so the next person to speak after the answer brought the
+    // "Thinking" row back with nothing running.
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    sendChatMessage.mockResolvedValue({ message: {}, addressed: true, queuedPosition: 0 });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+    stream.push(replayed());
+
+    await userEvent.type(await screen.findByTestId("chat-composer"), "fix the card{Enter}");
+    await waitFor(() => expect(sendChatMessage).toHaveBeenCalled());
+    stream.push(message(1, "user", "fix the card"));
+    stream.push(status("started"));
+    expect(await screen.findByTestId("chat-progress")).toBeInTheDocument();
+    stream.push(message(2, "assistant", "Fixed."));
+    stream.push(status("finished"));
+    await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
+
+    // Somebody else says something that is not put to Podium.
+    stream.push(said(3, "user", "Looks good to me.", "Sam"));
+    await screen.findByText("Looks good to me.");
+    expect(screen.queryByTestId("chat-progress")).toBeNull();
+  });
+
   it("waits at the end of the transcript, not above it", async () => {
     // The running state used to be a pill stuck to the top of the transcript. It took its
     // own line in the flow, so starting a turn pushed the whole conversation down. Ordering
