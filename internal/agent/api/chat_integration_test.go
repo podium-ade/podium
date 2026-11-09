@@ -34,6 +34,7 @@ type chatFixture struct {
 	source *chat.Source
 	client agentv1connect.AgentServiceClient
 	url    string
+	svc    *AgentService
 }
 
 func newChatFixture(t *testing.T) chatFixture {
@@ -43,7 +44,7 @@ func newChatFixture(t *testing.T) chatFixture {
 func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 	t.Helper()
 	st := newStore(t)
-	src, err := chat.New(chat.Options{
+	src, err := chat.New(chat.Options{PlacedWait: -1,
 		Store: st, DisplayName: "Podium", UIURL: "https://podium.example",
 	})
 	require.NoError(t, err)
@@ -81,6 +82,7 @@ func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 		store:  st,
 		source: src,
 		url:    srv.URL,
+		svc:    svc,
 		client: agentv1connect.NewAgentServiceClient(srv.Client(), srv.URL,
 			connect.WithInterceptors(proxyHeaders("alice"))),
 	}
@@ -303,8 +305,15 @@ func TestDeleteChatRemovesAMirroredThread(t *testing.T) {
 
 	_, err = f.clientAll().DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
 	require.NoError(t, err)
-	_, err = f.store.GetChat(ctx, thread.ID)
-	require.ErrorIs(t, err, store.ErrNotFound)
+	// A mirrored chat is deleted, not removed (0036): the record stays for the thread's next
+	// message to find, and nobody signed in can reach it any more.
+	kept, err := f.store.GetChat(ctx, thread.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, kept.DeletedAt)
+	_, err = f.clientAll().DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
+	require.NoError(t, err, "deleting it again keeps the tombstone")
+	_, err = f.client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{ChatId: thread.ID, Title: "back?"}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "nobody signed in can reach a deleted chat")
 }
 
 // fakeTasks is CancelTask as DeleteChat sees it: record the call, optionally fail it.
@@ -442,6 +451,37 @@ func TestARequestWithNoLoginIsRefused(t *testing.T) {
 // TestStreamChatReplaysThenFollows is the whole streaming contract in one test: what is
 // stored is replayed, what happens next arrives live, progress is a row like anything else
 // the task said and an attachment republishes the message it belongs to.
+// A delegated task outlives the turn that started it: an automatic review's turn ends the
+// moment it hands the work over. The open chat's row says the task is still running, as the
+// list does, or its task block reads "done" while the task works.
+func TestStreamChatSaysADelegatedTaskIsStillRunning(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	sess, err := f.store.UpsertSession(ctx, store.Session{
+		SourceKind: "chat", SourceKey: store.ChatSourceKey(chatID), Profile: "podium",
+	})
+	require.NoError(t, err)
+	turn, err := f.store.CreateTurn(ctx, sess.ID, chatID, store.Backend{})
+	require.NoError(t, err)
+	_, err = f.store.CreateDelegation(ctx, store.NewDelegation{
+		SessionID: sess.ID, TurnID: turn.ID, TriggerRef: chatID, Playbook: "review", Instruction: "review it",
+	})
+	require.NoError(t, err)
+	require.NoError(t, f.store.FinishTurn(ctx, turn.ID, store.TurnSucceeded, nil, nil, "started a task"))
+
+	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	head := nextFrame(t, stream).GetChat()
+	require.NotNil(t, head)
+	assert.True(t, head.GetTaskRunning(), "the turn is over and the task it delegated is not")
+}
+
 func TestStreamChatReplaysThenFollows(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -482,6 +522,8 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, second)
 	assert.Equal(t, uint64(2), second.GetSeq())
 	assert.Equal(t, "4,812 in August.", second.GetText())
+	assert.True(t, nextFrame(t, stream).GetReplayed(),
+		"the end of the replay is said, so a screen can tell an empty chat from one still loading")
 
 	// Then live: a human message reaches the stream the moment it is sent.
 	sent, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
@@ -616,29 +658,36 @@ func TestStreamChatSaysATurnIsAlreadyRunning(t *testing.T) {
 	require.NoError(t, stream.Close())
 }
 
-func TestASecondSendWhileATurnRunsIsFailedPrecondition(t *testing.T) {
+func TestASecondSendWhileATurnRunsIsQueuedBehindIt(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
 	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
 	require.NoError(t, err)
 	chatID := created.Msg.GetChat().GetId()
 
-	_, err = f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+	first, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: chatID, Text: "first",
 	}))
 	require.NoError(t, err)
+	assert.True(t, first.Msg.GetAddressed())
+	assert.Zero(t, first.Msg.GetQueuedPosition())
 
-	_, err = f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+	// Phase 4: nothing is refused for a turn in flight. The second message is reported as
+	// waiting behind the first; the conductor runs it as its own turn. It is queued, not
+	// stored: it goes into the record when its turn starts, after the answer to the first.
+	second, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
 		ChatId: chatID, Text: "second",
 	}))
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.NoError(t, err)
+	assert.True(t, second.Msg.GetAddressed())
+	assert.Equal(t, int32(1), second.Msg.GetQueuedPosition())
+	assert.Zero(t, second.Msg.GetMessage().GetSeq(), "not in the record yet")
 
 	stored, err := f.store.ListChatMessages(ctx, chatID, 0)
 	require.NoError(t, err)
-	assert.Len(t, stored, 1, "a refused send stores nothing")
+	require.Len(t, stored, 1, "only the first is in the record")
+	assert.Equal(t, "first", stored[0].Text)
 
-	// The chat list agrees with the refusal, so a reload disables the composer too.
 	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, listed.Msg.GetChats(), 1)
@@ -761,6 +810,7 @@ func TestAttachAndDetachAPullRequestThroughTheService(t *testing.T) {
 	require.NotNil(t, nextFrame(t, stream).GetChat())
 	assert.Empty(t, nextFrame(t, stream).GetPullRequests().GetPullRequests(),
 		"a new chat has produced nothing yet")
+	require.True(t, nextFrame(t, stream).GetReplayed(), "an empty replay still ends with the marker")
 
 	// A URL with the path a browser was actually on. What is stored is canonical.
 	attached, err := f.client.AttachChatPullRequest(ctx, connect.NewRequest(

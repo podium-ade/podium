@@ -240,6 +240,31 @@ func TestToken(t *testing.T) {
 		}, sent.Permissions, "no actions, which was not granted, and nothing unrelated like issues")
 	})
 
+	// A system routine reads with a token that cannot write, whatever the installation allows.
+	t.Run("a read token asks for read and nothing more, and is cached apart", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 200,
+			`{"id":42,"permissions":{"contents":"write","pull_requests":"write","checks":"write","actions":"read"}}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		c := client(t, f, now)
+
+		_, err := c.ReadToken(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		calls := f.seen()
+		require.Len(t, calls, 2)
+		var sent tokenRequest
+		require.NoError(t, json.Unmarshal([]byte(calls[1].Body), &sent))
+		assert.Equal(t, tokenPermissions{
+			Contents: "read", PullRequests: "read", Checks: "read", Actions: "read",
+		}, sent.Permissions)
+
+		// A write token for the same repository is minted, not the read one handed out.
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		assert.Len(t, f.seen(), 3)
+	})
+
 	t.Run("authenticates with the app JWT and never with an installation token", func(t *testing.T) {
 		c, f := setup(t)
 		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
@@ -487,4 +512,91 @@ func TestATurnLongerThanATokenKeepsWorking(t *testing.T) {
 	assert.NotEqual(t, atClone.Value, atPush.Value, "the push must not be handed a dead token")
 	assert.True(t, atPush.ExpiresAt.After(clock), "and the one it gets must still be alive")
 	assert.Equal(t, 2, minted)
+}
+
+// A system routine finds its repository by name among every one the App is installed on, and
+// the listing is done with a token that can read metadata and nothing else.
+func TestInstallationRepos(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	f := newFake()
+	f.route("GET /app/installations", 200, `[{"id":42},{"id":7}]`)
+	f.route("POST /app/installations/42/access_tokens", 201, `{"token":"ghs_a","expires_at":"2026-11-08T13:00:00Z"}`)
+	f.route("POST /app/installations/7/access_tokens", 201, `{"token":"ghs_b","expires_at":"2026-11-08T13:00:00Z"}`)
+	f.routes["GET /installation/repositories"] = func() (int, string) {
+		f.mu.Lock()
+		auth := f.calls[len(f.calls)-1].Auth
+		f.mu.Unlock()
+		if auth == "Bearer ghs_a" {
+			return 200, `{"repositories":[{"full_name":"acme/api","pushed_at":"2026-11-01T00:00:00Z"}]}`
+		}
+		return 200, `{"repositories":[{"full_name":"ada/podium","description":"the ADE","pushed_at":"2026-11-07T00:00:00Z"}]}`
+	}
+	c := client(t, f, now)
+
+	repos, err := c.InstallationRepos(t.Context())
+	require.NoError(t, err)
+	require.Len(t, repos, 2)
+	assert.Equal(t, "ada/podium", repos[0].FullName, "most recently pushed first")
+	assert.Equal(t, "acme/api", repos[1].FullName)
+
+	for _, got := range f.seen() {
+		if got.Method == "POST" {
+			assert.JSONEq(t, `{"permissions":{"metadata":"read"}}`, got.Body)
+		}
+	}
+
+	n := len(f.seen())
+	_, err = c.InstallationRepos(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, f.seen(), n, "a second ask within minutes is answered from memory")
+}
+
+func TestCanPush(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(time.Hour)
+	setup := func(t *testing.T) (*Client, *fakeGitHub) {
+		t.Helper()
+		f := newFake()
+		f.route("GET /orgs/acme/installation", 200, `{"id":42}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		return client(t, f, now), f
+	}
+
+	t.Run("an account that can push to every repo can push", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 200,
+			`{"permission":"write","user":{"permissions":{"push":true}}}`)
+		f.route("GET /repos/acme/b/collaborators/dana/permission", 200, `{"permission":"admin"}`)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a", "b"}, "dana")
+		require.NoError(t, err)
+		assert.True(t, ok)
+		calls := f.seen()
+		assert.Equal(t, "Bearer ghs_minted", calls[len(calls)-1].Auth, "asked with an installation token")
+	})
+
+	t.Run("read on one repo is no", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 200,
+			`{"permission":"write","user":{"permissions":{"push":true}}}`)
+		f.route("GET /repos/acme/b/collaborators/dana/permission", 200,
+			`{"permission":"read","user":{"permissions":{"push":false}}}`)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a", "b"}, "dana")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("somebody who is not a collaborator is no", func(t *testing.T) {
+		c, _ := setup(t)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a"}, "stranger")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("an answer that is neither is an error", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 502, `{"message":"bad gateway"}`)
+		_, err := c.CanPush(t.Context(), "acme", []string{"a"}, "dana")
+		require.Error(t, err)
+	})
 }

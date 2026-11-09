@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
@@ -16,11 +17,12 @@ import (
 // a delegated task's, which the assistant can release when asked.
 func previewNote(task *podiumv1.Task, askable bool) string {
 	p := task.GetPreview()
-	if p == nil || p.GetReleasedAt() != nil || p.GetExpiresAt() == nil || len(p.GetUrls()) == 0 {
+	urls := peopleURLs(p.GetUrls())
+	if p == nil || p.GetReleasedAt() != nil || p.GetExpiresAt() == nil || len(urls) == 0 {
 		return ""
 	}
-	names := make([]string, 0, len(p.GetUrls()))
-	for name := range p.GetUrls() {
+	names := make([]string, 0, len(urls))
+	for name := range urls {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -33,9 +35,25 @@ func previewNote(task *podiumv1.Task, askable bool) string {
 	}
 	fmt.Fprintf(&b, "`podium task release %s`.", task.GetId())
 	for _, name := range names {
-		fmt.Fprintf(&b, "\n• %s: %s", name, p.GetUrls()[name])
+		fmt.Fprintf(&b, "\n• %s: %s", name, urls[name])
 	}
 	return b.String()
+}
+
+// peopleURLs is a preview's URLs minus a desktop playbook's desktop and terminal ports. Those
+// are podium-server's to serve (the chat's desktop panel), and their raw URLs are no use to a
+// person: a cloud sandbox's needs the provider's token, which they do not carry.
+func peopleURLs(urls map[string]string) map[string]string {
+	out := make(map[string]string, len(urls))
+	for name, u := range urls {
+		if _, ours := profiles.DesktopPorts[name]; !ours {
+			out[name] = u
+		}
+	}
+	if len(out) == len(urls) {
+		return urls
+	}
+	return out
 }
 
 // previewLookback and maxBriefPreviews bound what livePreviews asks the control plane about
@@ -81,7 +99,11 @@ func (c *Conductor) livePreviews(ctx context.Context, sessionID string) []BriefP
 		if !previewLive(p) {
 			continue
 		}
-		bp := BriefPreview{DelegationID: d.ID, Playbook: d.Playbook, TaskID: d.TaskID, URLs: p.GetUrls()}
+		urls := peopleURLs(p.GetUrls())
+		if len(urls) == 0 {
+			continue
+		}
+		bp := BriefPreview{DelegationID: d.ID, Playbook: d.Playbook, TaskID: d.TaskID, URLs: urls}
 		if p.GetExpiresAt() != nil {
 			bp.ExpiresAt = BriefTimestamp(p.GetExpiresAt().AsTime())
 		}

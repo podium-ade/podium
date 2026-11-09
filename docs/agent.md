@@ -349,8 +349,10 @@ every one finishing within 4.7 s.
 - **Whose key pays.** A person who sets their own key for the assistant's provider — a
   personal secret named `model.<provider>.api_key` (`model.anthropic.api_key`,
   `model.openai.api_key`, …), set under Settings → Models (Yours) or on the Secrets page — pays for their own conversations with it;
-  everyone else is on the company's. `podium_agent_gateway_requests_total{credential}` counts
-  which. A playbook may not name that secret.
+  everyone else is on the company's. A **shared** conversation is the company's whoever asks
+  (see [Several people, one conversation](#several-people-one-conversation)).
+  `podium_agent_gateway_requests_total{credential}` counts which. A playbook may not name that
+  secret.
 - **A message mid-turn is answered in it.** One that arrives while the assistant is answering
   goes into the same turn, and each gets its own answer; nothing waits for the turn to end.
 - **Limits.** `PODIUM_AGENT_CHAT_HOST_MAX_TURNS` (512) turns at once, and
@@ -392,8 +394,9 @@ Conductors can share one database. Each piece of work one of them does is **leas
 polling Linear.
 
 - A conductor serves a session only while it holds its lease. A message that lands on another
-  conductor is handed over: injected into the owner's warm turn when there is one, and otherwise
-  left on the lease for the owner to take as its next turn.
+  conductor is injected into the owner's warm turn when that turn is answering the **same person
+  on the same surface**, and otherwise queued (`turn_queue`) for the owner's loop to run as a
+  turn of its own.
 - Leases last 30 seconds unrenewed. A conductor that dies stops renewing, and every other
   conductor looks for such work about every half a minute and adopts it: a running task is
   followed from where its relay stopped, and the relayed ledger keeps anything from being said
@@ -406,6 +409,126 @@ its own work up at once — and different for each conductor unless two share a 
 
 A host turn is a process on one machine: a message handed over to a conductor whose turn is on its
 host is injected into it when it is warm, and otherwise waits for that turn to finish.
+
+### Several people, one conversation
+
+A conversation answers one thing at a time, and with multiplayer sessions ([Who is who](#who-is-who)) it may have several people in it.
+What is put to Podium while it is answering is **queued** (`turn_queue`) and becomes a turn of its
+own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
+account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
+
+- **A shared conversation spends the company's model key.** Once a chat is multiplayer, and
+  always for a Slack thread or a pull request, every turn and every task it delegates runs on
+  the company's credential, never on the asker's own `model.<provider>.api_key` or Claude
+  sign-in, the owner's included. A shared conversation has one context, so it spends one
+  credential: turns from different people then share the provider's prompt cache, which is
+  scoped to the credential's workspace, and nobody's own key is spent by somebody else's
+  question. Only the model key moves. The asker's secrets, MCP servers and GitHub account
+  still apply to what they ask. Multiplayer is sticky, so this holds after a chat is
+  unshared. The share dialog warns the owner before the first share
+  (`conductor.turnCredentialOwner`).
+- **One person's run of messages is one turn**, as it always was: the latest is the instruction
+  and the rest are in the transcript. A message from the same person on the same surface still
+  goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting
+  for its answer); anybody else's never does.
+- **The web chat queues each message as a turn of its own.** A message put to Podium from the web
+  while it is answering — or while others already wait — is queued (`turn_queue`) and is NOT
+  written to the transcript yet (`InboundEvent.Held`): written then, it would be read in the
+  middle of the answer it waits for. The conductor records it as its turn starts
+  (`HeldRecorder`), or as it goes into a turn that is up; a held message the conductor turns away
+  is recorded on the way out, so nothing anybody said is lost. Web messages are never steered into
+  the turn in progress and never folded together, unlike a person's run of Slack messages. The
+  queue frame carries each message's text and asker, so everybody in the chat sees one shared
+  queue above the composer; a person can take their own message back (`CancelQueuedTurn` by `id`)
+  or take it back into the box to edit, and anybody who may write the chat can **Interrupt &
+  send** — stop the answer, and the queue goes on in order. In a multiplayer chat only a message
+  that mentions Podium is queued; talk between people is recorded at once. A reply to a task's
+  question is never queued.
+- **A multiplayer chat answers only a mention.** A web chat becomes multiplayer once a second
+  Podium person is in it or it is shared, and stays so; a Slack thread or pull request always is.
+  A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
+  would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
+- **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
+  conductor runs it — a host turn, a task, or a chat-host turn, including one still waiting for
+  room on a busy chat host, which then never starts ("Stopped before I started."). A person can
+  take back their own waiting turn (`CancelQueuedTurn`).
+- **A send says how far back it is.** `SendChatMessage` answers with `queued_position`: the turns
+  that run before it — the one running and those queued ahead — read back from the queue once the
+  conductor has placed the message, so it holds across conductors. 0 is answered now.
+- **A mirrored conversation can be written from the web**, by the people taking part in it. It is
+  one-way: the message and its answer stay in Podium, and nothing is posted to Slack or GitHub.
+- **A shared chat with a personal assistant keeps its owner's assistant.** Anybody in it talks to
+  that assistant under their own name and credentials; the assistant itself stays private — it is
+  in nobody else's picker, and their chat list shows the chat under Podium, as shared.
+
+### Sharing a chat
+
+From phase 5 a chat is shared the way a document is. **Share** in the chat header opens the
+dialog; the rules live in `podium_agent` (`0035_chat_sharing.sql`), so every list, stream and
+write agrees.
+
+| Role | How you get it | May |
+|---|---|---|
+| owner | you made the chat, or were the first Podium person in a mirrored one | everything, and the only one who changes who has access or deletes the chat for everyone |
+| editor | shared with you as one, opened from an editor link, or you **spoke in it** from any surface | read, post, tag Podium, rename, retry a delivery, stop a turn, leave |
+| viewer | shared with you as one, opened from a viewer link or Workspace, or a participant the 0031 backfill only guessed from a name | read, leave |
+
+- **General access** widens a chat beyond the named grants: *Restricted* (the default),
+  *Everyone in Podium* (everybody who has signed in; listed for them under **Workspace** until
+  they open it), or *Anyone in Podium with the link* (signed in, with `/agent/chat/<id>?k=<token>`).
+  Opening a chat either way writes the opener an access row, so it stays in their lists even
+  if general access is narrowed later. **Reset link** makes a new 128-bit token: the old link
+  stops letting anybody in; people who joined keep access. Narrowing to Restricted stops the
+  link working at all. Only the owner is ever shown the link.
+- **Sharing makes a chat multiplayer** (a mention starts a turn), and a share notifies the
+  person in their inbox. A `@`-mention of somebody who can open the chat notifies them too.
+  Both are toasted once in the web UI and shown in the bell; opening the chat marks them read.
+- **Lists:** Chat and Sessions show *Shared with me* (shared by name or opened from a link,
+  wherever it lives) and *Workspace* sections, who shared each one, your role, and unread
+  counts — what somebody else said after your read mark, which opening the chat moves.
+- **Leave** takes you out of somebody else's chat; speaking in it again rejoins you. **Delete**
+  is the owner's alone, and never touches the Slack thread or the PR. A web chat is removed. A
+  mirrored chat is tombstoned (`0036`): it is in nobody's lists and nobody's role reaches it,
+  its owner's included, but the record stays, so the thread's next message is recorded into
+  it rather than opening a new copy — deleted stays deleted — and turns from the thread still
+  run with their whole transcript. Only the dev token still sees it.
+- **A stream follows access.** A share, unshare or change of general access is re-checked for
+  every open screen; a viewer promoted to editor gets the composer, and somebody unshared is
+  shown nothing more.
+- **Mirrored private conversations can be shared**, with a warning in the dialog. Whether a
+  Slack conversation is private is what `conversations.info` says (`is_private`, `is_im`,
+  `is_mpim`), recorded on the chat (`0037`); a chat recorded before that falls back to the
+  id — a DM or `G…` channel is private, a `C…` channel may be and is warned about as such.
+- **Audit:** share, unshare, general-access changes, link resets, joins, leaves and deletes
+  are written to podium-server's `audit_log` (`AuditService.RecordAudit`, which only the
+  conductor's credential may call, and only for `chat.*` actions). An audit write that fails
+  is logged; the action stands.
+
+### Opening a chat from a turn
+
+The assistant can open a new chat and invite people into it — "starting a triage on this
+session: [click here to join](…)". Its `start_chat` tool (on the chat host's `podium` server
+and the runtime's, `POST /v1/chats` on the turn surface) takes a title, the assistant's
+opening message, and optionally `share_with` (Podium people by email), `access`
+(`restricted`, `members` or `link`) and `role` (`editor` or `viewer`). It answers with the
+link, which the assistant puts in its reply.
+
+- **It is the asker's chat.** The owner is the person who started the turn, on whatever
+  surface they spoke — exactly as if they had opened it themselves. A turn nobody in Podium
+  started (an automatic review, Linear, an anonymous review command) cannot open one.
+- **It starts from the opening and links home.** The first message is the assistant's,
+  ending "_Opened for Dana from [another conversation](…)_". The backlink is the plain chat
+  link, never the origin's link token, and leaves the origin's title out: the new chat may
+  be shared with people who cannot see the old one. The new chat records where it came from
+  (`0041`, `started_from_chat`).
+- **Sharing is the Share dialog's.** Named people are notified, a shared chat is multiplayer
+  from the start, link access gets a fresh token (the returned link carries it), and every
+  step is audited as the asker's — `chat.start`, then `chat.share` and `chat.general_access`
+  with `via: assistant`. Somebody who has never signed in is refused by name, and nothing is
+  opened.
+- **Bounded.** A turn opens at most three chats (`started_by_turn`, counted in the database,
+  so every conductor agrees) and names at most twenty people; members or link access is the
+  tool for more.
 
 ### Cancelling a turn
 
@@ -463,6 +586,10 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
+| `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
+| `PODIUM_SLACK_TEAM_IDS` | no | (none) | comma-separated Slack workspace (`T…`) and Enterprise Grid org (`E…`) ids whose full members may also be matched to a Podium login, beside the bot's own workspace from `auth.test`. Guests, Slack Connect users, deactivated users and bots are refused whatever workspace they are in |
+| `PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES` | no | 32768 | how much of a conversation's text a turn is handed before old chatter nobody put to Podium is condensed into one note (see [One record, one transcript](#one-record-one-transcript)) |
+| `PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT` | no | 20 | how many of the latest messages a turn always gets word for word, budget or not |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
@@ -788,6 +915,55 @@ Two things a playbook using it has to know:
 - **Serve on `0.0.0.0`, and address your own container as `task`.** A server the turn starts on
   loopback is reachable by nothing else; the browser is somewhere else. `http://task:8080` is
   what it should be told to open.
+
+#### `desktop: true`
+
+The turn runs on a desktop a person shares with it: a virtual display, XFCE, and one Chromium
+that the turn's `browser*` tools drive — the one the person watches, in the chat's desktop
+panel, and can take the mouse and keyboard of. The stream is [voxl](https://github.com/tembo/voxl),
+H.264 over one WebSocket, through podium-server ([networking.md](networking.md#desktops)).
+Beside it, in a tab of the same panel, is a terminal in the turn's workspace.
+
+```yaml
+desktop: true
+timeout: 2h                  # the wait between messages counts against it
+resources: { cpu: 4, memory_mb: 8192 }
+```
+
+What the flag does:
+
+- **The command runs under `podium-desktop`**, in the desktop image: it starts the display,
+  the desktop, the browser, the stream and the terminal, waits until all of them answer, and runs the runtime in its place. A desktop that cannot come up fails the turn at
+  the start with the log that says why. The desktop lives exactly as long as the turn's
+  command.
+- **The image.** With no `image:`, the turn runs `podium-agent-runtime-desktop:dev`, which
+  `make agent-runtime && make agent-runtime-desktop` builds on the node. Nobody publishes it:
+  as built it carries voxl, which links x264 and is GPL-2+ (see
+  `agent/runtime/desktop/THIRD_PARTY.md`). A worker elsewhere or a cloud sandbox needs an
+  `image:` it can pull — on Modal, one published with `examples/modal/publish_image.py`.
+- **Port 6901 is exposed as `desktop` and port 7681 as `terminal`**, for podium-server to
+  serve; the thread is never told their raw addresses. The terminal is
+  [ttyd](https://github.com/tsl0922/ttyd) in front of one tmux session, started in the
+  workspace: every viewer, and a reload, finds the same shell. It runs as the turn's user,
+  with what the turn has — the same reach the desktop's own terminal already gives a person. Set `PODIUM_DESKTOP_URL` on podium-server, or the panel says
+  desktops are off. A node publishes it on a LAN address; a tailnet preview cannot be
+  streamed, because preview devices refuse the server.
+- **The model is told it is on the desktop.** The brief says `desktop: true`, and the
+  runtime's prompt says the desktop is already up, that a person watches it, and how to reach
+  the rest of the screen (`DISPLAY=:1`, `xdotool`) and the person's terminal. The delegation
+  menu says which playbook has a desktop.
+- **The browser tools point at the desktop's own Chromium** (`127.0.0.1:9222`). Not with
+  `browser: true`, which would add a second, headless one nobody sees. Pages get WebGL,
+  rendered on the CPU.
+- **The turn waits 30 minutes for the next message** (`PODIUM_WORKSPACE_WARM` still wins). A
+  desktop is something a person keeps working with, and the wait counts against `timeout`, so
+  give the playbook one well past it.
+
+Mind what it costs. A desktop turn holds its slot, its CPU and its memory while it waits —
+voxl encodes on the CPU, and Chromium is not small — and **the browser is in the turn's own
+container**: a page it opens is one process away from the workspace and the turn's secrets,
+which `browser: true` keeps in another container. Point a desktop playbook at what a person is
+going to watch, not at untrusted sites.
 
 #### `interactive:` — ask and wait in the same container
 
@@ -1660,24 +1836,27 @@ placeholder and the `⏳` progress edits are left out, the same way the source i
 as noise. Each message carries its author, the conversation is attributed to **whoever asked
 first**, and the participants are everyone who has spoken.
 
-It is **read-only, and it is a copy**. Two consequences worth being clear about:
+It is **a copy that its people can also write in**. Two consequences worth being clear about:
 
-- **You cannot reply from Podium.** The conversation lives in Slack and is answered there, so a
-  mirrored chat has no composer. That is not a missing feature of the UI: a mirrored chat has no
-  owning login, and a send filters on one.
-- **Slack is still the only authority on what was said.** A turn is briefed from
-  `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
-  leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
-  lossy because nothing depends on it being complete.
+- **What you write from Podium stays in Podium.** The people taking part in a thread may write its
+  chat from the web, and mention `@Podium` there to ask it something, but nothing is posted to
+  Slack: the answer to a web message is in the web chat only (see "Several people, one
+  conversation").
+- **The record is the transcript.** Every reply in a thread Podium is part of is recorded,
+  tagged or not, with its edits and deletes, and a turn is briefed from that record (see "One
+  record, one transcript"). A thread bound to a pull-request review is part of the PR's
+  conversation: its replies, edits and deletes are recorded in the PR's chat, beside its
+  mentions. The chat's surface chip links to the thread.
 
-A mirrored thread belongs to the workspace rather than to a login. Who sees it depends on how
-they reached Podium:
+Who sees a mirrored thread depends on how they reached Podium:
 
-- **Google Workspace** (and any other named login) sees only the web chats they created, and
-  only the sessions for those chats. Another person's chats, and every Slack thread, are absent.
+- **Google Workspace** (and any other named login) sees the chats they own, took part in from
+  any surface, or were shared, and the sessions behind them (see "Sharing a chat"). A thread
+  nobody in Podium has spoken in is in nobody's list.
 - **The dev token** — the local transport, which has no per-user identity — sees every chat and
-  every session. The chat list and the Sessions screen keep web turns and Slack turns in
-  separate groups. That token may rename or delete a mirrored copy; the thread itself stays in Slack.
+  every session, deleted mirrored chats included. The chat list and the Sessions screen keep web
+  turns and Slack turns in separate groups. That token may rename or delete a mirrored copy;
+  the thread itself stays in Slack.
 
 That is not a role. The proxy tells the conductor which of the two the caller is, and a browser
 cannot widen its own view. See [`security.md`](security.md).
@@ -1688,15 +1867,29 @@ cannot widen its own view. See [`security.md`](security.md).
   goes into that thread. A mention **inside an existing thread** is the only way a thread
   reply starts a turn.
 - **A DM** is a conversation of its own, keyed the same way.
-- Everything else is ignored: anything from a bot (this one included), anything with a subtype
-  (`message_changed`, `message_deleted`, `channel_join`, …), and any channel message that does
-  not mention the bot — including a reply in a thread the bot already participated in.
+- **A reply in a thread Podium is already in**, without a mention, is *recorded* — it shows up
+  in the Podium chat for that thread, labelled with who said it — and never starts a turn. A
+  reply in a thread Podium is not in, and any top-level channel message that does not mention
+  the bot, is not stored at all.
+- **An edit or a delete** (`message_changed`, `message_deleted`) of a recorded message updates
+  the Podium copy. A deleted message keeps its row and shows as deleted; an edit never starts
+  a turn, even one that adds a mention.
+- When a mention lands in a thread that already had replies, the replies before it are read
+  once (`conversations.replies`) so Podium's record starts where the thread did.
+- Everything else is ignored: anything from a bot (this one included), and every other subtype
+  (`channel_join`, topic changes, pins, …).
 
-Slack delivers a channel mention twice — once as `app_mention`, once as `message` — so
-`(channel, ts)` is deduplicated for a few minutes and one message starts one turn.
+Slack delivers a channel mention twice — once as `app_mention`, once as `message`. The
+`message` copy of a mention is skipped, so the mention is the copy recorded and acted on. Every
+recorded message is stored once by its `ts`: a Slack retry, or a second conductor hearing the
+same event, finds it already recorded and starts nothing.
 
-Text is posted as **plain text**. `mrkdwn` conversion and Block Kit are out of scope, so the
-model's Markdown arrives as the model wrote it.
+What people type arrives as Slack mrkdwn and is stored as Markdown — `*bold*`, `_italic_`,
+`~strike~`, `<url|label>` links and `<#C…|channel>` references are converted, and code is left
+alone — so a Slack thread reads in the web chat the way it read in Slack.
+
+What the bot posts is the model's Markdown converted to mrkdwn (bold, links, headings); Block
+Kit is out of scope.
 
 ### Rate limits
 
@@ -2051,7 +2244,10 @@ and the summary under it stays. An approval uses the same Note callout. The
 review under the comment is the approval. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
 an approval when the first line is `Approve` or `Nits`. Any other verdict is a
-comment review. Every answer submits a review of its own, so each round stays on the
+comment review. A pull request this App opened is reviewed but never approved, and never has
+changes requested: its verdict stays in the review's words and the review is a comment, and
+GitHub refuses both from a pull request's own author anyway. A pull request whose author
+cannot be read is treated the same way, so nothing is approved by accident. Every answer submits a review of its own, so each round stays on the
 pull request beside the ones before it. The latest review's id is stored on the
 session, and its commit is where the next round starts. A follow-up that withdraws an
 approval requests changes, because a comment on top of the approval would leave the
@@ -2098,7 +2294,7 @@ docker build -t registry.example.com/agent-warehouse:2026-09-05 -f agent-warehou
 
 Four things the base decides for you:
 
-- **It is Debian 12 bookworm, glibc, Node 22.** Use `apt-get` and bookworm package sources, and
+- **It is Debian 13 trixie, glibc, Node 26.** Use `apt-get` and trixie package sources, and
   glibc binaries and manylinux wheels — not musl ones. `gh` is already installed from GitHub's
   own apt repository, and so are `git`, `curl`, `jq` and `ripgrep`.
 - **End with `USER agent`** — uid 1000, and the base renames the stock `node` user rather than
@@ -2113,10 +2309,11 @@ Four things the base decides for you:
   own layer is working around the design rather than extending it.
 
 **Check what `apt-get` drags in before you commit to a package.** Debian's `python3-matplotlib`
-on bookworm hard-depends on `gcc-12`, `g++-12`, `libboost1.74-dev` and `libopenblas-dev` —
-**1.05 GB of C++ toolchain** in a runtime image, to draw a chart. The way round it is pip's own
-manylinux wheels at exact versions, and that is not free either: Debian 12's interpreter is
-marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so it means `pip3 install
+on trixie no longer pulls in a C++ toolchain, as it did on bookworm, but even with
+`--no-install-recommends` its `python3-fonttools` dependency hard-depends on `python3-scipy` and
+`python3-sympy` — **about 450 MB** more in a runtime image, to draw a chart. The way round it is
+pip's own manylinux wheels at exact versions, and that is not free either: Debian 13's
+interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so it means `pip3 install
 --break-system-packages`, purging pip again in the same layer, and knowing that no `dpkg`
 package in your image owns `numpy` — two of those on one `sys.path` is a real problem. Run
 `apt-cache depends --recurse --no-recommends <pkg>` first, and look at `docker images` after.
@@ -2290,11 +2487,23 @@ The `user_secrets:` line is what opts a playbook in. The conductor does not atta
 `github.token` to the task, so `GITHUB_TOKEN` is not set: git and `gh` get the scoped token from
 the credential helper and `GH_TOKEN`.
 
+**Written as the App on their behalf** instead, when the conductor has a GitHub App and the
+person cannot be written as:
+
+- they have not connected GitHub, or their connection needs reconnecting, or
+- their account cannot push to every one of the playbook's `repos:`. The conductor asks
+  GitHub for their collaborator permission with an installation token; not being a
+  collaborator is no.
+
+That turn mints App tokens like any App turn and gets the `Requested-by` trailer and the
+"on behalf of" note (see *Writing to GitHub for somebody who has not connected it*). A
+permission check that fails for another reason keeps the person, as before.
+
 The turn fails, and says why, when:
 
-- The person has not connected GitHub, or GitHub no longer accepts their connection: the
-  refresh token went six months unused, or they revoked the App. **Your account** then says
-  the connection expired and offers **Reconnect GitHub**.
+- There is no GitHub App, and the person has not connected GitHub, or GitHub no longer
+  accepts their connection: the refresh token went six months unused, or they revoked the
+  App. **Your account** then says the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.
@@ -2707,6 +2916,87 @@ engine features Podium does not surface.
 
 ---
 
+## Who is who
+
+One person is one identity across every surface, and a Slack or GitHub account counts as a
+person only once it has been **proven** to be a Podium login (`identities` in
+`podium_agent`):
+
+| Account | Proven by |
+|---|---|
+| Podium (web) | signing in through podium-server; the first proxied call records it |
+| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
+
+What that decides:
+
+- **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
+  🚫; nothing runs. On GitHub, a commenter who has not connected GitHub may ask for exactly
+  one thing — a review, with `@podium review` or `/review` at the start of a line.
+  Whatever follows the command is ignored: nothing the requester wrote is put to the model as
+  a request. It runs the review playbook on the App's credentials, read-only, with a fixed
+  instruction. One per person per pull request every ten minutes. Anything else from them
+  gets a confused reaction. (The pull request's own title, description, diff and comments are
+  still what the review reads; the containment, not a filter, is what makes that safe.)
+- **A login is spelled as podium-server spells it.** That is who the proxy says is calling,
+  and what chats, access rows and personal secrets are keyed on. A login somebody types — a
+  share target, an @-mention — and a Slack email (which Slack lowercases) are resolved to
+  that spelling through the signed-in people's web identities, case-insensitively, before
+  they are written or compared (migration 0040).
+- **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
+  servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
+- **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`
+  breaks the range down by it (`people`), which **Usage → By person** draws. `github-app`
+  is a review nobody in Podium asked for. A delegated task's spend is its delegating turn's
+  person's.
+- **Writing to GitHub for somebody who has not connected it** (or cannot push to the
+  repositories). A turn that pushes or comments as the App for a Podium person carries `requested_by` in its brief, and every
+  commit it makes gets a `Requested-by: Name <login>` trailer. The runtime points every git it
+  starts at a hook directory of its own (`core.hooksPath`, set through `GIT_CONFIG_COUNT`), so
+  this covers repositories the agent clones itself. The repository's own hooks still run:
+  each Podium hook hands on to them, and `commit-msg` adds the trailer after the repository's
+  hook, so a hook that rewrites the message cannot drop it. Only `git commit --no-verify`
+  skips it. The brief also tells the turn to end any pull request's description with
+  `Opened by Podium on behalf of Name (@handle).` (the handle when the person connected
+  GitHub) and to say "requested by Name" in comments. That part is asked, not enforced:
+  nothing checks the pull request afterwards.
+
+## One record, one transcript
+
+Every conversation — a web chat, a Slack thread, a pull request — is one record in
+`chat_messages`, and that record is what a turn is handed, labelled with who said what and
+where: `Dana (slack, not in Podium)`, `Bob (github)`, `Alvaro`. A Slack- or GitHub-started
+turn therefore also sees what was said in Podium beside the thread. A message deleted on its
+surface stays in the record and is left out of the transcript; an edited one is read as it
+stands. A source's own transcript is only used for a conversation with no record yet, and a
+pull request's history from before Podium first heard it is read from GitHub and put in
+front.
+
+The transcript has a budget (`PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES`). Under it, everything
+goes through. Over it, what was put to Podium, its answers, the conversation's summary and
+the latest `PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT` messages are kept word for word, and the
+rest — the side conversation nobody addressed — is condensed into one "earlier
+conversation" note: who said how much, and the opening words of each, newest kept when it
+has to cut. The condensing is extractive and makes no model call.
+
+### Delivery
+
+The web record is written first, and the copy on Slack or GitHub is then **owed**: an
+answer, a failure or a question in a conversation that lives elsewhere is a row in
+`chat_outbox`. It is attempted at once, where the post always was; a refused or failed post
+is retried by whichever conductor gets to it (10s, doubling, capped at 15 minutes), and given
+up on after six attempts. The web chat shows "Not delivered to Slack · Retry" on an answer
+that was given up on, and "Delivering — retrying" while it is still being tried. Retry
+(`RetryChatDelivery`) puts it back in the queue and tries it at once. Progress is not owed: it
+is superseded by the answer.
+
+Where an answer goes follows from where the turn started: a web-started turn answers in the
+web chat only; a Slack-started one in its thread; a GitHub-started one on its pull request
+and in every Slack thread bound to it, each copy owed and retried on its own. Delivery is at
+least once — a conductor that dies after the surface accepted a post and before it recorded
+that can post it again — because losing an answer is the worse failure.
+`podium_agent_outbox_deliveries_total{surface,outcome}` counts sent, retry and failed.
+
 ## Chat
 
 `/agent/chat` in the web UI is the third place a turn can start from, and the only one whose
@@ -2718,17 +3008,21 @@ composer therefore offers exactly one choice — which model answers — and no 
 playbook, because there is nothing per message to pick: the turn chooses a playbook for each
 task it delegates, and may choose several while answering once.
 
-- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. That
-  is a partition, not a role, and it is free. Knowing
-  another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
-  are the same partition: only the owner can change the title or remove a chat, and
-  another login's id is `not_found`. The messages go with a delete. Sessions and turns it
+- **A chat belongs to the login that created it**, and is anybody else's only as far as it
+  was shared with them or they took part in it (see [Sharing a chat](#sharing-a-chat)).
+  Knowing a chat id you have no access to gets you `not_found`, not access; a viewer writing
+  gets `permission_denied`. An editor may rename; only the owner may delete. The messages go with a delete. Sessions and turns it
   started stay — they are the audit of the work, not the transcript. A task still answering
   the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
   is gone immediately. The web UI says so in the confirm before it acts.
-- **One turn at a time per chat.** The composer is disabled while a turn runs and
-  `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
-  turn-based rule as everywhere else: a turn ends with an answer and exits.
+- **Slack threads and pull requests appear for the people in them.** A Slack thread or a
+  pull request the bot was in is mirrored into a read-only chat. It is listed — in Chat and
+  in Sessions — for every Podium person who spoke in it, and for nobody else except the dev
+  token; a thread only people outside Podium spoke in stays hidden. The first Podium person
+  to speak in it becomes its owner, who can rename or delete the copy (never the thread).
+  "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
+- **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
+  of its own (see [Several people, one conversation](#several-people-one-conversation)).
 - **Progress is a message.** Every `progress` message is stored under the role `progress` and
   rendered in the transcript the way an answer is, because a chat is the one conversation
   Podium holds itself and there is nowhere else to keep it. Reload and the trail is still
@@ -2822,6 +3116,204 @@ so Podium stops generating one for that chat. Sharing a chat, uploading a file i
 and streaming the model's tokens are deliberately not built. The unit of streaming is the
 `progress` message the runtime sends, not a token — and each one arrives as a message in the
 conversation rather than as a line that overwrites the one before it.
+
+---
+
+## Routines
+
+A **routine** is a recurring job an agent does: "every weekday at 9, summarise yesterday's merged
+pull requests for me", "every 30 minutes, tell me which of our pull requests have failing CI". On
+its schedule the conductor starts a turn with the routine's instruction, and the assistant looks,
+decides and acts the way it would if the person had asked — delegating playbooks when the work
+needs a machine. Nothing about any one job is written into Podium.
+
+**Every routine has one chat.** It is created with the routine, listed under **Routines** in the
+chat rail (as well as on the Routines page), and is where the routine's history lives. It is an ordinary web chat of its owner's in
+every other way — they can write in it, ask "why did you skip #42?", and delete it — except that a
+routine's chat is **never shared**: a run uses its owner's credentials, and nobody else may steer
+what runs as them. Share, general access and links are refused for it.
+
+**Two scopes.** A routine runs as a person or as nobody:
+
+| | personal routine | system routine |
+|---|---|---|
+| Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
+| Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
+| GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
+| Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
+| Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
+| Floor | every 15 minutes | every minute |
+| `turns.started_by` | the owner, so Usage → By person counts it as theirs | `routine:<id>`, its own line in Usage |
+
+The scope is chosen once, when the routine is made. A system routine cannot open chats
+(`start_chat` needs a Podium person to own them).
+
+### Making one
+
+- **The Routines page** (Work → Routines in the sidebar) lists your routines — schedule, next and
+  last run, paused or not — and **New routine** creates one right there: a name, the instruction
+  for one run, a schedule and a timezone, an assistant, an optional daily spend cap, and optional
+  standing notes. Each row opens its chat, runs it now, pauses or resumes it, edits it or deletes
+  it. An admin also sees every system routine there, and the dialog asks them who the new one
+  **runs as**; choosing Podium removes the assistant and offers to start
+  from **Fix failing CI** (below).
+- **Asking in a chat.** There is no button for it in a chat. Say "every morning, send me…" and the
+  assistant sets the routine up with **`create_routine`**: a name, the instruction for one run
+  written to stand alone (a run does not see the conversation it came from), a cron schedule and a
+  timezone, and any standing notes. It is offered in a web chat that is not itself a routine's, on
+  the chat host's `podium` server and the runtime's, and as `POST /v1/routines` on the turn surface.
+  The routine is the person's who sent the message, with the chat's assistant when that assistant
+  is theirs, and it is checked exactly as one made on the page: the same floor, the same count. The
+  tool answers with a link to the routine's chat, which the assistant puts in its reply.
+
+A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
+timezone, so a routine at 09:00 stays at 09:00 across daylight saving. A personal routine may run
+**at most every 15 minutes**; a schedule tighter than that anywhere in the week is refused, with
+the gap it found. Each routine runs a fixed few seconds past its minute (a jitter from its id), so
+every routine that says 9:00 does not start in the same second.
+
+### What a run does
+
+```
+tick ─► due? ─► chat busy? ── yes ─► skipped (never queued)
+                   │
+                   no ─► turn in the routine's chat, instruction + routine block
+                              │
+                              ├─ routine_finish(idle) ─► nothing is kept, chat stays read
+                              └─ routine_finish(done) ─► answer kept under a divider, chat unread
+```
+
+- **The leading conductor ticks** every 15 seconds (`WhileLeader("source:routines")`, like Linear
+  polling). A firing is a row in `routine_runs` with a unique `(routine, scheduled_for, trigger)`,
+  so a change of leader mid-tick cannot fire one twice.
+- **A missed run fires once.** A conductor that was down for six hours runs an hourly routine
+  once when it comes back, not six times.
+- **A busy chat skips the run.** While the routine's chat has a turn running, or a message of the
+  owner's waiting in its queue, the tick records `skipped_overlap` and fires nothing. A run that
+  waited would only read an older record than the next one will.
+- **The instruction is never written into the chat.** It goes into the brief, so a routine that
+  runs a hundred times a day does not repeat it a hundred times in its transcript.
+- **The brief carries a routine block**: the routine's name and schedule in words, the owner's
+  standing notes, the state earlier runs kept, how many runs since the last answer found nothing,
+  and — when the instruction was edited since the last run — when it changed. Delegations still
+  running from earlier runs are in the brief's delegation block, as for any turn.
+- **`routine_finish`** is how a run ends: status `idle` (nothing worth telling the owner) or
+  `done`, one summary line for the run list, the routine's whole `state` (a JSON object, at most
+  16 KB — exact facts such as which pull request and commit it already reported), and optionally a
+  `propose_note` the owner can keep. It is on the chat host's `podium` server and the runtime's,
+  and `POST /v1/routine-runs/finish` on the turn surface. Only a turn in a routine's chat is offered it.
+- **Every run stays in the chat; an idle one quietly.** What a run says is held while it runs —
+  its thinking is still shown live — and written in under a `Routine run · …` divider when it
+  ends, so the chat reads as one continuous history. A run that reports idle is written as rows
+  that are not history (its divider says "nothing to do", and its answer is kept as a progress
+  line): it does not mark the chat unread, is not the chat's preview, is never briefed to a later
+  run, and nothing of it is retained to shared memory. A run that did something posts its answer
+  as usual, which marks the chat unread — how its owner hears about it.
+- **What a run may delegate.** Nobody is watching a routine, so a scheduled run is not offered a
+  `desktop: true` or `interactive:` playbook, starts **at most three tasks**, and is refused a
+  fourth while three of the routine's tasks from any run are still going (`ResourceExhausted`, with
+  the reason for the model to put in its answer). A person's own message in the chat is not capped
+  this way. A personal run may open chats with `start_chat`, at most three a day per routine.
+- **Reading GitHub without a container.** A routine's turn has the conductor's `github-read` MCP
+  server: list pull requests, one pull request and its files, a commit's check runs, the end of a
+  failed job's log, recent commits — every one a GET, read with the **owner's own** connected GitHub
+  account (Settings → Account), never the App's, so a routine cannot read what its owner cannot.
+  Nobody lists a routine's repositories: its instruction or notes name them in words ("the API
+  repo"), and `list_repositories` — the owner's repositories, or for a system routine every one
+  the App is installed on, most recently pushed first — is how the agent finds the owner/name.
+  A system routine reads the same tools as the App, with an installation token minted read-only
+  (contents and pull requests read, and checks, statuses and actions read where installed) for the
+  one repository a call names; where the App is installed is the boundary. The listing itself uses a
+  token that carries metadata read and nothing else. It also gets `comment_on_pull_request`, which
+  posts as the App. Checking whether
+  anything needs doing then costs a model turn on the conductor and no task.
+
+### Settling, pausing and failing
+
+A run is settled once its turn ends: `idle` or `done` from what it reported (`done` when it said
+nothing), `failed` when its turn failed or never started within ten minutes. **Five failed runs
+within an hour pause the routine** with the reason on its card; a routine whose owner is no longer
+a Podium member pauses the same way. Resume runs it from its next scheduled time; the runs it
+missed while paused are not made up.
+
+**Spend.** A routine may have a **daily spend cap** (its turns, in dollars). Reaching it pauses the
+routine until midnight in its timezone, with the reason on its card, and it resumes by itself
+then. Admins may also cap what **one person's routines** spend together in 24 hours (Settings →
+Routines); a person over it has their scheduled runs skipped, not paused, until the 24 hours roll
+on. When Podium or an admin pauses a personal routine, its owner gets a **routine** notice in their
+inbox saying why. A system routine has no owner to tell; its card says why.
+
+**History and audit.** Every change to what a routine is told — its instruction, notes, schedule
+or timezone — is a row in `routine_revisions` with who made it and when, shown under **History** in
+the card's details. Creating, editing, deleting, pausing, resuming, running and stopping a routine,
+and changing the limits, are `routine.*` entries in the control plane's audit log. There is no
+propose/act switch: a routine that should only report says so in its instruction, and an admin lets
+it act by editing that instruction, which the history records. There is no global kill switch;
+pausing is per routine.
+
+The card at the top of a routine's chat shows when it runs next, the last run, how many quiet runs
+since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going),
+Pause/Resume, Edit, the note
+the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
+the standing notes, the spend cap, the history and Delete, which
+open over the chat rather than pushing it down. A system routine's card is marked **System** and
+"Runs as Podium", and its chat shows no composer. The state a
+run keeps is the agent's own bookkeeping and is not shown. Deleting a routine keeps its chat as an
+ordinary chat.
+
+**Standing notes** are the owner's rules on top of the instruction ("skip draft pull requests"),
+one `- ` line each, and every run's brief gives them as binding as the instruction. A run may
+suggest one through `routine_finish`'s `propose_note`; it waits on the card, one at a time (a newer
+suggestion replaces an unanswered one), and only **Add to notes** appends it to the notes, word for
+word. No model rewrites the notes, and the owner edits them by hand under Edit.
+
+### Admins: Settings → Routines
+
+Admins and owners see **everyone's personal routines** there as metadata only — name, owner,
+schedule, 24-hour spend, and the last run's status and time — never the instruction, the chat or
+what a run said. They may **pause** one (its owner is told in their inbox and can resume it), and
+they set the per-person limits: how many routines one person may have (default 10) and what one
+person's routines may spend in 24 hours (no cap by default).
+
+### Fix failing CI
+
+The system routine phase 2 is proven on. **Start from "Fix failing CI"** in the dialog fills an
+instruction that, every ten minutes, finds failed checks on the open pull requests of the
+repositories it names — the template leaves a blank for them, filled in words — and, for each, skips it when the same check fails on the base branch, skips a commit
+it already handled, gives up after three attempts on a pull request, and otherwise **comments the
+fix it would make** — and pushes nothing. To let it push, an admin edits the instruction to
+delegate the fix to a playbook that can (one with `repos:` and the App's write capability, as in
+*Playbooks that clone repositories*), for example:
+
+```yaml
+# playbooks/ci-fixer.yaml
+image: registry.example.com/agent-coder:2026-09-05
+system_prompt: |
+  You fix one failing CI check on one pull request. Read the failed job's log, make the smallest
+  change that fixes it, run the check locally, and push one commit to the pull request's branch.
+  Never disable a test or a lint rule to make it pass. If you cannot fix it, say why and push nothing.
+allowed_tools: [read, edit, write, bash, grep, glob]
+max_turns: 120
+timeout: 45m
+repos:
+  - { name: api, url: https://github.com/acme/api, default_branch: main }
+```
+
+and adds "delegate the fix to `ci-fixer`, once per failing commit" to the instruction. The routine's
+state keeps which commits it handled and how many attempts each pull request has had, so a fix is
+attempted once per commit and three times per pull request at most. Run it against a sandbox
+repository first.
+
+### Needs
+
+Routines run in their chats, so they need the web chat and a host runtime to answer it — without
+one, no scheduler starts. The RPCs are `ListRoutines`, `GetRoutine`, `CreateRoutine`,
+`UpdateRoutine`, `DeleteRoutine`, `PauseRoutine`, `ResumeRoutine`, `RunRoutineNow`,
+`ResetRoutineState`, `ResolveRoutineNote`, `ListRoutineRuns`, `ListRoutineRevisions` and
+`CancelRoutineRun`, which answer for the caller's own routines, a system routine for admins, and
+everything for the dev token; and `ListMemberRoutines` and `SetRoutineLimits` for admins, with
+`GetRoutineLimits` for anyone. Tables: `routines`, `routine_runs`, `routine_revisions`,
+`turns.routine_run_id` and `chats.routine_id` (`0043`, `0044`).
 
 ---
 

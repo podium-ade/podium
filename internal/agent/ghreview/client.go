@@ -41,9 +41,10 @@ const (
 
 // User is a GitHub account as the API reports it on a comment or sender.
 type User struct {
-	Login string `json:"login"`
-	Type  string `json:"type"`
-	ID    int64  `json:"id"`
+	Login     string `json:"login"`
+	Type      string `json:"type"`
+	ID        int64  `json:"id"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 // App is GET /app.
@@ -237,6 +238,9 @@ type pullInfo struct {
 	// whose author has not let maintainers push to that branch, so nothing here can.
 	Fork   bool
 	Locked bool
+	// Author is who opened the pull request: its login and account type ("User", "Bot").
+	Author     string
+	AuthorType string
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
@@ -249,6 +253,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Deletions           int    `json:"deletions"`
 		ChangedFiles        int    `json:"changed_files"`
 		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		User                User   `json:"user"`
 		Head                struct {
 			Ref  string `json:"ref"`
 			SHA  string `json:"sha"`
@@ -272,16 +277,18 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 	fork := out.Head.Repo == nil ||
 		(out.Base.Repo.FullName != "" && !strings.EqualFold(out.Head.Repo.FullName, out.Base.Repo.FullName))
 	return pullInfo{
-		Title:     out.Title,
-		Head:      out.Head.Ref,
-		Base:      out.Base.Ref,
-		SHA:       out.Head.SHA,
-		Commits:   out.Commits,
-		Files:     out.ChangedFiles,
-		Additions: out.Additions,
-		Deletions: out.Deletions,
-		Fork:      fork,
-		Locked:    fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
+		Title:      out.Title,
+		Head:       out.Head.Ref,
+		Base:       out.Base.Ref,
+		SHA:        out.Head.SHA,
+		Commits:    out.Commits,
+		Files:      out.ChangedFiles,
+		Additions:  out.Additions,
+		Deletions:  out.Deletions,
+		Fork:       fork,
+		Locked:     fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
+		Author:     out.User.Login,
+		AuthorType: out.User.Type,
 	}, nil
 }
 
@@ -428,6 +435,10 @@ func (c *restClient) ResolveThread(ctx context.Context, installID int64, owner, 
 
 // reactionSeen is the reaction a comment gets when a turn starts on it.
 const reactionSeen = "eyes"
+
+// reactionRefused is "I will not act on this": the commenter has not linked GitHub to Podium,
+// and asked for something other than a review.
+const reactionRefused = "confused"
 
 // CreateReaction reacts to one comment. kind is KindIssueComment for the conversation tab
 // and KindReviewComment for the diff: GitHub keeps the two under different paths.

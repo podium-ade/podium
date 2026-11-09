@@ -15,7 +15,9 @@ values ($1, $2, now() + make_interval(secs => $3::double precision))
 on conflict (key) do update
     set owner = excluded.owner, expires_at = excluded.expires_at,
         pending = case when work_leases.owner = excluded.owner then work_leases.pending end,
-        warm_task_id = case when work_leases.owner = excluded.owner then work_leases.warm_task_id else '' end
+        warm_task_id = case when work_leases.owner = excluded.owner then work_leases.warm_task_id else '' end,
+        warm_login = case when work_leases.owner = excluded.owner then work_leases.warm_login else '' end,
+        warm_kind = case when work_leases.owner = excluded.owner then work_leases.warm_kind else '' end
     where work_leases.owner = excluded.owner or work_leases.expires_at < now()
 returning owner
 `
@@ -97,19 +99,27 @@ func (q *Queries) RenewLeases(ctx context.Context, arg RenewLeasesParams) error 
 }
 
 const setWarmTask = `-- name: SetWarmTask :exec
-update work_leases set warm_task_id = $1
-where key = $2 and owner = $3
+update work_leases set warm_task_id = $1, warm_login = $2, warm_kind = $3
+where key = $4 and owner = $5
 `
 
 type SetWarmTaskParams struct {
 	WarmTaskID string
+	WarmLogin  string
+	WarmKind   string
 	Key        string
 	Owner      string
 }
 
 // SetWarmTask records the owner's task that is waiting for a follow-up, or clears it.
 func (q *Queries) SetWarmTask(ctx context.Context, arg SetWarmTaskParams) error {
-	_, err := q.db.Exec(ctx, setWarmTask, arg.WarmTaskID, arg.Key, arg.Owner)
+	_, err := q.db.Exec(ctx, setWarmTask,
+		arg.WarmTaskID,
+		arg.WarmLogin,
+		arg.WarmKind,
+		arg.Key,
+		arg.Owner,
+	)
 	return err
 }
 

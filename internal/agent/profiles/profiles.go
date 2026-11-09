@@ -393,6 +393,20 @@ type Playbook struct {
 	// beyond an ordinary container, so it carries no label requirement.
 	Browser bool `yaml:"browser" json:"browser,omitempty"`
 
+	// Desktop gives the turn a desktop a person shares with it: a virtual display, XFCE, one
+	// Chromium the agent's browser tools drive, and voxl streaming the display to the chat,
+	// where the person watches and can take the mouse. The turn's command runs under
+	// podium-desktop, which starts the desktop first; its port is exposed as "desktop" for
+	// podium-server to stream (PODIUM_DESKTOP_URL); and the turn waits longer for the next
+	// message, since a desktop is something a person keeps working with.
+	//
+	// Unlike `browser`, the browser is IN the turn's container, not a sidecar: the person
+	// sees the same screen the agent drives. A page the browser opens is therefore one
+	// process away from the turn's workspace and secrets. The image must carry the desktop:
+	// with no `image:` the turn runs podium-agent-runtime-desktop, which `make
+	// agent-runtime-desktop` builds and nobody publishes. See docs/agent.md#desktop-true.
+	Desktop bool `yaml:"desktop" json:"desktop,omitempty"`
+
 	// Linear marks the one playbook Linear tickets run. Tickets are not chat, so there is no
 	// /playbook prefix to route them and no channel to match: the flag is the routing rule.
 	// At most one playbook may set it; zero means this bot does not take tickets, which is
@@ -603,6 +617,28 @@ const RuntimeImageRepo = "ghcr.io/podium-ade/podium-agent-runtime"
 // what a development stack wants and exactly what a fleet cannot use.
 const LocalRuntimeImage = "podium-agent-runtime:dev"
 
+// LocalDesktopImage is what a desktop playbook runs when it names no image: the tag `make
+// agent-runtime-desktop` writes. It has no published counterpart — as built it carries voxl,
+// which is GPL-2+ (agent/runtime/desktop/THIRD_PARTY.md) — so every release defaults to it
+// too, and a worker elsewhere, or a cloud sandbox, needs `image:` naming one it can pull.
+const LocalDesktopImage = "podium-agent-runtime-desktop:dev"
+
+// DesktopPort is the port a desktop playbook's turn exposes voxl on, as "desktop".
+const DesktopPort = 6901
+
+// DesktopPortName is the exposed port's name; podium-server streams the port by it.
+const DesktopPortName = "desktop"
+
+// TerminalPort is the port a desktop playbook's turn serves its terminal on (ttyd, a tmux
+// session in the workspace), exposed as "terminal".
+const TerminalPort = 7681
+
+// TerminalPortName is the terminal's exposed port's name; podium-server serves it by it.
+const TerminalPortName = "terminal"
+
+// DesktopPorts is every port a desktop playbook's turn exposes for podium-server, by name.
+var DesktopPorts = map[string]int{DesktopPortName: DesktopPort, TerminalPortName: TerminalPort}
+
 // releaseVersion matches a version that came from a v* tag, which is the only kind that has a
 // published runtime image behind it. GoReleaser sets internal/version.Version to the tag
 // without its leading v, so a release reads `0.1.0` or `0.1.0-rc.1`.
@@ -636,8 +672,37 @@ func (s *Playbook) applyDefaults() {
 	}
 	if strings.TrimSpace(s.Image) == "" {
 		s.Image = DefaultRuntimeImage()
+		if s.Desktop {
+			s.Image = LocalDesktopImage
+		}
 	}
 	s.Git = s.Git.trim()
+}
+
+// validateDesktop refuses what a desktop cannot be combined with.
+func (s Playbook) validateDesktop() []error {
+	if !s.Desktop {
+		return nil
+	}
+	var errs []error
+	if s.Browser {
+		errs = append(errs, errors.New("desktop and browser cannot both be true: a desktop turn's "+
+			"browser is the one on its desktop, which the person sees; browser adds a second, headless one"))
+	}
+	if s.Expose != nil {
+		for name, p := range s.Expose.Ports {
+			if _, ours := DesktopPorts[name]; ours {
+				errs = append(errs, fmt.Errorf("expose.ports.%s is the desktop's own port when desktop is true", name))
+				continue
+			}
+			for own, port := range DesktopPorts {
+				if p.Port == port && p.From == "" {
+					errs = append(errs, fmt.Errorf("expose.ports.%s uses port %d, which is the desktop's %s", name, port, own))
+				}
+			}
+		}
+	}
+	return errs
 }
 
 // validateSkills checks an Agent Skills allow-list against the harness's own naming rule and
@@ -808,6 +873,7 @@ func (s Playbook) validate(path string) error {
 			}
 		}
 	}
+	errs = append(errs, s.validateDesktop()...)
 	for _, r := range s.Repos {
 		switch {
 		case strings.TrimSpace(r.Name) == "":

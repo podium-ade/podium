@@ -284,6 +284,23 @@ type Config struct {
 	// Server. It is used only to build the fallback link to a task page when an
 	// attachment cannot be uploaded into the conversation.
 	UIURL string
+	// AllowedDomains is PODIUM_ALLOWED_DOMAINS, a comma-separated list of the Google
+	// Workspace domains a Slack speaker's email must be on before it is matched to a
+	// Podium login. Empty skips that one check: the email must still be a login that has
+	// signed in through podium-server. Defence in depth for a server that admits only its
+	// own workspace anyway.
+	AllowedDomains []string
+	// SlackTeamIDs is PODIUM_SLACK_TEAM_IDS, a comma-separated list of Slack workspace (T…)
+	// and Enterprise Grid org (E…) ids whose full members may also be matched to a Podium
+	// login, beside the bot's own workspace. Empty is the bot's own workspace alone.
+	SlackTeamIDs []string
+	// TranscriptBudgetBytes is PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES: how much of the
+	// conversation's text a turn is handed before the older chatter nobody put to Podium is
+	// condensed. Zero is the conductor's default. See conductor/transcript.go.
+	TranscriptBudgetBytes int
+	// TranscriptKeepRecent is PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT: how many of the latest
+	// messages a turn always gets word for word, budget or not. Zero is the default.
+	TranscriptKeepRecent int
 	// GitHubAppID is the numeric id of the GitHub App turns clone and push with, and that
 	// the review source talks as. It is saved under Settings → Connections. Empty turns
 	// the App off and leaves the older path — a playbook naming podium.agent.github_token
@@ -412,25 +429,29 @@ func FromEnv() Config {
 		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
-		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
-		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
-		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
-		HostIsolation:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
-		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
-		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
-		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
-		ChatHost:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
-		ChatHostClaude:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
-		ChatHostMaxTurns:   envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
-		ChatHostMaxPerUser: envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
-		PublicURL:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
-		SMTPURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
-		SMTPFrom:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
-		NotifyAway:         envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
-		ReplicaID:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
-		SandboxURL:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
-		SurfaceListen:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
-		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		UIURL:                 os.Getenv("PODIUM_AGENT_UI_URL"),
+		AllowedDomains:        domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
+		SlackTeamIDs:          idList(os.Getenv("PODIUM_SLACK_TEAM_IDS")),
+		TranscriptBudgetBytes: envInt("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES"),
+		TranscriptKeepRecent:  envInt("PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT"),
+		TaskURL:               envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
+		HostIsolation:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
+		HostBwrap:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
+		HostMemoryMax:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
+		HostWarm:              envDuration("PODIUM_AGENT_HOST_WARM", 0),
+		ChatHost:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
+		ChatHostClaude:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
+		ChatHostMaxTurns:      envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
+		ChatHostMaxPerUser:    envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
+		PublicURL:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
+		SMTPURL:               strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
+		SMTPFrom:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
+		NotifyAway:            envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
+		ReplicaID:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
+		SandboxURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
+		SurfaceListen:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
+		DevSource:             envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -581,6 +602,10 @@ func (c Config) Validate() error {
 	// Same reasoning as the skills directory, and a stronger case for it: with a host
 	// runtime configured, EVERY conversation runs on it, so a path that is not there is
 	// every turn failing rather than some of them.
+	if c.TranscriptBudgetBytes < 0 || c.TranscriptKeepRecent < 0 {
+		return errors.New("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES and PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT " +
+			"must be whole numbers of zero or more (zero is the default)")
+	}
 	if c.HostMaxTurns < 0 {
 		return errors.New("PODIUM_AGENT_HOST_MAX_TURNS must be a whole number of turns")
 	}
@@ -999,4 +1024,30 @@ func (c Config) Replica() string {
 // ReplicaIDFor is the default replica id of a conductor on host listening on listen.
 func ReplicaIDFor(host, listen string) string {
 	return host + "/" + listen
+}
+
+// domainList is a comma-separated list of domains, trimmed and lowercased, empties dropped.
+// idList is a comma-separated list of Slack ids, as Slack spells them (upper case), with
+// blanks and duplicates dropped.
+func idList(v string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range strings.Split(v, ",") {
+		id = strings.ToUpper(strings.TrimSpace(id))
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func domainList(v string) []string {
+	var out []string
+	for _, d := range strings.Split(v, ",") {
+		if d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "@"))); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }

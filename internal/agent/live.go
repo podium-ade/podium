@@ -60,6 +60,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 			AppToken: cfg.SlackAppToken,
 			BotToken: cfg.SlackBotToken,
 			Logger:   l.logger,
+			TeamIDs:  cfg.SlackTeamIDs,
 		})
 		if err != nil {
 			return nil, nil, nil, err

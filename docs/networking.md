@@ -427,6 +427,61 @@ and the address a person bookmarked would point at nothing.
 Previews are plain HTTP over WireGuard for now. A slot also has a MagicDNS name and could carry a
 certificate for it; that is the path to HTTPS, and it is not built yet.
 
+## Desktops
+
+A [desktop playbook](agent.md#desktop-true)'s task streams a desktop — a virtual display, XFCE
+and a Chromium the agent drives — that a person watches and takes over in the chat, and a terminal in its workspace beside it.
+The stream is
+[voxl](https://github.com/tembo/voxl): H.264 over **one WebSocket**, which is what reaches a cloud
+sandbox through its provider's HTTPS proxy and through a tunnel like Cloudflare's; the terminal
+is [ttyd](https://github.com/tsl0922/ttyd), the same shape. podium-server is the only way in to
+either: it serves them on an origin of its own, `PODIUM_DESKTOP_URL`.
+
+```
+browser ──HTTPS──► podium-desktop.example.com ──► podium-server ──► the task's "desktop" or
+                                                                     "terminal" port
+         (the UI frames it)                       (the same process  (Modal: its proxy + a connect
+                                                   as the UI, by Host) token the server mints)
+```
+
+**An origin of its own, served by the same server.** The desktop's page is voxl's JavaScript. On
+the UI's origin it could call Podium's API as the person watching, so it gets another one, and
+the server tells the two apart by `Host`: on the desktop host it answers `/t/<task>/<token>/` and
+nothing else, and on any other host it never answers that. The UI's CSP allows framing exactly
+that origin (`frame-src`). The setting refuses the UI's own origin.
+
+**Signed in by the link.** The chat's desktop panel calls `TaskService.CreateDesktopTicket`, a
+member's call like `GetTask`, for a running desktop task. It returns two links, the desktop's
+and the terminal's; each names the task, its port and the person, is signed by this process with a key that is not stored anywhere, and expires after
+12 hours; every request it makes is checked again against the task, which must still be running.
+It is a path, not a cookie, because a cookie would have to cross from the UI's site into a frame
+on another, and third-party cookie blocking refuses that. A server restart ends every link; the
+panel asks for a new one.
+
+**How the server reaches the desktop:**
+
+| The task's preview is | The server |
+|---|---|
+| `via: sandbox` (Modal, boat) | builds the provider from the Sandboxes screen's configuration and asks it for the port's endpoint, credentials included — Modal's URL needs a connect token, which the preview URL does not carry |
+| `via: lan` | connects to the preview's address |
+| `via: tailnet` | refuses: a preview device turns tagged callers away, and the server is one |
+
+**The terminal's socket is piped as it is**, once the server has checked it comes from the
+terminal's own page on the desktop origin. ttyd runs one tmux session, so viewers share a shell.
+
+**One viewer resizes.** voxl fits the desktop to the viewer's window, and two viewers of
+different sizes would take turns resizing it for ever. The server reads the client's side of
+the socket and passes a resize only from the newest viewer; the others watch letterboxed, and
+when the newest leaves, the one before it gets control back at its own size.
+
+**Setting it up behind Cloudflare.** Cloudflare's free certificate covers one level of
+subdomain (`*.example.com`), so use `podium-desktop.example.com`, not
+`desktop.podium.example.com`. Add it to the same tunnel as the UI, pointing at the same
+service, and set `PODIUM_DESKTOP_URL=https://podium-desktop.example.com`. WebSockets are on by
+default; voxl pings every client twice a second, so Cloudflare's idle timeout never fires.
+Browsers decode the stream only on an HTTPS page or on localhost: locally,
+`PODIUM_DESKTOP_URL=http://desktop.localhost:8080` needs no DNS.
+
 ## Why there is no public ingress
 
 Nothing in Podium needs a public address:

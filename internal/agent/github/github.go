@@ -133,6 +133,13 @@ type Client struct {
 	installations map[string]installationResponse
 	tokens        map[string]Token
 	identity      *Identity
+	repos         *repoList
+}
+
+// repoList is InstallationRepos' answer and when it was read.
+type repoList struct {
+	at    time.Time
+	repos []Repo
 }
 
 // New returns a Client, or an error naming what is missing.
@@ -204,6 +211,17 @@ func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 // installation has, and a turn that asked for nothing getting everything is the wrong way
 // round for a default.
 func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token, error) {
+	return c.mint(ctx, owner, repos, false)
+}
+
+// ReadToken is Token minted read-only: contents and pull requests read, and checks, statuses
+// and actions read when the installation has them. A system routine reads GitHub with one, so
+// that a bug in a read tool, or a later tool that forwards a token, can never write.
+func (c *Client) ReadToken(ctx context.Context, owner string, repos []string) (Token, error) {
+	return c.mint(ctx, owner, repos, true)
+}
+
+func (c *Client) mint(ctx context.Context, owner string, repos []string, readOnly bool) (Token, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" {
 		return Token{}, errors.New("github: an owner is required to find the installation")
@@ -216,6 +234,9 @@ func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token
 	slices.Sort(scope)
 	scope = slices.Compact(scope)
 	key := owner + "\x00" + strings.Join(scope, "\x00")
+	if readOnly {
+		key = "read\x00" + key
+	}
 
 	c.mu.Lock()
 	if tok, ok := c.tokens[key]; ok && c.now().Add(renewBefore).Before(tok.ExpiresAt) {
@@ -228,9 +249,13 @@ func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token
 	if err != nil {
 		return Token{}, err
 	}
+	perms := install.tokenPermissions()
+	if readOnly {
+		perms.Contents, perms.PullRequests = "read", "read"
+	}
 	body, err := json.Marshal(tokenRequest{
 		Repositories: scope,
-		Permissions:  install.tokenPermissions(),
+		Permissions:  perms,
 	})
 	if err != nil {
 		return Token{}, fmt.Errorf("github: encode token request: %w", err)
@@ -292,6 +317,37 @@ func (c *Client) Identity(ctx context.Context) (Identity, error) {
 	c.identity = &out
 	c.mu.Unlock()
 	return out, nil
+}
+
+// CanPush reports whether a GitHub account can push to every one of repos, as their
+// collaborator permission on each says. It asks with an installation token for those repos,
+// which every installation can read collaborators with (metadata), so it needs nothing from
+// the account itself. An account that is not a collaborator at all answers 404, which is no.
+func (c *Client) CanPush(ctx context.Context, owner string, repos []string, login string) (bool, error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return false, nil
+	}
+	tok, err := c.Token(ctx, owner, repos)
+	if err != nil {
+		return false, err
+	}
+	for _, repo := range repos {
+		var out collaboratorPermission
+		path := fmt.Sprintf("/repos/%s/%s/collaborators/%s/permission",
+			url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(login))
+		err := c.roundTrip(ctx, http.MethodGet, path, nil, tok.Value, &out)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !out.canPush() {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // installation is the App's installation on one account, cached. An installation id is
@@ -503,6 +559,150 @@ type appResponse struct {
 	Slug string `json:"slug"`
 }
 
+// collaboratorPermission is GET /repos/{owner}/{repo}/collaborators/{user}/permission.
+// User.Permissions is the precise answer; Permission is the older coarse role, for an
+// answer that leaves the precise one out.
+type collaboratorPermission struct {
+	Permission string `json:"permission"`
+	User       struct {
+		Permissions *struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	} `json:"user"`
+}
+
+func (p collaboratorPermission) canPush() bool {
+	if p.User.Permissions != nil {
+		return p.User.Permissions.Push
+	}
+	switch p.Permission {
+	case "admin", "maintain", "write":
+		return true
+	}
+	return false
+}
+
 type userResponse struct {
 	ID int64 `json:"id"`
+}
+
+// GetAs reads one GitHub API resource with a person's own token, for a turn that reads as the
+// person it runs for rather than as the App. It never writes: there is no method to choose.
+func (c *Client) GetAs(ctx context.Context, token, path string, out any) error {
+	if strings.TrimSpace(token) == "" {
+		return errors.New("github: a token is required")
+	}
+	return c.roundTrip(ctx, http.MethodGet, path, nil, token, out)
+}
+
+// PostAs makes one POST with an installation token: a comment the App writes on a pull request.
+func (c *Client) PostAs(ctx context.Context, token, path string, body any, out any) error {
+	if strings.TrimSpace(token) == "" {
+		return errors.New("github: a token is required")
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("github: encode POST %s: %w", path, err)
+	}
+	return c.roundTrip(ctx, http.MethodPost, path, raw, token, out)
+}
+
+// GetTextAs reads a plain-text resource — a job's log — with a person's own token, keeping at
+// most the last limit bytes. GitHub answers a log with a redirect to a signed URL, which the
+// client follows without the token.
+func (c *Client) GetTextAs(ctx context.Context, token, path string, limit int64) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", errors.New("github: a token is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+path, nil)
+	if err != nil {
+		return "", fmt.Errorf("github: GET %s: %w", path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github: GET %s: %w", path, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode >= 300 {
+		return "", c.failure(http.MethodGet, path, res)
+	}
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+	if err != nil {
+		return "", fmt.Errorf("github: read GET %s: %w", path, err)
+	}
+	if int64(len(raw)) > limit {
+		raw = raw[int64(len(raw))-limit:]
+	}
+	return string(raw), nil
+}
+
+// Repo is one repository the App is installed on, as a routine sees it to pick one by name.
+type Repo struct {
+	FullName    string    `json:"full_name"`
+	Description string    `json:"description,omitempty"`
+	Private     bool      `json:"private"`
+	Archived    bool      `json:"archived,omitempty"`
+	PushedAt    time.Time `json:"pushed_at"`
+}
+
+// reposFresh is how long InstallationRepos answers from memory. A repository added to the
+// installation shows up within it.
+const reposFresh = 5 * time.Minute
+
+// maxInstallationRepos bounds the list: past it, a routine names its repository exactly.
+const maxInstallationRepos = 1000
+
+// InstallationRepos is every repository the App is installed on, across every account,
+// most recently pushed first. It is how a system routine turns "the API repo" in its
+// instruction into owner/name. Each installation is listed with a token that carries
+// metadata read and nothing else, so the listing itself can read no code.
+func (c *Client) InstallationRepos(ctx context.Context) ([]Repo, error) {
+	c.mu.Lock()
+	if c.repos != nil && c.now().Sub(c.repos.at) < reposFresh {
+		out := c.repos.repos
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+
+	var installs []struct {
+		ID int64 `json:"id"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/app/installations?per_page=100", nil, &installs); err != nil {
+		return nil, err
+	}
+	var out []Repo
+	for _, in := range installs {
+		body, err := json.Marshal(map[string]any{"permissions": map[string]string{"metadata": "read"}})
+		if err != nil {
+			return nil, err
+		}
+		var tok tokenResponse
+		path := fmt.Sprintf("/app/installations/%d/access_tokens", in.ID)
+		if err := c.do(ctx, http.MethodPost, path, body, &tok); err != nil {
+			return nil, err
+		}
+		for page := 1; len(out) < maxInstallationRepos; page++ {
+			var res struct {
+				Repositories []Repo `json:"repositories"`
+			}
+			if err := c.GetAs(ctx, tok.Token, fmt.Sprintf("/installation/repositories?per_page=100&page=%d", page), &res); err != nil {
+				return nil, err
+			}
+			out = append(out, res.Repositories...)
+			if len(res.Repositories) < 100 {
+				break
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b Repo) int { return b.PushedAt.Compare(a.PushedAt) })
+	if len(out) > maxInstallationRepos {
+		out = out[:maxInstallationRepos]
+	}
+	c.mu.Lock()
+	c.repos = &repoList{at: c.now(), repos: out}
+	c.mu.Unlock()
+	return out, nil
 }

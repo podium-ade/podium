@@ -37,6 +37,20 @@ func SourceKey(owner, repo string, number int) string {
 	return fmt.Sprintf("%s:%s/%s#%d", Kind, owner, repo, number)
 }
 
+// ChatTitle names a pull request's chat by its number and its own title — "#263: Context
+// management". The repository is not in it: the chat list shows it on the line beneath, from
+// the chat's GitHub surface. An unknown title leaves "#263".
+func ChatTitle(number int, title string) string {
+	if number == 0 {
+		return ""
+	}
+	name := fmt.Sprintf("#%d", number)
+	if t := strings.Join(strings.Fields(title), " "); t != "" {
+		name += ": " + t
+	}
+	return name
+}
+
 // ParseSourceKey splits github:owner/repo#N. False for anything else.
 func ParseSourceKey(key string) (owner, repo string, number int, ok bool) {
 	rest, found := strings.CutPrefix(key, Kind+":")

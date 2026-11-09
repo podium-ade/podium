@@ -72,3 +72,15 @@ func TestPromptHintIsOneCappedLine(t *testing.T) {
 	// Capped on a rune boundary: a hint cut mid-character renders as a replacement glyph.
 	assert.Equal(t, strings.Repeat("é", maxPlaybookHintChars)+"…", promptHint(long))
 }
+
+// The playbook editor's flags survive a save and a read: one dropped on the way is a playbook
+// that silently stops being what its file says.
+func TestAPlaybooksDesktopFlagSurvivesTheEditor(t *testing.T) {
+	pb, err := protoToPlaybook(&agentv1.PlaybookDefinition{
+		Name: "desk", SystemPrompt: "work on the desktop", AllowedTools: []string{"read"}, Desktop: true,
+	})
+	require.NoError(t, err)
+	require.True(t, pb.Desktop)
+	require.True(t, playbookToProto(pb).GetDesktop())
+	require.False(t, playbookToProto(profiles.Playbook{}).GetDesktop())
+}

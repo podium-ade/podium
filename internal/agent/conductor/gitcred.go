@@ -224,10 +224,14 @@ func GitCapabilitySecret(turnID string) string {
 // It returns the secret's name, or "" when there is nothing to provision — no App, or a
 // playbook with no github.com repositories — which is not an error: that is simply a
 // playbook still on the older path.
+//
+// asUser is githubPersona's answer, not the playbook's wish: a playbook that pushes as the
+// person can still be written as the App, when the person has not connected GitHub or
+// cannot push to its repositories.
 func (c *Conductor) provisionGitCapability(
-	ctx context.Context, turnID string, playbook profiles.Playbook, login string,
+	ctx context.Context, turnID string, playbook profiles.Playbook, login string, asUser bool,
 ) (string, error) {
-	user := playbook.UsesGitHubAccount()
+	user := asUser
 	if c.githubApp() == nil && !user {
 		return "", nil
 	}
@@ -263,8 +267,18 @@ func (c *Conductor) provisionGitCapability(
 }
 
 // githubPersona is who a turn commits as when its playbook pushes as the asker's own GitHub
-// account: the noreply address GitHub links to that account. Nil means the playbook does
-// not. The error is written for the person who asked.
+// account: the noreply address GitHub links to that account. Nil means the turn writes as
+// the App: the playbook does not use the account, or the person cannot be written as.
+//
+// A person cannot be written as when they have not connected GitHub (or must reconnect it),
+// or when their account cannot push to every repository the playbook lists. Either way the
+// work is still theirs to ask for, so where this conductor has a GitHub App the turn opens
+// its pull request as the App, on their behalf (withRequestedBy says so in the brief). Only
+// without an App is it refused. A permission check that fails for any other reason keeps
+// the person: it is how this playbook always pushed, and a push they cannot make fails as
+// it always did.
+//
+// The error is written for the person who asked.
 func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
 	if !playbook.UsesGitHubAccount() {
 		return nil, nil
@@ -278,6 +292,11 @@ func (c *Conductor) githubPersona(ctx context.Context, login string, playbook pr
 	}
 	acct, err := c.store.GitHubAccount(ctx, login)
 	if errors.Is(err, store.ErrNotFound) {
+		if c.canWriteAsApp(playbook) {
+			c.logger.InfoContext(ctx, "this person has not connected github; the turn writes as the app on their behalf",
+				"login", login, "playbook", playbook.Name)
+			return nil, nil
+		}
 		return nil, errors.New("this playbook opens pull requests as you, and you have not " +
 			"connected GitHub. Connect it under Settings → Account, then ask again")
 	}
@@ -286,9 +305,38 @@ func (c *Conductor) githubPersona(ctx context.Context, login string, playbook pr
 		return nil, errors.New("your GitHub connection could not be read. An operator should check the logs")
 	}
 	if acct.NeedsReconnect {
+		if c.canWriteAsApp(playbook) {
+			c.logger.InfoContext(ctx, "this person's github connection needs reconnecting; the turn writes as the app on their behalf",
+				"login", login, "playbook", playbook.Name)
+			return nil, nil
+		}
 		return nil, errReconnect
 	}
+	if app := c.githubApp(); app != nil {
+		if scope, err := gitScopeOf(playbook); err == nil && len(scope.Repos) > 0 {
+			ok, err := app.CanPush(ctx, scope.Owner, scope.Repos, acct.GitHubLogin)
+			switch {
+			case err != nil:
+				c.logger.WarnContext(ctx, "checking whether a person can push failed; the turn pushes as them",
+					"login", login, "github_login", acct.GitHubLogin, "owner", scope.Owner, "error", err)
+			case !ok:
+				c.logger.InfoContext(ctx, "this person cannot push to the playbook's repos; the turn writes as the app on their behalf",
+					"login", login, "github_login", acct.GitHubLogin, "owner", scope.Owner, "repos", scope.Repos)
+				return nil, nil
+			}
+		}
+	}
 	return githubPersonaOf(acct), nil
+}
+
+// canWriteAsApp reports whether a playbook's turn could write as the App instead of as the
+// person: this conductor has an App, and the playbook names repositories of one owner.
+func (c *Conductor) canWriteAsApp(playbook profiles.Playbook) bool {
+	if c.githubApp() == nil {
+		return false
+	}
+	scope, err := gitScopeOf(playbook)
+	return err == nil && len(scope.Repos) > 0
 }
 
 func githubPersonaOf(acct store.GitHubAccount) *BriefGit {
@@ -344,4 +392,80 @@ func (c *Conductor) workIsRunning(ctx context.Context, id string) (bool, error) 
 		return false, fmt.Errorf("conductor: reading delegation %s: %w", id, err)
 	}
 	return dlg.Status == store.TurnRunning, nil
+}
+
+// requestedBy is how a turn's commits and comments name the person they were for when the
+// turn writes to GitHub as the App rather than as that person: "Dana Smith <dana@acme.com>",
+// or just the login when Podium knows no display name. Empty is a turn with nobody behind it.
+func (c *Conductor) requestedBy(ctx context.Context, login string) (name, who string) {
+	login = turnOwner(login)
+	if login == "" {
+		return "", ""
+	}
+	name = login
+	if c.store != nil {
+		if ids, err := c.store.IdentitiesOf(ctx, []string{login}); err == nil {
+			for _, id := range ids {
+				if strings.TrimSpace(id.DisplayName) != "" {
+					name = strings.TrimSpace(id.DisplayName)
+					break
+				}
+			}
+		}
+	}
+	if name == login {
+		return login, login
+	}
+	return name, fmt.Sprintf("%s <%s>", name, login)
+}
+
+// withRequestedBy tells a turn that writes to GitHub as the App who it is writing for. It
+// applies when the turn can mint App tokens and does not commit as the person themselves
+// (persona == nil): a Slack or web turn by somebody who never connected GitHub or cannot
+// push to the repositories, or any turn whose playbook pushes as the App. The App's commits
+// would otherwise say nothing about who asked, and on a pull request "Podium did this" is
+// not an answer a reviewer can act on.
+//
+// The commit trailer is enforced, not requested: Brief.RequestedBy is what the runtime's
+// commit-msg hook writes onto every commit. A pull request's description is not: it is
+// asked for in the brief, in requestedByNote, and nothing checks the pull request after.
+func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string, persona *BriefGit) {
+	if b == nil || persona != nil || b.GitCredentials == nil {
+		return
+	}
+	name, who := c.requestedBy(ctx, login)
+	if who == "" {
+		return
+	}
+	b.RequestedBy = who
+	b.Instruction = strings.TrimRight(b.Instruction, "\n") + "\n\n" +
+		requestedByNote(name, who, c.githubHandle(ctx, login))
+}
+
+// githubHandle is the GitHub login a person connected, or empty. A person who connected it
+// and cannot push is still named by it, so the pull request reaches them on GitHub.
+func (c *Conductor) githubHandle(ctx context.Context, login string) string {
+	login = turnOwner(login)
+	if login == "" || c.store == nil {
+		return ""
+	}
+	acct, err := c.store.GitHubAccount(ctx, login)
+	if err != nil {
+		return ""
+	}
+	return acct.GitHubLogin
+}
+
+// requestedByNote is the line withRequestedBy adds. Kept separate so a test pins its words.
+// handle is the person's GitHub login, when they connected one.
+func requestedByNote(name, who, handle string) string {
+	whom := name
+	if handle != "" {
+		whom = fmt.Sprintf("%s (@%s)", name, handle)
+	}
+	return fmt.Sprintf("(Podium note: you write to GitHub as the Podium App on behalf of %s. "+
+		"Podium adds the trailer `Requested-by: %s` to every commit you make; leave it there. "+
+		"Any pull request you open is theirs: end its description with the line "+
+		"`Opened by Podium on behalf of %s.` "+
+		"Say \"requested by %s\" in any comment you write.)", name, who, whom, name)
 }

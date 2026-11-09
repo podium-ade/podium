@@ -11,7 +11,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,8 +158,9 @@ func TestInnerEventsArrivePointerTyped(t *testing.T) {
 }
 
 // A reply in a thread is not a turn unless the bot is @-mentioned. Having already
-// participated is not enough.
-func TestInnerIgnoresAThreadReplyWithoutAMention(t *testing.T) {
+// participated is not enough. It is still conversation: it is offered as RecordOnly, which
+// the conductor records into a thread it already holds and never acts on.
+func TestInnerRecordsAThreadReplyWithoutAMention(t *testing.T) {
 	f := newFakeSlack(t)
 	s := testSource(t, f)
 	s.users["U1"] = "alice"
@@ -175,7 +178,173 @@ func TestInnerIgnoresAThreadReplyWithoutAMention(t *testing.T) {
 		},
 	})
 
+	ev := takeInbound(t, s)
+	assert.True(t, ev.RecordOnly, "chatter is recorded, never a turn")
+	assert.False(t, ev.Mentioned)
+	assert.Equal(t, "slack:C1:100.1", ev.SourceKey)
+	assert.Equal(t, "100.2", ev.ExternalID)
+	assert.Equal(t, "https://podium.slack.com/archives/C1/p1002", ev.ExternalURL)
+	assert.Equal(t, "https://podium.slack.com/archives/C1/p1001", ev.ThreadURL, "the thread's own link, for the chat's surface chip")
+	assert.Equal(t, "and then?", ev.Text)
 	assertNoInbound(t, s)
+}
+
+// A thread that asked for a pull-request review is a door into the PR's conversation, so its
+// chatter, edits and deletes are recorded there and not as a Slack thread of their own.
+func TestInnerRecordsABoundThreadIntoThePullRequest(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	s.review = &fakeReview{bound: map[string]string{"C1/100.1": "github:acme/api#12"}}
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", User: "U1", Text: "and then?",
+			TimeStamp: "100.2", ThreadTimeStamp: "100.1", ChannelType: "channel",
+		},
+	}})
+	ev := takeInbound(t, s)
+	assert.True(t, ev.RecordOnly)
+	assert.Equal(t, "github:acme/api#12", ev.MirrorKey)
+	assert.Equal(t, "100.2", ev.ExternalID)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel",
+			Message:         &slack.Msg{User: "U1", Text: "and then what?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "and then?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	edit := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeEdited, edit.Change)
+	assert.Equal(t, "github:acme/api#12", edit.MirrorKey)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_deleted", ChannelType: "channel", DeletedTimeStamp: "100.2",
+			PreviousMessage: &slack.Msg{User: "U1", Text: "and then what?", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	del := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeDeleted, del.Change)
+	assert.Equal(t, "github:acme/api#12", del.MirrorKey)
+
+	// A thread that is not bound is its own conversation, as before.
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C2", User: "U1", Text: "elsewhere",
+			TimeStamp: "300.2", ThreadTimeStamp: "300.1", ChannelType: "channel",
+		},
+	}})
+	other := takeInbound(t, s)
+	assert.Empty(t, other.MirrorKey)
+	assertNoInbound(t, s)
+}
+
+// A message that mentions the bot arrives as app_mention AND as message. The message copy
+// must not be recorded as chatter: the conductor would then find the mention already
+// recorded and drop it as a duplicate, and the turn would never start.
+func TestInnerLeavesAThreadMentionToAppMention(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", User: "U1", Text: "<@UBOT> and then?",
+			TimeStamp: "100.2", ThreadTimeStamp: "100.1", ChannelType: "channel",
+		},
+	}})
+
+	assertNoInbound(t, s)
+}
+
+// A top-level channel message is not part of any thread Podium could hold, and a message
+// from a bot is never conversation input.
+func TestInnerIgnoresChannelChatterAndBots(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	for _, ev := range []*slackevents.MessageEvent{
+		{Channel: "C1", User: "U1", Text: "lunch?", TimeStamp: "100.1", ChannelType: "channel"},
+		{Channel: "C1", BotID: "B9", User: "U9", Text: "deploy done", TimeStamp: "100.3", ThreadTimeStamp: "100.1", ChannelType: "channel"},
+		{Channel: "C1", User: "U1", SubType: "channel_join", TimeStamp: "100.4", ThreadTimeStamp: "100.1", ChannelType: "channel"},
+	} {
+		s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{Data: ev}})
+	}
+
+	assertNoInbound(t, s)
+}
+
+// An edit is offered as a change of the message it edits, with the new text converted.
+// An "edit" that changed nothing a person typed (an unfurl) is not offered at all.
+func TestInnerOffersEditsAndDeletes(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel", EventTimeStamp: "200.0",
+			Message:         &slack.Msg{User: "U1", Text: "now *bold*", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "now bold", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	edit := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeEdited, edit.Change)
+	assert.Equal(t, "100.2", edit.ExternalID)
+	assert.Equal(t, "slack:C1:100.1", edit.SourceKey)
+	assert.Equal(t, "now **bold**", edit.Text)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_changed", ChannelType: "channel",
+			Message:         &slack.Msg{User: "U1", Text: "same", Timestamp: "100.3", ThreadTimestamp: "100.1"},
+			PreviousMessage: &slack.Msg{User: "U1", Text: "same", Timestamp: "100.3", ThreadTimestamp: "100.1"},
+		},
+	}})
+	assertNoInbound(t, s)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+		Data: &slackevents.MessageEvent{
+			Channel: "C1", SubType: "message_deleted", ChannelType: "channel", DeletedTimeStamp: "100.2",
+			PreviousMessage: &slack.Msg{User: "U1", Text: "now *bold*", Timestamp: "100.2", ThreadTimestamp: "100.1"},
+		},
+	}})
+	del := takeInbound(t, s)
+	assert.Equal(t, conductor.ChangeDeleted, del.Change)
+	assert.Equal(t, "100.2", del.ExternalID)
+	assert.Equal(t, "slack:C1:100.1", del.SourceKey)
+}
+
+// History is the thread before the mention that brought Podium in: people only, in order,
+// and never the mention itself or anything after it.
+func TestHistoryIsTheThreadBeforeTheTrigger(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("conversations.replies", `{"ok":true,"messages":[
+		{"user":"U1","ts":"100.1","text":"the deploy is *stuck*"},
+		{"user":"UBOT","bot_id":"BBOT","ts":"100.2","text":"an older answer"},
+		{"user":"U2","ts":"100.3","text":"same here"},
+		{"user":"U2","ts":"100.4","subtype":"channel_join","text":""},
+		{"user":"U1","ts":"100.5","text":"<@UBOT> help?"},
+		{"user":"U2","ts":"100.6","text":"after"}]}`)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	s.users["U2"] = "bob"
+
+	got, err := s.History(t.Context(), Ref("C1", "100.1", "100.5"))
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "100.1", got[0].ExternalID)
+	assert.Equal(t, "the deploy is **stuck**", got[0].Text)
+	assert.True(t, got[0].RecordOnly)
+	assert.Equal(t, "100.3", got[1].ExternalID)
+
+	none, err := s.History(t.Context(), Ref("C1", "100.1", "100.1"))
+	require.NoError(t, err)
+	assert.Empty(t, none, "a mention that started the thread has nothing before it")
 }
 
 // The same words with an @-mention are a turn, and the reply goes in that thread.
@@ -402,6 +571,8 @@ func TestInnerResolvesTheChannelName(t *testing.T) {
 	f.reply("conversations.info", `{"ok":true,"channel":{"id":"C1","name":"support"}}`)
 	s := testSource(t, f)
 	s.users["U1"] = "alice"
+	// The account check is fresh, so it does not cost a users.info either.
+	s.accounts = map[string]slackAccount{"U1": {login: "alice@acme.com", externalID: "T1/U1", at: time.Now()}}
 
 	s.inner(t.Context(), slackevents.EventsAPIEvent{
 		InnerEvent: slackevents.EventsAPIInnerEvent{
@@ -417,7 +588,43 @@ func TestInnerResolvesTheChannelName(t *testing.T) {
 	ev := takeInbound(t, s)
 	assert.Equal(t, "C1", ev.Channel)
 	assert.Equal(t, "support", ev.ChannelName)
+	// The speaker as the conductor will resolve them: a candidate email, the account, and
+	// the fact that they addressed the bot.
+	assert.Equal(t, "alice@acme.com", ev.Login)
+	assert.Equal(t, conductor.SpeakerSlack, ev.SpeakerProvider)
+	assert.Equal(t, "T1/U1", ev.SpeakerID)
+	assert.True(t, ev.Mentioned)
 	assert.Equal(t, []string{"conversations.info"}, f.methods())
+}
+
+// Whether a conversation is public is Slack's word, read with its name in the same call and
+// cached with it: the share dialog warns about sharing a private one.
+func TestInnerReportsTheChannelPrivacy(t *testing.T) {
+	for _, tc := range []struct {
+		channel, info, want string
+	}{
+		{"C1", `{"ok":true,"channel":{"id":"C1","name":"support"}}`, conductor.ChannelPublic},
+		{"C2", `{"ok":true,"channel":{"id":"C2","name":"secret","is_private":true}}`, conductor.ChannelPrivate},
+		{"D3", `{"ok":true,"channel":{"id":"D3","is_im":true,"user":"U1"}}`, conductor.ChannelIM},
+		{"G4", `{"ok":true,"channel":{"id":"G4","name":"mpdm-a--b","is_mpim":true,"is_private":true}}`, conductor.ChannelMPIM},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			f := newFakeSlack(t)
+			f.reply("conversations.info", tc.info)
+			s := testSource(t, f)
+			s.users["U1"] = "alice"
+			s.accounts = map[string]slackAccount{"U1": {login: "alice@acme.com", externalID: "T1/U1", at: time.Now()}}
+
+			for _, ts := range []string{"100.1", "100.2"} {
+				s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{
+					Data: &slackevents.AppMentionEvent{Channel: tc.channel, User: "U1", Text: "<@UBOT> hello", TimeStamp: ts},
+				}})
+				ev := takeInbound(t, s)
+				assert.Equal(t, tc.want, ev.ChannelPrivacy)
+			}
+			assert.Equal(t, []string{"conversations.info"}, f.methods(), "one lookup, cached")
+		})
+	}
 }
 
 func TestInnerLeavesTheChannelNameEmptyWhenSlackWillNotResolveIt(t *testing.T) {
@@ -879,11 +1086,86 @@ func TestFetchTranscriptReportsARefusal(t *testing.T) {
 
 func TestASlackEmailBecomesTheSpeakersLogin(t *testing.T) {
 	f := newFakeSlack(t)
-	f.reply("users.info", `{"ok":true,"user":{"id":"U1","name":"alice","profile":{"display_name":"Alice","email":"Alice@Acme.com"}}}`)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","team_id":"T1","name":"alice","is_email_confirmed":true,"profile":{"display_name":"Alice","email":"Alice@Acme.com","image_72":"https://a/72.png"}}}`)
 	s := testSource(t, f)
+	s.botTeamID = "T1"
 
 	assert.Equal(t, "Alice", s.displayName(t.Context(), "U1"))
-	assert.Equal(t, "alice@acme.com", s.loginOf("U1"))
+	acct := s.account(t.Context(), "U1")
+	assert.Equal(t, "alice@acme.com", acct.login)
+	assert.Equal(t, "T1/U1", acct.externalID)
+	assert.Equal(t, "https://a/72.png", acct.avatar)
+}
+
+// Every way somebody could carry an email on our domain without being one of us is refused.
+// A refusal is an empty login, never an error: the message is still heard and mirrored.
+func TestVerifiedEmailRefusesAnybodyWhoCouldBePretending(t *testing.T) {
+	member := func() *slack.User {
+		u := &slack.User{ID: "U1", TeamID: "T1", IsEmailConfirmed: true}
+		u.Profile.Email = "ada@acme.com"
+		return u
+	}
+	require.Equal(t, "ada@acme.com", verifiedEmail(member(), "T1", ""))
+
+	for name, mutate := range map[string]func(*slack.User){
+		"another workspace":    func(u *slack.User) { u.TeamID = "T2" },
+		"slack connect":        func(u *slack.User) { u.IsStranger = true },
+		"multi-channel guest":  func(u *slack.User) { u.IsRestricted = true },
+		"single-channel guest": func(u *slack.User) { u.IsUltraRestricted = true },
+		"deactivated":          func(u *slack.User) { u.Deleted = true },
+		"bot":                  func(u *slack.User) { u.IsBot = true },
+		"app user":             func(u *slack.User) { u.IsAppUser = true },
+		"unconfirmed email":    func(u *slack.User) { u.IsEmailConfirmed = false },
+		"no email":             func(u *slack.User) { u.Profile.Email = "" },
+	} {
+		u := member()
+		mutate(u)
+		assert.Empty(t, verifiedEmail(u, "T1", ""), name)
+	}
+	// A bot that has not learned its own workspace proves nobody.
+	assert.Empty(t, verifiedEmail(member(), "", ""))
+	// Enterprise Grid: another workspace of the same org is the same company.
+	grid := member()
+	grid.TeamID = "T9"
+	grid.Enterprise.EnterpriseID = "E1"
+	assert.Equal(t, "ada@acme.com", verifiedEmail(grid, "T1", "E1"))
+	assert.Empty(t, verifiedEmail(grid, "T1", "E2"))
+}
+
+// PODIUM_SLACK_TEAM_IDS adds workspaces and Grid orgs whose members may match, and nothing
+// else: a guest or a Slack Connect stranger in a listed workspace is still nobody.
+func TestVerifiedEmailAcceptsTheListedTeams(t *testing.T) {
+	member := func(team, enterprise string) *slack.User {
+		u := &slack.User{ID: "U1", TeamID: team, IsEmailConfirmed: true}
+		u.Profile.Email = "ada@acme.com"
+		u.Enterprise.EnterpriseID = enterprise
+		return u
+	}
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T2", ""), "T1", "", "T2"), "a listed workspace")
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T7", "E5"), "T1", "", "E5"), "a listed Grid org")
+	assert.Empty(t, verifiedEmail(member("T3", ""), "T1", "", "T2"), "an unlisted workspace")
+	assert.Equal(t, "ada@acme.com", verifiedEmail(member("T2", ""), "", "", "T2"),
+		"the list alone is enough when auth.test has not run")
+	assert.Empty(t, verifiedEmail(member("T2", ""), "", "", ""), "an empty entry matches nothing")
+
+	guest := member("T2", "")
+	guest.IsRestricted = true
+	assert.Empty(t, verifiedEmail(guest, "T1", "", "T2"), "a guest in a listed workspace")
+	stranger := member("T2", "")
+	stranger.IsStranger = true
+	assert.Empty(t, verifiedEmail(stranger, "T1", "", "T2"), "Slack Connect in a listed workspace")
+}
+
+// The account check is asked again once accountTTL has passed: a member who becomes a guest
+// stops matching without a restart.
+func TestAccountIsCheckedAgainAfterItsTTL(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","team_id":"T1","is_restricted":true,"is_email_confirmed":true,"profile":{"email":"ada@acme.com"}}}`)
+	s := testSource(t, f)
+	s.botTeamID = "T1"
+	s.accounts = map[string]slackAccount{"U1": {login: "ada@acme.com", externalID: "T1/U1", at: time.Now().Add(-accountTTL)}}
+
+	assert.Empty(t, s.account(t.Context(), "U1").login)
 }
 
 func TestPodiumLoginRejectsAnythingButAnEmail(t *testing.T) {

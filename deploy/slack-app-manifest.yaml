@@ -57,9 +57,12 @@ settings:
     bot_events:
       # The mention that starts a turn, including a mention inside an existing thread.
       - app_mention
-      # A DM is a conversation of its own. Channel message events still arrive — Slack
-      # delivers a mention as both app_mention and message — but a thread reply without
-      # an @-mention is not a turn.
+      # A DM is a conversation of its own. The channel message events are also how Podium
+      # keeps the WHOLE of a thread it is in (multiplayer sessions, phase 2): a reply
+      # without an @-mention is recorded in the Podium chat but is never a turn, and
+      # message_changed / message_deleted keep that record in step with Slack. A thread
+      # Podium is not in is never stored. Removing these subscriptions leaves Podium
+      # recording only the messages that mention it.
       - message.channels
       - message.groups
       - message.im

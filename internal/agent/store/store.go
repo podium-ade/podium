@@ -97,6 +97,25 @@ type Session struct {
 	LastTurnAt *time.Time
 	// GitHubReviewID is the pull-request review this session submitted. Zero means none.
 	GitHubReviewID int64
+	// Sharing is what a list says about the caller and the chat this session is the record
+	// of (phase 5). Zero for a session read by id, and for one with no chat (Linear, dev).
+	Sharing ChatSharing
+}
+
+// ChatSharing is one caller's relationship to one chat, as a list reports it.
+type ChatSharing struct {
+	// ChatID is the chat a session is the record of. Empty on a chat (it is the chat's ID).
+	ChatID string
+	// MyRole is chat_role: RoleOwner, RoleEditor, RoleViewer, or "" for none.
+	MyRole string
+	// AccessReason is why the caller can see it: AccessOwner, AccessParticipant,
+	// AccessShared or AccessWorkspace.
+	AccessReason string
+	// SharedBy is who shared it with them by name, or "link"/"members" for a row opening it
+	// wrote. Empty when it was not shared with them.
+	SharedBy string
+	// UnreadCount is what somebody else said after their read mark.
+	UnreadCount int64
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -115,7 +134,21 @@ type Turn struct {
 	// before the columns existed — never guessed from the playbook, whose model is only a
 	// default and may have been edited since.
 	Backend Backend
+	// StartedBy is the Podium login whose turn this was and whose credentials it ran with,
+	// TurnStartedByApp for a review nobody in Podium asked for, and empty for a turn from
+	// before the column or one with no person.
+	StartedBy string
+	// RoutineRunID is the routine run this turn is, "" for a turn somebody asked for (0043).
+	RoutineRunID string
 }
+
+// TurnStartedByApp is turns.started_by for a review the GitHub App ran on nobody's behalf:
+// an automatic review, or a review command from somebody who has not linked GitHub.
+const TurnStartedByApp = "github-app"
+
+// TurnStartedByRoutine is turns.started_by for a system routine's run, which nobody started:
+// "routine:<id>". Usage shows each system routine as its own line.
+func TurnStartedByRoutine(routineID string) string { return "routine:" + routineID }
 
 // Backend is the resolved agent, model and effort a turn ran on, and the provider that was
 // billed for it. Provider is stored rather than derived from Agent so that remapping a
@@ -195,12 +228,23 @@ func (s *Store) GetSessionByKey(ctx context.Context, sourceKey string) (Session,
 // ListSessions returns sessions newest first. The cursor is the last id of the previous
 // page, which sorts by time because every id is a ULID.
 //
-// all is the dev token: every source. Otherwise only web-chat sessions owned by login.
-func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string) ([]Session, string, error) {
+// all is the dev token: every source. Otherwise the sessions whose chat login may read:
+// their own web chats and every mirrored conversation they took part in.
+//
+// section is optional and is one of the Section constants; leaving it out is SectionMine.
+func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string, section ...string) ([]Session, string, error) {
 	limit = clampLimit(limit)
+	sec := ""
+	if len(section) > 0 {
+		sec = section[0]
+	}
+	if !validSection(sec) {
+		return nil, "", fmt.Errorf("list sessions: %w: %q", ErrInvalidSection, sec)
+	}
 	rows, err := s.q.ListSessions(ctx, db.ListSessionsParams{
 		IncludeAll: all,
-		Login:      &login,
+		Viewer:     login,
+		Section:    sec,
 		AfterID:    cursor,
 		PageLimit:  int32(limit),
 	})
@@ -209,7 +253,16 @@ func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit 
 	}
 	out := make([]Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionFromRow(r))
+		sess := sessionFromRow(db.Session{
+			ID: r.ID, SourceKind: r.SourceKind, SourceKey: r.SourceKey, Profile: r.Profile,
+			Playbook: r.Playbook, CreatedAt: r.CreatedAt, LastTurnAt: r.LastTurnAt,
+			GithubReviewID: r.GithubReviewID,
+		})
+		sess.Sharing = ChatSharing{
+			ChatID: r.ChatID, MyRole: r.MyRole, AccessReason: r.AccessReason,
+			SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
+		}
+		out = append(out, sess)
 	}
 	next := ""
 	if len(out) == limit {
@@ -221,6 +274,12 @@ func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit 
 // CreateTurn records a turn as running. The task does not exist yet: SetTurnTask fills it
 // in once CreateTask has answered.
 func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string, b Backend) (Turn, error) {
+	return s.CreateTurnFor(ctx, sessionID, triggerRef, "", b)
+}
+
+// CreateTurnFor is CreateTurn with the login the turn is for, which is what usage is broken
+// down by. CreateTurn is the same call for a turn with nobody behind it.
+func (s *Store) CreateTurnFor(ctx context.Context, sessionID, triggerRef, startedBy string, b Backend) (Turn, error) {
 	now := time.Now().UTC()
 	row, err := s.q.CreateTurn(ctx, db.CreateTurnParams{
 		ID:         ids.New("turn"),
@@ -232,6 +291,7 @@ func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string, b 
 		Model:      b.Model,
 		Effort:     b.Effort,
 		Provider:   b.Provider,
+		StartedBy:  startedBy,
 	})
 	if err != nil {
 		return Turn{}, fmt.Errorf("create turn for session %s: %w", sessionID, err)
@@ -473,15 +533,17 @@ func (s *Store) SetGitHubReviewID(ctx context.Context, sourceKey string, reviewI
 
 func turnFromRow(r db.Turn) Turn {
 	t := Turn{
-		ID:         r.ID,
-		SessionID:  r.SessionID,
-		TaskID:     deref(r.TaskID),
-		TriggerRef: r.TriggerRef,
-		Status:     r.Status,
-		StartedAt:  r.StartedAt.UTC(),
-		FinishedAt: utcPtr(r.FinishedAt),
-		CostUSD:    r.CostUsd,
-		FinalText:  deref(r.FinalText),
+		ID:           r.ID,
+		SessionID:    r.SessionID,
+		TaskID:       deref(r.TaskID),
+		TriggerRef:   r.TriggerRef,
+		Status:       r.Status,
+		StartedAt:    r.StartedAt.UTC(),
+		FinishedAt:   utcPtr(r.FinishedAt),
+		CostUSD:      r.CostUsd,
+		FinalText:    deref(r.FinalText),
+		StartedBy:    r.StartedBy,
+		RoutineRunID: deref(r.RoutineRunID),
 		Backend: Backend{
 			Agent:    deref(r.Agent),
 			Model:    deref(r.Model),
@@ -545,6 +607,10 @@ const (
 	// wrote. It is for the web chat to draw and is never history: the brief and the chat
 	// list's preview both leave it out.
 	RoleActivity = "activity"
+	// RoleNotice is Podium saying something about the chat itself rather than in it: that it
+	// became multiplayer, and from then on answers only when mentioned. It is drawn as a
+	// divider, and is never history or a preview.
+	RoleNotice = "notice"
 )
 
 // ChatSourceKeyPrefix is what a chat's session key starts with. The chat source builds it
@@ -558,8 +624,9 @@ func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 // The origins a chat can have. OriginWeb is a conversation Podium owns and may be written
 // to; OriginSlack is one it mirrors for reading, which lives in Slack and is answered there.
 const (
-	OriginWeb   = "web"
-	OriginSlack = "slack"
+	OriginWeb    = "web"
+	OriginSlack  = "slack"
+	OriginGitHub = "github"
 )
 
 // DefaultChatTitle is what a chat created with no title is called.
@@ -577,6 +644,24 @@ const ChatPreviewChars = 80
 type Chat struct {
 	ID    string
 	Title string
+	// HistorySeeded is a mirrored chat whose record was seeded with what its conversation
+	// said before Podium was in it (0039).
+	HistorySeeded bool
+	// StartedFromChat is the conversation the assistant opened this chat from, "" for a chat
+	// somebody opened themselves or one whose origin was deleted (0041).
+	StartedFromChat string
+	// RoutineID is the routine this chat belongs to, "" for any other chat (0043). A routine
+	// chat is a web chat its owner writes in, and is never shared.
+	RoutineID string
+	// SourceURL is the link to a mirrored chat's conversation where it lives (a Slack
+	// thread's permalink), "" when the source gave none (0038).
+	SourceURL string
+	// ChannelPrivacy is what Slack says about a mirrored chat's channel (ChannelPublic, …),
+	// "" when it is not known (0037).
+	ChannelPrivacy string
+	// DeletedAt is set on a mirrored chat its owner deleted (0036). It stays in the database
+	// as the conversation's record, and is nobody's but the dev token's.
+	DeletedAt *time.Time
 	// Login owns the chat, and is empty for a MIRRORED conversation: a Slack thread
 	// belongs to the workspace rather than to a Podium identity. Empty is what makes it
 	// readable by every login and renameable and deletable by none, because both of those
@@ -592,7 +677,7 @@ type Chat struct {
 	// Participants is everyone who has spoken, first appearance first. Loaded for one chat
 	// and not for a list: it is a second query per conversation and the list only needs
 	// StartedBy.
-	Participants []string
+	Participants []ChatParticipant
 	CreatedAt    time.Time
 	// ChatChoice is what this chat is answered on, remembered so a model is picked once per
 	// conversation rather than on every message.
@@ -618,6 +703,23 @@ type Chat struct {
 	// PersonalityDisplay is that assistant's display name at the moment the chat was
 	// opened, so a deleted assistant's threads stay labeled.
 	PersonalityDisplay string
+	// SourceKey is the conductor session this chat is the record of: chat:<id> for a web
+	// chat, the Slack thread or the pull request for a mirrored one. The API reads the
+	// conversation's surfaces from it.
+	SourceKey string
+	// Multiplayer is sticky (0034): set once a chat has had a second Podium person in it, is
+	// shared, or mirrors a conversation that lives elsewhere. A web message must then tag
+	// Podium to start a turn.
+	Multiplayer bool
+	// GeneralAccess is who beyond the named grants may open it (0035): AccessRestricted,
+	// AccessMembers or AccessLink. GeneralRole is what they get: RoleViewer or RoleEditor.
+	GeneralAccess string
+	GeneralRole   string
+	// LinkToken is the secret in a link share, or "" before link sharing was first turned
+	// on. Only the owner is ever shown it; the API strips it for everybody else.
+	LinkToken string
+	// Sharing is the caller's relationship to the chat, filled by ListChats (phase 5).
+	Sharing ChatSharing
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -646,6 +748,62 @@ type ChatMessage struct {
 	// what lets a reader tell the three kinds of progress apart: the assistant thinking on
 	// this host, the conductor announcing a delegation, and a delegated task talking.
 	TaskID string
+
+	// AuthorLogin is the Podium person who said it. Empty for somebody who is not in Podium,
+	// and for the bot. AuthorHandle and AuthorAvatar are what the UI draws beside the name:
+	// a GitHub @handle, a Slack display name's avatar.
+	AuthorLogin  string
+	AuthorHandle string
+	AuthorAvatar string
+	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaBot).
+	// Empty on a write means ViaWeb for a user message and ViaBot for anything else.
+	Via string
+	// ExternalID is the message's identity on its own surface, and empty for a web message.
+	// ExternalURL links back to it.
+	ExternalID  string
+	ExternalURL string
+	// Addressed is whether the message was put to Podium. Only an addressed message ever
+	// starts a turn; the rest are the conversation around it.
+	Addressed bool
+	// EditedAt and DeletedAt are an edit or a delete made on the surface. A deleted message
+	// keeps its text in the store; the API and the transcript do not hand it out.
+	EditedAt  *time.Time
+	DeletedAt *time.Time
+	// Mentions is the Podium logins the message named with the composer's person chip
+	// (0034), for phase 5's notifications. Empty for everything but a web message.
+	Mentions []string
+	// Deliveries is where the bot's message was owed beyond the web chat, and how that went:
+	// the chat_outbox rows behind it (0033). Read with the message, never written with it.
+	// Empty for every message that is not the bot's answer in a conversation living elsewhere.
+	Deliveries []MessageDelivery
+}
+
+// MessageDelivery is one surface a bot message was owed to.
+type MessageDelivery struct {
+	SurfaceKind string
+	Status      string
+	Attempts    int
+	LastError   string
+}
+
+// The surfaces a chat message can come in through.
+const (
+	ViaWeb    = "web"
+	ViaSlack  = "slack"
+	ViaGitHub = "github"
+	// ViaBot is what the conductor itself wrote: an answer, a progress line, a failure.
+	ViaBot = "bot"
+)
+
+// via is the surface a message is stored under when the writer did not say.
+func (m ChatMessage) via() string {
+	if m.Via != "" {
+		return m.Via
+	}
+	if m.Role == "user" {
+		return ViaWeb
+	}
+	return ViaBot
 }
 
 // CreateChat opens a Podium chat owned by login. An empty title becomes DefaultChatTitle,
@@ -741,15 +899,6 @@ func (s *Store) ChatBySourceKey(ctx context.Context, sourceKey string) (Chat, er
 	return chatFromRow(row), nil
 }
 
-// ChatParticipants is everyone who has spoken in a chat, first appearance first.
-func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
-	rows, err := s.q.ChatParticipants(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("list participants of chat %s: %w", chatID, err)
-	}
-	return rows, nil
-}
-
 // RenameChat sets the title of one of login's chats. shared is the dev token, and it is
 // what lets that token rename a mirrored thread. Another login's web chat is not found,
 // the same as every other chat read: knowing the id is not access. The row it returns has
@@ -793,9 +942,12 @@ func (s *Store) GetChat(ctx context.Context, id string) (Chat, error) {
 // ListChatsScope narrows a list to one assistant. The zero value lists every chat the
 // caller can already see. FilterPersonality with an empty PersonalityID is Podium:
 // only rows whose personality_id is null. A set id matches that assistant.
+//
+// Section is one of the Section constants (phase 5); empty is SectionMine.
 type ListChatsScope struct {
 	FilterPersonality bool
 	PersonalityID     string
+	Section           string
 }
 
 // ListChats returns chats newest first. all is the dev token and returns every chat,
@@ -811,10 +963,14 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 	if len(scope) > 0 {
 		sc = scope[0]
 	}
+	if !validSection(sc.Section) {
+		return nil, "", fmt.Errorf("list chats: %w: %q", ErrInvalidSection, sc.Section)
+	}
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
 		IncludeAll:        all,
-		Login:             &login,
+		Viewer:            login,
+		Section:           sc.Section,
 		AfterID:           cursor,
 		FilterPersonality: sc.FilterPersonality,
 		PersonalityID:     sc.PersonalityID,
@@ -842,6 +998,16 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			Channel:            r.Channel,
 			PersonalityID:      deref(r.PersonalityID),
 			PersonalityDisplay: r.PersonalityDisplay,
+			SourceKey:          deref(r.SourceKey),
+			Multiplayer:        r.Multiplayer,
+			GeneralAccess:      r.GeneralAccess,
+			GeneralRole:        r.GeneralRole,
+			LinkToken:          deref(r.LinkToken),
+			RoutineID:          deref(r.RoutineID),
+			Sharing: ChatSharing{
+				MyRole: r.MyRole, AccessReason: r.AccessReason,
+				SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
+			},
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -860,6 +1026,14 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 // AppendChatMessage stores one message and gives it the chat's next seq. The seq comes from
 // the insert itself, so two concurrent appends get two seqs rather than one collision.
 func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMessage, error) {
+	return s.appendChatMessage(ctx, msg, true)
+}
+
+// appendChatMessage is AppendChatMessage with Addressed decided by the caller. Append itself
+// always stores true: everything that appends without saying otherwise — a web send, an
+// answer, a progress line — was put to Podium or written by it. RecordChatMessage is the
+// writer that says otherwise, and it passes msg.Addressed through.
+func (s *Store) appendChatMessage(ctx context.Context, msg ChatMessage, addressed bool) (ChatMessage, error) {
 	raw, err := marshalAttachments(msg.Attachments)
 	if err != nil {
 		return ChatMessage{}, err
@@ -869,18 +1043,170 @@ func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		ts = time.Now().UTC()
 	}
 	row, err := s.q.AppendChatMessage(ctx, db.AppendChatMessageParams{
-		ChatID:      msg.ChatID,
-		Role:        msg.Role,
-		Text:        msg.Text,
-		Attachments: raw,
-		Ts:          ts,
-		Author:      msg.Author,
-		TaskID:      msg.TaskID,
+		ChatID:       msg.ChatID,
+		Role:         msg.Role,
+		Text:         msg.Text,
+		Attachments:  raw,
+		Ts:           ts,
+		Author:       msg.Author,
+		TaskID:       msg.TaskID,
+		AuthorLogin:  nullable(msg.AuthorLogin),
+		AuthorHandle: msg.AuthorHandle,
+		AuthorAvatar: msg.AuthorAvatar,
+		Via:          msg.via(),
+		ExternalID:   nullable(msg.ExternalID),
+		ExternalUrl:  msg.ExternalURL,
+		Addressed:    addressed,
+		Mentions:     nonNilStrings(msg.Mentions),
 	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: chat %s", ErrNotFound, msg.ChatID)
+	}
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("append %s message to chat %s: %w", msg.Role, msg.ChatID, err)
 	}
 	return chatMessageFromRow(row)
+}
+
+// RecordChatMessage stores a message that has an identity on its own surface, once. It
+// reports false, and writes nothing, when that message is already in the chat: the same
+// Slack event retried, a GitHub webhook redelivered, two conductors hearing one event. The
+// caller starts a turn only on true, which is what makes "record it" and "act on it" one
+// decision rather than two that can disagree.
+//
+// A message with no ExternalID cannot be recognised a second time, so it is simply appended.
+func (s *Store) RecordChatMessage(ctx context.Context, msg ChatMessage) (ChatMessage, bool, error) {
+	if msg.ExternalID == "" {
+		row, err := s.appendChatMessage(ctx, msg, msg.Addressed)
+		return row, err == nil, err
+	}
+	raw, err := marshalAttachments(msg.Attachments)
+	if err != nil {
+		return ChatMessage{}, false, err
+	}
+	ts := msg.TS
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	row, err := s.q.RecordChatMessage(ctx, db.RecordChatMessageParams{
+		ChatID:       msg.ChatID,
+		Role:         msg.Role,
+		Text:         msg.Text,
+		Attachments:  raw,
+		Ts:           ts,
+		Author:       msg.Author,
+		TaskID:       msg.TaskID,
+		AuthorLogin:  nullable(msg.AuthorLogin),
+		AuthorHandle: msg.AuthorHandle,
+		AuthorAvatar: msg.AuthorAvatar,
+		Via:          msg.via(),
+		ExternalID:   msg.ExternalID,
+		ExternalUrl:  msg.ExternalURL,
+		Addressed:    msg.Addressed,
+		Mentions:     nonNilStrings(msg.Mentions),
+	})
+	if noRows(err) {
+		// Either the message is already here, or the chat is not. The chat is the caller's
+		// own (it just found or made it), so this is the duplicate.
+		return ChatMessage{}, false, nil
+	}
+	if err != nil {
+		return ChatMessage{}, false, fmt.Errorf("record %s message %s in chat %s: %w",
+			msg.Via, msg.ExternalID, msg.ChatID, err)
+	}
+	out, err := chatMessageFromRow(row)
+	return out, err == nil, err
+}
+
+// EditChatMessage applies an edit made on a message's own surface. ErrNotFound means the
+// message was never recorded — said before the chat existed, or in a thread Podium does not
+// hold — and there is nothing to change.
+func (s *Store) EditChatMessage(
+	ctx context.Context, chatID, via, externalID, text string, at time.Time,
+) (ChatMessage, error) {
+	row, err := s.q.EditChatMessageByExternal(ctx, db.EditChatMessageByExternalParams{
+		ChatID: chatID, Via: via, ExternalID: externalID, Text: text, EditedAt: &at,
+	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %s/%s in chat %s", ErrNotFound, via, externalID, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("edit message %s/%s in chat %s: %w", via, externalID, chatID, err)
+	}
+	return chatMessageFromRow(row)
+}
+
+// DeleteChatMessage marks a message deleted on its own surface. The row and its text stay.
+func (s *Store) DeleteChatMessage(
+	ctx context.Context, chatID, via, externalID string, at time.Time,
+) (ChatMessage, error) {
+	row, err := s.q.DeleteChatMessageByExternal(ctx, db.DeleteChatMessageByExternalParams{
+		ChatID: chatID, Via: via, ExternalID: externalID, DeletedAt: &at,
+	})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %s/%s in chat %s", ErrNotFound, via, externalID, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("delete message %s/%s in chat %s: %w", via, externalID, chatID, err)
+	}
+	return chatMessageFromRow(row)
+}
+
+// GetChatMessage reads one message by its seq.
+func (s *Store) GetChatMessage(ctx context.Context, chatID string, seq uint64) (ChatMessage, error) {
+	if seq > 1<<62 {
+		return ChatMessage{}, fmt.Errorf("chat %s: seq %d overflows bigint", chatID, seq)
+	}
+	row, err := s.q.GetChatMessage(ctx, db.GetChatMessageParams{ChatID: chatID, Seq: int64(seq)})
+	if noRows(err) {
+		return ChatMessage{}, fmt.Errorf("%w: message %d of chat %s", ErrNotFound, seq, chatID)
+	}
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("get message %d of chat %s: %w", seq, chatID, err)
+	}
+	msg, err := chatMessageFromRow(row)
+	if err != nil {
+		return ChatMessage{}, err
+	}
+	out := []ChatMessage{msg}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return ChatMessage{}, err
+	}
+	return out[0], nil
+}
+
+// attachDeliveries fills Deliveries on the bot's messages in msgs from one read of the
+// chat's outbox. A chat with no bot messages is not read at all.
+func (s *Store) attachDeliveries(ctx context.Context, chatID string, msgs []ChatMessage) error {
+	bot := false
+	for _, m := range msgs {
+		if m.Via == ViaBot {
+			bot = true
+			break
+		}
+	}
+	if !bot {
+		return nil
+	}
+	items, err := s.ListChatOutbox(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	bySeq := map[uint64][]MessageDelivery{}
+	for _, it := range items {
+		bySeq[it.MessageSeq] = append(bySeq[it.MessageSeq], MessageDelivery{
+			SurfaceKind: it.SurfaceKind, Status: it.Status, Attempts: it.Attempts, LastError: it.LastError,
+		})
+	}
+	for i := range msgs {
+		if d, ok := bySeq[msgs[i].Seq]; ok && msgs[i].Via == ViaBot {
+			msgs[i].Deliveries = d
+		}
+	}
+	return nil
 }
 
 // ListChatMessages returns a chat's messages with seq > fromSeq, in seq order. fromSeq is
@@ -902,6 +1228,9 @@ func (s *Store) ListChatMessages(ctx context.Context, chatID string, fromSeq uin
 			return nil, err
 		}
 		out = append(out, msg)
+	}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -1012,16 +1341,63 @@ func chatFromRow(row db.Chat) Chat {
 		Channel:            row.Channel,
 		PersonalityID:      deref(row.PersonalityID),
 		PersonalityDisplay: row.PersonalityDisplay,
+		SourceKey:          deref(row.SourceKey),
+		Multiplayer:        row.Multiplayer,
+		GeneralAccess:      row.GeneralAccess,
+		GeneralRole:        row.GeneralRole,
+		LinkToken:          deref(row.LinkToken),
+		DeletedAt:          row.DeletedAt,
+		ChannelPrivacy:     row.ChannelPrivacy,
+		SourceURL:          row.SourceUrl,
+		HistorySeeded:      row.HistorySeeded,
+		StartedFromChat:    deref(row.StartedFromChat),
+		RoutineID:          deref(row.RoutineID),
 	}
+}
+
+// SetChatStartedFrom records that turnID opened chatID from the conversation fromChat ("" when
+// that conversation has no chat row).
+func (s *Store) SetChatStartedFrom(ctx context.Context, chatID, fromChat, turnID string) (Chat, error) {
+	row, err := s.q.SetChatStartedFrom(ctx, db.SetChatStartedFromParams{
+		ID: chatID, StartedFromChat: nullable(fromChat), StartedByTurn: &turnID,
+	})
+	if noRows(err) {
+		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, chatID)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("record where chat %s was started from: %w", chatID, err)
+	}
+	return chatFromRow(row), nil
+}
+
+// CountChatsStartedByTurn is how many chats one turn has opened.
+func (s *Store) CountChatsStartedByTurn(ctx context.Context, turnID string) (int, error) {
+	n, err := s.q.CountChatsStartedByTurn(ctx, turnID)
+	if err != nil {
+		return 0, fmt.Errorf("count the chats turn %s opened: %w", turnID, err)
+	}
+	return int(n), nil
 }
 
 // ChatTurnRunning reports whether a turn of this chat is in flight. It is the server-side
 // half of "one turn at a time per conversation": the UI disables the composer, and this is
 // what makes a second send impossible rather than unlikely.
 func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error) {
-	running, err := s.q.ChatTurnRunning(ctx, ChatSourceKey(chatID))
+	// The chat's own session key, not chat:<id>: a mirrored conversation's session is its
+	// Slack thread or pull request, and a turn running there is running in this chat too.
+	running, err := s.q.ChatTurnRunning(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("read whether a turn of chat %s is running: %w", chatID, err)
+	}
+	return running, nil
+}
+
+// ChatTaskRunning reports whether a task this chat delegated is still running. It fills
+// Chat.TaskRunning for a chat read on its own (GetChat), which the list query computes inline.
+func (s *Store) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
+	running, err := s.q.ChatTaskRunning(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("read whether a task of chat %s is running: %w", chatID, err)
 	}
 	return running, nil
 }
@@ -1030,29 +1406,46 @@ func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error
 // in flight, when the chat has never had a turn, and when the turn row exists but
 // CreateTask has not answered yet — there is then nothing to cancel.
 func (s *Store) RunningChatTask(ctx context.Context, chatID string) (string, error) {
-	sess, err := s.GetSessionByKey(ctx, ChatSourceKey(chatID))
+	turn, ok, err := s.RunningChatTurn(ctx, chatID)
+	if err != nil || !ok {
+		return "", err
+	}
+	return turn.TaskID, nil
+}
+
+// RunningChatTurn is the turn currently answering this chat's session, whichever surface
+// started it. ok is false when nothing is running.
+func (s *Store) RunningChatTurn(ctx context.Context, chatID string) (Turn, bool, error) {
+	key := ChatSourceKey(chatID)
+	if chat, err := s.GetChat(ctx, chatID); err == nil && chat.SourceKey != "" {
+		key = chat.SourceKey
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return Turn{}, false, err
+	}
+	sess, err := s.GetSessionByKey(ctx, key)
 	if errors.Is(err, ErrNotFound) {
-		return "", nil
+		return Turn{}, false, nil
 	}
 	if err != nil {
-		return "", err
+		return Turn{}, false, err
 	}
 	turns, err := s.ListTurns(ctx, sess.ID, 1)
 	if err != nil {
-		return "", err
+		return Turn{}, false, err
 	}
 	if len(turns) == 0 || turns[0].Status != TurnRunning {
-		return "", nil
+		return Turn{}, false, nil
 	}
-	return turns[0].TaskID, nil
+	return turns[0], true, nil
 }
 
-// DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
-// ErrNotFound means it was not there or not theirs: the two are the same answer so the
-// existence of another login's chat is not leaked. shared is the dev token removing a
-// mirrored copy; the thread itself lives in Slack and is mirrored afresh by its next
-// message. Sessions and turns are left alone — they are the audit of the work, not the
-// transcript.
+// DeleteChat deletes one login's chat for everyone. A web chat is removed with every message
+// in it (ON DELETE CASCADE). A mirrored chat is tombstoned instead (0036): Podium's record of a
+// Slack thread or a pull request would otherwise be opened afresh by the conversation's next
+// message, and a delete that comes back is not a delete. ErrNotFound means it was not there or
+// not theirs: the two are the same answer so the existence of another login's chat is not
+// leaked. shared is the dev token deleting a mirrored chat nobody owns. Sessions and turns are
+// left alone — they are the audit of the work, not the transcript.
 func (s *Store) DeleteChat(ctx context.Context, id, login string, shared bool) error {
 	if login == "" {
 		return errors.New("delete chat: a login is required")
@@ -1063,6 +1456,14 @@ func (s *Store) DeleteChat(ctx context.Context, id, login string, shared bool) e
 	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: &login, IncludeShared: shared})
 	if err != nil {
 		return fmt.Errorf("delete chat %s: %w", id, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	n, err = s.q.TombstoneChat(ctx, db.TombstoneChatParams{ID: id, Login: &login, IncludeShared: shared, DeletedAt: &now})
+	if err != nil {
+		return fmt.Errorf("delete mirrored chat %s: %w", id, err)
 	}
 	if n == 0 {
 		return fmt.Errorf("%w: chat %s", ErrNotFound, id)
@@ -1194,6 +1595,21 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		TS:     r.Ts.UTC(),
 		Author: r.Author,
 		TaskID: r.TaskID,
+
+		AuthorHandle: r.AuthorHandle,
+		AuthorAvatar: r.AuthorAvatar,
+		Via:          r.Via,
+		ExternalURL:  r.ExternalUrl,
+		Addressed:    r.Addressed,
+		EditedAt:     utcPtr(r.EditedAt),
+		DeletedAt:    utcPtr(r.DeletedAt),
+		Mentions:     r.Mentions,
+	}
+	if r.AuthorLogin != nil {
+		msg.AuthorLogin = *r.AuthorLogin
+	}
+	if r.ExternalID != nil {
+		msg.ExternalID = *r.ExternalID
 	}
 	if len(r.Attachments) > 0 {
 		if err := json.Unmarshal(r.Attachments, &msg.Attachments); err != nil {
@@ -1231,4 +1647,21 @@ func preview(text string, limit int) string {
 	}
 	runes := []rune(text)
 	return strings.TrimRight(string(runes[:limit]), " \t\n") + "…"
+}
+
+// nullable is a text column's value for an empty Go string: NULL, not ”.
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// nonNilStrings is s, or an empty slice: a nil slice is NULL to Postgres, and an array column
+// that is NOT NULL refuses it.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

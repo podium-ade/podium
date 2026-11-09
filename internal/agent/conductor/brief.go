@@ -82,9 +82,19 @@ type Brief struct {
 	// Absent means this conductor has no GitHub App, or this playbook has no repositories
 	// to mint for, and the older path — a playbook naming its own token secret — applies.
 	GitCredentials *BriefGitCredentials `json:"git_credentials,omitempty"`
-	Memory         *BriefMemory         `json:"memory,omitempty"`
-	Browser        *BriefBrowser        `json:"browser,omitempty"`
-	Provider       *BriefProvider       `json:"provider,omitempty"`
+	// RequestedBy is "Name <login>" when this turn writes to GitHub as the App on someone's
+	// behalf. The runtime puts it on every commit as a Requested-by trailer through a
+	// commit-msg hook on every git it runs, so the attribution does not rest on the model
+	// remembering an instruction. Empty when the turn commits as the person themselves.
+	RequestedBy string        `json:"requested_by,omitempty"`
+	Memory      *BriefMemory  `json:"memory,omitempty"`
+	Browser     *BriefBrowser `json:"browser,omitempty"`
+	// Desktop says this turn runs on a desktop playbook's desktop, already up when the turn
+	// starts, which a person watches and can take over. The runtime tells the model so: a
+	// task's prompt otherwise says nobody is watching, and a model told nothing about the
+	// desktop spent its first steps looking for a display server to start.
+	Desktop  bool           `json:"desktop,omitempty"`
+	Provider *BriefProvider `json:"provider,omitempty"`
 	// Delegation is present only on a HOST turn's brief. A task's brief never carries one,
 	// which is what stops a delegated task delegating again.
 	Delegation *BriefDelegation `json:"delegation,omitempty"`
@@ -93,6 +103,9 @@ type Brief struct {
 	// prompt tells a container turn it has a disposable filesystem and may leave files to
 	// be attached, and both of those are false on a host.
 	RunsOn string `json:"runs_on,omitempty"`
+	// Routine is set on a turn in a routine's chat: a scheduled run, or the owner's own
+	// message there. See routine.go.
+	Routine *BriefRoutine `json:"routine,omitempty"`
 }
 
 // RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a
@@ -167,6 +180,12 @@ type BriefPlaybook struct {
 	// writes the harness one entry per server here and no others — so a playbook that names
 	// none has no MCP tools beyond the ones the conductor wires up itself.
 	MCPServers []BriefMCPServer `json:"mcp_servers,omitempty"`
+	// UnavailableMCPServers is the servers the ASSISTANT names that this turn does not get —
+	// not registered, not connected by this person, turned off. The runtime wires none of
+	// them up; the prompt names them so the agent can say it has no access instead of the
+	// turn failing. Always absent for a playbook, whose turn fails on such a server instead,
+	// and absent when every named server resolved.
+	UnavailableMCPServers []BriefUnavailableMCPServer `json:"unavailable_mcp_servers,omitempty"`
 	// Interactive is true when this turn may ask a human a question and wait. Absent
 	// (false) is the default: the runtime has no ask tool and the prompt says so.
 	Interactive bool `json:"interactive,omitempty"`
@@ -194,6 +213,13 @@ type BriefMCPServer struct {
 	// Config is the server's JSON config, parsed (mcp.ParseConfig). The runtime merges it
 	// into the harness's entry for this server.
 	Config map[string]any `json:"config,omitempty"`
+}
+
+// BriefUnavailableMCPServer is one named server this turn runs without, and why, in words
+// the agent repeats to the person.
+type BriefUnavailableMCPServer struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // BriefSkill names one Agent Skill the turn may use. It carries a NAME and a DIGEST, never
@@ -274,6 +300,9 @@ type BriefDelegation struct {
 	// Previews is this conversation's finished tasks whose environment is still up, so a
 	// person saying they are done with one can be taken at their word.
 	Previews []BriefPreview `json:"previews,omitempty"`
+	// Routines is set when the turn may set up a routine for the person it answers
+	// (create_routine): a web chat that is not itself a routine's.
+	Routines bool `json:"routines,omitempty"`
 }
 
 // BriefPreview is one finished delegated task of this conversation that is still up.

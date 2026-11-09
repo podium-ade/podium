@@ -129,7 +129,7 @@ func withMemory(client memory.Client) func(*conductor.Options) {
 // turn needs. Everything else about it matches the dev events the other tests use.
 func slackish(ref, text string) conductor.InboundEvent {
 	channel, thread, _ := strings.Cut(ref, "/")
-	return conductor.InboundEvent{
+	return asSlackSpeaker(conductor.InboundEvent{
 		SourceKind: conductor.SourceSlack,
 		SourceKey:  conductor.SourceSlack + ":" + channel + ":" + thread,
 		Ref:        ref,
@@ -139,7 +139,7 @@ func slackish(ref, text string) conductor.InboundEvent {
 		TS:         time.Now().UTC(),
 		URL:        "https://example.slack.com/archives/" + channel + "/p11",
 		BriefKind:  conductor.SourceSlack,
-	}
+	})
 }
 
 // answering is a fake control plane whose one task says `text` as its final.

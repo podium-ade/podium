@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, ChatPullRequest } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage, ChatPullRequest, QueuedTurn } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
 /** MAX_BACKOFF_MS caps the wait between reconnects. */
@@ -28,9 +28,25 @@ export interface ChatStreamState {
    * and there is nothing to merge.
    */
   pullRequests: ChatPullRequest[];
+  /**
+   * pullRequestsKnown is true once the stream has sent the set. It is sent at the start of
+   * every stream, so until then an empty list means "not heard yet", not "none".
+   */
+  pullRequestsKnown: boolean;
+  /**
+   * queue is the turns waiting behind the one in flight, oldest first (phase 4). Like the
+   * pull requests, every frame is the whole set.
+   */
+  queue: QueuedTurn[];
   /** taskId is the Podium task the running turn is using, when the stream said so. */
   taskId?: string;
   phase: ChatPhase;
+  /**
+   * replayed is true once the stream has delivered the transcript so far. The status, chat
+   * and pull-request frames come before the replay, so until then "no messages" does not
+   * mean an empty chat. It stays true across a reconnect: what was replayed is still here.
+   */
+  replayed: boolean;
   error?: string;
   /** gone is true when StreamChat answered NotFound: deleted, or never this login's. */
   gone?: boolean;
@@ -46,9 +62,12 @@ interface Keyed extends ChatStreamState {
 const empty: ChatStreamState = {
   messages: [],
   pullRequests: [],
+  pullRequestsKnown: false,
+  queue: [],
   running: false,
   awaiting: false,
   phase: "connecting",
+  replayed: false,
 };
 
 /**
@@ -69,7 +88,7 @@ const empty: ChatStreamState = {
  *   The stream is torn down and reopened from the last seq seen, and the replay delivers
  *   whatever was missed.
  */
-export function useChatStream(chatId: string): ChatStreamState {
+export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
   const [state, setState] = useState<Keyed>({ ...empty, chatId });
 
   useEffect(() => {
@@ -90,7 +109,9 @@ export function useChatStream(chatId: string): ChatStreamState {
       while (!ctrl.signal.aborted) {
         try {
           for await (const frame of agent.streamChat(
-            { chatId, fromSeq: lastSeq },
+            // linkToken is a share link's k= (phase 5): with it the server lets a signed-in
+            // person open a chat shared by link, and writes them a row so they keep it.
+            linkToken ? { chatId, fromSeq: lastSeq, linkToken } : { chatId, fromSeq: lastSeq },
             { signal: ctrl.signal },
           )) {
             backoff = BASE_BACKOFF_MS;
@@ -140,6 +161,7 @@ export function useChatStream(chatId: string): ChatStreamState {
                   phase: "streaming",
                   error: undefined,
                   pullRequests: set,
+                  pullRequestsKnown: true,
                 }));
                 break;
               }
@@ -149,10 +171,26 @@ export function useChatStream(chatId: string): ChatStreamState {
                   ...prev,
                   phase: "streaming",
                   error: undefined,
-                  chat: row,
+                  // shared_with_me and my_role are per viewer; the server works both out
+                  // again for this viewer on every chat frame (phase 5), so a share or an
+                  // unshare reaches this screen. An older server left them off later frames,
+                  // so an empty value keeps what the first frame said.
+                  chat: {
+                    ...row,
+                    sharedWithMe: row.sharedWithMe || (prev.chat?.sharedWithMe ?? false),
+                    myRole: row.myRole || (prev.chat?.myRole ?? ""),
+                  },
                 }));
                 break;
               }
+              case "queue": {
+                const turns = frame.frame.value.turns;
+                update((prev) => ({ ...prev, phase: "streaming", error: undefined, queue: turns }));
+                break;
+              }
+              case "replayed":
+                update((prev) => ({ ...prev, phase: "streaming", error: undefined, replayed: true }));
+                break;
               case "resync":
                 // Reopen from the last seq seen; the replay is the catch-up.
                 throw new Resync();
@@ -179,7 +217,7 @@ export function useChatStream(chatId: string): ChatStreamState {
     })();
 
     return () => ctrl.abort();
-  }, [chatId]);
+  }, [chatId, linkToken]);
 
   return state.chatId === chatId ? state : empty;
 }

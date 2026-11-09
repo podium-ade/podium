@@ -73,6 +73,47 @@ func (q *Queries) SetChatChannel(ctx context.Context, arg SetChatChannelParams) 
 	return err
 }
 
+const setChatChannelPrivacy = `-- name: SetChatChannelPrivacy :exec
+update chats set channel_privacy = $1 where id = $2
+`
+
+type SetChatChannelPrivacyParams struct {
+	ChannelPrivacy string
+	ID             string
+}
+
+// SetChatChannelPrivacy records what Slack says about a mirrored chat's channel (0037).
+func (q *Queries) SetChatChannelPrivacy(ctx context.Context, arg SetChatChannelPrivacyParams) error {
+	_, err := q.db.Exec(ctx, setChatChannelPrivacy, arg.ChannelPrivacy, arg.ID)
+	return err
+}
+
+const setChatHistorySeeded = `-- name: SetChatHistorySeeded :exec
+update chats set history_seeded = true where id = $1
+`
+
+// SetChatHistorySeeded marks a mirrored chat whose record now starts where its
+// conversation did.
+func (q *Queries) SetChatHistorySeeded(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, setChatHistorySeeded, id)
+	return err
+}
+
+const setChatSourceURL = `-- name: SetChatSourceURL :exec
+update chats set source_url = $1 where id = $2
+`
+
+type SetChatSourceURLParams struct {
+	SourceUrl string
+	ID        string
+}
+
+// SetChatSourceURL records the link to a mirrored chat's conversation where it lives (0038).
+func (q *Queries) SetChatSourceURL(ctx context.Context, arg SetChatSourceURLParams) error {
+	_, err := q.db.Exec(ctx, setChatSourceURL, arg.SourceUrl, arg.ID)
+	return err
+}
+
 const setSlackChannelDescription = `-- name: SetSlackChannelDescription :execrows
 update slack_channels
 set description = $1,

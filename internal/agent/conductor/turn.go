@@ -206,14 +206,20 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
 	r.linkPullRequests(ctx, answer)
+	// A routine run that found nothing to do is kept in its chat only quietly (finish writes
+	// what it held as rows that are not history) and nothing of it goes to shared memory.
+	idle := r.c.routineIdle(r.ref)
 	r.c.finish(ctx, r.src, r.ref, reactionFor(status))
+	r.c.forgetRoutineTurn(r.turn.ID)
 	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.job.name, status).Inc()
 	r.c.metrics.TurnDuration.WithLabelValues(r.job.name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
 		"status", status, "playbook", r.job.name)
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
-	r.retain(ctx, status)
+	if !idle {
+		r.retain(ctx, status)
+	}
 }
 
 // linkPullRequests hands the source the pull requests this turn's answer named.

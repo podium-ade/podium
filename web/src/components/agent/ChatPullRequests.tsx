@@ -6,6 +6,7 @@ import { agent, errorMessage } from "../../lib/client";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Skeleton } from "../ui/skeleton";
 import { Tooltip } from "../ui/tooltip";
 
 /**
@@ -23,9 +24,34 @@ import { Tooltip } from "../ui/tooltip";
 export function ChatPullRequests({
   chatId,
   pullRequests,
+  leading,
+  trailing,
+  loading = false,
+  expect,
 }: {
   chatId: string;
   pullRequests: ChatPullRequest[];
+  /**
+   * leading is drawn at the start of the bar: who is in the conversation and where it lives
+   * (ChatPeople). With it, an empty set says nothing rather than a sentence, so the bar is
+   * the people and the attach button, and one row instead of two.
+   */
+  leading?: React.ReactNode;
+  /** trailing is drawn at the end, before the attach button: the faces of who is in it. */
+  trailing?: React.ReactNode;
+  /**
+   * loading is true until the stream has said what this chat is and what it produced. The bar
+   * keeps its height and draws nothing, rather than the empty state and the attach button
+   * for a moment before the pull request the chat is about arrives.
+   */
+  loading?: boolean;
+  /**
+   * expect is what the row will hold once it loads, as far as the chat list already knows:
+   * a surface chip for a conversation that lives elsewhere, faces for one with other people
+   * in it. While loading those are drawn as placeholders in their places, shimmering like
+   * the transcript's, so the row fills in rather than appearing.
+   */
+  expect?: { surface: boolean; people: boolean };
 }) {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
@@ -51,6 +77,10 @@ export function ChatPullRequests({
     mutationFn: (url: string) => agent.detachChatPullRequest({ chatId, url }),
     onError: (err) => toast(errorMessage(err)),
   });
+
+  if (loading) {
+    return <BarLoading surface={expect?.surface ?? false} people={expect?.people ?? false} />;
+  }
 
   if (adding) {
     return (
@@ -100,10 +130,18 @@ export function ChatPullRequests({
     );
   }
 
+  // With anything else on the row, an empty set says nothing: the attach button is enough.
+  const quiet = (leading !== undefined || trailing !== undefined) && pullRequests.length === 0;
   return (
     <Bar>
-      <GitPullRequest aria-hidden className="size-3.5 shrink-0 text-faint" />
-      {pullRequests.length === 0 ? (
+      {leading}
+      {leading !== undefined && pullRequests.length > 0 ? (
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+      ) : null}
+      {quiet ? null : <GitPullRequest aria-hidden className="size-3.5 shrink-0 text-faint" />}
+      {quiet ? (
+        <span className="min-w-0 flex-1" />
+      ) : pullRequests.length === 0 ? (
         <span className="min-w-0 flex-1 truncate text-2xs text-faint">
           No pull requests yet. A turn that opens one links it here.
         </span>
@@ -123,6 +161,7 @@ export function ChatPullRequests({
           ))}
         </ul>
       )}
+      {trailing}
       <Tooltip label="Attach a pull request">
         <Button
           type="button"
@@ -139,13 +178,38 @@ export function ChatPullRequests({
   );
 }
 
-/** Bar is the fixed-height row itself, so both states are exactly the same height. */
-function Bar({ children }: { children: React.ReactNode }) {
+/**
+ * BarLoading is the row before the stream has said what is on it: placeholders for a surface
+ * chip at the left and faces and the attach button at the right, where they will land. A
+ * plain web chat expects neither and is an empty row of the same height.
+ */
+function BarLoading({ surface, people }: { surface: boolean; people: boolean }) {
+  let n = 0;
+  // The same wave as the transcript skeleton: each shape's shimmer a beat after the last.
+  const wave = () => ({ animationDelay: `${n++ * 90}ms` });
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-hairline px-5">
-      {children}
-    </div>
+    <Bar>
+      <div aria-busy="true" aria-label="Loading" className="flex min-w-0 flex-1 animate-in items-center fade-in-0 duration-300">
+        {surface ? <Skeleton className="h-6 w-40 rounded-full" style={wave()} /> : null}
+        <span className="flex-1" />
+        {people ? (
+          <span className="flex items-center gap-2">
+            <Skeleton className="size-7 rounded-full" style={wave()} />
+            <Skeleton className="size-6 rounded-md" style={wave()} />
+          </span>
+        ) : null}
+      </div>
+    </Bar>
   );
+}
+
+/**
+ * Bar is the fixed-height row itself, so both states are exactly the same height. It runs the
+ * pane's full width, edge to edge like the title row above it: where the conversation lives
+ * at the far left, its people and the attach button at the far right.
+ */
+function Bar({ children }: { children: React.ReactNode }) {
+  return <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hairline px-5">{children}</div>;
 }
 
 /**

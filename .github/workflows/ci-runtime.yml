@@ -1,0 +1,54 @@
+name: ci / runtime
+
+# The agent runtime (agent/runtime) is what every turn runs: it decodes the conductor's brief,
+# checks the repositories out, installs the Requested-by commit hook, and drives the harness.
+# Until this workflow its tests ran only at release, so a brief change the conductor made on
+# a pull request could merge with a runtime that refuses it. The image tests (test:images)
+# need Docker and stay in release.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "agent/runtime/**"
+      - "internal/agent/conductor/brief.go" # the Go mirror of the brief the runtime decodes
+      - ".github/workflows/ci-runtime.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: runtime typecheck / test / build
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: agent/runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.10.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agent/runtime/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      # requestedby.test.ts drives real git; the runner has it, and each test configures the
+      # repositories it makes, so no global identity is needed.
+      - run: pnpm test
+      - run: pnpm build

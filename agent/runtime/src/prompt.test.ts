@@ -172,6 +172,82 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("tells a scheduled routine run to finish idle or done, with its state and notes", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [] },
+      playbook: {
+        ...golden().playbook,
+        mcp_servers: [{ name: "github-read", url: "http://h/v1/mcp/github-read", token_env: "T" }],
+      },
+      routine: {
+        id: "rtn_1",
+        name: "Morning digest",
+        schedule: "weekdays at 09:00",
+        scheduled: true,
+        notes: "- skip drafts",
+        state: { seen: ["acme/api#42@abc"] },
+        idle_runs: 3,
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("scheduled run of a routine");
+    expect(prompt).toContain("Morning digest");
+    expect(prompt).toContain("- skip drafts");
+    expect(prompt).toContain("acme/api#42@abc");
+    expect(prompt).toContain("The last 3 runs found nothing to do.");
+    expect(prompt).toContain("podium_routine_finish");
+    expect(prompt).toContain("`github-read` tools");
+    // Nothing to delegate to, so no menu.
+    expect(prompt).not.toContain("# Delegating work");
+
+    const reply = buildSystemPrompt({ ...brief, routine: { ...brief.routine!, scheduled: false } });
+    expect(reply).toContain("This is a routine's chat");
+    expect(reply).not.toContain("scheduled run of a routine");
+  });
+
+  it("tells a system routine run it belongs to nobody and finds its repositories by name, as the App", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [] },
+      playbook: {
+        ...golden().playbook,
+        mcp_servers: [{ name: "github-read", url: "http://h/v1/mcp/github-read", token_env: "T" }],
+      },
+      routine: {
+        id: "rtn_1",
+        name: "Fix failing CI",
+        schedule: "every 5 minutes",
+        scheduled: true,
+        state: {},
+        system: true,
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("**system routine**");
+    expect(prompt).toContain("as the Podium App, in any repository it is installed on.");
+    expect(prompt).toContain("`list_repositories` turns them into owner/name");
+    expect(prompt).toContain("comment_on_pull_request");
+    expect(prompt).not.toContain("as the routine's owner");
+  });
+
+  it("tells a web chat that may create routines how, and leaves it out otherwise", () => {
+    const brief: TurnBrief = {
+      ...golden(),
+      runs_on: "host",
+      repos: undefined,
+      delegation: { url: "http://h", token_env: "T", playbooks: [], routines: true },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("podium_create_routine");
+    expect(prompt).not.toContain("# Delegating work");
+    expect(buildSystemPrompt({ ...brief, delegation: undefined })).not.toContain("podium_create_routine");
+  });
+
   it("does not tell a host turn it has a container, because it has not got one", () => {
     const brief = golden();
     const task = buildSystemPrompt(brief);
@@ -269,10 +345,31 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("develops Podium itself");
     expect(prompt).toContain("`general`");
     expect(prompt).toContain("a browser");
+    expect(prompt).toContain("`podium_start_chat` opens a separate Podium chat");
     // The address and the token's variable are the runtime's business, not the model's:
     // a prompt that names them is a prompt that invites the model to use them directly.
     expect(prompt).not.toContain("http://127.0.0.1:8090");
     expect(prompt).not.toContain("PODIUM_TURN_TOKEN");
+  });
+
+  it("tells a desktop turn its desktop is up and watched, and no other turn", () => {
+    // Told nothing, a desktop turn spent its first steps looking for a display server to
+    // start, a tmux session and a window tool.
+    const desk = buildSystemPrompt({ ...golden(), desktop: true });
+    expect(desk).toContain("# The desktop");
+    expect(desk).toContain("already running when\nthe turn starts: do not start, check or restart it");
+    expect(desk).toContain("DISPLAY=:1");
+    expect(desk).toContain("tmux capture-pane -p -t podium");
+    expect(buildSystemPrompt(golden())).not.toContain("# The desktop");
+  });
+
+  it("says in the delegation menu which playbook has a desktop", () => {
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "desktop", desktop: true }] },
+    });
+    expect(prompt).toContain("`desktop` — has a desktop the person watches live in the chat");
   });
 
   it("tells a delegating turn not to repeat what the task already said", () => {
@@ -337,6 +434,26 @@ describe("buildSystemPrompt", () => {
     const flat = prompt.replace(/\s+/g, " ");
     expect(flat).toContain("the tools of the MCP servers `linear`");
     expect(flat).toContain("editing a ticket");
+  });
+
+  it("names the MCP servers a turn runs without, so the agent says it has no access", () => {
+    const brief = golden();
+    expect(buildSystemPrompt(brief)).not.toContain("MCP servers you do not have");
+    for (const runs_on of ["host", undefined] as const) {
+      const prompt = buildSystemPrompt({
+        ...brief,
+        ...(runs_on ? { runs_on } : {}),
+        playbook: {
+          ...brief.playbook,
+          unavailable_mcp_servers: [{ name: "gmail", reason: "the person has not connected it" }],
+        },
+      });
+      const flat = prompt.replace(/\s+/g, " ");
+      expect(flat).toContain("# MCP servers you do not have");
+      expect(flat).toContain("- `gmail`: the person has not connected it.");
+      expect(flat).toContain("do not have access to it");
+      expect(flat).toContain("do not delegate it");
+    }
   });
 
   it("tells a host turn to delegate rather than investigate", () => {

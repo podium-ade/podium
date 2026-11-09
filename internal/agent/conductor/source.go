@@ -17,6 +17,32 @@ const (
 	ReactionDone     Reaction = "done"
 	ReactionFailed   Reaction = "failed"
 	ReactionAwaiting Reaction = "awaiting"
+	// ReactionRefused is "I heard you, and I will not act on it": somebody who is not in
+	// Podium asked for something. Slack shows 🚫, GitHub a confused reaction. Nothing runs,
+	// so no other reaction follows it.
+	ReactionRefused Reaction = "refused"
+)
+
+// The changes an InboundEvent can carry instead of a new message.
+const (
+	ChangeEdited  = "edited"
+	ChangeDeleted = "deleted"
+)
+
+// The account providers a source can name in InboundEvent.SpeakerProvider. They are the
+// store's identity providers, spelled here so a source never imports the store.
+const (
+	SpeakerSlack  = "slack"
+	SpeakerGitHub = "github"
+)
+
+// The privacies a source can name in InboundEvent.ChannelPrivacy: the store's, spelled here
+// for the same reason.
+const (
+	ChannelPublic  = "public"
+	ChannelPrivate = "private"
+	ChannelIM      = "im"
+	ChannelMPIM    = "mpim"
 )
 
 // Outbound types. Type is what the source may use to style a post; nothing branches on it
@@ -74,13 +100,104 @@ type InboundEvent struct {
 	// has no name, or when Slack has not resolved one yet. Display and briefing only —
 	// routing still uses Channel.
 	ChannelName string
+	// ThreadURL is a link to the whole conversation where it lives, when the source can make
+	// one and URL is a link to this message instead: a Slack thread's permalink. The mirror
+	// records it so the chat's surface chip opens the thread.
+	ThreadURL string
+	// Title is the name the source gives the whole conversation — a pull request's number
+	// and title — when it has a better one than the first thing said in it. The
+	// mirror names a new chat with it, and renames one it named itself when it changes (a
+	// pull request retitled). A shorter name the chat's title already starts with does not
+	// replace it, so a source that knows only part of the name cannot undo a fuller one.
+	// Empty leaves the chat named from its first message.
+	Title string
+	// ChannelPrivacy is whether Channel is public, as the source knows it: store.ChannelPublic,
+	// ChannelPrivate, ChannelIM or ChannelMPIM. Empty is not known. The mirror records it so
+	// sharing a chat of a private conversation is warned about with the source's own word.
+	ChannelPrivacy string
 	// Author is the display name of the human who spoke.
 	Author string
-	// Login is a Podium login the source could infer for this speaker. Slack sets it
-	// from the workspace email when the bot can read one. Empty means the turn has no
-	// person for MCP purposes and uses the global list. It is not a secret and it is
-	// not written onto a mirrored chat: those stay unowned so the workspace can see them.
+	// Login is the Podium login of the speaker. Who may set it differs, and the conductor
+	// is the last word on all of them (resolveSpeaker):
+	//
+	//   - the web chat sets the signed-in caller, which podium-server already proved;
+	//   - Slack sets a CANDIDATE, the workspace email of a user who passed the source's
+	//     account checks, which the conductor keeps only if that login has signed in to
+	//     Podium;
+	//   - GitHub sets nothing: the conductor looks the speaker's numeric id up in the
+	//     identities a GitHub connect wrote.
+	//
+	// After resolveSpeaker it is either a person who is in Podium or empty. A turn runs
+	// with this person's credentials, and it is what makes them a participant of the chat.
 	Login string
+	// SpeakerProvider and SpeakerID name the account that spoke, as its source proved it:
+	// store.ProviderSlack and "<team>/<user>", or store.ProviderGitHub and the numeric user
+	// id. Empty for a source that has no accounts (Linear, the dev source) and for the web
+	// chat, whose Login is already the proof.
+	SpeakerProvider string
+	SpeakerID       string
+	// SpeakerAvatar is the account's picture, when the source had it for free.
+	SpeakerAvatar string
+	// Mentioned is true when the speaker addressed the bot explicitly — an @mention, a DM,
+	// a review command — rather than a reply the source decided to treat as one. Only a
+	// mentioned message is answered with ReactionRefused: reacting to a reply nobody
+	// addressed to the bot would be noise.
+	Mentioned bool
+	// ReviewRequest is set on a GitHub review command (`@podium review [note]`, `/review
+	// [note]`): the instruction to run INSTEAD of Text when the speaker is not in Podium. It
+	// is built from nothing the speaker controls but a sanitized, injection-checked note, so
+	// it is safe to hand the review playbook on the App's credentials. Empty for anything
+	// else, and ignored for a speaker who is in Podium, who gets the full comment.
+	ReviewRequest string
+	// ExternalID is the message's identity on its own surface — a Slack ts, or a GitHub
+	// comment, review or delivery id with its kind in front — and ExternalURL is the link to
+	// it. The mirror records one row per ExternalID however many times the event arrives, and
+	// only the arrival that wrote the row goes on to start a turn. Empty means the source
+	// cannot name the message, and then nothing dedupes it here.
+	ExternalID  string
+	ExternalURL string
+	// SpeakerHandle is the account's handle where the surface has one distinct from its
+	// display name: a GitHub login. Empty for Slack.
+	SpeakerHandle string
+	// RecordOnly is a message nobody put to Podium — a reply in a thread it is already in,
+	// a pull-request comment that does not mention it. It is recorded in the conversation's
+	// chat and NEVER starts a turn. It is recorded only into a chat that already exists:
+	// Podium keeps the whole of a conversation it is part of, and nothing of one it is not.
+	RecordOnly bool
+	// Change, when set, makes this event an edit (ChangeEdited) or a delete (ChangeDeleted)
+	// of the message named by ExternalID, made on its own surface. Text is the new text of
+	// an edit. A change updates the record and never starts a turn — not even an edit that
+	// adds a mention (decision 34).
+	Change string
+	// MirrorKey, when set, is the conversation a RecordOnly event or a Change belongs to when
+	// that is not the one its Ref names: a reply in a Slack thread bound to a pull-request
+	// review is part of the PR's conversation, not of a Slack thread of its own. The conductor
+	// honours it for those two kinds only, so it can move a record and never a turn.
+	MirrorKey string
+	// ChatID and ChatSeq are the message in a chat's record that this event is, once it is
+	// recorded: the web chat sets them as it stores the message, the mirror as it records
+	// one. The turn queue keeps them so the person who asked can take their turn back, and
+	// so the chat can show whose turns are waiting.
+	ChatID  string `json:",omitempty"`
+	ChatSeq uint64 `json:",omitempty"`
+	// Held is a message that is not in its chat's record yet: the web chat leaves a message
+	// sent while Podium is answering out of the transcript, so it is not read in the middle
+	// of the answer it waited for, and the conductor records it (HeldRecorder) as its turn
+	// starts — or as it goes into a turn that is up. ChatSeq is set then.
+	Held bool `json:",omitempty"`
+	// Routine is set on a run the routine scheduler started (routine.go). Its Text is the
+	// routine's instruction, which is not in the chat's record and never will be.
+	Routine *RoutineRef `json:",omitempty"`
+	// Placed, when set, is told where the message went once the conductor has decided: the
+	// number of turns that run before it (0: it is being answered now — it started a turn,
+	// or went into the turn already answering this person). The web chat sets it so a send
+	// can say how far back in the queue it is, exactly rather than by guessing. It is not
+	// called for a message nothing will answer, and it is never part of a queued event.
+	Placed func(ahead int) `json:"-"`
+	// RecordText is what the person actually wrote, when Text is an instruction the source
+	// built around it ("alice commented on #12 …"). The record keeps the person's words;
+	// the turn is handed the instruction. Empty means Text is both.
+	RecordText string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.
@@ -174,4 +291,29 @@ type Source interface {
 	Attach(ctx context.Context, ref string, file Attachment) error
 	// React shows a turn's state on the message that started it.
 	React(ctx context.Context, ref string, kind Reaction) error
+}
+
+// HeldRecorder is a source that can leave a message out of its record until it is answered
+// (InboundEvent.Held): the web chat. RecordHeld writes it now, sets ev.ChatSeq and clears
+// ev.Held. The conductor calls it as the message's turn starts, or as the message goes into a
+// turn that is up.
+type HeldRecorder interface {
+	RecordHeld(ctx context.Context, ev *InboundEvent) error
+}
+
+// recordHeld writes a held message into its chat before anything answers it. A source that
+// cannot is left alone, and a failure is logged: the turn still runs on the message, which
+// is in its brief either way.
+func (c *Conductor) recordHeld(ctx context.Context, src Source, ev *InboundEvent) {
+	if !ev.Held {
+		return
+	}
+	r, ok := src.(HeldRecorder)
+	if !ok {
+		return
+	}
+	if err := r.RecordHeld(ctx, ev); err != nil {
+		c.logger.WarnContext(ctx, "recording a queued message as its turn starts failed",
+			"chat_id", ev.ChatID, "error", err)
+	}
 }

@@ -31,6 +31,7 @@ import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { installRequestedBy } from "./requestedby.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { nextInboxLine, warmMillis } from "./warm.js";
 import {
@@ -223,6 +224,13 @@ async function main(): Promise<number> {
     }
   }
 
+  // Before the first git runs, so the clones below and every git the agent starts later
+  // are all covered. A directory of its own, never the workspace, so nothing it writes can
+  // be committed.
+  if (brief.requested_by) {
+    installRequestedBy(mkdtempSync(join(tmpdir(), "podium-hooks-")), brief.requested_by);
+  }
+
   if (brief.repos && brief.repos.length > 0) {
     try {
       cloneRepos(brief.repos, { token, git: persona, helper });
@@ -304,7 +312,13 @@ async function main(): Promise<number> {
       skills: skillRefs.map((s) => s.name),
       skillsDir,
       delegation: brief.delegation
-        ? { url: brief.delegation.url, entry: mcpEntrypoint() }
+        ? {
+            url: brief.delegation.url,
+            entry: mcpEntrypoint(),
+            routine: brief.routine !== undefined,
+            createRoutine: brief.delegation.routines === true,
+            noPlaybooks: brief.delegation.playbooks.length === 0,
+          }
         : undefined,
       interactive: brief.playbook.interactive ? { entry: askEntrypoint() } : undefined,
       title: titleByTool(brief) ? { entry: titleEntrypoint() } : undefined,

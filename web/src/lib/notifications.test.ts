@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { ChatSchema, ProviderSettingsSchema, type Chat } from "../gen/podium/agent/v1/agent_pb";
+import { ChatSchema, NotificationSchema, ProviderSettingsSchema, type Chat } from "../gen/podium/agent/v1/agent_pb";
 import {
   RESOLVED_KEEP,
   alertsFromChats,
+  alertsFromInbox,
   alertsFromProviders,
   chatSeenBaseline,
   mergeNotifications,
@@ -112,5 +113,34 @@ describe("alertsFromChats", () => {
   it("counts a chat this browser has never seen as seen, so nothing old is announced", () => {
     const seen = chatSeenBaseline([chat("a", 3_000), chat("b", null)], { c: 9 });
     expect(seen).toEqual({ a: 3_000, b: 0, c: 9 });
+  });
+});
+
+describe("alertsFromInbox", () => {
+  it("says a paused routine is the owner's to look at, why, and who paused it", () => {
+    const rows = [
+      create(NotificationSchema, {
+        id: 7n, kind: "routine", chatId: "chat_r", chatTitle: "PR digest", actor: "alice", detail: "Paused by an admin.",
+      }),
+      create(NotificationSchema, {
+        id: 8n, kind: "routine", chatId: "chat_s", chatTitle: "Stale branches",
+        detail: "5 runs failed within an hour. Look at the last one, then resume it.",
+      }),
+    ];
+    const [byAdmin, byPodium] = alertsFromInbox(rows, "");
+    expect(byAdmin).toMatchObject({
+      level: "alert",
+      title: "“PR digest” was paused",
+      body: "Paused by an admin. By alice.",
+      href: "/agent/chat/chat_r",
+      action: "Open routine",
+    });
+    expect(byPodium?.body).toBe("5 runs failed within an hour. Look at the last one, then resume it.");
+  });
+
+  it("leaves out a routine notice that was read, or whose chat is open", () => {
+    const row = create(NotificationSchema, { id: 7n, kind: "routine", chatId: "chat_r", detail: "x" });
+    expect(alertsFromInbox([{ ...row, read: true }], "")).toEqual([]);
+    expect(alertsFromInbox([row], "chat_r")).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 package conductor
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,28 +76,58 @@ func TestAPlaybookWithNoMCPServersGetsNone(t *testing.T) {
 // The playbook's order is the brief's order, whatever order the registry came back in.
 func TestTheResolvedServersFollowThePlaybooksOrder(t *testing.T) {
 	playbook := profiles.Playbook{MCPServers: []string{"wiki", "linear"}}
-	got, err := resolveMCPServers("", playbook.MCPServers, []mcp.Server{
+	got, unavailable, err := resolveMCPServers("", playbook.MCPServers, []mcp.Server{
 		registered("linear", true, 1), registered("wiki", true, 1),
 	})
 	require.NoError(t, err)
+	assert.Empty(t, unavailable)
 	require.Len(t, got, 2)
 	assert.Equal(t, "wiki", got[0].Name)
 	assert.Equal(t, "linear", got[1].Name)
 }
 
-// A name that does not resolve fails the turn rather than quietly narrowing it. A turn that
-// ran with fewer tools than its playbook describes is the one outcome nobody can diagnose
-// afterwards — the same rule a disabled skill follows.
-func TestAnUnknownOrDisabledServerFailsTheTurn(t *testing.T) {
-	rows := []mcp.Server{registered("linear", false, 1)}
+// A name that does not resolve does not fail the turn. It is carried as unavailable, with a
+// reason the agent can repeat, and the servers that did resolve are still handed over.
+func TestAnUnknownOrDisabledServerIsUnavailable(t *testing.T) {
+	rows := []mcp.Server{registered("linear", false, 1), registered("wiki", true, 1)}
 
-	_, err := resolveMCPServers("", []string{"linear"}, rows)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "turned off")
+	got, unavailable, err := resolveMCPServers("", []string{"linear", "notion", "wiki"}, rows)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "wiki", got[0].Name)
+	assert.Equal(t, []BriefUnavailableMCPServer{
+		{Name: "linear", Reason: mcpReasonOff},
+		{Name: "notion", Reason: mcpReasonUnregistered},
+	}, unavailable)
+}
 
-	_, err = resolveMCPServers("", []string{"notion"}, rows)
+// A playbook that names a server this turn cannot have fails; the assistant runs without it.
+func TestAPlaybookIsStrictAboutItsServersAndTheAssistantIsNot(t *testing.T) {
+	unavailable := []BriefUnavailableMCPServer{
+		{Name: "gmail", Reason: mcpReasonNotConnected},
+		{Name: "notion", Reason: mcpReasonUnregistered},
+	}
+
+	err := requireMCPServers(playbookJob(profiles.Playbook{Name: "coder"}), unavailable)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `no MCP server named "notion"`)
+	assert.Contains(t, err.Error(), `the MCP server "gmail" is unavailable`)
+	assert.Contains(t, err.Error(), `the MCP server "notion" is unavailable`)
+
+	assert.NoError(t, requireMCPServers(assistantJob(profiles.Assistant{}), unavailable))
+	assert.NoError(t, requireMCPServers(playbookJob(profiles.Playbook{Name: "coder"}), nil))
+}
+
+// The brief carries the unavailable servers, so the runtime can name them in the prompt.
+func TestUnavailableServersReachTheBrief(t *testing.T) {
+	p := BriefPlaybook{UnavailableMCPServers: []BriefUnavailableMCPServer{{Name: "gmail", Reason: mcpReasonNotConnected}}}
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"unavailable_mcp_servers":[{"name":"gmail","reason":`)
+
+	p.UnavailableMCPServers = nil
+	raw, err = json.Marshal(p)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "unavailable_mcp_servers")
 }
 
 // A server's JSON config reaches the brief as written.
@@ -118,6 +149,6 @@ func TestAServersConfigIsCarriedInTheBrief(t *testing.T) {
 	assert.Equal(t, "yes", config["whatever"])
 
 	srv.Config = "[]"
-	_, err := resolveMCPServers("", []string{"grafana"}, []mcp.Server{srv})
+	_, _, err := resolveMCPServers("", []string{"grafana"}, []mcp.Server{srv})
 	assert.Error(t, err)
 }

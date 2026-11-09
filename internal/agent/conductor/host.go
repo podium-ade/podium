@@ -181,6 +181,9 @@ type HostRuntime struct {
 	// reaches it. A turn on a pull request gets it, authenticated with its own token. Empty
 	// leaves it out.
 	PullRequestMCPURL string
+	// GitHubReadMCPURL is the conductor's read-only GitHub reader (githubread.go) as a host
+	// turn reaches it. A routine's turn gets it. Empty leaves it out.
+	GitHubReadMCPURL string
 	// Isolation is how a host turn is fenced from this machine and from every other turn:
 	// IsolationNone, the default, or IsolationBwrap. See isolation.go.
 	Isolation string
@@ -253,13 +256,17 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
 	// container.
-	if c.host.TurnURL != "" && len(menu) > 0 {
+	// A routine's turn has a token even with nothing to delegate to: routine_finish rides on
+	// it. So does a web chat's, where the person may ask for a routine (create_routine).
+	routines := b.Routine == nil && b.Source.Kind == SourceChat && c.creator() != nil
+	if c.host.TurnURL != "" && (len(menu) > 0 || b.Routine != nil || routines) {
 		b.Delegation = &BriefDelegation{
 			URL:       c.host.TurnURL,
 			TokenEnv:  TurnTokenEnv,
 			Playbooks: menu,
 			Running:   running,
 			Previews:  previews,
+			Routines:  routines,
 		}
 	}
 	// A pull request's own diff and files, read here rather than in a container. The turn's
@@ -268,6 +275,12 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 	if b.Delegation != nil && b.Source.Kind == SourceGitHub && c.host.PullRequestMCPURL != "" {
 		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
 			Name: PullRequestMCPName, URL: c.host.PullRequestMCPURL, TokenEnv: TurnTokenEnv,
+		})
+	}
+	// A routine's turn reads GitHub as its owner, here rather than in a container.
+	if b.Delegation != nil && b.Routine != nil && c.host.GitHubReadMCPURL != "" {
+		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
+			Name: GitHubReadMCPName, URL: c.host.GitHubReadMCPURL, TokenEnv: TurnTokenEnv,
 		})
 	}
 	if b.Memory == nil {
@@ -312,6 +325,8 @@ type hostRun struct {
 	// that a runtime would have read out of the brief. See chathost.go.
 	model, effort, instruction, memoryURL string
 	pullRequest                           bool
+	// githubRead is a routine's turn, which reads GitHub as its owner (githubread.go).
+	githubRead bool
 	// who is the person a chat-host turn counts against; login is whose credential it may
 	// spend, empty when no person is signed in.
 	who, login string
@@ -905,6 +920,12 @@ func (c *Conductor) registerHost(ref string, cancel func()) {
 		c.hostRuns = map[string]func(){}
 	}
 	c.hostRuns[ref] = cancel
+	if at, ok := c.earlyStops[ref]; ok {
+		delete(c.earlyStops, ref)
+		if time.Since(at) < earlyStopTTL {
+			cancel()
+		}
+	}
 }
 
 func (c *Conductor) unregisterHost(ref string) {
@@ -925,6 +946,40 @@ func (c *Conductor) CancelHostTurn(ref string) bool {
 	}
 	cancel()
 	return true
+}
+
+// earlyStopTTL is how long a Stop for a turn that has not registered yet is remembered. The
+// gap it covers is the turn row being written and the turn taking its stop, which is
+// milliseconds; a Stop older than this belongs to nothing that will still start.
+const earlyStopTTL = 30 * time.Second
+
+// stopHostTurnSoon stops the host turn answering ref, or, when that turn is recorded as
+// running but has not registered yet, remembers the Stop so registerHost applies it. stopped
+// is a turn stopped now; deferred is a Stop remembered for a turn that has yet to register
+// here. Only a caller that has just read the turn as
+// running should use it: a ref nobody will register is simply forgotten after earlyStopTTL.
+func (c *Conductor) stopHostTurnSoon(ref string) (stopped, deferred bool) {
+	if c.CancelHostTurn(ref) {
+		return true, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel := c.hostRuns[ref]; cancel != nil {
+		// Registered between the two locks.
+		cancel()
+		return true, false
+	}
+	if c.earlyStops == nil {
+		c.earlyStops = map[string]time.Time{}
+	}
+	now := time.Now()
+	for r, at := range c.earlyStops {
+		if now.Sub(at) >= earlyStopTTL {
+			delete(c.earlyStops, r)
+		}
+	}
+	c.earlyStops[ref] = now
+	return false, true
 }
 
 // DefaultHostMaxTurns is how many host turns run at once when nothing says otherwise.

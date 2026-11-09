@@ -25,6 +25,15 @@ function stubClient(overrides: Partial<Record<keyof Client, unknown>> = {}): Cli
     releasePreview: vi.fn(async (id: string) => ({
       delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "succeeded" },
     })),
+    startChat: vi.fn(async (args: { title: string; share_with?: string[] }) => ({
+      chatId: "chat_new",
+      title: args.title,
+      url: "https://podium.example/agent/chat/chat_new",
+      sharedWith: args.share_with ?? [],
+      access: "restricted",
+    })),
+    finishRoutine: vi.fn(async () => ({ message: "Recorded as idle." })),
+    createRoutine: vi.fn(async () => ({ message: 'Created the routine "Digest".' })),
   };
   return { ...base, ...overrides } as unknown as Client;
 }
@@ -77,6 +86,7 @@ describe("tools/list", () => {
       "list_delegations",
       "inject_delegation",
       "cancel_delegation",
+      "start_chat",
       "release_preview",
     ]);
     for (const tool of res.tools) {
@@ -214,6 +224,110 @@ describe("tools/call release_preview", () => {
   });
 });
 
+describe("routine_finish", () => {
+  it("is listed only for a turn in a routine's chat", async () => {
+    const plain = (await newHandler(stubClient())("tools/list", {})) as { tools: { name: string }[] };
+    expect(plain.tools.map((t) => t.name)).not.toContain("routine_finish");
+    const routine = (await newHandler(stubClient(), { routine: true })("tools/list", {})) as { tools: { name: string }[] };
+    expect(routine.tools.map((t) => t.name)).toContain("routine_finish");
+  });
+
+  it("hands the conductor the outcome, with the state as JSON", async () => {
+    const client = stubClient();
+    const res = await newHandler(client, { routine: true })("tools/call", {
+      name: "routine_finish",
+      arguments: { status: "idle", summary: "nothing new", state: { seen: [1] }, propose_note: "skip drafts" },
+    });
+    expect(client.finishRoutine).toHaveBeenCalledWith({
+      status: "idle",
+      summary: "nothing new",
+      stateJson: '{"seen":[1]}',
+      proposeNote: "skip drafts",
+    });
+    expect(text(res)).toBe("Recorded as idle.");
+  });
+
+  it("refuses a state that is not an object", async () => {
+    await expect(
+      newHandler(stubClient(), { routine: true })("tools/call", {
+        name: "routine_finish",
+        arguments: { status: "done", summary: "x", state: [1, 2] },
+      }),
+    ).rejects.toThrow("state must be a JSON object");
+  });
+});
+
+describe("create_routine", () => {
+  it("is listed only where the person may ask for one, and alone when there is nothing to delegate to", async () => {
+    const names = async (opts: Parameters<typeof newHandler>[1]) =>
+      ((await newHandler(stubClient(), opts)("tools/list", {})) as { tools: { name: string }[] }).tools.map((t) => t.name);
+    expect(await names({})).not.toContain("create_routine");
+    expect(await names({ createRoutine: true })).toContain("create_routine");
+    expect(await names({ createRoutine: true, delegate: false })).toEqual(["create_routine"]);
+  });
+
+  it("hands the conductor the routine to set up and answers with what it said", async () => {
+    const client = stubClient();
+    const res = await newHandler(client, { createRoutine: true })("tools/call", {
+      name: "create_routine",
+      arguments: { name: "Digest", instruction: "Report failing PRs.", schedule: "0 9 * * 1-5", timezone: "UTC" },
+    });
+    expect(client.createRoutine).toHaveBeenCalledWith({
+      name: "Digest",
+      instruction: "Report failing PRs.",
+      schedule: "0 9 * * 1-5",
+      timezone: "UTC",
+      notes: undefined,
+    });
+    expect(text(res)).toBe('Created the routine "Digest".');
+  });
+});
+
+describe("tools/call start_chat", () => {
+  it("hands the conductor the chat to open and answers with the link to put in the reply", async () => {
+    const client = stubClient();
+    const res = await h_call(client, {
+      name: "start_chat",
+      arguments: {
+        title: "Triage: login outage",
+        opening: "Starting a triage.",
+        share_with: ["dana@acme.com"],
+        access: "members",
+      },
+    });
+    expect(client.startChat).toHaveBeenCalledWith({
+      title: "Triage: login outage",
+      opening: "Starting a triage.",
+      share_with: ["dana@acme.com"],
+      access: "members",
+      role: undefined,
+    });
+    expect(text(res)).toContain("https://podium.example/agent/chat/chat_new");
+    expect(text(res)).toContain("click here to join");
+    expect(text(res)).toContain("dana@acme.com");
+    expect(isError(res)).toBe(false);
+  });
+
+  it("refuses a share_with that is not a list of addresses", async () => {
+    const client = stubClient();
+    await expect(
+      h_call(client, { name: "start_chat", arguments: { title: "t", opening: "o", share_with: "dana" } }),
+    ).rejects.toThrow(/share_with/);
+    expect(client.startChat).not.toHaveBeenCalled();
+  });
+
+  it("relays the conductor's refusal as a failed tool result", async () => {
+    const client = stubClient({
+      startChat: vi.fn(async () => {
+        throw new DelegateError("failed_precondition", "a new chat needs a Podium person to own it");
+      }),
+    });
+    const res = await h_call(client, { name: "start_chat", arguments: { title: "t", opening: "o" } });
+    expect(isError(res)).toBe(true);
+    expect(text(res)).toContain("needs a Podium person");
+  });
+});
+
 describe("tools/call cancel_delegation", () => {
   it("passes the reason on", async () => {
     const client = stubClient();
@@ -257,7 +371,7 @@ describe("the stdio transport", () => {
     await done;
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
-    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(6);
+    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(tools.length);
   });
 
   it("says NOTHING to a notification, because answering one breaks the client", async () => {

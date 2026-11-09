@@ -19,12 +19,15 @@ import (
 // fakeDelegator is the conductor, scripted. Every call records the token it was given,
 // because "which turn asked" is the whole of this service's authorisation.
 type fakeDelegator struct {
-	tokens []string
-	opts   []conductor.DelegateOptions
-	dlg    store.Delegation
-	list   []store.Delegation
-	prog   string
-	err    error
+	chats    []conductor.StartChatRequest
+	finishes []conductor.RoutineFinishRequest
+	routines []conductor.CreateRoutineRequest
+	tokens   []string
+	opts     []conductor.DelegateOptions
+	dlg      store.Delegation
+	list     []store.Delegation
+	prog     string
+	err      error
 }
 
 func (f *fakeDelegator) Delegate(
@@ -81,6 +84,37 @@ func (f *fakeDelegator) ReleaseDelegationPreview(_ context.Context, token, id st
 	return f.dlg, nil
 }
 
+func (f *fakeDelegator) FinishRoutine(_ context.Context, token string, req conductor.RoutineFinishRequest) (string, error) {
+	f.tokens = append(f.tokens, token)
+	f.finishes = append(f.finishes, req)
+	if f.err != nil {
+		return "", f.err
+	}
+	return "Recorded as idle.", nil
+}
+
+func (f *fakeDelegator) CreateRoutine(_ context.Context, token string, req conductor.CreateRoutineRequest) (string, error) {
+	f.tokens = append(f.tokens, token)
+	f.routines = append(f.routines, req)
+	if f.err != nil {
+		return "", f.err
+	}
+	return "Created.", nil
+}
+
+func (f *fakeDelegator) StartChat(_ context.Context, token string, req conductor.StartChatRequest) (conductor.StartedChat, error) {
+	f.tokens = append(f.tokens, token)
+	f.chats = append(f.chats, req)
+	if f.err != nil {
+		return conductor.StartedChat{}, f.err
+	}
+	return conductor.StartedChat{
+		Chat:       store.Chat{ID: "chat_new", Title: req.Title, GeneralAccess: store.AccessMembers},
+		URL:        "https://podium.example/agent/chat/chat_new",
+		SharedWith: req.ShareWith,
+	}, nil
+}
+
 // withToken is a request carrying a turn's token, as the MCP server sends it.
 func withToken[T any](msg *T, token string) *connect.Request[T] {
 	req := connect.NewRequest(msg)
@@ -125,6 +159,48 @@ func TestEveryTurnRPCNeedsAToken(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	_, err = svc.ReleasePreview(ctx, withToken(&agentv1.ReleasePreviewRequest{Id: "dlg_01"}, ""))
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	_, err = svc.StartChat(ctx, withToken(&agentv1.StartChatRequest{Title: "t", Opening: "o"}, ""))
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+}
+
+func TestStartChatPassesItsArgumentsThroughAndAnswersTheLink(t *testing.T) {
+	fake := &fakeDelegator{}
+	svc := NewTurnService(fake, quietLogger())
+	res, err := svc.StartChat(context.Background(), withToken(&agentv1.StartChatRequest{
+		Title: "Triage: login outage", Opening: "We are triaging.", ShareWith: []string{"dana@acme.com"},
+		Access: "members", Role: "viewer",
+	}, "tok"))
+	require.NoError(t, err)
+	assert.Equal(t, []conductor.StartChatRequest{{
+		Title: "Triage: login outage", Opening: "We are triaging.", ShareWith: []string{"dana@acme.com"},
+		Access: "members", Role: "viewer",
+	}}, fake.chats)
+	assert.Equal(t, "chat_new", res.Msg.GetChatId())
+	assert.Equal(t, "https://podium.example/agent/chat/chat_new", res.Msg.GetUrl())
+	assert.Equal(t, []string{"dana@acme.com"}, res.Msg.GetSharedWith())
+	assert.Equal(t, "members", res.Msg.GetAccess())
+}
+
+func TestStartChatRefusalsBecomeConnectCodes(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code connect.Code
+	}{
+		{conductor.ErrNoTurn, connect.CodeUnauthenticated},
+		{conductor.ErrNoChatOwner, connect.CodeFailedPrecondition},
+		{conductor.ErrTooManyChats, connect.CodeFailedPrecondition},
+		{errors.New("database down"), connect.CodeInternal},
+	} {
+		svc := NewTurnService(&fakeDelegator{err: tc.err}, quietLogger())
+		_, err := svc.StartChat(context.Background(), withToken(&agentv1.StartChatRequest{Title: "t", Opening: "o"}, "tok"))
+		assert.Equal(t, tc.code, connect.CodeOf(err), tc.err.Error())
+	}
+	// A wrong argument is the model's to correct, so it says what was wrong.
+	_, bad := conductor.StartChatArgs(map[string]any{"share_with": 7})
+	svc := NewTurnService(&fakeDelegator{err: bad}, quietLogger())
+	_, err := svc.StartChat(context.Background(), withToken(&agentv1.StartChatRequest{Title: "t", Opening: "o"}, "tok"))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "share_with is a list of email addresses")
 }
 
 func TestAConductorWithNoHostTurnsSaysSoRatherThanCrashing(t *testing.T) {

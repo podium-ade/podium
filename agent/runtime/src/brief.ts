@@ -118,6 +118,8 @@ const delegablePlaybookSchema = z.strictObject({
   summary: z.string().optional(),
   docker: z.boolean().optional(),
   browser: z.boolean().optional(),
+  // The task runs on a desktop the person watches live in the chat.
+  desktop: z.boolean().optional(),
   repos: z.array(z.string()).optional(),
   // The task stays up afterwards as a preview.
   preview: z.boolean().optional(),
@@ -135,6 +137,14 @@ const mcpServerSchema = z.strictObject({
   token_env: z.string().min(1).optional(),
   // The server's JSON config: the harness's entry for this server, which the runtime completes.
   config: z.record(z.string(), z.unknown()).optional(),
+});
+
+// A server the assistant names that this turn does not get, and why. The runtime wires up
+// nothing for it; the prompt names it so the agent says it has no access. A playbook's turn
+// never carries one: the conductor refuses to start it instead.
+const unavailableMcpServerSchema = z.strictObject({
+  name: z.string().min(1),
+  reason: z.string().min(1),
 });
 
 const briefSchema = z.strictObject({
@@ -188,6 +198,8 @@ const briefSchema = z.strictObject({
     // gets: writeConfig writes one entry per server here beside the ones the conductor
     // wires up itself, and no others.
     mcp_servers: z.array(mcpServerSchema).optional(),
+    // The named servers this turn runs without. Absent when every one resolved.
+    unavailable_mcp_servers: z.array(unavailableMcpServerSchema).optional(),
     // Absent means the turn cannot wait for a human: the default, and what every brief
     // before interactive playbooks described.
     interactive: z.boolean().optional(),
@@ -211,6 +223,10 @@ const briefSchema = z.strictObject({
       email: z.string().min(1),
     })
     .optional(),
+  // "Name <login>" when this turn writes to GitHub as the App for someone. Every commit the
+  // turn makes carries it as a Requested-by trailer (requestedby.ts). Absent when the turn
+  // commits as the person themselves.
+  requested_by: z.string().min(1).optional(),
   // Where this turn redeems its minting capability for a GitHub token, when the conductor
   // has a GitHub App. An address and the NAME of the variable the capability arrives in —
   // never the capability — exactly as memory below. Absent means the older path: a
@@ -235,6 +251,9 @@ const briefSchema = z.strictObject({
       cdp_url: z.string().min(1),
     })
     .optional(),
+  // This turn runs on a desktop playbook's desktop: up before the turn starts, watched live by
+  // a person in the chat, who can take it over. browser then points at its Chromium.
+  desktop: z.boolean().optional(),
   // Which model API serves this turn. It is REQUIRED and it names no vendor in this file:
   // `id` is whatever the harness calls that provider, and together with profile.model it is
   // the whole of "what runs this turn".
@@ -262,13 +281,17 @@ const briefSchema = z.strictObject({
     .strictObject({
       url: z.string().min(1),
       token_env: z.string().min(1),
-      playbooks: z.array(delegablePlaybookSchema).min(1),
+      // Empty only for a turn that has a token for something else: routine_finish in a
+      // routine's chat, create_routine in a person's web chat.
+      playbooks: z.array(delegablePlaybookSchema),
       // What this conversation already has in flight. Absent when nothing is, which is
       // the common case; present, it is what stops a second task being started for a job
       // that is already running.
       running: z.array(runningDelegationSchema).optional(),
       // Finished tasks whose environment is still up, which "I'm done" releases.
       previews: z.array(livePreviewSchema).optional(),
+      // The turn may set up a routine for the person it answers (create_routine).
+      routines: z.boolean().optional(),
     })
     .optional(),
   // Where this turn is running. Absent means a task container, which is what every brief
@@ -276,6 +299,28 @@ const briefSchema = z.strictObject({
   // container around it, no repository checked out and nothing collecting its files. The
   // prompt says different things in the two cases and must not have to guess which it is.
   runs_on: z.enum(["task", "host"]).optional(),
+  // Present on a turn in a routine's chat: a run the schedule started, or the owner's own
+  // message there. See internal/agent/conductor/routine.go.
+  routine: z
+    .strictObject({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      schedule: z.string(),
+      scheduled: z.boolean(),
+      notes: z.string().optional(),
+      state: z.record(z.string(), z.unknown()),
+      idle_runs: z.number().int().nonnegative().optional(),
+      instruction_changed_at: z.string().optional(),
+      // A system routine runs as nobody: admins set it up, and it reads GitHub as the App.
+      system: z.boolean().optional(),
+    })
+    .optional(),
+}).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {
+  // An empty menu is not a menu. A routine's turn and a turn that may create a routine are the
+  // exceptions: they carry the block for the token their tools need, whether or not they may
+  // delegate anything.
+  message: "delegation needs at least one playbook",
+  path: ["delegation", "playbooks"],
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
