@@ -598,7 +598,7 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		return s.outcome(ctx, ref, doneText)
 	case conductor.ReactionFailed:
 		return s.outcome(ctx, ref, failedText)
-	case conductor.ReactionAwaiting:
+	case conductor.ReactionAwaiting, conductor.ReactionRefused:
 		return nil
 	default:
 		return fmt.Errorf("linear: %q is not a reaction", kind)

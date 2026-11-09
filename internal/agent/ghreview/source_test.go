@@ -89,7 +89,21 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) session(key string) { h.mu.Lock(); h.known[key] = true; h.mu.Unlock() }
 
+// drain is the events that could start a turn. What is only recorded — a comment nobody put
+// to Podium, an edit, a delete — is the record's business, and drainAll returns it too.
 func (h *harness) drain() []conductor.InboundEvent {
+	var out []conductor.InboundEvent
+	for _, ev := range h.drainAll() {
+		if ev.RecordOnly || ev.Change != "" {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// drainAll is every event offered, recorded-only ones included.
+func (h *harness) drainAll() []conductor.InboundEvent {
 	var out []conductor.InboundEvent
 	for {
 		select {
@@ -218,9 +232,15 @@ func readyForReview() map[string]any {
 		},
 		"sender": map[string]any{"login": "alice", "type": "User"},
 		"pull_request": map[string]any{
-			"number": 12, "draft": false, "updated_at": "2026-09-14T12:00:00Z",
+			"number": 12, "title": "Retry the  flaky upload", "draft": false, "updated_at": "2026-09-14T12:00:00Z",
 		},
 	}
+}
+
+func TestChatTitleNamesThePullRequest(t *testing.T) {
+	assert.Equal(t, "#12: Retry the flaky upload", ChatTitle(12, " Retry the\n flaky upload "))
+	assert.Equal(t, "#12", ChatTitle(12, ""))
+	assert.Equal(t, "", ChatTitle(0, "anything"))
 }
 
 func TestReadyForReviewStartsAReview(t *testing.T) {
@@ -254,6 +274,7 @@ func TestAnOpenPullRequestStartsAReview(t *testing.T) {
 	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
 	assert.Contains(t, evs[0].Text, "opened")
 	assert.Contains(t, evs[0].Text, "for review")
+	assert.Equal(t, "#12: Retry the flaky upload", evs[0].Title, "the chat is named for the pull request, not its first line")
 	assert.NotContains(t, evs[0].Text, "ready for review")
 	assert.True(t, evs[0].Automatic)
 	p, err := ParseRef(evs[0].Ref)
@@ -378,6 +399,63 @@ func TestNoMentionOnASessionPRIsDroppedUnlessItIsAReviewReply(t *testing.T) {
 	rec := postWebhook(t, h, "issue_comment", "d-lgtm2", prComment("lgtm"))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, h.drain(), "a conversation-tab lgtm is not a follow-up")
+}
+
+// What nobody put to Podium is still said: it is offered as RecordOnly, with the person's
+// own words and the comment's identity, and the conductor keeps it for a PR it holds.
+func TestAnUnaddressedCommentIsOfferedForTheRecord(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	payload := prComment("lgtm")
+	payload["comment"].(map[string]any)["html_url"] = "https://github.com/acme/repo/pull/12#issuecomment-7"
+	rec := postWebhook(t, h, "issue_comment", "d-rec", payload)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drainAll()
+	require.Len(t, evs, 1)
+	assert.True(t, evs[0].RecordOnly)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "https://github.com/acme/repo/pull/12#issuecomment-7", evs[0].ExternalURL)
+	assert.Equal(t, "lgtm", evs[0].Text)
+	assert.Equal(t, "lgtm", evs[0].RecordText)
+	assert.Equal(t, "alice", evs[0].SpeakerHandle)
+}
+
+// An edit and a delete are offered as changes of the recorded comment, and never as a
+// turn — not even an edit that now mentions the bot.
+func TestEditsAndDeletesAreChangesNotTurns(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	edited := prComment("@podium now do it")
+	edited["action"] = "edited"
+	rec := postWebhook(t, h, "issue_comment", "d-edit", edited)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drainAll()
+	require.Len(t, evs, 1)
+	assert.Equal(t, conductor.ChangeEdited, evs[0].Change)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "@podium now do it", evs[0].Text, "an edit's text is the new body, with no instruction")
+
+	deleted := prComment("@podium now do it")
+	deleted["action"] = "deleted"
+	rec = postWebhook(t, h, "issue_comment", "d-del", deleted)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs = h.drainAll()
+	require.Len(t, evs, 1)
+	assert.Equal(t, conductor.ChangeDeleted, evs[0].Change)
+	assert.Empty(t, h.drain())
+}
+
+// A triggered comment carries its identity too, which is what makes a redelivery of it the
+// same row in the record and never a second turn.
+func TestATriggeredCommentCarriesItsIdentity(t *testing.T) {
+	h := newHarness(t)
+	rec := postWebhook(t, h, "issue_comment", "d-id", prComment("@podium look"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "issue_comment:7", evs[0].ExternalID)
+	assert.Equal(t, "@podium look", evs[0].RecordText, "the record keeps the words, not the instruction")
+	assert.Contains(t, evs[0].Text, "alice commented on")
 }
 
 func TestAReviewThreadReplyOnASessionPRContinues(t *testing.T) {
@@ -1135,4 +1213,44 @@ func TestAnAnswerRepliesUnderTheFindingsItFixed(t *testing.T) {
 	assert.Contains(t, comments[0], "**b.go:7**", "a thread a person started is not the App's to answer under")
 	assert.NotContains(t, comments[0], "nil check is back")
 	assert.Empty(t, h.stub.postedReviews())
+}
+
+func TestAPullRequestThisAppOpenedIsReviewedButNeverApproved(t *testing.T) {
+	h := newHarness(t)
+	h.stub.author = User{Login: "podium[bot]", Type: "Bot"}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Approve**\n\nThe fix holds."})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+	assert.Contains(t, asString(created[0]["body"]), "The fix holds.", "the verdict is still in the review's words")
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.NotContains(t, comments[0], statusApproved)
+}
+
+func TestAPullRequestThisAppOpenedNeverGetsChangesRequested(t *testing.T) {
+	h := newHarness(t)
+	h.stub.author = User{Login: "podium[bot]", Type: "Bot"}
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Changes needed**\n\nThe check is gone."})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+}
+
+func TestAnApprovalOfAPullRequestThatCannotBeReadIsAComment(t *testing.T) {
+	h := newHarness(t)
+	h.stub.failPull = true
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, _ = h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Approve**\n\nFine."})
+	for _, r := range h.stub.postedReviews() {
+		assert.NotEqual(t, "APPROVE", r["event"])
+	}
 }

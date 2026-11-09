@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package podium.v1;
+
+// AuditService lets the conductor write to the control plane's audit_log, which is where
+// every other "who did what" on an instance already lives (secrets, roles). It exists for one
+// caller: the conductor, presenting PODIUM_AGENT_API_TOKEN, recording the sharing decisions a
+// person made on a chat (multiplayer sessions, docs/agent.md). Anybody else is
+// permission_denied, and so is an action outside the "chat." namespace — the conductor's
+// credential cannot be used to write rows that look like the server's own.
+service AuditService {
+  rpc RecordAudit(RecordAuditRequest) returns (RecordAuditResponse);
+}
+
+message RecordAuditRequest {
+  // actor is the Podium login that did it. The conductor knows it from the proxied
+  // X-Podium-Login the request carried; the server records it as said.
+  string actor = 1;
+  // action is "chat.share", "chat.unshare", "chat.general_access", "chat.link_reset",
+  // "chat.join", "chat.leave" or "chat.delete".
+  string action = 2;
+  // subject is the chat id.
+  string subject = 3;
+  // details_json is a JSON object. It never carries message text or a link token.
+  string details_json = 4;
+}
+
+message RecordAuditResponse {}

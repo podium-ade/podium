@@ -12,7 +12,126 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/turn.proto.
  */
 export const file_podium_agent_v1_turn: GenFile = /*@__PURE__*/
-  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIksKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCRIRCglyZWFkX29ubHkYAyABKAgiQwoQRGVsZWdhdGVSZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iIgoUR2V0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkiWgoVR2V0RGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbhIQCghwcm9ncmVzcxgCIAEoCSIYChZMaXN0RGVsZWdhdGlvbnNSZXF1ZXN0IksKF0xpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEjAKC2RlbGVnYXRpb25zGAEgAygLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iNQoXQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDgoGcmVhc29uGAIgASgJIksKGENhbmNlbERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iMwoXSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSJLChhJbmplY3REZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uIiMKFVJlbGVhc2VQcmV2aWV3UmVxdWVzdBIKCgJpZBgBIAEoCSJJChZSZWxlYXNlUHJldmlld1Jlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiISChBNaW50VG9rZW5SZXF1ZXN0Io8BChFNaW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBITCgthdXRob3JfbmFtZRgEIAEoCRIUCgxhdXRob3JfZW1haWwYBSABKAky2QQKC1R1cm5TZXJ2aWNlEk8KCERlbGVnYXRlEiAucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRlUmVxdWVzdBohLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlc3BvbnNlEl4KDUdldERlbGVnYXRpb24SJS5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlc3BvbnNlEmQKD0xpc3REZWxlZ2F0aW9ucxInLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLkxpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEmcKEENhbmNlbERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEmcKEEluamVjdERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlc3BvbnNlEmEKDlJlbGVhc2VQcmV2aWV3EiYucG9kaXVtLmFnZW50LnYxLlJlbGVhc2VQcmV2aWV3UmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5SZWxlYXNlUHJldmlld1Jlc3BvbnNlMmoKFEdpdENyZWRlbnRpYWxTZXJ2aWNlElIKCU1pbnRUb2tlbhIhLnBvZGl1bS5hZ2VudC52MS5NaW50VG9rZW5SZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLk1pbnRUb2tlblJlc3BvbnNlQsMBChNjb20ucG9kaXVtLmFnZW50LnYxQglUdXJuUHJvdG9QAVpDZ2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxIncKH1R1cm5TZXJ2aWNlQ3JlYXRlUm91dGluZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCRIQCghzY2hlZHVsZRgDIAEoCRIQCgh0aW1lem9uZRgEIAEoCRINCgVub3RlcxgFIAEoCSIzCiBUdXJuU2VydmljZUNyZWF0ZVJvdXRpbmVSZXNwb25zZRIPCgdtZXNzYWdlGAEgASgJImEKFEZpbmlzaFJvdXRpbmVSZXF1ZXN0Eg4KBnN0YXR1cxgBIAEoCRIPCgdzdW1tYXJ5GAIgASgJEhIKCnN0YXRlX2pzb24YAyABKAkSFAoMcHJvcG9zZV9ub3RlGAQgASgJIigKFUZpbmlzaFJvdXRpbmVSZXNwb25zZRIPCgdtZXNzYWdlGAEgASgJItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIksKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCRIRCglyZWFkX29ubHkYAyABKAgiQwoQRGVsZWdhdGVSZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iIgoUR2V0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkiWgoVR2V0RGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbhIQCghwcm9ncmVzcxgCIAEoCSIYChZMaXN0RGVsZWdhdGlvbnNSZXF1ZXN0IksKF0xpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEjAKC2RlbGVnYXRpb25zGAEgAygLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iNQoXQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDgoGcmVhc29uGAIgASgJIksKGENhbmNlbERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iMwoXSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSJLChhJbmplY3REZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uIiMKFVJlbGVhc2VQcmV2aWV3UmVxdWVzdBIKCgJpZBgBIAEoCSJJChZSZWxlYXNlUHJldmlld1Jlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiJkChBTdGFydENoYXRSZXF1ZXN0Eg0KBXRpdGxlGAEgASgJEg8KB29wZW5pbmcYAiABKAkSEgoKc2hhcmVfd2l0aBgDIAMoCRIOCgZhY2Nlc3MYBCABKAkSDAoEcm9sZRgFIAEoCSJlChFTdGFydENoYXRSZXNwb25zZRIPCgdjaGF0X2lkGAEgASgJEg0KBXRpdGxlGAIgASgJEgsKA3VybBgDIAEoCRITCgtzaGFyZWRfd2l0aBgEIAMoCRIOCgZhY2Nlc3MYBSABKAkiEgoQTWludFRva2VuUmVxdWVzdCKPAQoRTWludFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoKZXhwaXJlc19hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLYXV0aG9yX25hbWUYBCABKAkSFAoMYXV0aG9yX2VtYWlsGAUgASgJMoMHCgtUdXJuU2VydmljZRJPCghEZWxlZ2F0ZRIgLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlcXVlc3QaIS5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGVSZXNwb25zZRJeCg1HZXREZWxlZ2F0aW9uEiUucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXF1ZXN0GiYucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXNwb25zZRJkCg9MaXN0RGVsZWdhdGlvbnMSJy5wb2RpdW0uYWdlbnQudjEuTGlzdERlbGVnYXRpb25zUmVxdWVzdBooLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXNwb25zZRJnChBDYW5jZWxEZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXNwb25zZRJnChBJbmplY3REZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXNwb25zZRJhCg5SZWxlYXNlUHJldmlldxImLnBvZGl1bS5hZ2VudC52MS5SZWxlYXNlUHJldmlld1JlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuUmVsZWFzZVByZXZpZXdSZXNwb25zZRJSCglTdGFydENoYXQSIS5wb2RpdW0uYWdlbnQudjEuU3RhcnRDaGF0UmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5TdGFydENoYXRSZXNwb25zZRJeCg1GaW5pc2hSb3V0aW5lEiUucG9kaXVtLmFnZW50LnYxLkZpbmlzaFJvdXRpbmVSZXF1ZXN0GiYucG9kaXVtLmFnZW50LnYxLkZpbmlzaFJvdXRpbmVSZXNwb25zZRJ0Cg1DcmVhdGVSb3V0aW5lEjAucG9kaXVtLmFnZW50LnYxLlR1cm5TZXJ2aWNlQ3JlYXRlUm91dGluZVJlcXVlc3QaMS5wb2RpdW0uYWdlbnQudjEuVHVyblNlcnZpY2VDcmVhdGVSb3V0aW5lUmVzcG9uc2UyagoUR2l0Q3JlZGVudGlhbFNlcnZpY2USUgoJTWludFRva2VuEiEucG9kaXVtLmFnZW50LnYxLk1pbnRUb2tlblJlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTWludFRva2VuUmVzcG9uc2VCwwEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCVR1cm5Qcm90b1ABWkNnaXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS9hZ2VudC92MTthZ2VudHYxogIDUEFYqgIPUG9kaXVtLkFnZW50LlYxygIPUG9kaXVtXEFnZW50XFYx4gIbUG9kaXVtXEFnZW50XFYxXEdQQk1ldGFkYXRh6gIRUG9kaXVtOjpBZ2VudDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+
+/**
+ * @generated from message podium.agent.v1.TurnServiceCreateRoutineRequest
+ */
+export type TurnServiceCreateRoutineRequest = Message<"podium.agent.v1.TurnServiceCreateRoutineRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * instruction is the complete brief for one run, which runs with nobody present.
+   *
+   * @generated from field: string instruction = 2;
+   */
+  instruction: string;
+
+  /**
+   * schedule is a five-field cron expression, never more often than every 15 minutes.
+   *
+   * @generated from field: string schedule = 3;
+   */
+  schedule: string;
+
+  /**
+   * timezone is an IANA name; empty is UTC.
+   *
+   * @generated from field: string timezone = 4;
+   */
+  timezone: string;
+
+  /**
+   * notes are standing instructions, one per line.
+   *
+   * @generated from field: string notes = 5;
+   */
+  notes: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.TurnServiceCreateRoutineRequest.
+ * Use `create(TurnServiceCreateRoutineRequestSchema)` to create a new message.
+ */
+export const TurnServiceCreateRoutineRequestSchema: GenMessage<TurnServiceCreateRoutineRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 0);
+
+/**
+ * @generated from message podium.agent.v1.TurnServiceCreateRoutineResponse
+ */
+export type TurnServiceCreateRoutineResponse = Message<"podium.agent.v1.TurnServiceCreateRoutineResponse"> & {
+  /**
+   * message is what the turn is told, in the words the chat host's tool uses.
+   *
+   * @generated from field: string message = 1;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.TurnServiceCreateRoutineResponse.
+ * Use `create(TurnServiceCreateRoutineResponseSchema)` to create a new message.
+ */
+export const TurnServiceCreateRoutineResponseSchema: GenMessage<TurnServiceCreateRoutineResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 1);
+
+/**
+ * @generated from message podium.agent.v1.FinishRoutineRequest
+ */
+export type FinishRoutineRequest = Message<"podium.agent.v1.FinishRoutineRequest"> & {
+  /**
+   * status is "idle" (nothing to do: nothing from the run is kept) or "done".
+   *
+   * @generated from field: string status = 1;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string summary = 2;
+   */
+  summary: string;
+
+  /**
+   * state_json replaces the routine's state when set: a JSON object.
+   *
+   * @generated from field: string state_json = 3;
+   */
+  stateJson: string;
+
+  /**
+   * @generated from field: string propose_note = 4;
+   */
+  proposeNote: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.FinishRoutineRequest.
+ * Use `create(FinishRoutineRequestSchema)` to create a new message.
+ */
+export const FinishRoutineRequestSchema: GenMessage<FinishRoutineRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 2);
+
+/**
+ * @generated from message podium.agent.v1.FinishRoutineResponse
+ */
+export type FinishRoutineResponse = Message<"podium.agent.v1.FinishRoutineResponse"> & {
+  /**
+   * message is what the turn is told, in the words the chat host's tool uses.
+   *
+   * @generated from field: string message = 1;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.FinishRoutineResponse.
+ * Use `create(FinishRoutineResponseSchema)` to create a new message.
+ */
+export const FinishRoutineResponseSchema: GenMessage<FinishRoutineResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 3);
 
 /**
  * Delegation is one task a turn asked for.
@@ -80,7 +199,7 @@ export type Delegation = Message<"podium.agent.v1.Delegation"> & {
  * Use `create(DelegationSchema)` to create a new message.
  */
 export const DelegationSchema: GenMessage<Delegation> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 0);
+  messageDesc(file_podium_agent_v1_turn, 4);
 
 /**
  * @generated from message podium.agent.v1.DelegateRequest
@@ -119,7 +238,7 @@ export type DelegateRequest = Message<"podium.agent.v1.DelegateRequest"> & {
  * Use `create(DelegateRequestSchema)` to create a new message.
  */
 export const DelegateRequestSchema: GenMessage<DelegateRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 1);
+  messageDesc(file_podium_agent_v1_turn, 5);
 
 /**
  * @generated from message podium.agent.v1.DelegateResponse
@@ -136,7 +255,7 @@ export type DelegateResponse = Message<"podium.agent.v1.DelegateResponse"> & {
  * Use `create(DelegateResponseSchema)` to create a new message.
  */
 export const DelegateResponseSchema: GenMessage<DelegateResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 2);
+  messageDesc(file_podium_agent_v1_turn, 6);
 
 /**
  * @generated from message podium.agent.v1.GetDelegationRequest
@@ -153,7 +272,7 @@ export type GetDelegationRequest = Message<"podium.agent.v1.GetDelegationRequest
  * Use `create(GetDelegationRequestSchema)` to create a new message.
  */
 export const GetDelegationRequestSchema: GenMessage<GetDelegationRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 3);
+  messageDesc(file_podium_agent_v1_turn, 7);
 
 /**
  * @generated from message podium.agent.v1.GetDelegationResponse
@@ -179,7 +298,7 @@ export type GetDelegationResponse = Message<"podium.agent.v1.GetDelegationRespon
  * Use `create(GetDelegationResponseSchema)` to create a new message.
  */
 export const GetDelegationResponseSchema: GenMessage<GetDelegationResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 4);
+  messageDesc(file_podium_agent_v1_turn, 8);
 
 /**
  * @generated from message podium.agent.v1.ListDelegationsRequest
@@ -192,7 +311,7 @@ export type ListDelegationsRequest = Message<"podium.agent.v1.ListDelegationsReq
  * Use `create(ListDelegationsRequestSchema)` to create a new message.
  */
 export const ListDelegationsRequestSchema: GenMessage<ListDelegationsRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 5);
+  messageDesc(file_podium_agent_v1_turn, 9);
 
 /**
  * @generated from message podium.agent.v1.ListDelegationsResponse
@@ -209,7 +328,7 @@ export type ListDelegationsResponse = Message<"podium.agent.v1.ListDelegationsRe
  * Use `create(ListDelegationsResponseSchema)` to create a new message.
  */
 export const ListDelegationsResponseSchema: GenMessage<ListDelegationsResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 6);
+  messageDesc(file_podium_agent_v1_turn, 10);
 
 /**
  * @generated from message podium.agent.v1.CancelDelegationRequest
@@ -233,7 +352,7 @@ export type CancelDelegationRequest = Message<"podium.agent.v1.CancelDelegationR
  * Use `create(CancelDelegationRequestSchema)` to create a new message.
  */
 export const CancelDelegationRequestSchema: GenMessage<CancelDelegationRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 7);
+  messageDesc(file_podium_agent_v1_turn, 11);
 
 /**
  * @generated from message podium.agent.v1.CancelDelegationResponse
@@ -250,7 +369,7 @@ export type CancelDelegationResponse = Message<"podium.agent.v1.CancelDelegation
  * Use `create(CancelDelegationResponseSchema)` to create a new message.
  */
 export const CancelDelegationResponseSchema: GenMessage<CancelDelegationResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 8);
+  messageDesc(file_podium_agent_v1_turn, 12);
 
 /**
  * @generated from message podium.agent.v1.InjectDelegationRequest
@@ -274,7 +393,7 @@ export type InjectDelegationRequest = Message<"podium.agent.v1.InjectDelegationR
  * Use `create(InjectDelegationRequestSchema)` to create a new message.
  */
 export const InjectDelegationRequestSchema: GenMessage<InjectDelegationRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 9);
+  messageDesc(file_podium_agent_v1_turn, 13);
 
 /**
  * @generated from message podium.agent.v1.InjectDelegationResponse
@@ -291,7 +410,7 @@ export type InjectDelegationResponse = Message<"podium.agent.v1.InjectDelegation
  * Use `create(InjectDelegationResponseSchema)` to create a new message.
  */
 export const InjectDelegationResponseSchema: GenMessage<InjectDelegationResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 10);
+  messageDesc(file_podium_agent_v1_turn, 14);
 
 /**
  * @generated from message podium.agent.v1.ReleasePreviewRequest
@@ -310,7 +429,7 @@ export type ReleasePreviewRequest = Message<"podium.agent.v1.ReleasePreviewReque
  * Use `create(ReleasePreviewRequestSchema)` to create a new message.
  */
 export const ReleasePreviewRequestSchema: GenMessage<ReleasePreviewRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 11);
+  messageDesc(file_podium_agent_v1_turn, 15);
 
 /**
  * @generated from message podium.agent.v1.ReleasePreviewResponse
@@ -327,7 +446,94 @@ export type ReleasePreviewResponse = Message<"podium.agent.v1.ReleasePreviewResp
  * Use `create(ReleasePreviewResponseSchema)` to create a new message.
  */
 export const ReleasePreviewResponseSchema: GenMessage<ReleasePreviewResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 12);
+  messageDesc(file_podium_agent_v1_turn, 16);
+
+/**
+ * @generated from message podium.agent.v1.StartChatRequest
+ */
+export type StartChatRequest = Message<"podium.agent.v1.StartChatRequest"> & {
+  /**
+   * title names the new chat.
+   *
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * opening is the assistant's first message in it, in markdown.
+   *
+   * @generated from field: string opening = 2;
+   */
+  opening: string;
+
+  /**
+   * share_with is Podium people to share it with, by login.
+   *
+   * @generated from field: repeated string share_with = 3;
+   */
+  shareWith: string[];
+
+  /**
+   * access is general access: restricted (the default), members or link.
+   *
+   * @generated from field: string access = 4;
+   */
+  access: string;
+
+  /**
+   * role is what sharing grants: editor (the default) or viewer.
+   *
+   * @generated from field: string role = 5;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartChatRequest.
+ * Use `create(StartChatRequestSchema)` to create a new message.
+ */
+export const StartChatRequestSchema: GenMessage<StartChatRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 17);
+
+/**
+ * @generated from message podium.agent.v1.StartChatResponse
+ */
+export type StartChatResponse = Message<"podium.agent.v1.StartChatResponse"> & {
+  /**
+   * @generated from field: string chat_id = 1;
+   */
+  chatId: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * url is the link to the chat as a person reaches it, with its link token when it is
+   * shared by link.
+   *
+   * @generated from field: string url = 3;
+   */
+  url: string;
+
+  /**
+   * @generated from field: repeated string shared_with = 4;
+   */
+  sharedWith: string[];
+
+  /**
+   * @generated from field: string access = 5;
+   */
+  access: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartChatResponse.
+ * Use `create(StartChatResponseSchema)` to create a new message.
+ */
+export const StartChatResponseSchema: GenMessage<StartChatResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 18);
 
 /**
  * MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
@@ -343,7 +549,7 @@ export type MintTokenRequest = Message<"podium.agent.v1.MintTokenRequest"> & {
  * Use `create(MintTokenRequestSchema)` to create a new message.
  */
 export const MintTokenRequestSchema: GenMessage<MintTokenRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 13);
+  messageDesc(file_podium_agent_v1_turn, 19);
 
 /**
  * @generated from message podium.agent.v1.MintTokenResponse
@@ -394,7 +600,7 @@ export type MintTokenResponse = Message<"podium.agent.v1.MintTokenResponse"> & {
  * Use `create(MintTokenResponseSchema)` to create a new message.
  */
 export const MintTokenResponseSchema: GenMessage<MintTokenResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 14);
+  messageDesc(file_podium_agent_v1_turn, 20);
 
 /**
  * TurnService is what a TURN may ask of the conductor, and it is deliberately a service of
@@ -481,6 +687,41 @@ export const TurnService: GenService<{
     methodKind: "unary";
     input: typeof ReleasePreviewRequestSchema;
     output: typeof ReleasePreviewResponseSchema;
+  },
+  /**
+   * StartChat opens a new web chat owned by the person behind this turn, with the
+   * assistant's opening message, optionally shared, and returns the link to it: "starting a
+   * triage on this session — click here to join".
+   *
+   * @generated from rpc podium.agent.v1.TurnService.StartChat
+   */
+  startChat: {
+    methodKind: "unary";
+    input: typeof StartChatRequestSchema;
+    output: typeof StartChatResponseSchema;
+  },
+  /**
+   * FinishRoutine ends a routine run: whether it did something, its one-line summary, the
+   * state it keeps for the next run, and a standing note it proposes. Only a turn in a
+   * routine's chat may call it.
+   *
+   * @generated from rpc podium.agent.v1.TurnService.FinishRoutine
+   */
+  finishRoutine: {
+    methodKind: "unary";
+    input: typeof FinishRoutineRequestSchema;
+    output: typeof FinishRoutineResponseSchema;
+  },
+  /**
+   * CreateRoutine opens a routine for the person who asked for it in this conversation, with
+   * its own chat. Only a turn in a web chat that is not itself a routine may call it.
+   *
+   * @generated from rpc podium.agent.v1.TurnService.CreateRoutine
+   */
+  createRoutine: {
+    methodKind: "unary";
+    input: typeof TurnServiceCreateRoutineRequestSchema;
+    output: typeof TurnServiceCreateRoutineResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_turn, 0);

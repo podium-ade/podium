@@ -24,6 +24,7 @@ require (
 	github.com/modal-labs/modal-client/go v0.11.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/prometheus/client_golang v1.24.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/slack-go/slack v0.29.0
 	github.com/spf13/cobra v1.10.2

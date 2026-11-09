@@ -3,7 +3,15 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-const Select = SelectPrimitive.Root;
+/**
+ * Select is Radix's, with one guard: no item may have "" as its value, yet Radix can report
+ * "" — its hidden native select resets inside a form as the content remounts — and a caller
+ * reading that as a choice cleared the field ("Every 0 minutes"). A "" is never a choice, so it
+ * is dropped here, once, for every select.
+ */
+function Select({ onValueChange, ...props }: ComponentProps<typeof SelectPrimitive.Root>) {
+  return <SelectPrimitive.Root {...props} onValueChange={(v) => v !== "" && onValueChange?.(v)} />;
+}
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
@@ -20,7 +28,8 @@ function SelectTrigger({
       className={cn(
         "flex w-full items-center justify-between gap-2 rounded-md border border-line-strong bg-panel px-3 text-base text-fg",
         size === "sm" ? "min-h-9 text-sm" : "min-h-11",
-        "transition-[border-color] duration-150 ease-out hover:border-muted",
+        "outline-none transition-[border-color] duration-150 ease-out hover:border-muted",
+        "focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "data-[placeholder]:text-faint",
         "[&>span]:min-w-0 [&>span]:truncate [&>span]:text-left",
@@ -89,8 +98,11 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-7 text-xs outline-none select-none",
-        "text-fg transition-colors data-[highlighted]:bg-raised",
+        "relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-7 text-sm outline-none select-none",
+        // The pointer highlights with CSS, at once; data-highlighted is the keyboard's row (and
+        // Radix's, which follows focus). No colour transition: it made the highlight trail the
+        // pointer down the list.
+        "text-fg hover:bg-raised data-[highlighted]:bg-raised",
         "data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
         className,
       )}

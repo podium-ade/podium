@@ -16,6 +16,7 @@ package conductor
 // A turn that has already finished is not needed for any of that — it is only what asked.
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -78,9 +79,9 @@ type turnGrant struct {
 	ref       string
 	src       Source
 	playbooks []string
-	// login is the Slack speaker's email, when Slack could read one. It chooses MCP
-	// servers for a delegated task. Personal secrets still follow asker, which is empty
-	// for Slack.
+	// login is the Podium person who started the turn, resolved on any surface. A delegated
+	// task's personal secrets and MCP servers are theirs. Empty for a turn nobody in Podium
+	// started.
 	login string
 }
 
@@ -165,6 +166,7 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Summary: playbookSummary(p),
 			Docker:  p.Docker,
 			Browser: p.Browser,
+			Desktop: p.Desktop,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
 			GitHub:  p.GitHub,
@@ -195,10 +197,12 @@ func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
 // playbook can reach rather than describing it: a model choosing between playbooks needs to
 // know which one has a Docker daemon and which one has the repository checked out.
 type DelegablePlaybook struct {
-	Name    string   `json:"name"`
-	Summary string   `json:"summary,omitempty"`
-	Docker  bool     `json:"docker,omitempty"`
-	Browser bool     `json:"browser,omitempty"`
+	Name    string `json:"name"`
+	Summary string `json:"summary,omitempty"`
+	Docker  bool   `json:"docker,omitempty"`
+	Browser bool   `json:"browser,omitempty"`
+	// Desktop says the task runs on a desktop the person watches live in the chat.
+	Desktop bool     `json:"desktop,omitempty"`
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`
@@ -257,7 +261,49 @@ func (c *Conductor) Delegate(
 		return store.Delegation{}, fmt.Errorf("%w: %q; this turn was offered %v",
 			ErrPlaybookNotOffered, playbookName, g.playbooks)
 	}
+	if err := c.checkRoutineDelegations(ctx, g); err != nil {
+		return store.Delegation{}, err
+	}
 	return c.delegate(ctx, g, playbookName, instruction, opts)
+}
+
+// A scheduled routine run delegates at most MaxRoutineDelegationsPerRun tasks, and a routine has
+// at most MaxRoutineConcurrentDelegations running at once, across its runs: nobody is watching
+// a routine, so a run that loops on "delegate another" must stop on its own.
+const (
+	MaxRoutineDelegationsPerRun     = 3
+	MaxRoutineConcurrentDelegations = 3
+)
+
+// ErrRoutineDelegationCap is a routine run that has started as many tasks as it may.
+var ErrRoutineDelegationCap = errors.New("conductor: this routine has started as many tasks as it may")
+
+// checkRoutineDelegations refuses a delegation from a scheduled run past either cap. A person's
+// own message in a routine's chat is not a run and is not capped here.
+func (c *Conductor) checkRoutineDelegations(ctx context.Context, g turnGrant) error {
+	c.mu.Lock()
+	rt := c.routineTurns[g.turnID]
+	c.mu.Unlock()
+	if rt == nil || c.store == nil {
+		return nil
+	}
+	mine, err := c.store.DelegationsForTurn(ctx, g.turnID)
+	if err != nil {
+		return err
+	}
+	if len(mine) >= MaxRoutineDelegationsPerRun {
+		return fmt.Errorf("%w: a routine run starts at most %d; list the rest in your answer and the next run "+
+			"can take them", ErrRoutineDelegationCap, MaxRoutineDelegationsPerRun)
+	}
+	running, err := c.store.RunningDelegationsForSession(ctx, g.sessionID)
+	if err != nil {
+		return err
+	}
+	if len(running) >= MaxRoutineConcurrentDelegations {
+		return fmt.Errorf("%w: %d of its tasks are still running, the most a routine may have at once; "+
+			"leave the rest for a later run", ErrRoutineDelegationCap, len(running))
+	}
+	return nil
 }
 
 // delegate starts playbookName for the conversation g names. Delegate has already checked
@@ -349,7 +395,7 @@ func (c *Conductor) delegate(
 		if err := c.awaitWorkspace(bg, sess, playbookName, dlg.ID, limit); err != nil {
 			c.logger.ErrorContext(bg, "the delegation waiting for its workspace did not start",
 				"delegation_id", dlg.ID, "error", err)
-			if ferr := c.store.FinishDelegation(bg, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
+			if ferr := c.finishDelegation(bg, dlg, store.TurnFailed, "", nil, nil); ferr != nil {
 				c.logger.ErrorContext(bg, "recording a delegation that never started failed",
 					"delegation_id", dlg.ID, "error", ferr)
 			}
@@ -375,7 +421,7 @@ func (c *Conductor) launch(
 	playbookName := playbook.Name
 	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice, opts)
 	if err != nil {
-		if ferr := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
+		if ferr := c.finishDelegation(ctx, dlg, store.TurnFailed, "", nil, nil); ferr != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that never started failed",
 				"delegation_id", dlg.ID, "error", ferr)
 		}
@@ -389,6 +435,9 @@ func (c *Conductor) launch(
 		c.logger.ErrorContext(ctx, "binding a delegation to its task failed",
 			"delegation_id", dlg.ID, "task_id", dlg.TaskID, "error", err)
 	}
+	// An open chat shows the task working from here, whether or not the turn that asked is
+	// still running (an automatic review's turn ends as soon as it hands the work over).
+	c.delegationChanged(ctx, dlg.SessionID)
 	c.logger.InfoContext(ctx, "delegated a task", "delegation_id", dlg.ID, "turn_id", g.turnID,
 		"session_id", g.sessionID, "playbook", playbookName, "task_id", dlg.TaskID)
 
@@ -400,7 +449,7 @@ func (c *Conductor) launch(
 		c.logger.WarnContext(ctx, "a delegated task failed before it started", "delegation_id", dlg.ID,
 			"task_id", dlg.TaskID, "status", failed.GetStatus().String(), "failure_reason", failed.GetFailureReason())
 		c.dropGitCapability(ctx, dlg.ID, playbook)
-		if err := c.store.FinishDelegation(ctx, dlg.ID, result.Status, "", nil, nil); err != nil {
+		if err := c.finishDelegation(ctx, dlg, result.Status, "", nil, nil); err != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that failed at once failed",
 				"delegation_id", dlg.ID, "error", err)
 		}
@@ -680,14 +729,13 @@ func (c *Conductor) startDelegatedTask(
 	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
 	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
 ) (*podiumv1.Task, error) {
-	entries, err := g.src.FetchTranscript(ctx, g.ref)
+	entries, err := c.turnTranscript(ctx, g.src, g.ref, sess)
 	if err != nil {
 		// The conversation is context, not the instruction. A task with none is a worse
 		// task and a much better outcome than no task at all.
 		c.logger.WarnContext(ctx, "reading the conversation for a delegated task failed; running it without history",
 			"delegation_id", dlg.ID, "ref", g.ref, "error", err)
 	}
-	entries = c.withSummary(ctx, sess.ID, entries)
 	j := playbookJob(playbook)
 	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
@@ -705,11 +753,12 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	// The person this conversation's personal secrets belong to. A Slack thread has none,
-	// so a playbook that names personal secrets fails here, before a task exists. MCP
-	// servers are chosen separately: a Slack speaker's email, stored on the turn grant,
-	// uses that person's rows.
-	login := c.asker(ctx, g.src, sess)
+	// The person this delegation's personal secrets belong to: whoever started the turn that
+	// asked for it, which the turn grant carries (turnLogin). A grant with nobody on it — an
+	// automatic review, a review command from outside Podium, Linear — falls back to asker,
+	// which is nobody outside a web chat, so a playbook that names personal secrets fails
+	// here, before a task exists.
+	login := cmp.Or(g.login, c.asker(ctx, g.src, sess))
 	persona, err := c.githubPersona(ctx, login, playbook)
 	if err != nil {
 		return nil, err
@@ -717,12 +766,13 @@ func (c *Conductor) startDelegatedTask(
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent, false)
+	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login
 	}
-	servers, err := c.mcpServers(ctx, j, mcpOwner)
+	// A playbook is strict: a server it names that this person cannot have fails here.
+	servers, _, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
@@ -730,13 +780,14 @@ func (c *Conductor) startDelegatedTask(
 	if persona != nil {
 		brief.Git = persona
 	}
+	c.withRequestedBy(ctx, brief, login, persona)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
 	// Keyed by the delegation id, which is what this task's brief carries as its turn id
 	// and therefore what Mint checks the status of.
-	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login)
+	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login, persona != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1103,7 +1154,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	}
 	// As turnRun.finish does, and for the same reason.
 	r.c.dropGitCapability(ctx, r.dlg.ID, r.playbook)
-	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer, numTurns, cost); err != nil {
+	if err := r.c.finishDelegation(ctx, r.dlg, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)
 	}
@@ -1206,7 +1257,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 			// Recorded, and its task never was. Nothing is running.
 			c.logger.WarnContext(ctx, "a delegation was recorded but its task never was; failing it",
 				"delegation_id", dlg.ID)
-			if err := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); err != nil {
+			if err := c.finishDelegation(ctx, dlg, store.TurnFailed, "", nil, nil); err != nil {
 				c.logger.ErrorContext(ctx, "failing an orphaned delegation failed",
 					"delegation_id", dlg.ID, "error", err)
 			}
@@ -1260,4 +1311,39 @@ func containsString(all []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ChatWatcher is told that a chat's row changed, so every screen watching it re-reads it. The
+// chat broadcaster implements it; it is how an open chat learns a delegated task started or
+// finished (Chat.TaskRunning), which nothing else it is sent says.
+type ChatWatcher interface {
+	ChatChanged(ctx context.Context, chatID string)
+}
+
+// finishDelegation records how a delegation ended and tells the conversation's open screens,
+// so a task block stops saying "working" the moment its task does.
+func (c *Conductor) finishDelegation(
+	ctx context.Context, dlg store.Delegation, status, answer string, numTurns *int, cost *float64,
+) error {
+	err := c.store.FinishDelegation(ctx, dlg.ID, status, answer, numTurns, cost)
+	c.delegationChanged(ctx, dlg.SessionID)
+	return err
+}
+
+// delegationChanged re-announces the chat a delegation belongs to. Best effort: a chat that
+// cannot be found (a conversation with no record) has no screen to tell.
+func (c *Conductor) delegationChanged(ctx context.Context, sessionID string) {
+	w, ok := c.mirror.(ChatWatcher)
+	if !ok || c.store == nil || sessionID == "" {
+		return
+	}
+	sess, err := c.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if err != nil {
+		return
+	}
+	w.ChatChanged(ctx, chat.ID)
 }

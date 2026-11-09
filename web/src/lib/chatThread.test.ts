@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { ChatMessageSchema, type ChatMessage } from "../gen/podium/agent/v1/agent_pb";
-import { TASK_TOOL, parseActivity, toThread } from "./chatThread";
+import { ChatDeliverySchema, ChatMessageSchema, type ChatMessage } from "../gen/podium/agent/v1/agent_pb";
+import { TASK_TOOL, parseActivity, toThread, type MessageCustom } from "./chatThread";
 
 let seq = 0n;
 function row(role: string, text: string, taskId = ""): ChatMessage {
@@ -27,6 +27,30 @@ describe("parseActivity", () => {
 });
 
 describe("toThread", () => {
+  it("draws a quiet routine run's last line as what it concluded, after its steps", () => {
+    const thread = toThread({
+      messages: [
+        row("notice", "Routine run · Sun 8 Nov 19:41 UTC · nothing to do"),
+        row("activity", tool("github-read_list_pull_requests")),
+        row("progress", "Checking the checks"),
+        row("activity", tool("podium_routine_finish")),
+        row("progress", "All open pull requests pass."),
+        row("notice", "Routine run · Sun 8 Nov 19:51 UTC"),
+        row("progress", "Looking"),
+        row("assistant", "PR #9 failed."),
+      ],
+      busy: false,
+      taskRunning: false,
+    });
+    const quiet = partsOf(thread[1]!);
+    expect(quiet.at(-1)).toEqual({ type: "text", text: "All open pull requests pass." });
+    expect(quiet[1]).toMatchObject({ type: "reasoning", text: "Checking the checks" });
+    // A run that answered keeps its thinking as thinking.
+    const done = partsOf(thread[3]!);
+    expect(done[0]).toMatchObject({ type: "reasoning", text: "Looking" });
+    expect(done.at(-1)).toMatchObject({ type: "text", text: "PR #9 failed." });
+  });
+
   it("folds everything between two questions into one assistant message", () => {
     const thread = toThread({
       messages: [
@@ -170,5 +194,65 @@ describe("toThread", () => {
     const thread = toThread({ messages: [q, answer], busy: false, taskRunning: false });
     expect(thread[0].metadata?.custom).toMatchObject({ author: "alice" });
     expect(thread[1].metadata?.custom).toMatchObject({ attachments: [{ name: "report.csv" }] });
+  });
+});
+
+describe("toThread attribution", () => {
+  it("carries who said a message, where, and whether it reached Podium", () => {
+    const m = create(ChatMessageSchema, {
+      seq: 99n,
+      role: "user",
+      text: "lgtm",
+      author: "octocat",
+      authorHandle: "octocat",
+      via: "github",
+      externalUrl: "https://x/1",
+      addressed: false,
+    });
+    const [u] = toThread({ messages: [m], busy: false, taskRunning: false });
+    expect(u.metadata?.custom).toMatchObject({
+      author: "octocat",
+      authorHandle: "octocat",
+      via: "github",
+      externalUrl: "https://x/1",
+      addressed: false,
+      edited: false,
+    });
+  });
+
+  it("never dims a message from a server that says nothing about where it came from", () => {
+    const m = create(ChatMessageSchema, { seq: 100n, role: "user", text: "hi" });
+    const [u] = toThread({ messages: [m], busy: false, taskRunning: false });
+    expect(u.metadata?.custom).toMatchObject({ addressed: true });
+  });
+});
+
+describe("undelivered answers", () => {
+  it("carries a copy that did not land on the answer, and leaves one that did", () => {
+    const answer = row("assistant", "It ran out of disk.");
+    answer.chatId = "chat_1";
+    answer.deliveries = [
+      create(ChatDeliverySchema, { surface: "slack", status: "failed", attempts: 6, error: "channel_not_found" }),
+      create(ChatDeliverySchema, { surface: "github", status: "sent", attempts: 1 }),
+    ];
+    const retrying = row("assistant", "And another thing.");
+    retrying.chatId = "chat_1";
+    retrying.deliveries = [create(ChatDeliverySchema, { surface: "slack", status: "pending", attempts: 2, error: "timeout" })];
+    const onItsWay = row("assistant", "Fresh.");
+    onItsWay.deliveries = [create(ChatDeliverySchema, { surface: "slack", status: "pending", attempts: 0 })];
+
+    const thread = toThread({
+      messages: [row("user", "why?"), answer, retrying, row("user", "and?"), onItsWay],
+      busy: false,
+      taskRunning: false,
+    });
+    const first = thread[1].metadata?.custom as MessageCustom;
+    expect(first.undelivered).toEqual([
+      { chatId: "chat_1", seq: answer.seq, surface: "slack", status: "failed", error: "channel_not_found" },
+      { chatId: "chat_1", seq: retrying.seq, surface: "slack", status: "pending", error: "timeout" },
+    ]);
+    const second = thread[3].metadata?.custom as MessageCustom;
+    // A first attempt still in flight is not news.
+    expect(second.undelivered).toEqual([]);
   });
 });

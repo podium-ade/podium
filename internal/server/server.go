@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"connectrpc.com/connect"
@@ -23,6 +24,7 @@ import (
 	"github.com/podium-ade/podium/internal/server/api"
 	"github.com/podium-ade/podium/internal/server/artifacts"
 	"github.com/podium-ade/podium/internal/server/auth"
+	"github.com/podium-ade/podium/internal/server/desktop"
 	"github.com/podium-ade/podium/internal/server/logs"
 	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/internal/server/sandboxes"
@@ -376,6 +378,10 @@ func (s *Server) mux() http.Handler {
 	rpc := http.NewServeMux()
 	tasks := api.NewTaskService(s.store, s.logs, s.nodes, s.secrets, s.logger)
 	tasks.SetMaxPreviewTTL(s.cfg.PreviewMaxTTL)
+	desktops := s.desktops()
+	if desktops != nil {
+		tasks.SetDesktops(desktops)
+	}
 	rpc.Handle(podiumv1connect.NewTaskServiceHandler(tasks, opts...))
 	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
@@ -386,6 +392,8 @@ func (s *Server) mux() http.Handler {
 		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewAuditServiceHandler(
+		api.NewAuditService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSandboxProviderServiceHandler(
@@ -469,8 +477,42 @@ func (s *Server) mux() http.Handler {
 	// 512 MB artifact has to stream. It sits behind the same identity middleware.
 	root.Handle(api.ArtifactDownloadPrefix,
 		withAuth(api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
-	root.Handle("/", api.NewUIHandler(s.logger))
-	return root
+	frameSrc := ""
+	if desktops != nil {
+		frameSrc = desktops.Origin()
+	}
+	root.Handle("/", api.NewUIHandler(s.logger, frameSrc))
+	if desktops == nil {
+		return root
+	}
+	// The desktop origin is this same listener, told apart by Host. Nothing else is served
+	// there — not the UI, not the API — and the desktop is served nowhere else.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if desktops.Handles(r) {
+			desktops.ServeHTTP(w, r)
+			return
+		}
+		root.ServeHTTP(w, r)
+	})
+}
+
+// desktops is the desktop origin's service, or nil when PODIUM_DESKTOP_URL is unset.
+func (s *Server) desktops() *desktop.Service {
+	if !s.cfg.DesktopEnabled() {
+		return nil
+	}
+	base, err := url.Parse(s.cfg.DesktopURL)
+	if err != nil {
+		s.logger.Error("desktops off: PODIUM_DESKTOP_URL", "error", err)
+		return nil
+	}
+	svc, err := desktop.New(base, s.cfg.PublicURL, newDesktopUpstreams(s.store, s.secrets), s.logger.With("component", "desktop"))
+	if err != nil {
+		s.logger.Error("desktops off", "error", err)
+		return nil
+	}
+	s.logger.Info("desktops streamed", "origin", svc.Origin())
+	return svc
 }
 
 // agentInfra is true for a signed-in admin or owner. The dev token is handled by the
@@ -694,7 +736,22 @@ func (p snapshotProviders) Snapshotters(ctx context.Context) ([]string, error) {
 
 // Deleter implements sandboxsnaps.Providers with a provider of its own, built for the call.
 func (p snapshotProviders) Deleter(ctx context.Context, provider string) (sandboxsnaps.Deleter, error) {
-	cfg, found, err := p.secrets.ResolveSandboxProvider(ctx, "server", provider)
+	built, err := buildSandboxProvider(ctx, p.secrets, provider)
+	if err != nil {
+		return nil, err
+	}
+	d, ok := built.(sandboxsnaps.Deleter)
+	if !ok {
+		return nil, fmt.Errorf("sandbox provider %s keeps no snapshots of its own", provider)
+	}
+	return d, nil
+}
+
+// buildSandboxProvider is a provider of the server's own, from the configuration the Sandboxes
+// screen saved, for a call that is not running a task: deleting a snapshot, reaching a desktop.
+// The pool and template settings are for making sandboxes, which these calls never do.
+func buildSandboxProvider(ctx context.Context, sec *secrets.Service, provider string) (sandbox.Provider, error) {
+	cfg, found, err := sec.ResolveSandboxProvider(ctx, "server", provider)
 	if err != nil {
 		return nil, err
 	}
@@ -709,14 +766,7 @@ func (p snapshotProviders) Deleter(ctx context.Context, provider string) (sandbo
 	}
 	built, err := sandbox.New(provider, sandbox.ConfigOf(settings, cfg.Secret))
 	clear(cfg.Secret)
-	if err != nil {
-		return nil, err
-	}
-	d, ok := built.(sandboxsnaps.Deleter)
-	if !ok {
-		return nil, fmt.Errorf("sandbox provider %s keeps no snapshots of its own", provider)
-	}
-	return d, nil
+	return built, err
 }
 
 // sandboxPusher is what a provider's change reaches: the nodes that run it, and the server's

@@ -20,23 +20,42 @@ select * from sessions where id = @id;
 select * from sessions where source_key = @source_key;
 
 -- ListSessions is the same partition as ListChats. include_all is the dev token and returns
--- every source. Otherwise only web-chat sessions whose chat row is owned by this login —
--- a Slack, Linear or dev session has no such row, so a signed-in user does not see it.
+-- every source. Otherwise a session is visible exactly when the chat that holds it is: a web
+-- chat's own row, or the mirror of a Slack thread or pull request (joined on source_key, the
+-- key both are written under). A Linear or dev session has no chat and stays the operator's.
+--
+-- Phase 5 adds the same sections ListChats has, and what a row needs to say about sharing:
+-- the chat it is the record of, the caller's role and why they can see it, who shared it, and
+-- how much of it they have not read. A session with no chat (Linear, dev) has none of these.
 -- name: ListSessions :many
-select * from sessions
+select s.*,
+  coalesce(c.id, '')::text as chat_id,
+  coalesce(chat_role(c.id, @viewer::text), '')::text as my_role,
+  (case
+    when c.id is null then ''
+    when c.login is not null and c.login = @viewer::text then 'owner'
+    when exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = @viewer::text) then 'participant'
+    when exists (select 1 from chat_access a where a.chat_id = c.id and a.login = @viewer::text) then 'shared'
+    when c.general_access = 'members' then 'workspace'
+    else ''
+  end)::text as access_reason,
+  coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = @viewer::text), '')::text as shared_by,
+  coalesce(chat_unread(c.id, @viewer::text), 0)::bigint as unread_count
+from sessions s
+left join chats c on c.source_key = s.source_key
 where (
-  @include_all::bool
-  or (
-    source_kind = 'chat'
-    and exists (
-      select 1 from chats c
-      where c.source_key = sessions.source_key
-        and c.login = @login
-    )
-  )
+  (@include_all::bool and @section::text = '')
+  or (c.id is not null and @section::text in ('', 'shared')
+      and chat_visible_to(c.id, c.login, @viewer::text)
+      and (@section::text = '' or c.login is distinct from @viewer::text))
+  or (c.id is not null and @section::text = 'workspace'
+      and c.general_access = 'members'
+      and c.deleted_at is null
+      and not chat_visible_to(c.id, c.login, @viewer::text)
+      and exists (select 1 from identities i where i.provider = 'web' and i.external_id = @viewer::text))
 )
-and (@after_id::text = '' or id < @after_id::text)
-order by id desc
+and (@after_id::text = '' or s.id < @after_id::text)
+order by s.id desc
 limit @page_limit::int;
 
 -- name: TouchSession :exec

@@ -1,13 +1,18 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
+  ChevronDown,
   Ellipsis,
+  LogOut,
+  Monitor,
   Pencil,
   Plus,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react";
-import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { markChatSeen } from "../../lib/chatSeen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,16 +20,22 @@ import {
   type Assistant,
   type Chat,
   type Personality,
+  type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
+import { isSystem, routinesKey } from "../../lib/routines";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
+import { mentionsPodium } from "../../lib/mentions";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
+import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
+import { desktopCandidate, useDesktopTask } from "../../lib/desktop";
+import { DesktopPane } from "./DesktopPane";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -45,17 +56,21 @@ import {
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type QueuedItem } from "./ChatComposer";
+import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
+import { QuietRuns, RoutineCard } from "./RoutineCard";
+import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
+import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
 
-function RailHeading({ title, action }: { title: string; action?: ReactNode }) {
+function RailHeading({ title, action, className }: { title: string; action?: ReactNode; className?: string }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 px-4 pt-4 pb-3">
+    <div className={cn("flex min-w-0 items-center justify-between gap-2 px-4 pt-4 pb-3", className)}>
       <h2 className="min-w-0 truncate text-xs font-bold tracking-[0.08em] text-muted uppercase">{title}</h2>
       {action}
     </div>
@@ -83,7 +98,10 @@ type VoiceRow = { id: string; label: string; gone?: boolean };
 
 // The thread, its markdown and its highlighter are most of this screen's weight and none of
 // any other's, so they load with the first conversation opened.
-const ChatThread = lazy(() => import("./chat/ChatThread").then((m) => ({ default: m.ChatThread })));
+// The transcript is its own chunk. ChatPanel starts fetching it as soon as it mounts, so a chat
+// opened from the arrival does not sit on an empty pane while it downloads.
+const loadChatThread = () => import("./chat/ChatThread");
+const ChatThread = lazy(() => loadChatThread().then((m) => ({ default: m.ChatThread })));
 
 /** Matches store.MaxChatTitleRunes — the input refuses more, the server does too. */
 const MAX_CHAT_TITLE = 80;
@@ -101,6 +119,9 @@ export function ChatPanel() {
   // The tab's route is `chat/*`. The first segment is the chat id, except `a`, which names
   // a personal assistant: /agent/chat/a/:id and /agent/chat/a/:id/:chatId.
   const splat = useParams()["*"] ?? "";
+  useEffect(() => {
+    void loadChatThread();
+  }, []);
   const route = useMemo(() => parseChatPath(splat), [splat]);
   const active = route.chatId;
   const personalityId = route.personalityId;
@@ -113,6 +134,14 @@ export function ChatPanel() {
     // A turn started in another tab, or by somebody else's browser on the same login,
     // changes turn_running and the preview. Nothing else here would notice.
     refetchInterval: 10_000,
+  });
+  // Chats shared with every member and not opened yet (phase 5). They are the workspace's,
+  // not an assistant's, so they are listed with Podium's chats only.
+  const workspace = useQuery({
+    queryKey: ["agent", "chats", "workspace"],
+    queryFn: () => agent.listChats({ section: "workspace" }),
+    enabled: personalityId === "",
+    refetchInterval: 30_000,
   });
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -195,6 +224,19 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  // Leaving takes the viewer out of somebody else's chat (phase 5). Speaking in it again,
+  // from any surface, brings them back, so there is nothing to confirm.
+  const leave = useMutation({
+    mutationFn: (chat: Chat) => agent.leaveChat({ chatId: chat.id }),
+    onSuccess: async (_res, chat) => {
+      toast(`You left ${chat.title}.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      await qc.invalidateQueries({ queryKey: ["agent", "sessions"] });
+      if (active === chat.id) navigate(blank);
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
@@ -244,6 +286,10 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  // The rail shows both: what is in the viewer's lists, and what the workspace shares that
+  // they have not opened. A chat in both (just opened) is shown once, from their own list.
+  const own = new Set(list.map((c) => c.id));
+  const railChats = [...list, ...(workspace.data?.chats ?? []).filter((c) => !own.has(c.id))];
   // What the assistant may delegate to. It is shown, never picked: the turn chooses a
   // playbook per piece of work, and naming them is how a reader learns the conversation can
   // reach a machine at all.
@@ -272,7 +318,7 @@ export function ChatPanel() {
 
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <ChatRail
-          chats={list}
+          chats={railChats}
           active={active}
           loading={chats.isPending}
           onNew={openBlank}
@@ -281,6 +327,7 @@ export function ChatPanel() {
           onOpen={(id) => navigate(chatPath(personalityId, id))}
           onRename={renameChat}
           onDelete={setPendingDelete}
+          onLeave={(c) => leave.mutate(c)}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -308,12 +355,16 @@ export function ChatPanel() {
             <Conversation
               key={active}
               chatId={active}
-              title={list.find((c) => c.id === active)?.title ?? ""}
-              remembered={storedChoice(list.find((c) => c.id === active))}
-              listedOrigin={list.find((c) => c.id === active)?.origin}
-              listedChannel={list.find((c) => c.id === active)?.channel}
-              listedLogin={list.find((c) => c.id === active)?.login}
-              listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
+              title={railChats.find((c) => c.id === active)?.title ?? ""}
+              remembered={storedChoice(railChats.find((c) => c.id === active))}
+              listedOrigin={railChats.find((c) => c.id === active)?.origin}
+              listedChannel={railChats.find((c) => c.id === active)?.channel}
+              listedLogin={railChats.find((c) => c.id === active)?.login}
+              listedRole={railChats.find((c) => c.id === active)?.myRole}
+              listedSharedWithMe={railChats.find((c) => c.id === active)?.sharedWithMe}
+              listedMultiplayer={railChats.find((c) => c.id === active)?.multiplayer}
+              listedRoutineId={railChats.find((c) => c.id === active)?.routineId}
+              listedEmpty={railChats.find((c) => c.id === active)?.preview === ""}
               onRename={(title) => renameChat(active, title)}
               onLeave={() => navigate(blank)}
               assistant={answeredBy}
@@ -387,19 +438,19 @@ function when(c: Chat): number {
   return toDate(c.lastMessageAt ?? c.createdAt)?.getTime() ?? 0;
 }
 
-function startOfDay(ms: number): number {
+/** shortWhen is how long ago, in the fewest characters a row can spare: now, 5m, 3h, 2d, Nov 2. */
+function shortWhen(ms: number, now = Date.now()): string {
+  const ago = now - ms;
+  if (ago < 60_000) return "now";
+  if (ago < 3_600_000) return `${Math.floor(ago / 60_000)}m`;
+  if (ago < 86_400_000) return `${Math.floor(ago / 3_600_000)}h`;
+  if (ago < 7 * 86_400_000) return `${Math.floor(ago / 86_400_000)}d`;
   const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-/** recencyLabel is Today / Yesterday / Previous 7 days / Older, newest-first grouping. */
-function recencyLabel(ms: number, now = Date.now()): string {
-  const today = startOfDay(now);
-  if (ms >= today) return "Today";
-  if (ms >= today - 86_400_000) return "Yesterday";
-  if (ms >= today - 7 * 86_400_000) return "Previous 7 days";
-  return "Older";
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() === new Date(now).getFullYear() ? {} : { year: "2-digit" }),
+  });
 }
 
 function originKey(origin: string | undefined): string {
@@ -409,17 +460,34 @@ function originKey(origin: string | undefined): string {
 
 function originLabel(key: string): string {
   if (key === "web") return "Web";
+  if (key === "routine") return "Routines";
+  if (key === "shared") return "Shared with me";
+  if (key === "workspace") return "Workspace";
   if (key === "slack") return "Slack";
+  if (key === "github") return "GitHub";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "slack"];
+const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "workspace"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {
   const by = new Map<string, Chat[]>();
   for (const c of chats) {
-    const key = originKey(c.origin);
+    // A web chat somebody else owns and the viewer takes part in — a chat with somebody
+    // else's personal assistant among them — is its own list, labelled with that assistant.
+    //
+    // Phase 5: a chat somebody shared with the viewer (by name, or that they opened from a
+    // link) is "Shared with me" wherever it lives, and a members-shared chat they have not
+    // opened is "Workspace". A Slack thread or PR they spoke in stays under its surface.
+    // A routine's chat is its own list: it is never shared, so it is always the viewer's own.
+    const key = c.routineId
+      ? "routine"
+      : c.accessReason === "workspace"
+        ? "workspace"
+        : c.accessReason === "shared" || (c.sharedWithMe && originKey(c.origin) === "web")
+          ? "shared"
+          : originKey(c.origin);
     const list = by.get(key);
     if (list) list.push(c);
     else by.set(key, [c]);
@@ -436,15 +504,56 @@ function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat
     .map((key) => ({ key, label: originLabel(key), chats: by.get(key) ?? [] }));
 }
 
-function groupChats(chats: Chat[]): { label: string; chats: Chat[] }[] {
-  const groups: { label: string; chats: Chat[] }[] = [];
-  for (const c of chats) {
-    const label = recencyLabel(when(c));
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.chats.push(c);
-    else groups.push({ label, chats: [c] });
+/** RAIL_PAGE is how many chats one origin lists before "Show more", and how many more each
+ * press adds. A busy repository's pull requests would otherwise push the web chats out of
+ * sight. */
+const RAIL_PAGE = 8;
+
+/** The origins somebody folded away, remembered per browser: a convenience, not state. */
+const COLLAPSED_KEY = "podium.chatRail.collapsed";
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_KEY);
+    const keys: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : []);
+  } catch {
+    return new Set();
   }
-  return groups;
+}
+
+function writeCollapsed(keys: Set<string>) {
+  try {
+    window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...keys]));
+  } catch {
+    // Private window or blocked storage: the fold lasts until the page reloads.
+  }
+}
+
+/** visibleChats is the head of one origin's list: limit chats, and always the open one, so
+ * opening a chat from a link never leaves it hidden under "Show more". */
+function visibleChats(chats: Chat[], limit: number, active: string): Chat[] {
+  const at = chats.findIndex((c) => c.id === active);
+  return chats.slice(0, Math.max(limit, at + 1));
+}
+
+/** The source the rail is narrowed to — "all", or an origin key — remembered per browser. */
+const SOURCE_KEY = "podium.chatRail.source";
+
+function readSource(): string {
+  try {
+    return window.localStorage.getItem(SOURCE_KEY) || "all";
+  } catch {
+    return "all";
+  }
+}
+
+function writeSource(key: string) {
+  try {
+    window.localStorage.setItem(SOURCE_KEY, key);
+  } catch {
+    // The choice lasts until the page reloads.
+  }
 }
 
 function ChatRail({
@@ -457,6 +566,7 @@ function ChatRail({
   onOpen,
   onRename,
   onDelete,
+  onLeave,
   deletingId,
   viewerLogin,
   voices,
@@ -472,6 +582,7 @@ function ChatRail({
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
+  onLeave: (chat: Chat) => void;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -481,6 +592,19 @@ function ChatRail({
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
+  // A routine's chat says what kind of routine it is and when it last ran, which the chat's
+  // own row does not know: the routines list does, and is shared with the Routines page.
+  const hasRoutines = chats.some((c) => c.routineId);
+  const routineList = useQuery({
+    queryKey: routinesKey,
+    queryFn: () => agent.listRoutines({}),
+    enabled: hasRoutines,
+    refetchInterval: 60_000,
+  });
+  const routineByChat = useMemo(
+    () => new Map((routineList.data?.routines ?? []).map((r) => [r.chatId, r] as const)),
+    [routineList.data],
+  );
   const activeChat = ordered.find((c) => c.id === active);
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -491,7 +615,32 @@ function ChatRail({
     );
   }, [ordered, query]);
   const origins = useMemo(() => groupByOrigin(filtered), [filtered]);
-  const split = origins.length > 1;
+  // The sources the selector offers are every one the viewer has chats in, whatever the
+  // search says, so typing does not reshuffle the control under the cursor.
+  const sources = useMemo(() => groupByOrigin(ordered), [ordered]);
+  const [sourcePick, setSourcePick] = useState(readSource);
+  const source = sources.some((o) => o.key === sourcePick) ? sourcePick : "all";
+  const pickSource = (key: string) => {
+    setSourcePick(key);
+    writeSource(key);
+  };
+  const listed = source === "all" ? origins : origins.filter((o) => o.key === source);
+  // All plus up to three sources fit with every count; more draw marks only (see the strip).
+  const compactSources = sources.length + 1 > 4;
+  const split = listed.length > 1;
+  const searching = query.trim() !== "";
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+  const toggleOrigin = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeCollapsed(next);
+      return next;
+    });
+  // How many chats each origin lists. A search lists every match: the point of searching is
+  // finding the one that was not on screen.
+  const [shown, setShown] = useState<Record<string, number>>({});
 
   return (
     <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-rail sm:w-[264px] sm:self-stretch sm:border-r sm:border-b-0">
@@ -509,7 +658,8 @@ function ChatRail({
             </Tooltip>
           }
         />
-        <ul className="hidden max-h-48 flex-col gap-0.5 overflow-y-auto px-2 py-2 sm:flex">
+        {/* 16px under the list, the same as above the heading, before Chats begins. */}
+        <ul className="hidden max-h-48 flex-col gap-0.5 overflow-y-auto px-2 pt-2 pb-4 sm:flex">
           {voices.map((voice) => (
             <li key={voice.id || "podium"}>
               {voice.gone ? (
@@ -588,6 +738,67 @@ function ChatRail({
             />
           </label>
         ) : null}
+        {sources.length > 1 ? (
+          <div
+            role="radiogroup"
+            aria-label="Show chats from"
+            data-testid="chat-sources"
+            className="mx-2 mt-2 hidden gap-0.5 rounded-lg border border-border bg-bg p-0.5 sm:flex"
+          >
+            {[{ key: "all", label: "All", chats: ordered }, ...sources].map((o) => {
+              const on = o.key === source;
+              const count =
+                o.key === "all" ? filtered.length : (origins.find((x) => x.key === o.key)?.chats.length ?? 0);
+              const waiting = o.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
+              // Four segments have room for every count. Past that the rail is too narrow:
+              // the others draw only their mark, the chosen one keeps its count, and a dot
+              // says a folded-away source has something unread. The tooltip says the rest.
+              const counted = on || !compactSources;
+              return (
+                <Tooltip
+                  key={o.key}
+                  label={[
+                    o.label,
+                    `${count} ${count === 1 ? "chat" : "chats"}`,
+                    waiting > 0 ? `${waiting} unread` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    aria-label={waiting > 0 ? `${o.label}, ${waiting} unread` : o.label}
+                    data-testid={`chat-source-${o.key}`}
+                    onClick={() => pickSource(o.key)}
+                    className={cn(
+                      "flex min-h-9 min-w-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-[background-color,border-color,color] duration-150 ease-out",
+                      compactSources && on ? "flex-none px-2.5" : "flex-1 px-1.5",
+                      on
+                        ? "border-line-strong bg-panel text-fg shadow-[0_1px_2px_#0003]"
+                        : "border-transparent text-muted hover:bg-panel/60 hover:text-fg",
+                    )}
+                  >
+                    <span className="relative inline-flex">
+                      {o.key === "all" ? <span>All</span> : <OriginMark origin={o.key} />}
+                      {waiting > 0 && !counted && o.key !== "all" ? (
+                        <span
+                          aria-hidden
+                          data-testid={`chat-source-unread-${o.key}`}
+                          className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-bg bg-accent"
+                        />
+                      ) : null}
+                    </span>
+                    {counted ? (
+                      <span className={cn("tabular-nums", on ? "text-soft" : "text-faint")}>{count}</span>
+                    ) : null}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="mx-3 mt-2 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
@@ -614,7 +825,7 @@ function ChatRail({
                 </option>
               ))}
         </select>
-        {activeChat ? (
+        {activeChat && (roleOf(activeChat) === "" || roleOf(activeChat) === "owner") ? (
           <Tooltip label={`Delete ${activeChat.title}`}>
             <Button
               type="button"
@@ -653,40 +864,115 @@ function ChatRail({
         {!loading && ordered.length > 0 && filtered.length === 0 ? (
           <li className="px-2.5 py-2 text-sm text-muted">No chats match.</li>
         ) : null}
-        {origins.map((origin) => (
-          <li key={origin.key} className="pt-4 first:pt-1">
-            {split ? (
-              <p
-                data-testid={`chat-origin-${origin.key}`}
-                className="px-2.5 pb-1 text-xs font-medium tracking-wide text-faint uppercase"
-              >
-                {origin.label}
-              </p>
-            ) : null}
-            <ul>
-              {groupChats(origin.chats).map((g) => (
-                <li key={`${origin.key}-${g.label}`} className="pt-3 first:pt-0">
-                  <p className="px-2.5 pb-1 text-xs font-medium text-faint">{g.label}</p>
-                  <ul className="space-y-px">
-                    {g.chats.map((c) => (
-                      <ChatRow
-                        key={c.id}
-                        chat={c}
-                        active={c.id === active}
-                        onOpen={onOpen}
-                        onRename={onRename}
-                        onDelete={onDelete}
-                        deleting={deletingId === c.id}
-                        viewerLogin={viewerLogin}
-                      />
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
+        {listed.map((origin) => {
+          const folded = split && !searching && collapsed.has(origin.key);
+          const limit = searching ? origin.chats.length : (shown[origin.key] ?? RAIL_PAGE);
+          const visible = visibleChats(origin.chats, limit, active);
+          const hidden = origin.chats.length - visible.length;
+          const listId = `chat-origin-list-${origin.key}`;
+          const unreadIn = origin.chats.reduce((n, c) => n + (c.id === active ? 0 : unread(c)), 0);
+          return (
+            <li key={origin.key} className="mt-2 border-t border-border pt-1 first:mt-0 first:border-t-0 first:pt-0">
+              {split ? (
+                // The heading stays at the top of the list while its own chats scroll under
+                // it, so a long GitHub list never leaves the reader wondering whose rows
+                // these are. It bleeds over the list's padding to cover what scrolls under it.
+                <button
+                  type="button"
+                  data-testid={`chat-origin-${origin.key}`}
+                  aria-expanded={!folded}
+                  aria-controls={listId}
+                  onClick={() => toggleOrigin(origin.key)}
+                  className="group/origin sticky top-0 z-10 -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2.5 border-b border-transparent bg-rail px-5 text-left transition-colors duration-150 hover:text-fg"
+                >
+                  <OriginMark origin={origin.key} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-[0.08em] text-soft uppercase group-hover/origin:text-fg">
+                    {origin.label}
+                  </span>
+                  {folded && unreadIn > 0 ? (
+                    <span className="shrink-0 rounded-full bg-accent px-1.5 text-2xs font-semibold text-accent-ink tabular-nums">
+                      {unreadIn > 99 ? "99+" : unreadIn}
+                      <span className="sr-only"> unread</span>
+                    </span>
+                  ) : null}
+                  <span className="shrink-0 text-xs font-semibold text-faint tabular-nums">
+                    {origin.chats.length}
+                    <span className="sr-only"> chats</span>
+                  </span>
+                  <ChevronDown
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 stroke-[1.8] text-muted transition-transform duration-200 ease-out motion-reduce:transition-none",
+                      folded && "-rotate-90",
+                    )}
+                  />
+                </button>
+              ) : null}
+              <RailFold open={!folded}>
+                <ul id={listId} className="space-y-px">
+                  {visible.map((c) => (
+                    <ChatRow
+                      key={c.id}
+                      chat={c}
+                      active={c.id === active}
+                      onOpen={onOpen}
+                      onRename={onRename}
+                      onDelete={onDelete}
+                      onLeave={onLeave}
+                      deleting={deletingId === c.id}
+                      viewerLogin={viewerLogin}
+                      routine={c.routineId ? routineByChat.get(c.id) : undefined}
+                    />
+                  ))}
+                  {hidden > 0 ? (
+                    <li className="pt-1.5">
+                      <button
+                        type="button"
+                        data-testid={`chat-more-${origin.key}`}
+                        onClick={() =>
+                          setShown((prev) => ({ ...prev, [origin.key]: visible.length + RAIL_PAGE }))
+                        }
+                        className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-xs font-semibold text-muted transition-colors duration-150 hover:border-line-strong hover:bg-panel hover:text-fg"
+                      >
+                        <ChevronDown aria-hidden className="size-3.5 stroke-[2]" />
+                        Show {Math.min(hidden, RAIL_PAGE)} more
+                        <span className="font-normal text-faint tabular-nums">· {hidden} left</span>
+                      </button>
+                    </li>
+                  ) : null}
+                </ul>
+              </RailFold>
+            </li>
+          );
+        })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * RailFold slides an origin's chats open and shut by its grid row, the way a sidebar group
+ * does. It clips while it moves, then lets go once open so a focus ring on its first or last
+ * row is not cut off. Visibility rides the transition, so a closing group stays painted until
+ * it has folded away and its rows leave the tab order once it has.
+ */
+function RailFold({ open, children }: { open: boolean; children: ReactNode }) {
+  const [settled, setSettled] = useState(open);
+  if (!open && settled) setSettled(false);
+  return (
+    <div
+      style={open ? undefined : { visibility: "hidden" }}
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget && e.propertyName === "grid-template-rows" && open) setSettled(true);
+      }}
+      className={cn(
+        "grid transition-[grid-template-rows,visibility] duration-200 ease-out",
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}
+    >
+      {/* min-w-0: a grid item will not shrink below its content by default, and a row's
+          content is a title that is meant to truncate, so without it the rows overflow the rail. */}
+      <div className={cn("min-h-0 min-w-0", !settled && "overflow-hidden")}>{children}</div>
     </div>
   );
 }
@@ -697,14 +983,19 @@ function ChatRow({
   onOpen,
   onRename,
   onDelete,
+  onLeave,
   deleting,
   viewerLogin,
+  routine,
 }: {
   chat: Chat;
+  /** routine is the routine this chat belongs to, when the list of routines has it. */
+  routine?: Routine;
   active: boolean;
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
+  onLeave: (chat: Chat) => void;
   deleting: boolean;
   viewerLogin: string;
 }) {
@@ -714,10 +1005,22 @@ function ChatRow({
   const ignoreBlur = useRef(false);
   // Someone else's web chat is readable by the dev token and not writable. A mirrored
   // thread has no login, so its rename and delete stay.
-  const foreign = chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
+  //
+  // Phase 5: the server says the viewer's role, and the menu follows it — the owner renames
+  // and deletes, an editor renames and leaves, a viewer leaves, and a Workspace chat nobody
+  // opened yet has nothing to do but open. An older server says no role; the old rule stands.
+  const role = roleOf(chat);
+  const foreign = role === "" && chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
+  const workspaceOnly = chat.accessReason === "workspace";
+  const mayRename = role === "" ? !foreign : canWrite(role) && !workspaceOnly;
+  const mayDelete = role === "" ? !foreign : role === "owner";
+  const mayLeave = !workspaceOnly && (role === "editor" || role === "viewer");
+  const menu = mayRename || mayDelete || mayLeave;
+  const unreadCount = active ? 0 : unread(chat);
+  const shared = sharedByLabel(chat);
 
   const start = () => {
-    if (foreign) return;
+    if (!mayRename) return;
     ignoreBlur.current = false;
     setDraft(chat.title);
     setEditing(true);
@@ -787,7 +1090,20 @@ function ChatRow({
   // Where the conversation lives. A mirrored thread is read here and answered there, and
   // the mark is what stops a reader wondering why it has no composer.
   const mirrored = chat.origin !== "" && chat.origin !== "web";
-  const where = mirrored ? (chat.channel ? `#${chat.channel}` : chat.origin) : "";
+  // A pull request's repository is its GitHub surface's label without the number.
+  const repo = (chat.surfaces ?? []).find((s) => s.kind === "github")?.label.replace(/#\d+$/, "") ?? "";
+  const where = mirrored ? (chat.channel ? `#${chat.channel}` : repo || chat.origin) : "";
+  // The line under the title. A pull request's title is its number and its own title, and
+  // its group already says GitHub: the line names the repository and whose it is.
+  // A routine's chat: whether it is a system routine, and when it last ran.
+  const subtitle = routine
+    ? [
+        isSystem(routine) ? "System" : "",
+        routine.running ? "running now" : routine.lastRunAt ? `ran ${relative(routine.lastRunAt)}` : "not run yet",
+      ].filter(Boolean)
+    : chat.origin === "github"
+      ? [repo, chat.startedBy].filter(Boolean)
+      : [where].filter(Boolean);
   const hint = (
     <span className="block max-w-64 space-y-0.5 py-0.5">
       {where || chat.startedBy ? (
@@ -803,11 +1119,16 @@ function ChatRow({
     </span>
   );
 
+  // A pull request's title leads with its number. The number is the handle people say out
+  // loud, so it is set apart — tabular and quieter — and the PR's own words carry the row.
+  const pr = chat.origin === "github" ? /^#(\d+)(?::\s*(.+))?$/.exec(chat.title) : null;
+  const at = when(chat);
+
   return (
     <li
       className={cn(
-        "group relative flex min-h-[52px] items-center rounded-md border transition-colors",
-        active ? "border-line-strong bg-panel" : "border-transparent hover:border-border hover:bg-panel",
+        "group relative flex min-h-[52px] items-center rounded-md border transition-colors duration-150",
+        active ? "border-line-strong bg-panel shadow-[0_1px_2px_#0002]" : "border-transparent hover:border-border hover:bg-panel",
       )}
     >
       <Tooltip label={hint} side="right">
@@ -819,34 +1140,106 @@ function ChatRow({
             start();
           }}
           aria-current={active ? "true" : undefined}
-          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8"
+          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-2 rounded-md py-2 pr-2 pl-3 text-left"
         >
-          {running ? (
-            <span className="relative flex size-2 shrink-0" aria-hidden>
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-run" />
-            </span>
-          ) : null}
           <span className="min-w-0 flex-1">
-            <span className={cn("block truncate text-sm", active ? "font-bold text-fg" : "font-semibold text-fg")}>
-              {chat.title}
-            </span>
-            {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
-            {foreign ? <span className="block truncate text-2xs text-muted">{chat.login}</span> : null}
+            <span
+                className={cn(
+                  "block truncate text-sm transition-colors duration-150",
+                  active
+                    ? "font-bold text-fg"
+                    : unreadCount > 0
+                      ? "font-semibold text-fg"
+                      : "font-medium text-soft group-hover:text-fg",
+                )}
+              >
+                {pr && pr[2] ? (
+                  <>
+                    <span className="font-semibold text-muted tabular-nums">#{pr[1]}</span> {pr[2]}
+                  </>
+                ) : (
+                  chat.title
+                )}
+              </span>
+            {subtitle.length > 0 ? (
+              <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
+                {subtitle.map((part, i) => (
+                  <Fragment key={i}>
+                    {i > 0 ? <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-current opacity-70" /> : null}
+                    {routine && isSystem(routine) && i === 0 ? (
+                      <span data-testid="chat-row-system" className="inline-flex shrink-0 items-center gap-1 font-semibold">
+                        <ShieldCheck className="size-3" aria-hidden />
+                        {part}
+                      </span>
+                    ) : (
+                      <span className="truncate">{part}</span>
+                    )}
+                  </Fragment>
+                ))}
+              </span>
+            ) : null}
+            {foreign && !chat.sharedWithMe ? (
+              <span className="mt-0.5 block truncate text-2xs text-muted">{chat.login}</span>
+            ) : null}
+            {shared ? (
+              <span data-testid="chat-row-shared" className="mt-0.5 block truncate text-2xs text-muted">
+                {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}
+                {shared}
+              </span>
+            ) : chat.sharedWithMe && !mirrored ? (
+              <span data-testid="chat-row-shared" className="mt-0.5 block truncate text-2xs text-muted">
+                {chat.personalityDisplay ? `${chat.personalityDisplay} · ` : ""}shared by {chat.login}
+              </span>
+            ) : null}
+          </span>
+          {/* The right column is the row's own at all times, so nothing moves on hover: when it
+              was last spoken in (or that it is working now) and what is waiting. The actions
+              button takes this same slot on hover, and the column steps out of its way. */}
+          <span
+            className={cn(
+              "flex w-8 shrink-0 flex-col items-end justify-center gap-1 self-stretch transition-opacity duration-150",
+              menu && "group-focus-within:opacity-0 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0",
+            )}
+          >
+            {running ? (
+              <span className="relative inline-flex size-2" aria-hidden>
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
+                <span className="relative inline-flex size-2 rounded-full bg-run" />
+              </span>
+            ) : at > 0 ? (
+              <time
+                dateTime={new Date(at).toISOString()}
+                className={cn(
+                  "text-2xs whitespace-nowrap tabular-nums",
+                  unreadCount > 0 ? "font-semibold text-fg" : "text-faint",
+                )}
+              >
+                {shortWhen(at)}
+              </time>
+            ) : null}
+            {unreadCount > 0 ? (
+              <span
+                data-testid="chat-row-unread"
+                className="min-w-5 rounded-full bg-accent px-1.5 text-center text-2xs leading-4 font-semibold text-accent-ink tabular-nums"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
           </span>
           {running ? <span className="sr-only">running</span> : null}
           {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
           {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
         </button>
       </Tooltip>
-      {foreign ? null : (
+      {!menu ? null : (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             data-testid="chat-actions"
             aria-label={`Actions for ${chat.title}`}
-            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-raised hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-raised data-[state=open]:opacity-100"
+            className="absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-raised hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-raised data-[state=open]:opacity-100"
           >
             <Ellipsis className="size-4" />
           </button>
@@ -854,20 +1247,30 @@ function ChatRow({
         {/* Rename swaps the row for an input; handing focus back to the trigger would blur
             it the moment it appears. */}
         <DropdownMenuContent align="start" className="min-w-36" onCloseAutoFocus={(e) => e.preventDefault()}>
-          <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
-            <Pencil />
-            Rename
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="danger"
-            data-testid="chat-delete"
-            aria-label={`Delete ${chat.title}`}
-            disabled={deleting}
-            onSelect={() => onDelete(chat)}
-          >
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
+          {mayRename ? (
+            <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
+              <Pencil />
+              Rename
+            </DropdownMenuItem>
+          ) : null}
+          {mayLeave ? (
+            <DropdownMenuItem data-testid="chat-leave" aria-label={`Leave ${chat.title}`} onSelect={() => onLeave(chat)}>
+              <LogOut />
+              Leave
+            </DropdownMenuItem>
+          ) : null}
+          {mayDelete ? (
+            <DropdownMenuItem
+              variant="danger"
+              data-testid="chat-delete"
+              aria-label={`Delete ${chat.title}`}
+              disabled={deleting}
+              onSelect={() => onDelete(chat)}
+            >
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       )}
@@ -880,10 +1283,16 @@ function ConversationTitle({
   channel,
   onRename,
   fallback = "Chat",
+  canRename = true,
+  actions,
 }: {
   title: string;
   channel?: string;
   onRename: (title: string) => Promise<void>;
+  /** canRename is false for a viewer: the title is shown, not editable. */
+  canRename?: boolean;
+  /** actions sit at the right end of the bar: the Share button. */
+  actions?: ReactNode;
   /** fallback is the title slot when the chat has no name yet. */
   fallback?: string;
 }) {
@@ -893,7 +1302,7 @@ function ConversationTitle({
   const ignoreBlur = useRef(false);
 
   const start = () => {
-    if (!title) return;
+    if (!title || !canRename) return;
     ignoreBlur.current = false;
     setDraft(title);
     setEditing(true);
@@ -974,6 +1383,7 @@ function ConversationTitle({
           {title || fallback}
         </button>
       )}
+      {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -986,6 +1396,10 @@ function Conversation({
   listedChannel,
   listedLogin,
   listedEmpty,
+  listedRole,
+  listedSharedWithMe,
+  listedMultiplayer,
+  listedRoutineId,
   onRename,
   onLeave,
   assistant,
@@ -1006,10 +1420,22 @@ function Conversation({
   /** listedLogin is the owner the list row already has. Empty for a mirrored thread. */
   listedLogin?: string;
   /**
-   * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
+   * listedEmpty is true when the list row has no preview yet — a new chat. A chat the list does
+   * not have yet (still loading, or opened from a link) is not empty. The connecting
    * skeleton is a fake user bubble and would flash before the greeting.
    */
   listedEmpty?: boolean;
+  /**
+   * listedRole and listedSharedWithMe are what the list row says this viewer may do, for the
+   * same reason as listedOrigin: the stream's own chat frame lands after the first render, and
+   * a viewer was shown the composer until it did.
+   */
+  listedRole?: string;
+  listedSharedWithMe?: boolean;
+  /** listedMultiplayer is whether the list row says other people are in it: faces to come. */
+  listedMultiplayer?: boolean;
+  /** listedRoutineId is the routine the list row says this chat belongs to, if any. */
+  listedRoutineId?: string;
   onRename: (title: string) => Promise<void>;
   onLeave: () => void;
   assistant?: Assistant;
@@ -1019,7 +1445,27 @@ function Conversation({
   const toast = useToast();
   const viewer = useViewer();
   const location = useLocation();
-  const stream = useChatStream(chatId);
+  // k= is a share link's token (phase 5). It is only needed for the first open — that writes
+  // the viewer a row of their own — and harmless after.
+  const [search] = useSearchParams();
+  const stream = useChatStream(chatId, search.get("k") ?? "");
+  // A desktop turn's desktop, beside the conversation while its task runs — including the wait
+  // for the next message, which is when a person works on it. Hidden is per conversation.
+  const desktopTaskId = desktopCandidate(stream.messages, stream.taskId);
+  const desktop = useDesktopTask(desktopTaskId);
+  const [desktopHidden, setDesktopHidden] = useState(false);
+  const desktopShown = desktop.desktop && !desktopHidden && desktopTaskId !== undefined;
+  // The task whose pane is mounted: the one shown, and, while it animates out after the
+  // desktop goes — hidden, or its session ended — the one that was. The pane says when it has
+  // finished closing.
+  const [paneTask, setPaneTask] = useState<string | undefined>(undefined);
+  if (desktopShown && desktopTaskId !== paneTask) {
+    setPaneTask(desktopTaskId);
+  }
+  const split = useRef<HTMLDivElement>(null);
+  const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
+  const desktopStyle =
+    desktopWidth === undefined ? undefined : ({ "--desktop-width": `${desktopWidth}px` } as CSSProperties);
   const botName = assistant?.displayName ?? "Podium";
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
@@ -1033,12 +1479,66 @@ function Conversation({
   const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const owner = stream.chat?.login || listedLogin || "";
-  const foreign = owner !== "" && (viewer?.login ?? "") !== "" && owner !== viewer?.login;
-  const participants = stream.chat?.participants ?? [];
+  // Somebody else's chat is writable by the people taking part in it (phase 4): the server
+  // marks those shared_with_me. Anybody else reading it — the dev token — gets the note.
+  const sharedWithMe = stream.chat ? stream.chat.sharedWithMe : listedSharedWithMe === true;
+  // Phase 5: the server says what this viewer may do. A viewer reads; an editor and the owner
+  // write. The dev token is "owner" of everything but writes nobody's chat but its own, so the
+  // note for somebody else's chat still stands for it.
+  const role = roleOf(stream.chat ?? { myRole: listedRole ?? "" });
+  // A routine's chat is never shared, and carries the routine's card instead.
+  const routineId = stream.chat?.routineId || listedRoutineId || "";
+  // Until either says, the bottom of the screen is held rather than guessed: offering the
+  // composer and then taking it away is the flash this avoids.
+  const roleKnown = stream.chat !== undefined || role !== "" || stream.gone === true;
+  const viewOnly = role === "viewer";
+  const foreign =
+    owner !== "" &&
+    (viewer?.login ?? "") !== "" &&
+    owner !== viewer?.login &&
+    !sharedWithMe &&
+    role !== "editor" &&
+    role !== "viewer";
+  const multiplayer = stream.chat?.multiplayer === true || mirrored;
+  const personalityName = stream.chat?.personalityDisplay ?? "";
+  const me = viewer?.login ?? "";
+  // The chat's shared queue, as everybody in it sees it: what was put to Podium while it was
+  // answering, oldest first, each to be a turn of its own.
+  const queued = useMemo<QueuedItem[]>(
+    () =>
+      stream.queue.map((t) => {
+        const mine = me !== "" && t.login === me;
+        return {
+          id: t.id.toString(),
+          text: t.text,
+          author: t.author || t.login,
+          mine,
+          editable: mine && t.seq === 0n && t.id !== 0n,
+        };
+      }),
+    [stream.queue, me],
+  );
   useEffect(() => {
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
   }, [qc, stream.chat]);
+
+  // Reading the chat moves the viewer's read mark to the newest message (phase 5), so its
+  // unread count clears here and on every other screen that lists it. Only forward, and only
+  // once per new message.
+  const newestSeq = stream.messages.length > 0 ? stream.messages[stream.messages.length - 1].seq : 0n;
+  const markedSeq = useRef(0n);
+  useEffect(() => {
+    if (newestSeq === 0n || newestSeq <= markedSeq.current || role === "") return;
+    markedSeq.current = newestSeq;
+    void agent
+      .markChatRead({ chatId, seq: newestSeq })
+      .then(() => qc.invalidateQueries({ queryKey: ["agent", "chats"] }))
+      .catch(() => {
+        // A read mark that did not land is retried by the next message.
+        markedSeq.current = 0n;
+      });
+  }, [chatId, newestSeq, role, qc]);
 
   // What answers this conversation. Picked once and then remembered: the chat row stores the
   // override, so a reload, another tab and coming back tomorrow all open on the model this
@@ -1064,7 +1564,7 @@ function Conversation({
   );
 
   const send = useMutation({
-    mutationFn: (v: { text: string; choice: AgentChoice }) =>
+    mutationFn: (v: { text: string; choice: AgentChoice; queues?: boolean }) =>
       agent.sendChatMessage({
         chatId,
         text: v.text,
@@ -1075,33 +1575,58 @@ function Conversation({
         effort: v.choice.effort,
       }),
     onMutate: (v) => {
+      // A message that will wait in the queue is drawn there, not in the transcript: it goes
+      // into the record when its turn starts.
+      if (v.queues) return;
       setPendingUser({
         text: v.text,
         before: stream.messages.filter((m) => m.role === "user").length,
       });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      // A message nobody put to Podium is not waiting for an answer, and one the server
+      // queued behind somebody else's turn is drawn in the queue instead.
+      if (!res.addressed || res.queuedPosition > 0) setPendingUser(null);
     },
     onError: (err) => {
       setPendingUser(null);
-      // The composer is disabled while a turn runs, so this is the race rather than the
-      // rule: another tab got there first.
       if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
         if (err.rawMessage === "That assistant was deleted.") {
           toast("That assistant was deleted.");
           return;
         }
-        toast("A turn is already running in this chat. Wait for the answer.");
-        return;
       }
       toast(errorMessage(err));
     },
   });
 
+  const stop = useMutation({
+    mutationFn: () => agent.cancelChatTurn({ chatId }),
+    onSuccess: (res) => {
+      if (!res.stopped) toast("Nothing was running.");
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+  const takeBack = useMutation({
+    mutationFn: (id: string) => agent.cancelQueuedTurn({ chatId, id: BigInt(id) }),
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
   const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  // The pending question is let go once the stream carries it and a turn has taken it up:
+  // running, waiting on a reply, or already answered. Held past that, it kept the chat busy
+  // (holdBusy, below) whenever the last row was not an answer, so anybody speaking after the
+  // answer brought the waiting row back with nothing running.
+  if (
+    pendingUser !== null &&
+    userCount > pendingUser.before &&
+    (stream.running || stream.awaiting || last?.role === "assistant")
+  ) {
+    setPendingUser(null);
+  }
   // Hold the waiting state until the stream says the turn started (or already finished).
   // send.isPending alone drops when the RPC returns, one frame before the status frame.
   const holdBusy =
@@ -1110,11 +1635,21 @@ function Conversation({
     !stream.awaiting &&
     last?.role !== "assistant";
   const busy = (stream.running && !stream.awaiting) || send.isPending || holdBusy;
+  // Whether a message for Podium sent now waits in the queue: something is being answered,
+  // or somebody is already waiting. Never an answer to a task's question.
+  const queueing = !stream.awaiting && (busy || queued.length > 0);
+  // submit is the composer's send. The server decides where a message goes — it queues what
+  // is put to Podium while it is answering, and records talk between people at once — and
+  // this only decides whether to draw the message in the transcript while the send is out.
+  const submit = (text: string, choice: AgentChoice) => {
+    const toPodium = !multiplayer || mentionsPodium(text, personalityName);
+    send.mutate({ text, choice, queues: queueing && toPodium });
+  };
+  // Still loading until the stream says the replay is done: the chat's own frames arrive
+  // before its messages, so going by the stream's phase showed the new-chat welcome for a
+  // moment on every chat that has history.
   const connecting =
-    stream.phase === "connecting" &&
-    stream.messages.length === 0 &&
-    !stream.gone &&
-    !listedEmpty;
+    !stream.replayed && stream.messages.length === 0 && !stream.gone && !pendingVisible && !listedEmpty;
   const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
   const thread = useMemo(
     () =>
@@ -1146,68 +1681,144 @@ function Conversation({
   }
 
   return (
-    <>
-      <ConversationTitle title={title} channel={channel} onRename={onRename} />
-      <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
-      <Suspense fallback={<div className="min-h-0 flex-1" />}>
-        <ChatThread
-          messages={thread}
-          busy={busy}
-          botName={botName}
-          progress={stream.progress}
-          taskId={stream.taskId}
-          onSend={(text) => send.mutate({ text, choice })}
-          top={
+    <div ref={split} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row" style={desktopStyle}>
+      <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", paneTask !== undefined && "lg:min-w-[480px]")}>
+        <ConversationTitle
+          title={title || stream.chat?.title || ""}
+          channel={channel}
+          onRename={onRename}
+          canRename={role === "" || canWrite(role)}
+          actions={
             <>
-              {connecting ? <TranscriptSkeleton /> : null}
-              {stream.error ? (
-                <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                  {stream.error}. Nothing was lost. The reconnect replays from the last message
-                  this browser saw.
-                </Alert>
+              {desktop.desktop && desktopHidden ? (
+                <Button size="xs" variant="outline" onClick={() => setDesktopHidden(false)} aria-label="Show the desktop">
+                  <Monitor aria-hidden />
+                  Desktop
+                </Button>
+              ) : null}
+              {role !== "" && !routineId ? (
+                <ShareButton
+                  chatId={chatId}
+                  title={title || stream.chat?.title || ""}
+                  multiplayer={stream.chat?.multiplayer ?? false}
+                />
               ) : null}
             </>
           }
-          welcome={
-            showWelcome ? (
-              <ArrivalWell
-                botName={botName}
-                playbookNames={playbookNames}
-                onSuggest={(text) => send.mutate({ text, choice })}
-                suggesting={busy}
-              />
-            ) : null
+        />
+        {/* One header row: who is in it and where it lives, then what it produced. */}
+        <ChatPullRequests
+          chatId={chatId}
+          pullRequests={stream.pullRequests}
+          loading={!stream.pullRequestsKnown || stream.chat === undefined}
+          expect={{ surface: mirrored, people: mirrored || listedMultiplayer === true }}
+          leading={
+            (stream.chat?.surfaces.length ?? 0) > 0 ? <ChatSurfaces surfaces={stream.chat?.surfaces ?? []} /> : undefined
+          }
+          trailing={
+            (stream.chat?.people.length ?? 0) > 0 ? <ChatPeople people={stream.chat?.people ?? []} /> : undefined
           }
         />
-      </Suspense>
+        {routineId ? <RoutineCard chatId={chatId} /> : null}
+        {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
+            title and above the composer, it read as a new chat. */}
+        <Suspense fallback={<ThreadLoading />}>
+          <ChatThread
+            messages={thread}
+            busy={busy}
+            botName={botName}
+            progress={stream.progress}
+            taskId={stream.taskId}
+            onSend={(text) => submit(text, choice)}
+            top={
+              <>
+                {connecting ? <TranscriptSkeleton /> : null}
+                {stream.error ? (
+                  <Alert variant="warn" title="The chat stream dropped and is reconnecting">
+                    {stream.error}. Nothing was lost. The reconnect replays from the last message
+                    this browser saw.
+                  </Alert>
+                ) : null}
+              </>
+            }
+            welcome={
+              showWelcome && routineId ? (
+                <RoutineWelcome system={owner === "" && stream.chat !== undefined} routineId={routineId} />
+              ) : showWelcome ? (
+                <ArrivalWell
+                  botName={botName}
+                  playbookNames={playbookNames}
+                  onSuggest={(text) => submit(text, choice)}
+                  suggesting={busy}
+                />
+              ) : null
+            }
+          />
+        </Suspense>
 
-      {mirrored ? (
-        <div
-          data-testid="chat-mirrored-note"
-          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
-        >
-          This conversation lives in {origin}. Reply to it there. Podium keeps a copy so it
-          can be read here.
-          {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
-        </div>
-      ) : foreign ? (
-        <div
-          data-testid="chat-foreign-note"
-          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
-        >
-          This chat belongs to {owner}.
-        </div>
-      ) : (
-        <ChatComposer
-          disabled={busy}
-          agents={agents}
-          assistant={assistant}
-          choice={choice}
-          onChoiceChange={setChoice}
-          onSend={(text, choice) => send.mutate({ text, choice })}
+        {!roleKnown ? (
+          <ComposerPlaceholder />
+        ) : routineId && !owner && stream.chat !== undefined ? (
+          <div
+            data-testid="chat-system-routine"
+            className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            <ShieldCheck className="size-4 shrink-0" aria-hidden />
+            System routine: nobody writes here. Admins steer it by editing the instruction or its standing notes on the
+            card above.
+          </div>
+        ) : viewOnly ? (
+          <div
+            data-testid="chat-view-only"
+            className="flex items-center gap-2 border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            <Users className="size-4 shrink-0" aria-hidden />
+            You have view access. Ask {owner || "the owner"} to make you an editor to post here.
+          </div>
+        ) : foreign ? (
+          <div
+            data-testid="chat-foreign-note"
+            className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
+          >
+            This chat belongs to {owner}.
+          </div>
+        ) : (
+          <ChatComposer
+            // Never held: what is typed while a send is in flight is queued like anything else
+            // sent while Podium is busy, and a box that disabled itself as each send went out
+            // would take the caret away mid-sentence.
+            disabled={false}
+            running={stream.running && !stream.awaiting}
+            onStop={() => stop.mutate()}
+            queued={queued}
+            queueing={queueing}
+            onInterrupt={() => stop.mutate()}
+            onRemoveQueued={(id) => takeBack.mutate(id)}
+            multiplayer={multiplayer}
+            mirrored={mirrored ? origin : ""}
+            personality={personalityName}
+            agents={agents}
+            assistant={assistant}
+            choice={choice}
+            onChoiceChange={setChoice}
+            onSend={submit}
+          />
+        )}
+      </div>
+      {paneTask !== undefined ? (
+        <DesktopPane
+          key={paneTask}
+          taskId={paneTask}
+          shown={desktopShown && desktopTaskId === paneTask}
+          onClosed={() => setPaneTask(undefined)}
+          width={desktopWidth}
+          onWidth={setDesktopWidth}
+          onReset={() => setDesktopWidth(undefined)}
+          container={split}
+          onHide={() => setDesktopHidden(true)}
         />
-      )}
-    </>
+      ) : null}
+    </div>
   );
 }
 
@@ -1264,6 +1875,22 @@ function Arrival({
   );
 }
 
+/** RoutineWelcome is a routine's chat before any run has answered: where its answers will
+ * land, and what writing here does. */
+function RoutineWelcome({ system, routineId }: { system: boolean; routineId: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center-safe gap-1.5 px-6 py-6 text-center">
+      <p className="text-lg font-medium tracking-tight text-fg">Nothing from this routine yet</p>
+      <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
+        {system
+          ? "Every run shows up here. One that finds nothing is kept quietly and does not mark the chat unread. To change what it keeps an eye on, edit it from the card above."
+          : "Every run shows up here. One that finds nothing is kept quietly and does not mark the chat unread. Write here to ask about its runs or to change what it keeps an eye on."}
+      </p>
+      <QuietRuns routineId={routineId} />
+    </div>
+  );
+}
+
 function ArrivalWell({
   botName,
   playbookNames,
@@ -1313,20 +1940,69 @@ function ArrivalWell({
   );
 }
 
-function TranscriptSkeleton() {
+/** ThreadLoading is TranscriptSkeleton where ChatThread would draw it, for its Suspense fallback. */
+function ThreadLoading() {
   return (
-    <div aria-busy="true" aria-label="Loading the conversation" className="space-y-5">
-      <div className="flex justify-end">
-        <Skeleton className="h-9 w-64 rounded-xl" />
+    <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5">
+        <TranscriptSkeleton />
       </div>
-      <div className="flex gap-3">
-        <Skeleton className="size-7 shrink-0 rounded-lg" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3.5 w-full" />
-          <Skeleton className="h-3.5 w-11/12" />
-          <Skeleton className="h-3.5 w-2/3" />
+    </div>
+  );
+}
+
+/**
+ * TranscriptSkeleton is the conversation before its history lands: a few exchanges in the
+ * shape a real one has, each settling in after the one above it, and a highlight passing down
+ * through them so it reads as one thing loading rather than a grid of blinking bars. Under
+ * prefers-reduced-motion both are reduced to a still frame by the global rule in index.css.
+ */
+function TranscriptSkeleton() {
+  // Widths vary so it does not look like a template; the user bubbles sit right like real ones.
+  const turns = [
+    { ask: "w-56", lines: ["w-full", "w-11/12", "w-2/3"] },
+    { ask: "w-40", lines: ["w-full", "w-4/5"] },
+    { ask: "w-64", lines: ["w-full", "w-full", "w-3/5"] },
+  ];
+  let row = 0;
+  // Each bar's shimmer starts a beat after the one above it: a wave, top to bottom.
+  const wave = () => ({ animationDelay: `${row++ * 90}ms` });
+  return (
+    <div aria-busy="true" aria-label="Loading the conversation" className="space-y-7">
+      {turns.map((t, i) => (
+        <div
+          key={i}
+          className="animate-in fade-in-0 slide-in-from-bottom-1 space-y-5 fill-mode-both duration-500"
+          style={{ animationDelay: `${i * 120}ms` }}
+        >
+          <div className="flex justify-end">
+            <Skeleton className={cn("h-10 rounded-2xl rounded-br-md", t.ask)} style={wave()} />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="size-7 shrink-0 rounded-lg" style={wave()} />
+            <div className="min-w-0 flex-1 space-y-2.5 pt-1">
+              <Skeleton className="h-3 w-20" style={wave()} />
+              {t.lines.map((w, j) => (
+                <Skeleton key={j} className={cn("h-3.5", w)} style={wave()} />
+              ))}
+            </div>
+          </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * ComposerPlaceholder holds the bottom of the screen while nothing yet says whether this viewer
+ * may write here. It is inert and quiet, so whichever replaces it (the composer or the
+ * view-only note) does not look like a control being taken away.
+ */
+function ComposerPlaceholder() {
+  return (
+    <div aria-hidden className="pt-4">
+      <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
+        <Skeleton className="h-[52px] rounded-3xl opacity-60" />
       </div>
     </div>
   );

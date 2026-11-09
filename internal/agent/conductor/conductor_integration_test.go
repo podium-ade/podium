@@ -138,6 +138,11 @@ allowed_tools: [read, bash]
 browser: true
 `), 0o600))
 
+	require.NoError(t, os.WriteFile(dir+"/playbooks/desk.yaml", []byte(`system_prompt: work on the desktop
+allowed_tools: [read, bash]
+desktop: true
+`), 0o600))
+
 	p, err := profiles.Load(dir)
 	require.NoError(t, err)
 	return p
@@ -163,6 +168,7 @@ func startWith(
 	tweak func(*conductor.Options),
 ) *running {
 	t.Helper()
+	seedTestSpeaker(t, st)
 	opts := conductor.Options{
 		Store:    st,
 		Podium:   podium.New(fake.URL(), "devtoken"),
@@ -225,7 +231,39 @@ func threadInbound(ref, text string) conductor.InboundEvent {
 	ev.BriefKind = conductor.SourceSlack
 	// Only the dev source may ask for task environment, and this one is not it.
 	ev.Env = nil
+	return asSlackSpeaker(ev)
+}
+
+// The person every Slack and GitHub test event comes from. startWith records them as in
+// Podium, so a Slack or GitHub event from them passes the gate (identity.go) the way a real
+// member's would; a test about the gate itself sends from somebody else.
+const (
+	testSpeaker       = "alice@acme.com"
+	testSlackAccount  = "T1/U1"
+	testGitHubAccount = "1001"
+)
+
+// asSlackSpeaker makes ev come from testSpeaker's Slack account, as the Slack source would
+// hand it over: a candidate email and the account it was proven for.
+func asSlackSpeaker(ev conductor.InboundEvent) conductor.InboundEvent {
+	ev.Login = testSpeaker
+	ev.SpeakerProvider = conductor.SpeakerSlack
+	ev.SpeakerID = testSlackAccount
+	ev.Mentioned = true
 	return ev
+}
+
+// seedTestSpeaker records testSpeaker as somebody who has signed in to Podium and connected
+// GitHub.
+func seedTestSpeaker(t *testing.T, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: testSpeaker, Provider: store.ProviderWeb, ExternalID: testSpeaker,
+	}))
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: testSpeaker, Provider: store.ProviderGitHub, ExternalID: testGitHubAccount, Handle: "alice",
+	}))
 }
 
 // decodeBrief reads back what the conductor put on a task spec, which is the only way to
@@ -773,6 +811,34 @@ func TestABrowserPlaybookGetsAHeadlessChromeBesideIt(t *testing.T) {
 	assert.Equal(t, "http://chrome:9222", b.Browser.CDPURL)
 }
 
+// A `desktop: true` playbook's turn runs under podium-desktop in the desktop image, exposes
+// the desktop's port, and its browser tools reach the Chromium on that desktop — the one the
+// person sees — rather than a headless one beside it.
+func TestADesktopPlaybookRunsOnItsDesktop(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done on the desktop")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "/desk open the page")))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	got := fake.Specs()[0]
+	assert.Equal(t, profiles.LocalDesktopImage, got.GetImage(), "no image: the desktop image")
+	assert.Equal(t, []string{"podium-desktop", "--", "node", "/opt/podium-agent/dist/main.js"}, got.GetCommand())
+	assert.Empty(t, got.GetSidecars(), "no headless browser beside the one on the desktop")
+	require.NotNil(t, got.GetExpose())
+	assert.EqualValues(t, 6901, got.GetExpose().GetPorts()["desktop"].GetPort())
+
+	b := decodeBrief(t, got)
+	require.NotNil(t, b.Browser)
+	assert.Equal(t, "http://127.0.0.1:9222", b.Browser.CDPURL)
+}
+
 // The flag is the whole switch: a playbook without it is unchanged, and pays nothing.
 func TestAPlaybookWithoutTheDockerFlagGetsNoSidecar(t *testing.T) {
 	st := newStore(t)
@@ -805,7 +871,7 @@ func TestOnlyTheDevSourceMayAskForTaskEnvironment(t *testing.T) {
 	t.Cleanup(src.Close)
 
 	start(t, st, fake, src)
-	ev := inbound("C1/1.1", "hello")
+	ev := asSlackSpeaker(inbound("C1/1.1", "hello"))
 	ev.SourceKind = "slack"
 	ev.Env = map[string]string{"PODIUM_AGENT_DRY_RUN": "1", "ANTHROPIC_API_KEY": "stolen"}
 	require.NoError(t, src.Send(context.Background(), ev))
@@ -894,6 +960,10 @@ func githubInbound(text string) conductor.InboundEvent {
 		Text:       text,
 		TS:         time.Now().UTC(),
 		BriefKind:  conductor.SourceGitHub,
+		// testSpeaker's connected GitHub account: a linked commenter.
+		SpeakerProvider: conductor.SpeakerGitHub,
+		SpeakerID:       testGitHubAccount,
+		Mentioned:       true,
 	}
 }
 
@@ -1410,9 +1480,21 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	assert.Equal(t, "it is a task runner.", msgs[2].Text)
 	assert.Equal(t, msgs[1].TaskID, msgs[2].TaskID)
 
+	// The answer was owed to the thread through the outbox (outbox.go) and landed on the
+	// first attempt: the delivery says so, and the row knows the thread's id for it.
+	require.Len(t, msgs[2].Deliveries, 1, "the answer is owed to the surface the turn started on")
+	assert.Equal(t, conductor.KindDev, msgs[2].Deliveries[0].SurfaceKind)
+	assert.Equal(t, store.OutboxSent, msgs[2].Deliveries[0].Status)
+	assert.Equal(t, 1, msgs[2].Deliveries[0].Attempts)
+	assert.NotEmpty(t, msgs[2].ExternalID, "where the answer landed is recorded on the row")
+
 	// Every row was also announced, in order and with its seq, so a screen with the thread
-	// open saw it land rather than finding it on the next reload.
-	require.Equal(t, msgs, watcher.rows(chat.ID), "what was written is what was announced")
+	// open saw it land rather than finding it on the next reload. The answer is announced as
+	// it was written — before its delivery, which is bookkeeping added afterwards.
+	announced := watcher.rows(chat.ID)
+	written := slices.Clone(msgs)
+	written[2].ExternalID, written[2].Deliveries = "", nil
+	require.Equal(t, written, announced, "what was written is what was announced")
 
 	// A named login does not list it. The dev token does: the thread belongs to the workspace.
 	owned, _, err := st.ListChats(ctx, "whoever", false, 0, "")
@@ -1433,7 +1515,8 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice"}, people, "the humans, and not the bot")
+	assert.Equal(t, []store.ChatParticipant{{Name: "alice", Via: conductor.KindDev}}, people,
+		"the humans, and not the bot, each on the surface they spoke through")
 }
 
 // A second person in the thread is a second participant, and the copy says who said what.
@@ -1475,7 +1558,9 @@ func TestAMirroredConversationRemembersEveryoneInIt(t *testing.T) {
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, people)
+	assert.Equal(t, []store.ChatParticipant{
+		{Name: "alice", Via: conductor.KindDev}, {Name: "bob", Via: conductor.KindDev},
+	}, people)
 }
 
 // The web chat must not be mirrored: it already stores its own messages, and a second
@@ -1499,6 +1584,9 @@ func TestAConversationPodiumOwnsIsNotMirrored(t *testing.T) {
 
 	_, err := st.ChatBySourceKey(ctx, ev.SourceKey)
 	require.ErrorIs(t, err, store.ErrNotFound)
+	// Routing: a conversation Podium holds answers where it was asked and owes nothing
+	// anywhere else — no record to hang a delivery on, so the outbox is not involved.
+	require.Len(t, posts(src.Records(), conductor.OutFinal), 1)
 }
 
 // recordingMirror is a conductor.MirrorWatcher that keeps what it was told, per chat.

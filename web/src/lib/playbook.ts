@@ -33,6 +33,8 @@ export type PlaybookDraft = {
   env: Record<string, string>
   docker: boolean
   browser: boolean
+  /** desktop runs the turn on a shared desktop (docs/agent.md#desktop-true). Not with browser. */
+  desktop: boolean
   /** Empty follows Settings; "nodes" or a sandbox provider's name pins it. */
   runsOn: string
   /** Empty strings override nothing. */
@@ -80,6 +82,7 @@ export type PlaybookDoc = {
   mcp_servers?: string[]
   docker?: boolean
   browser?: boolean
+  desktop?: boolean
   linear?: boolean
   github?: boolean
   github_requires?: string
@@ -119,6 +122,7 @@ const PLAYBOOK_KEYS = [
   "mcp_servers",
   "docker",
   "browser",
+  "desktop",
   "linear",
   "github",
   "github_requires",
@@ -278,6 +282,8 @@ export function parsePlaybookValue(
   if (docker !== undefined) out.docker = docker
   const browser = r.bool("browser", root.browser)
   if (browser !== undefined) out.browser = browser
+  const desktop = r.bool("desktop", root.desktop)
+  if (desktop !== undefined) out.desktop = desktop
   const linear = r.bool("linear", root.linear)
   if (linear !== undefined) out.linear = linear
   const github = r.bool("github", root.github)
@@ -410,6 +416,7 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   if (playbook.interactive) doc.interactive = true
   if (playbook.docker) doc.docker = true
   if (playbook.browser) doc.browser = true
+  if (playbook.desktop) doc.desktop = true
   if (playbook.runsOn) doc.runs_on = playbook.runsOn
   const sandbox = overridesToDoc(definitionOverrides(playbook))
   if (sandbox) doc.sandbox = sandbox
@@ -489,6 +496,7 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
   if (draft.interactive) doc.interactive = true
   if (draft.docker) doc.docker = true
   if (draft.browser) doc.browser = true
+  if (draft.desktop) doc.desktop = true
   if (draft.runsOn) doc.runs_on = draft.runsOn
   const sandbox = overridesToDoc(draft.sandbox)
   if (sandbox) doc.sandbox = sandbox
@@ -547,6 +555,7 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
     env: doc.env ?? {},
     docker: doc.docker ?? false,
     browser: doc.browser ?? false,
+    desktop: doc.desktop ?? false,
     runsOn: (doc.runs_on ?? "").trim(),
     sandbox: {
       boat: {

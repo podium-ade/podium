@@ -57,7 +57,7 @@ func (f *follower) follow(ctx context.Context) error {
 	var lostAt time.Time
 
 	for {
-		held, err := f.once(ctx)
+		held, err := f.once(ctx, grace)
 		if err == nil {
 			return nil
 		}
@@ -91,7 +91,8 @@ func (f *follower) follow(ctx context.Context) error {
 // once holds one StreamTaskEvents call. A nil error means a clean end of stream. The bool
 // says whether the call ever held the stream, which a call that read no event still did:
 // the caller is judging the control plane, not the task's talkativeness.
-func (f *follower) once(ctx context.Context) (bool, error) {
+func (f *follower) once(ctx context.Context, grace time.Duration) (bool, error) {
+	started := time.Now()
 	stream, err := f.tasks.StreamTaskEvents(ctx, connect.NewRequest(&podiumv1.StreamTaskEventsRequest{
 		TaskId:  f.taskID,
 		FromSeq: f.lastSeq,
@@ -115,7 +116,15 @@ func (f *follower) once(ctx context.Context) (bool, error) {
 	// is empty for a refused connection and for a proxy answering while the control plane
 	// is down, and non-empty for a stream the server answered and then dropped. By here it
 	// is settled and costs nothing to read: Receive has already returned false.
-	return len(stream.ResponseHeader()) > 0, stream.Err()
+	//
+	// But the server sends that header with its first event, so a stream that has carried
+	// none has none — a desktop turn's task, quiet for as long as it waits for the person —
+	// and a control plane that exits drops the connection without ever writing one. So a
+	// call that lasted longer than the grace was held too: a refused connection, a proxy
+	// answering for a dead control plane and a dial that times out all end well inside it.
+	// Without this, one restart started the grace, the quiet stream after it never reset it,
+	// and the next restart wrote a running task off and tried to cancel it.
+	return len(stream.ResponseHeader()) > 0 || time.Since(started) >= grace, stream.Err()
 }
 
 // getTaskWithRetry reads a task back, tolerating a control plane that is still coming up.

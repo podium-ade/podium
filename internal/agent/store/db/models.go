@@ -23,17 +23,71 @@ type Chat struct {
 	Channel            string
 	PersonalityID      *string
 	PersonalityDisplay string
+	LastSeq            int64
+	Multiplayer        bool
+	GeneralAccess      string
+	GeneralRole        string
+	LinkToken          *string
+	DeletedAt          *time.Time
+	ChannelPrivacy     string
+	SourceUrl          string
+	HistorySeeded      bool
+	StartedFromChat    *string
+	StartedByTurn      *string
+	RoutineID          *string
+}
+
+type ChatAccess struct {
+	ChatID    string
+	Login     string
+	Role      string
+	GrantedBy string
+	GrantedAt time.Time
 }
 
 type ChatMessage struct {
+	ChatID       string
+	Seq          int64
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   *string
+	ExternalUrl  string
+	Addressed    bool
+	EditedAt     *time.Time
+	DeletedAt    *time.Time
+	Mentions     []string
+}
+
+type ChatOutbox struct {
+	ID          string
 	ChatID      string
-	Seq         int64
-	Role        string
-	Text        string
-	Attachments []byte
-	Ts          time.Time
-	TaskID      string
-	Author      string
+	MessageSeq  int64
+	SurfaceKind string
+	SurfaceRef  string
+	Payload     []byte
+	Status      string
+	Attempts    int32
+	NextAt      time.Time
+	LastError   string
+	ExternalID  *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ChatParticipant struct {
+	ChatID    string
+	Login     string
+	JoinedVia string
+	FirstSeen time.Time
+	LastSeen  time.Time
 }
 
 type ChatPullRequest struct {
@@ -45,6 +99,13 @@ type ChatPullRequest struct {
 	Source     string
 	CreatedAt  time.Time
 	DetachedAt *time.Time
+}
+
+type ChatRead struct {
+	ChatID      string
+	Login       string
+	LastReadSeq int64
+	UpdatedAt   time.Time
 }
 
 type Delegation struct {
@@ -77,6 +138,16 @@ type GithubAccount struct {
 	NeedsReconnect bool
 }
 
+type Identity struct {
+	Login       string
+	Provider    string
+	ExternalID  string
+	Handle      string
+	DisplayName string
+	AvatarUrl   string
+	VerifiedAt  time.Time
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time
@@ -101,6 +172,18 @@ type McpServer struct {
 	Fallback           bool
 }
 
+type Notification struct {
+	ID        int64
+	Login     string
+	Kind      string
+	ChatID    string
+	Seq       int64
+	Actor     string
+	CreatedAt time.Time
+	ReadAt    *time.Time
+	Detail    string
+}
+
 type Personality struct {
 	ID           string
 	Login        string
@@ -123,6 +206,61 @@ type ReviewSurface struct {
 	Kind      string
 	Ref       string
 	CreatedAt time.Time
+}
+
+type Routine struct {
+	ID                   string
+	Scope                string
+	OwnerLogin           *string
+	Name                 string
+	Schedule             string
+	Timezone             string
+	Instruction          string
+	InstructionUpdatedAt time.Time
+	Notes                string
+	ProposedNote         string
+	PersonalityID        *string
+	Model                string
+	Effort               string
+	Enabled              bool
+	PausedReason         string
+	State                []byte
+	StateUpdatedAt       *time.Time
+	ChatID               string
+	NextRunAt            time.Time
+	LastRunAt            *time.Time
+	IdleCount            int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Repos                []string
+	DailyCapUsd          *float64
+	PausedUntil          *time.Time
+	CreatedBy            string
+}
+
+type RoutineRevision struct {
+	ID          int64
+	RoutineID   string
+	Instruction string
+	Notes       string
+	Schedule    string
+	Timezone    string
+	ChangedBy   string
+	ChangedAt   time.Time
+}
+
+type RoutineRun struct {
+	ID           string
+	RoutineID    string
+	ScheduledFor time.Time
+	Trigger      string
+	Status       string
+	Summary      string
+	Reported     string
+	TurnID       *string
+	CostUsd      *float64
+	CreatedAt    time.Time
+	FinishedAt   *time.Time
 }
 
 type Session struct {
@@ -150,20 +288,34 @@ type SlackChannel struct {
 }
 
 type Turn struct {
-	ID         string
+	ID           string
+	SessionID    string
+	TaskID       *string
+	TriggerRef   string
+	Status       string
+	StartedAt    time.Time
+	FinishedAt   *time.Time
+	NumTurns     *int32
+	CostUsd      *float64
+	FinalText    *string
+	Agent        *string
+	Model        *string
+	Effort       *string
+	Provider     *string
+	StartedBy    string
+	RoutineRunID *string
+}
+
+type TurnQueue struct {
+	ID         int64
 	SessionID  string
-	TaskID     *string
-	TriggerRef string
-	Status     string
-	StartedAt  time.Time
-	FinishedAt *time.Time
-	NumTurns   *int32
-	CostUsd    *float64
-	FinalText  *string
-	Agent      *string
-	Model      *string
-	Effort     *string
-	Provider   *string
+	SourceKind string
+	Login      string
+	Author     string
+	ChatID     string
+	MessageSeq int64
+	Event      []byte
+	CreatedAt  time.Time
 }
 
 type WorkLease struct {
@@ -172,4 +324,6 @@ type WorkLease struct {
 	ExpiresAt  time.Time
 	Pending    []byte
 	WarmTaskID string
+	WarmLogin  string
+	WarmKind   string
 }

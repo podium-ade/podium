@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
@@ -86,6 +87,13 @@ type SlackMention struct {
 	// Permalink is the Slack link; the inbound event's URL is the pull request, because
 	// that is the conversation.
 	Permalink string
+	// Login, SpeakerID and SpeakerAvatar are the Slack speaker as the Slack source proved
+	// them: a candidate email and the "<team>/<user>" identities key. A Slack-started review
+	// follows Slack's rule — the conductor resolves the candidate and refuses anybody who
+	// is not in Podium.
+	Login         string
+	SpeakerID     string
+	SpeakerAvatar string
 }
 
 // SourceOptions configures the GitHub review source.
@@ -126,8 +134,12 @@ type Source struct {
 	reviews       ReviewMemory
 	surfaces      Surfaces
 	slack         SlackBridge
-	taskURL       func(string) string
-	now           func() time.Time
+	// deliverer owes each copy fanned out to a bound Slack thread through the conductor's
+	// outbox, so a copy that fails is retried and shown as not delivered. Nil (a source
+	// built without a conductor) posts the copies directly, as before.
+	deliverer atomic.Pointer[conductor.Deliverer]
+	taskURL   func(string) string
+	now       func() time.Time
 
 	filters FilterLookup
 
@@ -326,10 +338,23 @@ func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
 			Owner: m.PR.Owner, Repo: m.PR.Repo, Number: m.PR.Number, InstallID: install,
 			Kind: KindSlack, SlackChan: m.Channel, SlackThread: m.Thread, SlackTS: m.Trigger,
 		}),
-		Author:    m.Author,
-		Text:      text,
-		TS:        m.TS,
-		URL:       m.PR.URL,
+		Author:          m.Author,
+		Login:           m.Login,
+		SpeakerProvider: conductor.SpeakerSlack,
+		SpeakerID:       m.SpeakerID,
+		SpeakerAvatar:   m.SpeakerAvatar,
+		// The Slack message is its own identity in the pull request's record: a Slack retry
+		// of the mention is the same row, and never a second review.
+		ExternalID:  m.Trigger,
+		ExternalURL: m.Permalink,
+		RecordText:  strings.TrimSpace(m.Text),
+		Mentioned:   true,
+		Text:        text,
+		TS:          m.TS,
+		URL:         m.PR.URL,
+		// Slack does not carry the pull request's title. The number names a new chat; a chat
+		// GitHub already named keeps its fuller title.
+		Title:     ChatTitle(m.PR.Number, ""),
 		BriefKind: conductor.SourceGitHub,
 	})
 	return nil
@@ -367,6 +392,17 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 		return "", false
 	}
 	return SourceKey(p.Owner, p.Repo, p.Number), true
+}
+
+// RefForKey is a ref naming the pull request a session key names, for reading its
+// conversation when what the conductor holds is not a GitHub ref — a message somebody sent
+// from the web chat into a PR's chat, whose ref is the chat's. It names no comment.
+func (s *Source) RefForKey(sourceKey string) (string, bool) {
+	owner, repo, number, ok := ParseSourceKey(sourceKey)
+	if !ok {
+		return "", false
+	}
+	return Ref(Parsed{Owner: owner, Repo: repo, Number: number, Kind: KindPullRequest}), true
 }
 
 // FetchTranscript reads the PR's conversation and any bound Slack threads, oldest first.
@@ -666,9 +702,17 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 
 // reviewAction is the GitHub event for this answer. An approval that a later
 // answer no longer stands behind becomes a request for changes.
+//
+// A pull request this App opened is reviewed but never approved: the App vouching for its
+// own work is not a review, and a branch protection rule counting it would let Podium merge
+// what nobody looked at. Nor does it request changes there, which GitHub refuses from a pull
+// request's own author. Its verdict is still in the review's words; the event is a comment.
 func (s *Source) reviewAction(ctx context.Context, p Parsed, body string) string {
 	event := reviewEvent(body)
 	if event == eventApprove {
+		if s.ownPull(ctx, p) {
+			return eventComment
+		}
 		return event
 	}
 	id, err := s.reviewID(ctx, SourceKey(p.Owner, p.Repo, p.Number))
@@ -679,10 +723,21 @@ func (s *Source) reviewAction(ctx context.Context, p Parsed, body string) string
 	if err != nil {
 		return event
 	}
-	if s.reviewState(ctx, install, p, id) == "APPROVED" {
+	if s.reviewState(ctx, install, p, id) == "APPROVED" && !s.ownPull(ctx, p) {
 		return eventRequestChanges
 	}
 	return event
+}
+
+// ownPull reports whether this App opened the pull request. A pull request that cannot be
+// read counts as the App's own, for the same reason a missing verdict line is a comment: a
+// review must not approve by accident.
+func (s *Source) ownPull(ctx context.Context, p Parsed) bool {
+	info := s.pullInfo(ctx, p)
+	if !info.OK {
+		return true
+	}
+	return s.isAppUser(info.Author, info.AuthorType)
 }
 
 func statusTitle(event string) string {
@@ -1065,11 +1120,28 @@ func (s *Source) fanoutSlack(out conductor.Outbound) bool {
 	}
 }
 
+// SetDeliverer implements the conductor's deliverySetter: the conductor hands itself over so
+// the Slack copies below go through its outbox.
+func (s *Source) SetDeliverer(d conductor.Deliverer) {
+	if d == nil {
+		s.deliverer.Store(nil)
+		return
+	}
+	s.deliverer.Store(&d)
+}
+
 func (s *Source) postSlack(ctx context.Context, p Parsed, out conductor.Outbound) {
 	if s.slack == nil {
 		return
 	}
+	var d conductor.Deliverer
+	if dp := s.deliverer.Load(); dp != nil {
+		d = *dp
+	}
 	for _, ref := range s.slackRefs(ctx, p) {
+		if d != nil && d.DeliverTo(ctx, conductor.SourceSlack, ref, out) {
+			continue
+		}
 		if _, err := s.slack.Post(ctx, ref, out); err != nil {
 			s.logger.WarnContext(ctx, "github: posting to a bound slack thread failed",
 				"ref", ref, "error", err)
@@ -1159,6 +1231,8 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	case conductor.ReactionWorking:
 		s.reactSeen(ctx, p)
 	case conductor.ReactionDone, conductor.ReactionFailed:
+	case conductor.ReactionRefused:
+		s.reactOn(ctx, p, reactionRefused)
 	case conductor.ReactionAwaiting:
 		return nil
 	default:
@@ -1175,9 +1249,12 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	return nil
 }
 
-// reactSeen puts 👀 on the triggering comment. A review body and a pull request have no
-// comment to react on.
-func (s *Source) reactSeen(ctx context.Context, p Parsed) {
+// reactSeen puts 👀 on the triggering comment.
+func (s *Source) reactSeen(ctx context.Context, p Parsed) { s.reactOn(ctx, p, reactionSeen) }
+
+// reactOn puts one reaction on the triggering comment. A review body and a pull request have
+// no comment to react on.
+func (s *Source) reactOn(ctx context.Context, p Parsed, content string) {
 	if p.CommentID <= 0 || (p.Kind != KindIssueComment && p.Kind != KindReviewComment) {
 		return
 	}
@@ -1185,7 +1262,7 @@ func (s *Source) reactSeen(ctx context.Context, p Parsed) {
 	if err != nil {
 		return
 	}
-	if err := s.client.CreateReaction(ctx, install, p.Owner, p.Repo, p.Kind, p.CommentID, reactionSeen); err != nil {
+	if err := s.client.CreateReaction(ctx, install, p.Owner, p.Repo, p.Kind, p.CommentID, content); err != nil {
 		s.logger.WarnContext(ctx, "github: reacting to the comment failed",
 			"pr", PRURL(p.Owner, p.Repo, p.Number), "comment", p.CommentID, "error", err)
 	}

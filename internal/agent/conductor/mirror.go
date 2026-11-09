@@ -12,9 +12,11 @@ import (
 // somewhere else. It exists so a Slack thread can be read in the Podium UI beside the web
 // chats — with the names of the people in it, which the turns table has never held.
 //
-// It is never read back into a brief. FetchTranscript is still what a turn is handed, so
-// Slack remains the one authority on what was said and the mirror cannot drift into
-// disagreeing with the model's own view of the conversation.
+// Since Phase 3 of docs/agent.md it is also THE record: a turn is handed
+// its transcript from here (transcript.go), not from the source, so what was said in Podium
+// beside a thread is in the turn's view of it. Edits and deletes on the surface are applied
+// to the rows (Phase 2), which is what keeps the record and the thread agreeing. (Migration
+// 0014's "never read back into a brief" describes the mirror as it was then.)
 //
 // What it keeps is what the web chat keeps for a conversation it owns: the questions, the
 // answers, the failures, and every progress line — including the "working on this in a task"
@@ -27,6 +29,16 @@ import (
 // mirrorTitleRunes bounds a mirrored conversation's title. It matches the cap the web chat
 // uses for a title taken from a first message.
 const mirrorTitleRunes = 48
+
+// sourceTitleRunes bounds a title the source named the conversation with (InboundEvent.Title).
+// It is longer than a first line's cap because it is built to be read whole: a pull request's
+// number comes before its own title.
+const sourceTitleRunes = 120
+
+// sourceTitle is the event's own name for its conversation, clamped, or empty.
+func sourceTitle(ev InboundEvent) string {
+	return firstLine(ev.Title, sourceTitleRunes)
+}
 
 // MirrorWatcher is whoever streams a mirrored chat to a screen: the web chat's broadcaster.
 // The mirror writes rows straight into the store — the web source must not, or it would
@@ -55,25 +67,42 @@ func (c *Conductor) mirrorKey(src Source, ref string) (string, bool) {
 	return m.MirrorKey(ref)
 }
 
+// recordKey is the conversation an event that never starts a turn is recorded into: the one
+// the source moved it to (InboundEvent.MirrorKey), or the one its ref names. Only a record or
+// a change may be moved; a message that can start a turn is always its own ref's.
+func (c *Conductor) recordKey(src Source, ev InboundEvent) (string, bool) {
+	if ev.MirrorKey != "" && (ev.RecordOnly || ev.Change != "") {
+		if _, mirrored := src.(mirrorSource); mirrored {
+			return ev.MirrorKey, true
+		}
+	}
+	return c.mirrorKey(src, ev.Ref)
+}
+
 // mirrorHeard records one thing a human said, opening the mirror on the first message. The
-// person who asked first becomes the conversation's attribution: a mirrored thread has no
-// Podium login to own it, and "who started this" is the useful thing to show instead.
-func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent) {
+// person who asked first becomes the conversation's attribution (started_by), and a speaker
+// who resolved to a Podium login becomes a participant — which is what lets them see the
+// conversation — and the chat's owner when it has none yet.
+//
+// It reports whether this arrival is the one that recorded the message, which is the
+// conductor's dedupe: the same Slack event retried, a GitHub webhook redelivered, or two
+// conductors hearing one event all reach here, and only the arrival whose insert wrote the
+// row goes on to start a turn. Everything that is not a definite duplicate reports true — a
+// source that is not mirrored, a message with no identity of its own, and a mirror write that
+// failed — because the mirror is how a turn is READ, and a database blip must not stop the
+// bot answering.
+func (c *Conductor) mirrorHeard(ctx context.Context, src Source, evp *InboundEvent) bool {
+	ev := *evp
 	key, ok := c.mirrorKey(src, ev.Ref)
 	if !ok {
-		return
+		return true
 	}
-	chat, err := c.store.ChatBySourceKey(ctx, key)
-	if errors.Is(err, store.ErrNotFound) {
-		chat, err = c.store.CreateMirrorChat(
-			ctx, key, src.Kind(), ev.Author, firstLine(ev.Text, mirrorTitleRunes))
-	}
+	chat, created, err := c.mirrorChat(ctx, src, key, ev)
 	if err != nil {
-		// A conversation that cannot be mirrored is still a conversation the bot answers:
-		// the mirror is how a turn is READ afterwards, never how it runs.
 		c.logger.WarnContext(ctx, "mirroring what was said failed", "source_key", key, "error", err)
-		return
+		return true
 	}
+	c.recordParticipant(ctx, chat, ev)
 	if ev.ChannelName != "" && chat.Channel != ev.ChannelName {
 		if err := c.store.SetChatChannel(ctx, chat.ID, ev.ChannelName); err != nil {
 			c.logger.WarnContext(ctx, "recording a mirrored chat's channel name failed",
@@ -82,13 +111,249 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 			chat.Channel = ev.ChannelName
 		}
 	}
-	c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
-		ChatID: chat.ID,
-		Role:   RoleUser,
-		Author: ev.Author,
-		Text:   ev.Text,
-		TS:     ev.TS,
-	})
+	if ev.ThreadURL != "" && chat.SourceURL != ev.ThreadURL {
+		if err := c.store.SetChatSourceURL(ctx, chat.ID, ev.ThreadURL); err != nil {
+			c.logger.WarnContext(ctx, "recording a mirrored chat's link failed", "chat_id", chat.ID, "error", err)
+		} else {
+			chat.SourceURL = ev.ThreadURL
+		}
+	}
+	if !created {
+		chat = c.mirrorRetitle(ctx, chat, ev)
+	}
+	if ev.ChannelPrivacy != "" && chat.ChannelPrivacy != ev.ChannelPrivacy {
+		if err := c.store.SetChatChannelPrivacy(ctx, chat.ID, ev.ChannelPrivacy); err != nil {
+			c.logger.WarnContext(ctx, "recording a mirrored chat's channel privacy failed",
+				"chat_id", chat.ID, "error", err)
+		} else {
+			chat.ChannelPrivacy = ev.ChannelPrivacy
+		}
+	}
+	if created {
+		c.seedHistory(ctx, src, chat, ev)
+	}
+	row, fresh := c.mirrorRecord(ctx, src, chat.ID, ev, !ev.RecordOnly)
+	if fresh && row.Seq != 0 {
+		// The message in the record this event is, for the turn queue: the person who asked
+		// takes their queued turn back by it, and the chat shows whose turns are waiting.
+		evp.ChatID, evp.ChatSeq = row.ChatID, row.Seq
+	}
+	return fresh
+}
+
+// mirrorChat finds the chat mirroring a conversation, or opens it. created is true only for
+// the call that opened it. Two conductors opening the same conversation at once race on the
+// unique source_key; the loser reads the winner's row rather than failing.
+func (c *Conductor) mirrorChat(
+	ctx context.Context, src Source, key string, ev InboundEvent,
+) (store.Chat, bool, error) {
+	chat, err := c.store.ChatBySourceKey(ctx, key)
+	if err == nil || !errors.Is(err, store.ErrNotFound) {
+		return chat, false, err
+	}
+	title := sourceTitle(ev)
+	if title == "" {
+		title = firstLine(recordText(ev), mirrorTitleRunes)
+	}
+	chat, err = c.store.CreateMirrorChat(ctx, key, src.Kind(), ev.Author, title)
+	if err == nil {
+		return chat, true, nil
+	}
+	if again, rerr := c.store.ChatBySourceKey(ctx, key); rerr == nil {
+		return again, false, nil
+	}
+	return store.Chat{}, false, err
+}
+
+// mirrorRetitle renames a mirrored chat to the name its source now gives the conversation (a
+// pull request retitled, or one named before the source could name it). A title somebody set
+// in Podium is theirs: SetChatTitle leaves a chat whose auto_title is off alone. A shorter
+// name the title already starts with is a source that knows less, not a rename.
+func (c *Conductor) mirrorRetitle(ctx context.Context, chat store.Chat, ev InboundEvent) store.Chat {
+	t := sourceTitle(ev)
+	if t == "" || !chat.AutoTitle || strings.HasPrefix(chat.Title, t) {
+		return chat
+	}
+	renamed, err := c.store.SetChatTitle(ctx, chat.ID, t)
+	if err != nil {
+		c.logger.WarnContext(ctx, "renaming a mirrored chat failed", "chat_id", chat.ID, "error", err)
+		return chat
+	}
+	return renamed
+}
+
+// mirrorRecordOnly records a message nobody put to Podium, into a conversation Podium already
+// holds. A conversation it does not hold is not opened for it: Podium keeps the whole of a
+// thread it is part of and nothing of one it is not, which is also what keeps a busy
+// channel's chatter out of the database.
+func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev InboundEvent) {
+	key, ok := c.recordKey(src, ev)
+	if !ok {
+		return
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), "no_chat").Inc() })
+		return
+	}
+	if err != nil {
+		c.logger.WarnContext(ctx, "finding the chat for an unaddressed message failed",
+			"source_key", key, "error", err)
+		return
+	}
+	c.recordParticipant(ctx, chat, ev)
+	c.mirrorRetitle(ctx, chat, ev)
+	_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
+}
+
+// mirrorChanged applies an edit or a delete made on the message's own surface. It never
+// starts a turn: an edit that adds a mention is still an edit (decision 34). A change to a
+// message Podium never recorded is nothing to do.
+func (c *Conductor) mirrorChanged(ctx context.Context, src Source, ev InboundEvent) {
+	key, ok := c.recordKey(src, ev)
+	if !ok || ev.ExternalID == "" {
+		return
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, key)
+	if err != nil {
+		return
+	}
+	at := ev.TS
+	if at.IsZero() {
+		at = c.now()
+	}
+	via := viaOf(src, ev)
+	var row store.ChatMessage
+	switch ev.Change {
+	case ChangeEdited:
+		row, err = c.store.EditChatMessage(ctx, chat.ID, via, ev.ExternalID, recordText(ev), at.UTC())
+	case ChangeDeleted:
+		row, err = c.store.DeleteChatMessage(ctx, chat.ID, via, ev.ExternalID, at.UTC())
+	default:
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), "change_unknown").Inc() })
+		return
+	}
+	if err != nil {
+		c.logger.WarnContext(ctx, "applying a change to a mirrored message failed",
+			"chat_id", chat.ID, "change", ev.Change, "external_id", ev.ExternalID, "error", err)
+		return
+	}
+	c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), ev.Change).Inc() })
+	if c.mirror != nil {
+		c.mirror.Mirrored(chat.ID, row)
+	}
+}
+
+// historySource is the optional half of a mirrored Source that can read what was said in a
+// conversation before Podium was in it. Slack implements it with conversations.replies: a
+// mention in a thread that already had replies would otherwise start the record half way.
+// What it returns is in order, oldest first, every event RecordOnly, and never the message
+// that brought Podium in.
+type historySource interface {
+	History(ctx context.Context, ref string) ([]InboundEvent, error)
+}
+
+// seedHistory records what the conversation said before Podium's chat for it existed. It runs
+// once, for the call that opened the chat, so the earlier replies take the seqs before the
+// message that brought Podium in. A failure leaves the record starting where Podium came in,
+// which is what it did before there was a history at all.
+func (c *Conductor) seedHistory(ctx context.Context, src Source, chat store.Chat, trigger InboundEvent) {
+	h, ok := src.(historySource)
+	if !ok {
+		return
+	}
+	earlier, err := h.History(ctx, trigger.Ref)
+	if err != nil {
+		c.logger.WarnContext(ctx, "reading a conversation's earlier messages failed",
+			"chat_id", chat.ID, "error", err)
+		return
+	}
+	for _, ev := range earlier {
+		if ev.ExternalID != "" && ev.ExternalID == trigger.ExternalID {
+			continue
+		}
+		ev.RecordOnly = true
+		c.resolveSpeaker(ctx, src, &ev)
+		c.recordParticipant(ctx, chat, ev)
+		_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
+	}
+	// Only once the history is in: a chat whose seed failed keeps its turns reading the
+	// source's earlier history in front of the record (transcript.go), as before.
+	if err := c.store.SetChatHistorySeeded(ctx, chat.ID); err != nil {
+		c.logger.WarnContext(ctx, "recording that a chat's history was seeded failed",
+			"chat_id", chat.ID, "error", err)
+	}
+}
+
+// mirrorRecord writes one human message into a mirrored chat and announces it, returning the
+// row it wrote. It reports false only for a message that was already there; a write that
+// failed is reported fresh with no row (a conversation that cannot be mirrored is still one
+// the bot answers).
+func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string, ev InboundEvent, addressed bool) (store.ChatMessage, bool) {
+	msg := store.ChatMessage{
+		ChatID:       chatID,
+		Role:         RoleUser,
+		Author:       ev.Author,
+		Text:         recordText(ev),
+		TS:           ev.TS,
+		AuthorLogin:  ev.Login,
+		AuthorHandle: ev.SpeakerHandle,
+		AuthorAvatar: ev.SpeakerAvatar,
+		Via:          viaOf(src, ev),
+		ExternalID:   ev.ExternalID,
+		ExternalURL:  ev.ExternalURL,
+		Addressed:    addressed,
+	}
+	row, fresh, err := c.store.RecordChatMessage(ctx, msg)
+	if err != nil {
+		c.logger.WarnContext(ctx, "appending to a mirrored conversation failed",
+			"chat_id", chatID, "role", msg.Role, "error", err)
+		return store.ChatMessage{}, true
+	}
+	if !fresh {
+		c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), "duplicate").Inc() })
+		return store.ChatMessage{}, false
+	}
+	outcome := "addressed"
+	if !addressed {
+		outcome = "unaddressed"
+	}
+	c.metric(func(m *Metrics) { m.MirrorRecords.WithLabelValues(src.Kind(), outcome).Inc() })
+	if c.mirror != nil {
+		c.mirror.Mirrored(chatID, row)
+	}
+	return row, true
+}
+
+// recordText is what the record keeps of a human message: their words, not an instruction
+// a source built around them.
+func recordText(ev InboundEvent) string {
+	if ev.RecordText != "" {
+		return ev.RecordText
+	}
+	return ev.Text
+}
+
+// viaOf is the surface a human message came in through. It is the speaker's account when
+// the source named one, not the source's kind: a Slack mention that names a pull request is
+// carried by the GitHub source and was still said in Slack.
+func viaOf(src Source, ev InboundEvent) string {
+	switch ev.SpeakerProvider {
+	case store.ProviderSlack:
+		return store.ViaSlack
+	case store.ProviderGitHub:
+		return store.ViaGitHub
+	}
+	switch src.Kind() {
+	case SourceSlack:
+		return store.ViaSlack
+	case SourceGitHub:
+		return store.ViaGitHub
+	}
+	return src.Kind()
 }
 
 // mirrorSaid records one thing the bot said out loud, or edited into what it had said. An
@@ -96,6 +361,13 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 // stripped, which is exactly what the web chat stores for its own — so the two kinds of
 // conversation read the same way in the UI.
 func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out Outbound) {
+	c.mirrorSaidRow(ctx, src, ref, out)
+}
+
+// mirrorSaidRow is mirrorSaid returning the row it wrote, which the delivery outbox hangs its
+// rows on. False is nothing written: a source that is not mirrored, a placeholder, or a
+// conversation with no chat yet.
+func (c *Conductor) mirrorSaidRow(ctx context.Context, src Source, ref string, out Outbound) (store.ChatMessage, bool) {
 	role := RoleAssistant
 	text := out.Text
 	if out.Type == OutActivity {
@@ -103,17 +375,17 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 	}
 	if out.Type == OutProgress {
 		if text == Placeholder {
-			return
+			return store.ChatMessage{}, false
 		}
 		role = store.RoleProgress
 		text = strings.TrimPrefix(text, ProgressPrefix)
 		if strings.TrimSpace(text) == "" {
-			return
+			return store.ChatMessage{}, false
 		}
 	}
 	key, ok := c.mirrorKey(src, ref)
 	if !ok {
-		return
+		return store.ChatMessage{}, false
 	}
 	chat, err := c.store.ChatBySourceKey(ctx, key)
 	if err != nil {
@@ -121,29 +393,38 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 		// a thread whose first inbound message never reached the mirror.
 		c.logger.WarnContext(ctx, "mirroring the answer failed; no chat for the conversation",
 			"source_key", key, "error", err)
-		return
+		return store.ChatMessage{}, false
 	}
 	author := ""
 	if p := c.profiles.Current(); p != nil {
 		author = p.DisplayName
 	}
-	c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
+	return c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
 		ChatID: chat.ID,
 		Role:   role,
 		Author: author,
 		Text:   text,
 		TaskID: out.TaskID,
+		Via:    store.ViaBot,
 	})
 }
 
-func (c *Conductor) mirrorAppend(ctx context.Context, chatID string, msg store.ChatMessage) {
+func (c *Conductor) mirrorAppend(ctx context.Context, chatID string, msg store.ChatMessage) (store.ChatMessage, bool) {
 	row, err := c.store.AppendChatMessage(ctx, msg)
 	if err != nil {
 		c.logger.WarnContext(ctx, "appending to a mirrored conversation failed",
 			"chat_id", chatID, "role", msg.Role, "error", err)
-		return
+		return store.ChatMessage{}, false
 	}
 	if c.mirror != nil {
 		c.mirror.Mirrored(chatID, row)
+	}
+	return row, true
+}
+
+// metric applies f to the conductor's metrics, which a test may leave unset.
+func (c *Conductor) metric(f func(*Metrics)) {
+	if c.metrics != nil {
+		f(c.metrics)
 	}
 }

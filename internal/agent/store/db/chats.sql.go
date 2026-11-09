@@ -11,25 +11,43 @@ import (
 )
 
 const appendChatMessage = `-- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id, author)
-select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6, $7
-  from chat_messages where chat_id = $1
-returning chat_id, seq, role, text, attachments, ts, task_id, author
+with next as (
+  update chats set last_seq = last_seq + 1 where id = $1 returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
+  mentions
+)
+select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11,
+       $12, $13, $14, $15::text[]
+  from next
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
 `
 
 type AppendChatMessageParams struct {
-	ChatID      string
-	Role        string
-	Text        string
-	Attachments []byte
-	Ts          time.Time
-	TaskID      string
-	Author      string
+	ChatID       string
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   *string
+	ExternalUrl  string
+	Addressed    bool
+	Mentions     []string
 }
 
-// AppendChatMessage takes the next seq for the chat. It is a single statement so the read
-// of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
-// the primary key would refuse a collision anyway.
+// AppendChatMessage takes the next seq for the chat by bumping chats.last_seq (0032). The
+// update locks the chat row until the insert commits, so concurrent writers to one chat —
+// on this conductor or another — are put in order instead of computing the same max(seq)+1
+// and one of them failing on the primary key. No row back means the chat is not there.
 func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessageParams) (ChatMessage, error) {
 	row := q.db.QueryRow(ctx, appendChatMessage,
 		arg.ChatID,
@@ -39,6 +57,14 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		arg.Ts,
 		arg.TaskID,
 		arg.Author,
+		arg.AuthorLogin,
+		arg.AuthorHandle,
+		arg.AuthorAvatar,
+		arg.Via,
+		arg.ExternalID,
+		arg.ExternalUrl,
+		arg.Addressed,
+		arg.Mentions,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -50,6 +76,16 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
 	)
 	return i, err
 }
@@ -97,30 +133,42 @@ func (q *Queries) AttachChatPullRequest(ctx context.Context, arg AttachChatPullR
 	return i, err
 }
 
-const chatParticipants = `-- name: ChatParticipants :many
-select author from chat_messages
-where chat_id = $1 and role = 'user' and author <> ''
-group by author
-order by min(seq)
+const chatAuthors = `-- name: ChatAuthors :many
+select author,
+       (array_agg(via order by seq))[1]::text           as via,
+       (array_agg(author_avatar order by seq))[1]::text as avatar
+  from chat_messages
+ where chat_id = $1 and role = 'user' and author <> ''
+ group by author
+ order by min(seq)
 `
 
-// ChatParticipants is who has spoken in a conversation, first appearance first. It is the
-// distinct authors of the human messages, which for a mirrored Slack thread is everyone in
-// it and for a web chat is nobody — a web chat's messages carry no author, because its
-// login already says who is typing.
-func (q *Queries) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, chatParticipants, chatID)
+type ChatAuthorsRow struct {
+	Author string
+	Via    string
+	Avatar string
+}
+
+// ChatAuthors is who has spoken in a conversation by display name, first appearance first:
+// the distinct authors of the human messages. For a mirrored thread that is everyone in it,
+// in Podium or not; for a web chat it is nobody, because a web chat's messages carry no
+// author. store.ChatParticipants merges it with chat_participants, which knows who is who.
+//
+// via and avatar are the surface and picture of the author's first message, which is what
+// the header draws beside a name that has no Podium identity behind it.
+func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]ChatAuthorsRow, error) {
+	rows, err := q.db.Query(ctx, chatAuthors, chatID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ChatAuthorsRow{}
 	for rows.Next() {
-		var author string
-		if err := rows.Scan(&author); err != nil {
+		var i ChatAuthorsRow
+		if err := rows.Scan(&i.Author, &i.Via, &i.Avatar); err != nil {
 			return nil, err
 		}
-		items = append(items, author)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -128,35 +176,70 @@ func (q *Queries) ChatParticipants(ctx context.Context, chatID string) ([]string
 	return items, nil
 }
 
+const chatTaskRunning = `-- name: ChatTaskRunning :one
+select exists (
+  select 1 from delegations d
+    join turns t on t.id = d.turn_id
+    join sessions s on s.id = t.session_id
+   where s.source_key = (select c.source_key from chats c where c.id = $1)
+     and d.status = 'running'
+)::bool as running
+`
+
+// ChatTaskRunning is whether a task this conversation delegated is still running. A
+// delegated task outlives the turn that started it (an automatic review's turn ends the
+// moment it hands the work over), and it is the conversation's work for as long as it runs:
+// the same rule ListChats' task_running answers for the list.
+func (q *Queries) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRow(ctx, chatTaskRunning, chatID)
+	var running bool
+	err := row.Scan(&running)
+	return running, err
+}
+
 const chatTurnRunning = `-- name: ChatTurnRunning :one
 select exists (
   select 1 from turns t
     join sessions s on s.id = t.session_id
-   where s.source_key = $1
+   where s.source_key = (select c.source_key from chats c where c.id = $1)
      and t.status = 'running'
 )::bool as running
 `
 
 // ChatTurnRunning is the server-side half of "one turn in flight per conversation". The UI
 // disables the composer; this is what makes a second send impossible rather than unlikely.
-func (q *Queries) ChatTurnRunning(ctx context.Context, sourceKey string) (bool, error) {
-	row := q.db.QueryRow(ctx, chatTurnRunning, sourceKey)
+func (q *Queries) ChatTurnRunning(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRow(ctx, chatTurnRunning, chatID)
 	var running bool
 	err := row.Scan(&running)
 	return running, err
+}
+
+const countChatsStartedByTurn = `-- name: CountChatsStartedByTurn :one
+select count(*)::int from chats where started_by_turn = $1::text
+`
+
+// CountChatsStartedByTurn is how many chats one turn has opened.
+func (q *Queries) CountChatsStartedByTurn(ctx context.Context, startedByTurn string) (int32, error) {
+	row := q.db.QueryRow(ctx, countChatsStartedByTurn, startedByTurn)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createChat = `-- name: CreateChat :one
 
 insert into chats (
   id, title, login, created_at, auto_title, source_key, started_by, origin,
-  personality_id, personality_display
+  personality_id, personality_display, multiplayer
 )
 values (
   $1, $2, $3, $4, $5, $6, $7, $8,
-  $9, $10
+  $9, $10,
+  -- A mirrored conversation always has other people in it (decision 33).
+  $8::text <> 'web'
 )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type CreateChatParams struct {
@@ -212,12 +295,24 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
 
 const deleteChat = `-- name: DeleteChat :execrows
-delete from chats where id = $1 and (
+delete from chats where id = $1 and origin = 'web' and (
   login = $2
   or ($3::bool and login is null)
 )
@@ -241,6 +336,52 @@ func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const deleteChatMessageByExternal = `-- name: DeleteChatMessageByExternal :one
+update chat_messages set deleted_at = coalesce(deleted_at, $1)
+where chat_id = $2 and via = $3 and external_id = $4::text
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+`
+
+type DeleteChatMessageByExternalParams struct {
+	DeletedAt  *time.Time
+	ChatID     string
+	Via        string
+	ExternalID string
+}
+
+// DeleteChatMessageByExternal marks a message deleted on its own surface. The text stays
+// (decision 12); the API sends none for it and the transcript leaves it out.
+func (q *Queries) DeleteChatMessageByExternal(ctx context.Context, arg DeleteChatMessageByExternalParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, deleteChatMessageByExternal,
+		arg.DeletedAt,
+		arg.ChatID,
+		arg.Via,
+		arg.ExternalID,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
+	)
+	return i, err
+}
+
 const detachChatPullRequest = `-- name: DetachChatPullRequest :execrows
 update chat_pull_requests set detached_at = $1
 where chat_id = $2 and url = $3 and detached_at is null
@@ -262,8 +403,57 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 	return result.RowsAffected(), nil
 }
 
+const editChatMessageByExternal = `-- name: EditChatMessageByExternal :one
+update chat_messages set text = $1, edited_at = $2
+where chat_id = $3 and via = $4 and external_id = $5::text
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+`
+
+type EditChatMessageByExternalParams struct {
+	Text       string
+	EditedAt   *time.Time
+	ChatID     string
+	Via        string
+	ExternalID string
+}
+
+// EditChatMessageByExternal applies an edit made on the message's own surface. The text is
+// replaced and edited_at stamped; nothing else about the row moves, so its place in the
+// conversation is where it was said, not where it was edited.
+func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMessageByExternalParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, editChatMessageByExternal,
+		arg.Text,
+		arg.EditedAt,
+		arg.ChatID,
+		arg.Via,
+		arg.ExternalID,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
+	)
+	return i, err
+}
+
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -284,12 +474,24 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -313,12 +515,61 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
+	)
+	return i, err
+}
+
+const getChatMessage = `-- name: GetChatMessage :one
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages where chat_id = $1 and seq = $2
+`
+
+type GetChatMessageParams struct {
+	ChatID string
+	Seq    int64
+}
+
+// GetChatMessage reads one message, which is how a conductor rebuilds a frame another
+// conductor announced.
+func (q *Queries) GetChatMessage(ctx context.Context, arg GetChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, getChatMessage, arg.ChatID, arg.Seq)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
 	)
 	return i, err
 }
 
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
-select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
 where chat_id = $1 and role = 'assistant'
 order by seq desc limit 1
 `
@@ -335,6 +586,16 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
 	)
 	return i, err
 }
@@ -376,7 +637,7 @@ func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullReque
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
 where chat_id = $1 and seq > $2::bigint
 order by seq
 `
@@ -404,6 +665,16 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.Ts,
 			&i.TaskID,
 			&i.Author,
+			&i.AuthorLogin,
+			&i.AuthorHandle,
+			&i.AuthorAvatar,
+			&i.Via,
+			&i.ExternalID,
+			&i.ExternalUrl,
+			&i.Addressed,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.Mentions,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +725,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display, c.last_seq, c.multiplayer, c.general_access, c.general_role, c.link_token, c.deleted_at, c.channel_privacy, c.source_url, c.history_seeded, c.started_from_chat, c.started_by_turn, c.routine_id,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -472,36 +743,65 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and d.status = 'running'
-  ) as task_running
+  ) as task_running,
+  -- Phase 5: what the caller may do here and why they can see it, for the list's sections
+  -- and its owner/other menus. The dev token is answered by the API (it is the operator, an
+  -- owner of everything), so these are computed for the viewer even then and overridden.
+  chat_role(c.id, $1::text)::text as my_role,
+  (case
+    when c.login is not null and c.login = $1::text then 'owner'
+    when exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = $1::text) then 'participant'
+    when exists (select 1 from chat_access a where a.chat_id = c.id and a.login = $1::text) then 'shared'
+    when c.general_access = 'members' then 'workspace'
+    else ''
+  end)::text as access_reason,
+  coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = $1::text), '')::text as shared_by,
+  chat_unread(c.id, $1::text)::bigint as unread_count
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
-   where cm.role <> 'activity'
+   where cm.role not in ('activity', 'notice')
 ) m on m.chat_id = c.id and m.rn = 1
 where (
-    $1::bool
-    or c.login = $2
+    ($2::bool and $3::text = '')
+    or ($3::text in ('', 'shared') and chat_visible_to(c.id, c.login, $1::text)
+        and ($3::text = '' or c.login is distinct from $1::text))
+    or ($3::text = 'workspace'
+        and c.general_access = 'members'
+        and c.deleted_at is null
+        and not chat_visible_to(c.id, c.login, $1::text)
+        and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
   )
-  and ($3::text = '' or c.id < $3::text)
+  and ($4::text = '' or c.id < $4::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
   -- already see, which is what every existing caller asks for. Set, an empty
   -- personality_id is Podium (the column is null) and a set id is that voice only.
+  --
+  -- A chat with somebody ELSE's personal assistant is listed under Podium (phase 4). The
+  -- assistant stays private: the viewer has no picker entry for it and could never select
+  -- its id, so without this branch a conversation they take part in would be in no list at
+  -- all. The UI shows it as shared, labelled with personality_display.
   and (
-    not $4::bool
+    not $5::bool
     or (
-      ($5::text = '' and c.personality_id is null)
-      or ($5::text <> '' and c.personality_id = $5)
+      ($6::text = '' and (
+        c.personality_id is null
+        or (not $2::bool and c.login is distinct from $1::text)
+      ))
+      or ($6::text <> '' and c.personality_id = $6
+          and ($2::bool or c.login = $1::text))
     )
   )
 order by c.id desc
-limit $6::int
+limit $7::int
 `
 
 type ListChatsParams struct {
+	Viewer            string
 	IncludeAll        bool
-	Login             *string
+	Section           string
 	AfterID           string
 	FilterPersonality bool
 	PersonalityID     string
@@ -523,11 +823,27 @@ type ListChatsRow struct {
 	Channel            string
 	PersonalityID      *string
 	PersonalityDisplay string
+	LastSeq            int64
+	Multiplayer        bool
+	GeneralAccess      string
+	GeneralRole        string
+	LinkToken          *string
+	DeletedAt          *time.Time
+	ChannelPrivacy     string
+	SourceUrl          string
+	HistorySeeded      bool
+	StartedFromChat    *string
+	StartedByTurn      *string
+	RoutineID          *string
 	HasMessage         bool
 	LastMessageAt      time.Time
 	LastText           string
 	TurnRunning        bool
 	TaskRunning        bool
+	MyRole             string
+	AccessReason       string
+	SharedBy           string
+	UnreadCount        int64
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -541,12 +857,19 @@ type ListChatsRow struct {
 // a chat that claims a message it does not have.
 // include_all is the shared dev token, which has no per-user identity and is the operator
 // view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
-// any other named login) is the other branch and sees only rows they own. A mirrored
-// thread has no login, so that branch does not include it.
+// any other named login) is the other branch and sees what chat_visible_to allows: what
+// they own, and every conversation they have taken part in from any surface. A mirrored
+// thread nobody in Podium has spoken in matches neither, and stays hidden.
+//
+// section narrows a signed-in caller's list (phase 5). ” is their own chats: owned, spoken
+// in, or shared with them — chat_visible_to. 'shared' is the part of that somebody else owns.
+// 'workspace' is the chats shared with every member that are NOT already in their own list:
+// a members-shared chat appears there until they open it, and in their own list after.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats,
+		arg.Viewer,
 		arg.IncludeAll,
-		arg.Login,
+		arg.Section,
 		arg.AfterID,
 		arg.FilterPersonality,
 		arg.PersonalityID,
@@ -574,11 +897,27 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Channel,
 			&i.PersonalityID,
 			&i.PersonalityDisplay,
+			&i.LastSeq,
+			&i.Multiplayer,
+			&i.GeneralAccess,
+			&i.GeneralRole,
+			&i.LinkToken,
+			&i.DeletedAt,
+			&i.ChannelPrivacy,
+			&i.SourceUrl,
+			&i.HistorySeeded,
+			&i.StartedFromChat,
+			&i.StartedByTurn,
+			&i.RoutineID,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
 			&i.TurnRunning,
 			&i.TaskRunning,
+			&i.MyRole,
+			&i.AccessReason,
+			&i.SharedBy,
+			&i.UnreadCount,
 		); err != nil {
 			return nil, err
 		}
@@ -590,13 +929,161 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 	return items, nil
 }
 
+const markChatMultiplayer = `-- name: MarkChatMultiplayer :one
+update chats set multiplayer = true
+where id = $1 and not multiplayer and (
+  $2::bool
+  or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
+)
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
+`
+
+type MarkChatMultiplayerParams struct {
+	ID    string
+	Force bool
+}
+
+// MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
+// call is what changed it, so the caller announces the change once. force is a share or a
+// mirrored conversation; otherwise it takes a second Podium person among the participants.
+func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplayerParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, markChatMultiplayer, arg.ID, arg.Force)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
+		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
+	)
+	return i, err
+}
+
+const nameWebAuthors = `-- name: NameWebAuthors :exec
+update chat_messages set author = author_login
+where chat_id = $1 and role = 'user' and via = 'web' and author = ''
+  and coalesce(author_login, '') <> ''
+`
+
+// NameWebAuthors names who typed each earlier web message of a chat that has just become
+// multiplayer. A single-player chat leaves author empty (the reader is the asker), so without
+// this the owner's messages from before the share would be the only unnamed ones in the thread.
+func (q *Queries) NameWebAuthors(ctx context.Context, chatID string) error {
+	_, err := q.db.Exec(ctx, nameWebAuthors, chatID)
+	return err
+}
+
+const recordChatMessage = `-- name: RecordChatMessage :one
+with next as (
+  update chats set last_seq = last_seq + 1 where id = $1 returning last_seq
+)
+insert into chat_messages (
+  chat_id, seq, role, text, attachments, ts, task_id, author,
+  author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
+  mentions
+)
+select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11,
+       $12::text, $13, $14, $15::text[]
+  from next
+on conflict (chat_id, via, external_id) where external_id is not null do nothing
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+`
+
+type RecordChatMessageParams struct {
+	ChatID       string
+	Role         string
+	Text         string
+	Attachments  []byte
+	Ts           time.Time
+	TaskID       string
+	Author       string
+	AuthorLogin  *string
+	AuthorHandle string
+	AuthorAvatar string
+	Via          string
+	ExternalID   string
+	ExternalUrl  string
+	Addressed    bool
+	Mentions     []string
+}
+
+// RecordChatMessage is AppendChatMessage for a message that has an identity on its own
+// surface. A second arrival of the same message (a retry, a redelivery, another conductor
+// hearing the same event) inserts nothing and returns no row, and that is the whole of the
+// dedupe: the caller starts a turn only for a row this statement actually wrote. The seq the
+// losing insert took is left as a gap, which nothing reads as meaningful.
+func (q *Queries) RecordChatMessage(ctx context.Context, arg RecordChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, recordChatMessage,
+		arg.ChatID,
+		arg.Role,
+		arg.Text,
+		arg.Attachments,
+		arg.Ts,
+		arg.TaskID,
+		arg.Author,
+		arg.AuthorLogin,
+		arg.AuthorHandle,
+		arg.AuthorAvatar,
+		arg.Via,
+		arg.ExternalID,
+		arg.ExternalUrl,
+		arg.Addressed,
+		arg.Mentions,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ChatID,
+		&i.Seq,
+		&i.Role,
+		&i.Text,
+		&i.Attachments,
+		&i.Ts,
+		&i.TaskID,
+		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
+	)
+	return i, err
+}
+
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and (
-   login = $3
+   (deleted_at is null and login = $3)
+   or chat_role(id, $3::text) in ('owner', 'editor')
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type RenameChatParams struct {
@@ -615,6 +1102,10 @@ type RenameChatParams struct {
 //
 // include_shared lets the dev token rename a mirrored thread (login is null). A signed-in
 // user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
+//
+// Phase 5: an editor may rename too — the owner and everybody chat_role makes an editor
+// (a participant, or somebody it was shared with as one). A viewer may not. A deleted
+// mirrored chat (0036) is nobody's to rename, its owner included.
 func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, renameChat,
 		arg.Title,
@@ -638,6 +1129,18 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
@@ -645,7 +1148,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type SetChatChoiceParams struct {
@@ -683,6 +1186,18 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
@@ -690,7 +1205,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
-returning chat_id, seq, role, text, attachments, ts, task_id, author
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
 `
 
 type SetChatMessageAttachmentsParams struct {
@@ -711,6 +1226,64 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.Ts,
 		&i.TaskID,
 		&i.Author,
+		&i.AuthorLogin,
+		&i.AuthorHandle,
+		&i.AuthorAvatar,
+		&i.Via,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.Addressed,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Mentions,
+	)
+	return i, err
+}
+
+const setChatStartedFrom = `-- name: SetChatStartedFrom :one
+update chats
+set started_from_chat = $1, started_by_turn = $2
+where id = $3
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
+`
+
+type SetChatStartedFromParams struct {
+	StartedFromChat *string
+	StartedByTurn   *string
+	ID              string
+}
+
+// SetChatStartedFrom records that a chat was opened by a turn of another conversation.
+func (q *Queries) SetChatStartedFrom(ctx context.Context, arg SetChatStartedFromParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, setChatStartedFrom, arg.StartedFromChat, arg.StartedByTurn, arg.ID)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
+		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
 }
@@ -718,7 +1291,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
 type SetChatTitleParams struct {
@@ -744,6 +1317,50 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.Channel,
 		&i.PersonalityID,
 		&i.PersonalityDisplay,
+		&i.LastSeq,
+		&i.Multiplayer,
+		&i.GeneralAccess,
+		&i.GeneralRole,
+		&i.LinkToken,
+		&i.DeletedAt,
+		&i.ChannelPrivacy,
+		&i.SourceUrl,
+		&i.HistorySeeded,
+		&i.StartedFromChat,
+		&i.StartedByTurn,
+		&i.RoutineID,
 	)
 	return i, err
+}
+
+const tombstoneChat = `-- name: TombstoneChat :execrows
+update chats set deleted_at = coalesce(deleted_at, $1)
+where id = $2 and origin <> 'web' and (
+  login = $3
+  or ($4::bool and login is null)
+)
+`
+
+type TombstoneChatParams struct {
+	DeletedAt     *time.Time
+	ID            string
+	Login         *string
+	IncludeShared bool
+}
+
+// TombstoneChat is DeleteChat for a MIRRORED chat (0036): the row stays, so the conversation's
+// next message finds it rather than opening a new record, and deleted_at takes it away from
+// everyone. Deleting a tombstone again is a no-op that still reports the row, so a second
+// click is not a "not found".
+func (q *Queries) TombstoneChat(ctx context.Context, arg TombstoneChatParams) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneChat,
+		arg.DeletedAt,
+		arg.ID,
+		arg.Login,
+		arg.IncludeShared,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

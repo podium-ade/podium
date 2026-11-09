@@ -134,6 +134,8 @@ This is the part that saves you an afternoon:
   and no way for one task to trigger another. If you want a pipeline, the shell inside your
   container is the pipeline.
 - **Not a cron job.** Nothing schedules a task on a timer. Something outside Podium submits it.
+  What recurs is a conversation: a [routine](agent.md#routines) is an assistant turn on a
+  schedule, and the tasks it delegates are tasks like any other.
 - **Not restartable.** A terminal task has no outgoing edges in the state graph. "Re-run" in the
   UI creates a *new* task from the same spec; it is not a retry of the old one.
 - **Not a build cache, unless the spec says so.** A one-shot task still gets a fresh

@@ -12,7 +12,7 @@
 |---|---|---|
 | Go | **1.27+** | `go.mod` sets the floor, and the comment above it says why 1.26 will not do |
 | Docker | Engine 24+, **cgroup v2** | the integration and e2e suites drive a real engine |
-| Node | 22+ | the web UI |
+| Node | 26+ | the web UI and the agent runtime; CI and the runtime image are on 26 |
 | pnpm | 12.x | the lockfile is `pnpm-lock.yaml` |
 | buf | 1.72.0 | only if you change a `.proto` |
 | golangci-lint | **v2**.13.2 | the config is v2-shaped and a v1 binary will not read it |

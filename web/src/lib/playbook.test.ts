@@ -36,6 +36,7 @@ const draft: PlaybookDraft = {
   env: { CI: "true" },
   docker: false,
   browser: false,
+  desktop: false,
   runsOn: "",
   sandbox: NO_OVERRIDES,
 };
@@ -93,6 +94,18 @@ env:
     const { doc, problems } = parsePlaybookYaml(text);
     expect(problems).toEqual([]);
     expect(docToDraft("reporter", doc!).github).toBe(true);
+  });
+
+  it("round-trips desktop: true, and a definition's flag reaches the file", () => {
+    const text = draftToYaml({ ...draft, desktop: true });
+    expect(text).toContain("desktop: true");
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).desktop).toBe(true);
+    expect(docToDraft("reporter", parsePlaybookYaml(draftToYaml(draft)).doc!).desktop).toBe(false);
+
+    const def = create(PlaybookDefinitionSchema, { name: "desk", systemPrompt: "x", desktop: true });
+    expect(definitionToYaml(def)).toContain("desktop: true");
   });
 
   it("round-trips where it runs and only the overrides that are set", () => {

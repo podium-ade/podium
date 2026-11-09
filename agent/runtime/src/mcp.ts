@@ -15,7 +15,7 @@
 
 import { createInterface } from "node:readline";
 
-import { Client, DelegateError, type Delegation } from "./delegate.js";
+import { Client, DelegateError, type Delegation, type StartedChat } from "./delegate.js";
 import { isEntrypoint } from "./entry.js";
 
 /** ProtocolVersion is what this server speaks when a client asks for nothing else. MCP
@@ -36,6 +36,16 @@ export const ServerName = "podium";
 /** UrlFlag is how the conductor's address arrives. The TOKEN does not: it comes from the
  * environment, because an argument is visible in a process list. */
 export const UrlFlag = "--url";
+
+/** RoutineFlag says the turn is in a routine's chat, which adds routine_finish. */
+export const RoutineFlag = "--routine";
+
+/** CreateRoutineFlag says the turn may set up a routine for the person (create_routine). */
+export const CreateRoutineFlag = "--create-routine";
+
+/** NoPlaybooksFlag says the turn has nothing to delegate to, which leaves the delegation tools
+ * out: the token is there for routine_finish or create_routine alone. */
+export const NoPlaybooksFlag = "--no-playbooks";
 
 /** TokenEnv holds the turn's token. It matches conductor.TurnTokenEnv. */
 export const TokenEnv = "PODIUM_TURN_TOKEN";
@@ -148,6 +158,50 @@ export const tools: ToolDefinition[] = [
     },
   },
   {
+    // The conductor's chat host offers the same tool in the same words
+    // (internal/agent/conductor/startchat.go, StartChatTool).
+    name: "start_chat",
+    description:
+      "Open a NEW Podium chat for a piece of work that deserves its own conversation — a triage, " +
+      "an incident, a design discussion — and invite people into it. The chat belongs to the person " +
+      "who asked you, starts with your opening message, and links back to this conversation. Returns " +
+      "the link: put it in your answer as a markdown link, e.g. \"Starting a triage — [click here to " +
+      "join](<url>)\". Use it only when the person asks for a separate conversation or plainly wants " +
+      "others brought in; otherwise answer here. share_with is Podium people by email; access " +
+      "\"members\" lets every Podium member find it, \"link\" lets anyone with the link in.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "The new chat's name. 3–6 words." },
+        opening: {
+          type: "string",
+          description:
+            "Your first message in the new chat: what it is for, what is known so far, and what happens next. " +
+            "Markdown. It is all the new chat starts from.",
+        },
+        share_with: {
+          type: "array",
+          items: { type: "string" },
+          description: "Podium people to invite, by email address. Optional.",
+        },
+        access: {
+          type: "string",
+          enum: ["restricted", "members", "link"],
+          description:
+            "Who else may open it. restricted (default): only the people named. members: every Podium member. " +
+            "link: anyone with the link.",
+        },
+        role: {
+          type: "string",
+          enum: ["editor", "viewer"],
+          description: "What the people invited may do. editor (default) may write and ask you; viewer may read.",
+        },
+      },
+      required: ["title", "opening"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "release_preview",
     description:
       "Take down the preview a finished delegated task left up — its containers and its " +
@@ -160,6 +214,94 @@ export const tools: ToolDefinition[] = [
     },
   },
 ];
+
+/** routineFinishTool ends a routine run. The conductor's chat host offers the same tool in
+ * the same words (internal/agent/conductor/routine.go, RoutineFinishTool). */
+export const routineFinishTool: ToolDefinition = {
+  name: "routine_finish",
+  description:
+    'End this routine run, once, as your last step. status "idle" means there was nothing to do: ' +
+    "what you write stays in the routine's chat quietly, is not shown to later runs, and the person is not " +
+    "notified, so use it whenever the run found nothing " +
+    'worth telling them. status "done" means you did or found something: your answer is kept in the ' +
+    "routine's chat. summary is one line for the run list. state, when given, REPLACES the routine's " +
+    "state — the exact facts the next run needs (what you already handled, by id) — so pass the whole " +
+    "object, not a change. propose_note suggests a standing instruction for the owner to accept.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["idle", "done"],
+        description: "idle: nothing to do, nothing is kept. done: you did or found something worth keeping.",
+      },
+      summary: { type: "string", description: 'One line about this run, e.g. "3 new PRs, 1 failing".' },
+      state: {
+        type: "object",
+        description:
+          "The routine's whole state after this run. Optional; leave it out to keep the state as it is. At most 16 KB.",
+      },
+      propose_note: {
+        type: "string",
+        description:
+          "A standing instruction the person gave or that you think should hold for every run. Optional; the owner " +
+          "accepts or dismisses it.",
+      },
+    },
+    required: ["status", "summary"],
+    additionalProperties: false,
+  },
+};
+
+/** createRoutineTool sets up a routine for the person. The conductor's chat host offers the
+ * same tool in the same words (internal/agent/conductor/routine.go, CreateRoutineTool). */
+export const createRoutineTool: ToolDefinition = {
+  name: "create_routine",
+  description:
+    "Set up a routine for the person you are talking to: a job an assistant does again on a " +
+    "schedule, with nobody present, in a chat of its own where its answers land. Use it only when they " +
+    'ask for something recurring ("every morning", "each Monday", "keep an eye on") and you have ' +
+    "agreed what it does and when; ask first if either is unclear. instruction is the complete brief for " +
+    "ONE run, written to the assistant in the second person: what to look at, what to do, what to " +
+    "report, and to report nothing when there is nothing new — it will not see this conversation. " +
+    "schedule is a five-field cron expression in timezone, never more often than every 15 minutes. " +
+    "The routine is theirs; they can pause, edit or delete it on the Routines page.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: '2-5 words, e.g. "Failing PR digest".' },
+      instruction: {
+        type: "string",
+        description: "The complete brief for one run, self-contained: the run does not see this conversation.",
+      },
+      schedule: {
+        type: "string",
+        description: 'Five-field cron, e.g. "0 9 * * 1-5" for weekdays at 09:00. At most every 15 minutes.',
+      },
+      timezone: {
+        type: "string",
+        description:
+          'IANA timezone the schedule is read in, e.g. "America/Toronto". Ask the person when the time of day ' +
+          "matters and you do not know it. Empty is UTC.",
+      },
+      notes: {
+        type: "string",
+        description: 'Standing instructions the person gave, one per line starting "- ". Optional.',
+      },
+    },
+    required: ["name", "instruction", "schedule"],
+    additionalProperties: false,
+  },
+};
+
+/** HandlerOptions is which tools a turn gets beyond nothing: the delegation tools when it has
+ * playbooks, routine_finish in a routine's chat, create_routine in a person's web chat. */
+export interface HandlerOptions {
+  /** delegate offers the delegation tools (and start_chat). Default true. */
+  delegate?: boolean;
+  routine?: boolean;
+  createRoutine?: boolean;
+}
 
 /** Handler answers one request. It is separated from the transport so the tools can be
  * tested without a pipe, and the transport without a conductor. */
@@ -177,7 +319,12 @@ export class RPCError extends Error {
 }
 
 /** newHandler is the server's logic: the four methods, over one conductor client. */
-export function newHandler(client: Client): Handler {
+export function newHandler(client: Client, opts: HandlerOptions = {}): Handler {
+  const listed = [
+    ...(opts.delegate === false ? [] : tools),
+    ...(opts.routine ? [routineFinishTool] : []),
+    ...(opts.createRoutine ? [createRoutineTool] : []),
+  ];
   return async (method, params) => {
     switch (method) {
       case "initialize": {
@@ -191,7 +338,7 @@ export function newHandler(client: Client): Handler {
       case "ping":
         return {};
       case "tools/list":
-        return { tools };
+        return { tools: listed };
       case "tools/call":
         return callTool(client, params);
       default:
@@ -252,6 +399,47 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
         const { delegation } = await client.releasePreview(id);
         return ok(`Released the preview of ${delegation.id} (task ${delegation.task_id ?? "?"}). Its URLs no longer answer.`);
       }
+      case "routine_finish": {
+        const status = requireString(args, "status");
+        const summary = requireString(args, "summary");
+        const state = args.state;
+        if (state !== undefined && (state === null || typeof state !== "object" || Array.isArray(state))) {
+          throw new RPCError(InvalidParams, "state must be a JSON object");
+        }
+        const { message } = await client.finishRoutine({
+          status,
+          summary,
+          stateJson: state === undefined ? undefined : JSON.stringify(state),
+          proposeNote: typeof args.propose_note === "string" ? args.propose_note : undefined,
+        });
+        return ok(message ?? "Recorded.");
+      }
+      case "create_routine": {
+        const { message } = await client.createRoutine({
+          name: requireString(args, "name"),
+          instruction: requireString(args, "instruction"),
+          schedule: requireString(args, "schedule"),
+          timezone: typeof args.timezone === "string" ? args.timezone : undefined,
+          notes: typeof args.notes === "string" ? args.notes : undefined,
+        });
+        return ok(message ?? "Created.");
+      }
+      case "start_chat": {
+        const title = requireString(args, "title");
+        const opening = requireString(args, "opening");
+        const shareWith = args.share_with;
+        if (shareWith !== undefined && (!Array.isArray(shareWith) || shareWith.some((s) => typeof s !== "string"))) {
+          throw new RPCError(InvalidParams, "share_with is a list of email addresses");
+        }
+        const started = await client.startChat({
+          title,
+          opening,
+          share_with: shareWith as string[] | undefined,
+          access: typeof args.access === "string" ? args.access : undefined,
+          role: typeof args.role === "string" ? args.role : undefined,
+        });
+        return ok(describeStartedChat(started));
+      }
       default:
         throw new RPCError(InvalidParams, `unknown tool ${name}`);
     }
@@ -266,6 +454,20 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
     }
     return failed(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** describeStartedChat is what start_chat answers, in conductor.DescribeStartedChat's words. */
+function describeStartedChat(s: StartedChat): string {
+  const shared =
+    s.sharedWith && s.sharedWith.length > 0
+      ? `shared with: ${s.sharedWith.join(", ")} (each was notified)`
+      : "shared with: nobody by name";
+  return (
+    `Opened the chat ${JSON.stringify(s.title ?? "")}.\nchat_id: ${s.chatId ?? "?"}\nurl: ${s.url ?? ""}\n` +
+    `${shared}\naccess: ${s.access ?? "restricted"}\n\n` +
+    `Put the link in your answer, e.g. "[click here to join](${s.url ?? ""})". ` +
+    "The new conversation continues there; do not repeat its opening here."
+  );
 }
 
 /** describe is one delegation in the words a model should relay. */
@@ -367,7 +569,11 @@ async function main(): Promise<number> {
   await serve(
     process.stdin,
     (line) => process.stdout.write(line + "\n"),
-    newHandler(new Client(url, token)),
+    newHandler(new Client(url, token), {
+      delegate: !process.argv.slice(2).includes(NoPlaybooksFlag),
+      routine: process.argv.slice(2).includes(RoutineFlag),
+      createRoutine: process.argv.slice(2).includes(CreateRoutineFlag),
+    }),
     (message) => process.stderr.write(`podium-mcp: ${message}\n`),
   );
   return 0;

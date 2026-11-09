@@ -28,13 +28,14 @@ var catalog = map[string]string{
 	podiumv1connect.UserServiceListUsersProcedure:   store.RoleMember,
 	podiumv1connect.UserServiceSetUserRoleProcedure: store.RoleOwner,
 
-	podiumv1connect.TaskServiceCreateTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceGetTaskProcedure:          store.RoleMember,
-	podiumv1connect.TaskServiceListTasksProcedure:        store.RoleMember,
-	podiumv1connect.TaskServiceCancelTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceInjectTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceReleasePreviewProcedure:   store.RoleMember,
-	podiumv1connect.TaskServiceStreamTaskEventsProcedure: store.RoleMember,
+	podiumv1connect.TaskServiceCreateTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceGetTaskProcedure:             store.RoleMember,
+	podiumv1connect.TaskServiceListTasksProcedure:           store.RoleMember,
+	podiumv1connect.TaskServiceCancelTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceInjectTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceReleasePreviewProcedure:      store.RoleMember,
+	podiumv1connect.TaskServiceCreateDesktopTicketProcedure: store.RoleMember,
+	podiumv1connect.TaskServiceStreamTaskEventsProcedure:    store.RoleMember,
 
 	podiumv1connect.ArtifactServiceListArtifactsProcedure:  store.RoleMember,
 	podiumv1connect.ArtifactServiceGetArtifactURLProcedure: store.RoleMember,
@@ -66,6 +67,10 @@ var catalog = map[string]string{
 	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleMember,
 	// The handler refuses everyone but the conductor, which skips this table.
 	podiumv1connect.SecretServiceReadSecretProcedure: store.RoleOwner,
+	// The conductor writing a person's sharing decisions to audit_log. The handler refuses
+	// everyone but the conductor, which skips this table; the owner role only keeps a person
+	// from even reaching it.
+	podiumv1connect.AuditServiceRecordAuditProcedure: store.RoleOwner,
 
 	podiumv1connect.RegistryServiceListRegistriesProcedure: store.RoleMember,
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
@@ -103,16 +108,57 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is
 	// not the caller, so member is the gate and ownership is the check.
-	agentv1connect.AgentServiceListPersonalitiesProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceCreatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceUpdatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceDeletePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceRenameChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceDeleteChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceSendChatMessageProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceListPersonalitiesProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCreatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceUpdatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceDeletePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceRenameChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceSendChatMessageProcedure:   store.RoleMember,
+	// Retrying a delivery re-sends what the bot already said, where it was owed; the
+	// conductor checks the caller can read the chat.
+	agentv1connect.AgentServiceRetryChatDeliveryProcedure: store.RoleMember,
+	// Phase 4: a member takes back their own queued turn (the store matches the login),
+	// stops the answer in a chat they may write (the handler checks), and looks people up
+	// for the composer's @-mention list.
+	agentv1connect.AgentServiceCancelQueuedTurnProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelChatTurnProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceSearchMembersProcedure:    store.RoleMember,
+	// Phase 5: sharing. Any member may share a chat they own, leave one they are in, keep
+	// their own read marks and read their own inbox; the conductor answers who owns what
+	// (chat_role), so the member role here is only "a signed-in person".
+	agentv1connect.AgentServiceGetChatSharingProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateChatSharingProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceShareChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceUnshareChatProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceLeaveChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceMarkChatReadProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
+	// Routines: any member keeps their own, and the conductor answers only for routines the
+	// caller owns (another person's is not found), so member is the gate and ownership is the
+	// check, as for personalities. A system routine is the conductor's to refuse: it checks
+	// the infra header the proxy sets for admins and owners.
+	agentv1connect.AgentServiceListRoutinesProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceCreateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServicePauseRoutineProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceResumeRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceRunRoutineNowProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceResetRoutineStateProcedure:    store.RoleMember,
+	agentv1connect.AgentServiceResolveRoutineNoteProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRunsProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRevisionsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelRoutineRunProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineLimitsProcedure:     store.RoleMember,
+	// Every person's routines as metadata, and the per-person limits: admins.
+	agentv1connect.AgentServiceListMemberRoutinesProcedure: store.RoleAdmin,
+	agentv1connect.AgentServiceSetRoutineLimitsProcedure:   store.RoleAdmin,
 
 	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
 	// A member saves their own model credential; the handler refuses a global write from

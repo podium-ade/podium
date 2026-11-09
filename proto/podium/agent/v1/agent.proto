@@ -176,11 +176,26 @@ service AgentService {
   // somebody else's conversation is not this caller's to learn. Sessions and turns the
   // chat started are kept — they are the audit, not the transcript.
   rpc DeleteChat(DeleteChatRequest) returns (DeleteChatResponse);
-  // SendChatMessage stores one human message and starts a turn on it. It is refused with
-  // FailedPrecondition while a turn for that chat is already running, unless that turn is
-  // awaiting a human reply (an interactive playbook asked a question): then the text is
-  // injected into the running task and no second turn starts.
+  // SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+  // it — or queues one behind the turn already running, to run as the sender (phase 4 of
+  // docs/agent.md). In a multiplayer chat a message has to mention
+  // Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+  // reply from the same person takes the text instead of a new turn starting. A mirrored
+  // conversation may be written here too; its messages and their answers stay in Podium.
   rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+  // is not queued any more, or is somebody else's.
+  rpc CancelQueuedTurn(CancelQueuedTurnRequest) returns (CancelQueuedTurnResponse);
+  // CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+  // who may write the chat. The tasks it delegated keep running: they belong to the
+  // conversation, and stopping one is its own decision.
+  rpc CancelChatTurn(CancelChatTurnRequest) returns (CancelChatTurnResponse);
+  // SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+  rpc SearchMembers(SearchMembersRequest) returns (SearchMembersResponse);
+  // RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+  // queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+  // message has nothing failed to retry.
+  rpc RetryChatDelivery(RetryChatDeliveryRequest) returns (RetryChatDeliveryResponse);
   // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
   // own; the client cancels. Progress frames are ephemeral and are not replayed.
   rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
@@ -192,6 +207,29 @@ service AgentService {
   // in the same chat will not put it back, because a human removing something means it.
   // Attaching it again is how it comes back.
   rpc DetachChatPullRequest(DetachChatPullRequestRequest) returns (DetachChatPullRequestResponse);
+  // The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+  // way a document is: by name with a role, with every Podium member, or with anybody signed
+  // in who has the link.
+  //
+  // GetChatSharing is the share dialog: who has access, general access, and — for the owner
+  // only — the link. Anybody who can open the chat may read it; only the owner may change it.
+  rpc GetChatSharing(GetChatSharingRequest) returns (GetChatSharingResponse);
+  // UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+  rpc UpdateChatSharing(UpdateChatSharingRequest) returns (UpdateChatSharingResponse);
+  // ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+  // login that has never signed in to Podium is failed_precondition.
+  rpc ShareChat(ShareChatRequest) returns (ShareChatResponse);
+  // UnshareChat removes a named grant. Owner only.
+  rpc UnshareChat(UnshareChatRequest) returns (UnshareChatResponse);
+  // LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+  // any surface, brings them back. The owner cannot leave; they delete.
+  rpc LeaveChat(LeaveChatRequest) returns (LeaveChatResponse);
+  // MarkChatRead moves the caller's read mark forward. It never moves it back.
+  rpc MarkChatRead(MarkChatReadRequest) returns (MarkChatReadResponse);
+  // ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  // MarkNotificationsRead marks some, or all, of the caller's notifications read.
+  rpc MarkNotificationsRead(MarkNotificationsReadRequest) returns (MarkNotificationsReadResponse);
   // ListSlackChannels reports every Slack channel this conductor has seen — invited and
   // mentioned, or listed from Slack on this call — with the operator-authored description
   // a turn of that channel is briefed with.
@@ -213,7 +251,222 @@ service AgentService {
   // DeletePersonality removes one of the caller's voices. Chats that used it stay
   // readable under the name they had. A new message in one of those chats is refused.
   rpc DeletePersonality(DeletePersonalityRequest) returns (DeletePersonalityResponse);
+
+  // Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+  // own. A personal routine is its owner's: every RPC below answers only for routines the
+  // caller owns, and the dev token for all of them. A system routine runs as nobody and is
+  // configured by admins and owners, who manage it with the same RPCs.
+  rpc ListRoutines(ListRoutinesRequest) returns (ListRoutinesResponse);
+  rpc GetRoutine(GetRoutineRequest) returns (GetRoutineResponse);
+  // CreateRoutine opens the routine and its chat.
+  rpc CreateRoutine(CreateRoutineRequest) returns (CreateRoutineResponse);
+  rpc UpdateRoutine(UpdateRoutineRequest) returns (UpdateRoutineResponse);
+  // DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+  rpc DeleteRoutine(DeleteRoutineRequest) returns (DeleteRoutineResponse);
+  rpc PauseRoutine(PauseRoutineRequest) returns (PauseRoutineResponse);
+  rpc ResumeRoutine(ResumeRoutineRequest) returns (ResumeRoutineResponse);
+  // RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+  rpc RunRoutineNow(RunRoutineNowRequest) returns (RunRoutineNowResponse);
+  rpc ResetRoutineState(ResetRoutineStateRequest) returns (ResetRoutineStateResponse);
+  // ResolveRoutineNote accepts or dismisses the note the agent proposed.
+  rpc ResolveRoutineNote(ResolveRoutineNoteRequest) returns (ResolveRoutineNoteResponse);
+  rpc ListRoutineRuns(ListRoutineRunsRequest) returns (ListRoutineRunsResponse);
+  // ListRoutineRevisions is the history of what a routine was told to do: each change to its
+  // instruction, notes or schedule, who made it, and when.
+  rpc ListRoutineRevisions(ListRoutineRevisionsRequest) returns (ListRoutineRevisionsResponse);
+  // CancelRoutineRun stops the run going now.
+  rpc CancelRoutineRun(CancelRoutineRunRequest) returns (CancelRoutineRunResponse);
+  // ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+  // last run's status, never the chat, the instruction or what a run said. Admins only.
+  rpc ListMemberRoutines(ListMemberRoutinesRequest) returns (ListMemberRoutinesResponse);
+  // GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+  rpc GetRoutineLimits(GetRoutineLimitsRequest) returns (GetRoutineLimitsResponse);
+  rpc SetRoutineLimits(SetRoutineLimitsRequest) returns (SetRoutineLimitsResponse);
 }
+
+// Routine is one recurring job.
+message Routine {
+  string id = 1;
+  string name = 2;
+  // schedule is a five-field cron expression, read in timezone (an IANA name).
+  string schedule = 3;
+  string timezone = 4;
+  // schedule_text is the schedule in words ("weekdays at 09:00").
+  string schedule_text = 5;
+  string instruction = 6;
+  // notes are the owner's standing instructions, briefed with every run.
+  string notes = 7;
+  // proposed_note is a note the agent suggested, waiting to be accepted or dismissed.
+  string proposed_note = 8;
+  string personality_id = 9;
+  string model = 10;
+  string effort = 11;
+  bool enabled = 12;
+  // paused_reason says why a routine was paused by Podium rather than by its owner.
+  string paused_reason = 13;
+  // state is the agent's JSON object across runs, "{}" when it has kept nothing.
+  string state = 14;
+  string chat_id = 15;
+  google.protobuf.Timestamp next_run_at = 16;
+  google.protobuf.Timestamp last_run_at = 17;
+  // idle_count is how many runs since the last one that did something found nothing to do.
+  int32 idle_count = 18;
+  string owner_login = 19;
+  // spend_today_usd is what the routine's turns cost in the last 24 hours.
+  double spend_today_usd = 20;
+  // running is whether a run is going now.
+  bool running = 21;
+  google.protobuf.Timestamp created_at = 22;
+  // scope is "personal" (runs as its owner) or "system" (runs as nobody, set up by admins).
+  string scope = 23;
+  // repos is a system routine's GitHub reach, owner/name each, read through the App.
+  repeated string repos = 24;
+  // daily_cap_usd is what the routine may spend in a day in its timezone; 0 is no cap of its own.
+  double daily_cap_usd = 25;
+  // paused_until is when a routine Podium paused for the day resumes by itself.
+  google.protobuf.Timestamp paused_until = 26;
+  // created_by is who set the routine up.
+  string created_by = 27;
+  // last_run_status is the latest run's status that was not skipped, "" before the first.
+  string last_run_status = 28;
+}
+
+// RoutineRun is one firing of a routine.
+message RoutineRun {
+  string id = 1;
+  google.protobuf.Timestamp scheduled_for = 2;
+  // trigger is "schedule" or "manual".
+  string trigger = 3;
+  // status is running, done, idle, failed, skipped_overlap or skipped_paused.
+  string status = 4;
+  string summary = 5;
+  string turn_id = 6;
+  // cost_usd is the run's turn's cost, 0 while it runs or when it reported none.
+  double cost_usd = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+}
+
+// RoutineDraft is what a person writes.
+message RoutineDraft {
+  string name = 1;
+  string schedule = 2;
+  string timezone = 3;
+  string instruction = 4;
+  string notes = 5;
+  string personality_id = 6;
+  string model = 7;
+  string effort = 8;
+  // repos: see Routine. Only a system routine has them.
+  repeated string repos = 9;
+  // daily_cap_usd: see Routine. 0 is no cap of its own.
+  double daily_cap_usd = 10;
+}
+
+message ListRoutinesRequest {}
+message ListRoutinesResponse { repeated Routine routines = 1; }
+
+message GetRoutineRequest {
+  // id, or chat_id to find the routine a chat belongs to.
+  string id = 1;
+  string chat_id = 2;
+}
+message GetRoutineResponse { Routine routine = 1; }
+
+message CreateRoutineRequest {
+  RoutineDraft draft = 1;
+  // scope is "personal" (the default) or "system", which only admins and owners may create.
+  string scope = 2;
+}
+message CreateRoutineResponse { Routine routine = 1; }
+
+message UpdateRoutineRequest {
+  string id = 1;
+  RoutineDraft draft = 2;
+}
+message UpdateRoutineResponse { Routine routine = 1; }
+
+message DeleteRoutineRequest { string id = 1; }
+message DeleteRoutineResponse {}
+
+message PauseRoutineRequest { string id = 1; }
+message PauseRoutineResponse { Routine routine = 1; }
+
+message ResumeRoutineRequest { string id = 1; }
+message ResumeRoutineResponse { Routine routine = 1; }
+
+message RunRoutineNowRequest { string id = 1; }
+message RunRoutineNowResponse { RoutineRun run = 1; }
+
+message ResetRoutineStateRequest { string id = 1; }
+message ResetRoutineStateResponse { Routine routine = 1; }
+
+message ResolveRoutineNoteRequest {
+  string id = 1;
+  // accept appends the proposed note to the notes; false dismisses it.
+  bool accept = 2;
+}
+message ResolveRoutineNoteResponse { Routine routine = 1; }
+
+message ListRoutineRunsRequest {
+  string id = 1;
+  // include_idle adds the runs that did nothing: idle and skipped.
+  bool include_idle = 2;
+  Page page = 3;
+}
+message ListRoutineRunsResponse {
+  repeated RoutineRun runs = 1;
+  string next_cursor = 2;
+}
+
+// RoutineRevision is one change to what a routine is told to do.
+message RoutineRevision {
+  int64 id = 1;
+  string instruction = 2;
+  string notes = 3;
+  string schedule = 4;
+  string timezone = 5;
+  string changed_by = 6;
+  google.protobuf.Timestamp changed_at = 7;
+}
+
+message ListRoutineRevisionsRequest { string id = 1; }
+message ListRoutineRevisionsResponse { repeated RoutineRevision revisions = 1; }
+
+message CancelRoutineRunRequest { string id = 1; }
+message CancelRoutineRunResponse { Routine routine = 1; }
+
+// MemberRoutine is a person's routine as an admin sees it: what it is called, whose it is, when
+// it runs, what it spends, and how its last run went. Nothing a run said.
+message MemberRoutine {
+  string id = 1;
+  string name = 2;
+  string owner_login = 3;
+  string schedule_text = 4;
+  string timezone = 5;
+  bool enabled = 6;
+  string paused_reason = 7;
+  double spend_today_usd = 8;
+  string last_run_status = 9;
+  google.protobuf.Timestamp last_run_at = 10;
+  google.protobuf.Timestamp next_run_at = 11;
+}
+
+message ListMemberRoutinesRequest {}
+message ListMemberRoutinesResponse { repeated MemberRoutine routines = 1; }
+
+// RoutineLimits bound what one person's routines may do.
+message RoutineLimits {
+  // max_per_person is how many routines one person may have.
+  int32 max_per_person = 1;
+  // person_daily_cap_usd is what one person's routines may spend together in 24 hours; 0 is no cap.
+  double person_daily_cap_usd = 2;
+}
+
+message GetRoutineLimitsRequest {}
+message GetRoutineLimitsResponse { RoutineLimits limits = 1; }
+message SetRoutineLimitsRequest { RoutineLimits limits = 1; }
+message SetRoutineLimitsResponse { RoutineLimits limits = 1; }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
 // source_key, which the source computes and the conductor never parses.
@@ -231,6 +484,13 @@ message Session {
   // one. For Slack it is the channel name without a leading #. Empty when unknown or when
   // the source has no such name — the UI then falls back to source_key.
   string source_label = 8;
+  // The caller's relationship to the chat this session is the record of (phase 5), set by
+  // ListSessions. Empty for a session with no chat (Linear, dev). See Chat for each field.
+  string chat_id = 9;
+  string my_role = 10;
+  string access_reason = 11;
+  string shared_by = 12;
+  int64 unread_count = 13;
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -251,6 +511,9 @@ message Turn {
   optional double cost_usd = 9;
   // final_text is what the bot said, as it was relayed. It is content, never instructions.
   string final_text = 10;
+  // started_by is whose turn this was: the Podium login whose credentials it ran with,
+  // "github-app" for a review nobody in Podium asked for, and empty for older turns.
+  string started_by = 11;
 }
 
 // Page is the same cursor shape podium.v1 uses: an opaque cursor and a bounded limit.
@@ -261,6 +524,9 @@ message Page {
 
 message ListSessionsRequest {
   Page page = 1;
+  // section is "" (the caller's own: owned, spoken in, shared with them), "shared" (the part
+  // of that somebody else owns) or "workspace" (shared with every member, not yet opened).
+  string section = 2;
 }
 
 message ListSessionsResponse {
@@ -332,6 +598,20 @@ message TaskCost {
   // cost_usd is unset for a turn whose runtime never reported one — one still running, or
   // one whose turn.json never landed. Unset is never the same as zero.
   optional double cost_usd = 12;
+  // started_by is the Podium login whose turn this was, "github-app" for a review nobody in
+  // Podium asked for, and empty for a turn from before it was recorded. A delegated task
+  // reports the login of the turn that delegated it.
+  string started_by = 17;
+}
+
+// UsagePerson is what one person's turns cost over the range, aggregated by the server for
+// the same reason backends are.
+message UsagePerson {
+  string started_by = 1;
+  double cost_usd = 2;
+  int32 turns = 3;
+  int32 model_turns = 4;
+  int32 unpriced = 5;
 }
 
 // UsageBackend is what one agent, model and effort cost over the range. It is aggregated by
@@ -388,6 +668,8 @@ message GetUsageResponse {
   int32 unpriced = 6;
   // backends covers the whole range, most expensive first.
   repeated UsageBackend backends = 7;
+  // people is the same range by whose turn it was, most expensive first.
+  repeated UsagePerson people = 8;
 }
 
 message GetSettingsRequest {}
@@ -972,6 +1254,37 @@ message Chat {
   // personality_display is that assistant's display name at the moment the chat was
   // opened, so a deleted assistant's threads stay labeled.
   string personality_display = 18;
+  // people is participants with what the header draws for each: an avatar, the surface,
+  // and whether they are in Podium. Set where participants is.
+  repeated ChatPerson people = 19;
+  // surfaces is where a mirrored conversation lives. Empty for a web chat.
+  repeated ChatSurface surfaces = 20;
+  // multiplayer is true once the chat has had more than one person in it, is shared, or
+  // mirrors a conversation that lives elsewhere. A message must then mention Podium to start
+  // a turn. It never goes back to false.
+  bool multiplayer = 21;
+  // shared_with_me is true when the chat is somebody else's and the caller takes part in it.
+  // A chat with somebody else's personal assistant is listed under Podium with this set,
+  // labelled with personality_display: the assistant itself stays its owner's.
+  bool shared_with_me = 22;
+  // my_role is what the caller may do here (phase 5): "owner", "editor", "viewer". The dev
+  // token is "owner" of everything. A viewer is offered no composer.
+  string my_role = 23;
+  // access_reason is why the caller can see it: "owner", "participant" (they spoke in it),
+  // "shared" (somebody shared it with them, or they joined by link), or "workspace" (it is
+  // shared with every member and they have not opened it yet).
+  string access_reason = 24;
+  // shared_by is who shared it with the caller by name, or "link"/"members" when opening it
+  // that way is what put it in their list. Empty otherwise.
+  string shared_by = 25;
+  // unread_count is what somebody else said after the caller's read mark. Set by lists.
+  int64 unread_count = 26;
+  // general_access is "restricted", "members" or "link"; general_role is what it grants.
+  string general_access = 27;
+  string general_role = 28;
+  // routine_id is the routine this chat belongs to, empty for any other chat. A routine chat
+  // is never shared.
+  string routine_id = 29;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1015,6 +1328,87 @@ message ChatMessage {
   // including the bot's, because a thread has as many people in it as care to join and
   // "who said this" is not answerable from the role alone.
   string author = 8;
+  // author_login is the Podium person who said it. Empty for somebody who is not in Podium
+  // — the UI marks them External — and for the bot.
+  string author_login = 9;
+  // author_handle is the account's handle where it differs from the display name: a
+  // GitHub login. author_avatar is the account's picture URL. Both may be empty.
+  string author_handle = 10;
+  string author_avatar = 11;
+  // via is the surface the message came in through: "web", "slack", "github", or "bot"
+  // for what the conductor wrote.
+  string via = 12;
+  // external_url links to the message on its own surface. Empty for a web message.
+  string external_url = 13;
+  // addressed is whether the message was put to Podium. An unaddressed message is the
+  // conversation around the bot — a reply nobody tagged it in — and never started a turn.
+  bool addressed = 14;
+  // edited_at is set once the message was edited on its own surface.
+  google.protobuf.Timestamp edited_at = 15;
+  // deleted is true once the message was deleted on its own surface. text and attachments
+  // are then empty: Podium keeps the row, and the UI shows that it was deleted.
+  bool deleted = 16;
+  // deliveries is where the bot's answer was owed beyond the web chat (the Slack thread or
+  // pull request the turn started on, and Slack threads bound to it) and how that went.
+  // Empty for every other message.
+  repeated ChatDelivery deliveries = 17;
+  // mentions is the Podium logins the message named with the composer's person chip.
+  repeated string mentions = 18;
+}
+
+// QueuedTurn is one turn waiting behind the one in flight, oldest first.
+message QueuedTurn {
+  // login is who asked, empty for somebody outside Podium; author is how they are shown.
+  string login = 1;
+  string author = 2;
+  // via is the surface they asked on: "web", "slack" or "github".
+  string via = 3;
+  // seq is the message that asked, in this chat; 0 when it is not in the record. A message
+  // sent from the web chat while Podium was answering waits unrecorded, and is written to the
+  // transcript when its turn starts, so it is read after the answer it waited for.
+  uint64 seq = 4;
+  google.protobuf.Timestamp queued_at = 5;
+  // id names this waiting turn, for CancelQueuedTurn.
+  int64 id = 6;
+  // text is what was asked, so everybody in the chat sees the same queue.
+  string text = 7;
+}
+
+// ChatQueue is the whole set of turns waiting in a chat's session.
+message ChatQueue {
+  repeated QueuedTurn turns = 1;
+}
+
+// ChatDelivery is one surface a bot message was owed to.
+message ChatDelivery {
+  // surface is the source kind: "slack" or "github".
+  string surface = 1;
+  // status is "pending" (on its way, or waiting to be retried), "sent" or "failed" (given
+  // up; RetryChatDelivery puts it back).
+  string status = 2;
+  int32 attempts = 3;
+  // error is the last attempt's failure, for the person deciding whether to retry.
+  string error = 4;
+}
+
+// ChatPerson is one participant of a chat, for the header's avatar row.
+message ChatPerson {
+  // login is the Podium person. Empty for somebody who is not in Podium.
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+  // via is where they took part: "web", "slack" or "github".
+  string via = 4;
+}
+
+// ChatSurface is one place a conversation lives besides Podium, for the header's chips.
+message ChatSurface {
+  // kind is "slack" or "github".
+  string kind = 1;
+  // label is what the chip says: "#eng-review", "podium-ade/podium#247".
+  string label = 2;
+  // url opens it there, when Podium knows the link.
+  string url = 3;
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
@@ -1072,6 +1466,13 @@ message ChatFrame {
     bool resync = 4;
     Chat chat = 5;
     ChatPullRequests pull_requests = 6;
+    // queue is the turns waiting, sent at the start of the stream and whenever it changes.
+    ChatQueue queue = 7;
+    // replayed is sent once per stream, after the replay from from_seq and before anything
+    // live. Until it arrives a client with no messages cannot tell an empty chat from one
+    // whose transcript is still on its way: the status, chat and pull-request frames all come
+    // first.
+    bool replayed = 8;
   }
 }
 
@@ -1102,6 +1503,8 @@ message ListChatsRequest {
   // already see. Set, an empty personality_id is Podium and a set id is that voice only.
   bool filter_personality = 2;
   string personality_id = 3;
+  // section is as ListSessionsRequest.section.
+  string section = 4;
 }
 
 message ListChatsResponse {
@@ -1115,6 +1518,13 @@ message DeleteChatRequest {
 }
 
 message DeleteChatResponse {}
+
+message RetryChatDeliveryRequest {
+  string chat_id = 1;
+  uint64 seq = 2;
+}
+
+message RetryChatDeliveryResponse {}
 
 message SendChatMessageRequest {
   string chat_id = 1;
@@ -1140,6 +1550,48 @@ message SendChatMessageRequest {
 message SendChatMessageResponse {
   // message is the stored human message, with the seq it was given.
   ChatMessage message = 1;
+  // addressed is false for a message in a multiplayer chat that did not mention Podium: it
+  // was recorded and starts nothing.
+  bool addressed = 2;
+  // queued_position is how many turns run before this one, as the send saw them. 0 means it
+  // starts now. The queue frame that follows is the truth.
+  int32 queued_position = 3;
+}
+
+message CancelQueuedTurnRequest {
+  string chat_id = 1;
+  // seq is the caller's message whose turn is waiting. Use id for a message that waits
+  // unrecorded (QueuedTurn.seq 0).
+  uint64 seq = 2;
+  // id is the waiting turn (QueuedTurn.id). Set, it wins over seq.
+  int64 id = 3;
+}
+
+message CancelQueuedTurnResponse {}
+
+message CancelChatTurnRequest {
+  string chat_id = 1;
+}
+
+message CancelChatTurnResponse {
+  // stopped is false when nothing was running.
+  bool stopped = 1;
+}
+
+message SearchMembersRequest {
+  // query matches a name or a login, case-insensitively. Empty lists the first few.
+  string query = 1;
+  int32 limit = 2;
+}
+
+message Member {
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+}
+
+message SearchMembersResponse {
+  repeated Member members = 1;
 }
 
 message StreamChatRequest {
@@ -1147,7 +1599,131 @@ message StreamChatRequest {
   // from_seq is exclusive: everything with a higher seq is replayed before the stream
   // starts following. 0 replays the whole conversation.
   uint64 from_seq = 2;
+  // link_token is the k= of a share link. With it, a signed-in caller may open a chat shared
+  // by link, and is written an access row so it stays in their lists.
+  string link_token = 3;
 }
+
+// ChatGrant is one person with access to a chat, as the share dialog lists them.
+message ChatGrant {
+  string login = 1;
+  string name = 2;
+  string avatar = 3;
+  // role is "owner", "editor" or "viewer".
+  string role = 4;
+  // granted_by is the login who shared it, or "link"/"members".
+  string granted_by = 5;
+  google.protobuf.Timestamp granted_at = 6;
+}
+
+// ChatSharing is the share dialog's state.
+message ChatSharing {
+  string chat_id = 1;
+  // owner is first, always. Empty login for a mirrored chat nobody in Podium owns yet.
+  ChatGrant owner = 2;
+  repeated ChatGrant grants = 3;
+  string general_access = 4;
+  string general_role = 5;
+  // link_token is set for the owner only, and only once link sharing has been turned on.
+  string link_token = 6;
+  // my_role is the caller's.
+  string my_role = 7;
+  // origin is where the conversation lives: "web", "slack", "github".
+  string origin = 8;
+  // private_source is true when the chat mirrors a Slack DM or private channel, so sharing it
+  // shows people outside that conversation what was said there. A Slack chat whose privacy
+  // Podium cannot tell from its id is warned about too, with source_privacy_unknown set.
+  bool private_source = 9;
+  bool source_privacy_unknown = 10;
+}
+
+message GetChatSharingRequest {
+  string chat_id = 1;
+}
+
+message GetChatSharingResponse {
+  ChatSharing sharing = 1;
+}
+
+message UpdateChatSharingRequest {
+  string chat_id = 1;
+  // general_access is "restricted", "members" or "link". Empty leaves it.
+  string general_access = 2;
+  // general_role is "viewer" or "editor". Empty leaves it.
+  string general_role = 3;
+  // rotate_link gives the chat a new link; the old one stops letting anybody join.
+  bool rotate_link = 4;
+}
+
+message UpdateChatSharingResponse {
+  ChatSharing sharing = 1;
+}
+
+message ShareChatRequest {
+  string chat_id = 1;
+  string login = 2;
+  // role is "viewer" or "editor".
+  string role = 3;
+}
+
+message ShareChatResponse {
+  ChatSharing sharing = 1;
+}
+
+message UnshareChatRequest {
+  string chat_id = 1;
+  string login = 2;
+}
+
+message UnshareChatResponse {
+  ChatSharing sharing = 1;
+}
+
+message LeaveChatRequest {
+  string chat_id = 1;
+}
+
+message LeaveChatResponse {}
+
+message MarkChatReadRequest {
+  string chat_id = 1;
+  uint64 seq = 2;
+}
+
+message MarkChatReadResponse {}
+
+// Notification is one entry in the caller's inbox.
+message Notification {
+  int64 id = 1;
+  // kind is "share", "mention" or "routine" (a routine of yours was paused).
+  string kind = 2;
+  string chat_id = 3;
+  string chat_title = 4;
+  // seq is the message a mention is in. 0 for a share.
+  uint64 seq = 5;
+  // actor is who shared, or who mentioned.
+  string actor = 6;
+  google.protobuf.Timestamp created_at = 7;
+  bool read = 8;
+  // detail is what a routine notice says happened ("5 runs failed within an hour").
+  string detail = 9;
+}
+
+message ListNotificationsRequest {
+  bool unread_only = 1;
+  int32 limit = 2;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message MarkNotificationsReadRequest {
+  repeated int64 ids = 1;
+  bool all = 2;
+}
+
+message MarkNotificationsReadResponse {}
 
 message AttachChatPullRequestRequest {
   string chat_id = 1;
@@ -1388,6 +1964,10 @@ message PlaybookDefinition {
   // empty for the conductor's default (GetRunsOn).
   string runs_on = 31;
   PlaybookSandbox sandbox = 32;
+  // desktop runs the turn on a desktop a person shares with it: a virtual display, XFCE and
+  // the Chromium its browser tools drive, streamed to the chat's desktop panel. Not with
+  // browser. With no image, the turn runs podium-agent-runtime-desktop.
+  bool desktop = 34;
 }
 
 message GetProfileRequest {}

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { AssistantSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT } from "../../lib/agents";
 import { catalogue } from "../../test/agents";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type QueuedItem } from "./ChatComposer";
 
 const assistant = create(AssistantSchema, {
   displayName: "Podium",
@@ -16,21 +17,105 @@ const assistant = create(AssistantSchema, {
 
 function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
   const onSend = vi.fn();
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <ChatComposer
-      disabled={false}
-      agents={catalogue()}
-      assistant={assistant}
-      choice={INHERIT}
-      onChoiceChange={vi.fn()}
-      onSend={onSend}
-      {...over}
-    />,
+    <QueryClientProvider client={qc}>
+      <ChatComposer
+        disabled={false}
+        agents={catalogue()}
+        assistant={assistant}
+        choice={INHERIT}
+        onChoiceChange={vi.fn()}
+        onSend={onSend}
+        {...over}
+      />
+    </QueryClientProvider>,
   );
   return { onSend };
 }
 
 describe("ChatComposer", () => {
+  const item = (id: string, text: string, over: Partial<QueuedItem> = {}): QueuedItem => ({
+    id,
+    text,
+    author: "alice",
+    mine: true,
+    editable: true,
+    ...over,
+  });
+
+  it("lists what is queued, and takes a message back into the box to edit it", async () => {
+    const onRemoveQueued = vi.fn();
+    mount({
+      running: true,
+      queueing: true,
+      queued: [item("1", "first"), item("2", "second")],
+      onRemoveQueued,
+      onInterrupt: vi.fn(),
+    });
+    expect(screen.getAllByTestId("chat-pending-item")).toHaveLength(2);
+    expect(screen.getByTestId("chat-pending-status")).toHaveTextContent(/^2 queued$/);
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Queue");
+
+    await userEvent.click(screen.getAllByTestId("chat-pending-edit")[1]);
+    expect(onRemoveQueued).toHaveBeenCalledWith("2");
+    expect(screen.getByTestId("chat-composer")).toHaveValue("second");
+
+    await userEvent.click(screen.getAllByTestId("chat-pending-remove")[0]);
+    expect(onRemoveQueued).toHaveBeenCalledWith("1");
+  });
+
+  it("interrupts the answer in progress from the queue", async () => {
+    const onInterrupt = vi.fn();
+    const { onSend } = mount({ running: true, queueing: true, queued: [item("1", "first")], onInterrupt });
+    await userEvent.click(screen.getByTestId("chat-pending-interrupt"));
+    expect(onInterrupt).toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("shows everybody's queue in a shared chat, and lets each person touch only their own", () => {
+    mount({
+      multiplayer: true,
+      running: true,
+      queueing: true,
+      queued: [
+        item("1", "@Podium the totals?", { author: "bob", mine: false, editable: false }),
+        item("2", "@Podium and the chart", { mine: true }),
+        item("3", "from slack", { mine: true, editable: false }),
+      ],
+      onRemoveQueued: vi.fn(),
+    });
+    const rows = screen.getAllByTestId("chat-pending-item");
+    expect(rows.map((r) => r.dataset.mine)).toEqual(["false", "true", "true"]);
+    expect(within(rows[0]).getByTestId("chat-pending-author")).toHaveTextContent("bob");
+    expect(within(rows[1]).getByTestId("chat-pending-author")).toHaveTextContent("You");
+    expect(within(rows[0]).queryByTestId("chat-pending-remove")).toBeNull();
+    expect(within(rows[1]).getByTestId("chat-pending-edit")).toBeInTheDocument();
+    // Already in the record: it can be taken back, but sending it again would leave a copy.
+    expect(within(rows[2]).queryByTestId("chat-pending-edit")).toBeNull();
+    expect(within(rows[2]).getByTestId("chat-pending-remove")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-pending-status")).toHaveTextContent("yours is 2nd");
+  });
+
+  it("folds a long queue on a phone behind +N more", async () => {
+    mount({ running: true, queueing: true, queued: ["1", "2", "3", "4"].map((id) => item(id, `q${id}`)) });
+    const rows = screen.getAllByTestId("chat-pending-item");
+    // Hidden below the sm breakpoint only; a wide screen shows the lot (max-sm:hidden).
+    expect(rows.map((r) => r.className.includes("max-sm:hidden"))).toEqual([false, false, true, true]);
+    await userEvent.click(screen.getByTestId("chat-pending-more"));
+    expect(screen.getAllByTestId("chat-pending-item").some((r) => r.className.includes("max-sm:hidden"))).toBe(false);
+    expect(screen.getByTestId("chat-pending-more")).toHaveTextContent("Show less");
+  });
+
+  it("queues only what is put to Podium in a shared chat", async () => {
+    mount({ multiplayer: true, running: true, queueing: true });
+    const box = screen.getByTestId("chat-composer");
+    await userEvent.type(box, "bob, look");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send");
+    await userEvent.type(box, " @Podium");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Queue for Podium");
+  });
+
   it("sends on Enter", async () => {
     const { onSend } = mount();
     await userEvent.type(screen.getByTestId("chat-composer"), "how many accounts{Enter}");
@@ -62,7 +147,7 @@ describe("ChatComposer", () => {
     expect(onSend).toHaveBeenCalledWith("a question", INHERIT);
   });
 
-  it("is disabled while a turn runs and says what it is doing", () => {
+  it("is disabled while a send is in flight and says what it is doing", () => {
     mount({ disabled: true });
     const box = screen.getByTestId("chat-composer");
     expect(box).toBeDisabled();
@@ -170,5 +255,39 @@ describe("ChatComposer", () => {
     await userEvent.click(screen.getByTestId("chat-send"));
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend.mock.calls[0][0]).toContain("Attached image `shot.png`");
+  });
+
+  it("stays open while a turn runs, and offers to stop it", async () => {
+    const onStop = vi.fn();
+    mount({ running: true, onStop });
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
+    await userEvent.click(screen.getByTestId("chat-stop"));
+    expect(onStop).toHaveBeenCalled();
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("gets its own turn");
+  });
+
+  it("says a shared chat answers only a mention, and suggests @Podium", async () => {
+    mount({ multiplayer: true });
+    expect(screen.getByTestId("chat-multiplayer-hint")).toHaveTextContent("mention @Podium");
+    const box = screen.getByTestId("chat-composer");
+    await userEvent.type(box, "hey @Po");
+    const option = await screen.findByTestId("chat-mention-option");
+    expect(option).toHaveTextContent("Podium");
+    await userEvent.type(box, "{Enter}");
+    expect(box).toHaveValue("hey @Podium ");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to Podium");
+  });
+
+  it("answers to the chat's assistant by name in a shared chat", async () => {
+    mount({ multiplayer: true, personality: "Researcher" });
+    await userEvent.type(screen.getByTestId("chat-composer"), "@Researcher dig in");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to Podium");
+  });
+
+  it("says a mirrored conversation is one-way", () => {
+    mount({ mirrored: "github", multiplayer: true });
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent(
+      "Messages here stay in Podium — they aren't posted to GitHub.",
+    );
   });
 });

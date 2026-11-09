@@ -209,7 +209,7 @@ USER agent
 
 Three things to know:
 
-- The base is **Debian 12 bookworm, glibc, Node 22**. Use `apt-get` and bookworm package sources,
+- The base is **Debian 13 trixie, glibc, Node 26**. Use `apt-get` and trixie package sources,
   and glibc wheels or binaries — not musl ones.
 - **End with `USER agent`** (uid 1000). The runner socket and the secrets tmpfs are set up for
   that uid; a container that stays root does not get them the same way. The base image renames
@@ -217,10 +217,11 @@ Three things to know:
 - Do not override `ENTRYPOINT`. It is `node /opt/podium-agent/dist/main.js`, and the Podium spec
   for an agent task names the image only.
 
-**Watch what `apt-get` drags in.** Debian's `python3-matplotlib` on bookworm hard-depends on
-`gcc-12`, `g++-12`, `libboost1.74-dev` and `libopenblas-dev` — **1.05 GB of C++ toolchain** in a
-runtime image, for a chart. The alternative is pip's own manylinux wheels at exact versions, and
-Debian 12's interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so that means
+**Watch what `apt-get` drags in.** Debian's `python3-matplotlib` on trixie no longer brings a C++
+toolchain as it did on bookworm, but even with `--no-install-recommends` its `python3-fonttools`
+dependency hard-depends on `python3-scipy` and `python3-sympy` — **about 450 MB** in a runtime
+image, for a chart. The alternative is pip's own manylinux wheels at exact versions, and
+Debian 13's interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so that means
 `pip3 install --break-system-packages`, pip removed again in the same layer, and knowing that
 nothing else in your image installs a Python package. `apt-cache depends --recurse` before you
 commit to a package, and check the image size after.

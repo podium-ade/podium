@@ -5,7 +5,7 @@
   "version": "0.0.0",
   "description": "One agent turn inside a Podium task container.",
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
