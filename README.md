@@ -20,8 +20,8 @@
 
 https://github.com/user-attachments/assets/1d03a0d7-98da-4df2-86d1-975f6e38020c
 
-Podium is how an organization puts AI to work on the jobs that actually move the business, and
-then watches it finish them.
+Podium lets anyone in your company hand real work to AI agents: fixing a bug, reviewing a pull
+request, answering a question about the numbers.
 
 A bug lands in Slack or Linear, and Podium reads the code, runs what it needs to run, and posts
 the cause back on the thread. A pull request needs a review, and Podium reads the diff and
