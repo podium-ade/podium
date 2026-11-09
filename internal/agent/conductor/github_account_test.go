@@ -51,7 +51,7 @@ func TestAPlaybookUsingTheAskersAccountMustListItsRepos(t *testing.T) {
 	playbook.Repos = nil
 	c := skillsConductor(t, "", playbook)
 	c.mintSecret, c.gitTaskURL = "conductor-bearer", "http://conductor.test:8090"
-	_, err := c.provisionGitCapability(t.Context(), "turn_1", c.profiles.Current().Playbooks["coder"], "ada@acme.com")
+	_, err := c.provisionGitCapability(t.Context(), "turn_1", c.profiles.Current().Playbooks["coder"], "ada@acme.com", true)
 	require.ErrorContains(t, err, "must list its repos")
 }
 

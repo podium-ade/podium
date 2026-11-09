@@ -48,6 +48,8 @@ type stub struct {
 	// lets maintainers push there.
 	fork      bool
 	canModify bool
+	// author is who opened the pull request. Empty is a person.
+	author User
 	// threads is the pull request's review threads as GraphQL lists them, and resolved the
 	// thread ids a mutation resolved.
 	threads  []stubThread
@@ -231,7 +233,11 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			head = "alice/repo"
 		}
 		canModify := s.canModify
+		author := s.author
 		s.mu.Unlock()
+		if author.Login == "" {
+			author = User{Login: "alice", Type: "User"}
+		}
 		if fail {
 			http.Error(w, `{"message":"unavailable"}`, http.StatusBadGateway)
 			return
@@ -248,6 +254,7 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			},
 			"base":                  map[string]any{"ref": "dev", "repo": map[string]any{"full_name": "acme/repo"}},
 			"maintainer_can_modify": canModify,
+			"user":                  map[string]any{"login": author.Login, "type": author.Type},
 		})
 	default:
 		http.NotFound(w, r)

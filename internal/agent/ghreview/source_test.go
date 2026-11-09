@@ -1214,3 +1214,43 @@ func TestAnAnswerRepliesUnderTheFindingsItFixed(t *testing.T) {
 	assert.NotContains(t, comments[0], "nil check is back")
 	assert.Empty(t, h.stub.postedReviews())
 }
+
+func TestAPullRequestThisAppOpenedIsReviewedButNeverApproved(t *testing.T) {
+	h := newHarness(t)
+	h.stub.author = User{Login: "podium[bot]", Type: "Bot"}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Approve**\n\nThe fix holds."})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+	assert.Contains(t, asString(created[0]["body"]), "The fix holds.", "the verdict is still in the review's words")
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.NotContains(t, comments[0], statusApproved)
+}
+
+func TestAPullRequestThisAppOpenedNeverGetsChangesRequested(t *testing.T) {
+	h := newHarness(t)
+	h.stub.author = User{Login: "podium[bot]", Type: "Bot"}
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Changes needed**\n\nThe check is gone."})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+}
+
+func TestAnApprovalOfAPullRequestThatCannotBeReadIsAComment(t *testing.T) {
+	h := newHarness(t)
+	h.stub.failPull = true
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, _ = h.src.Post(context.Background(), ref, conductor.Outbound{Speaker: reviewer, Type: conductor.OutFinal, Text: "**Approve**\n\nFine."})
+	for _, r := range h.stub.postedReviews() {
+		assert.NotEqual(t, "APPROVE", r["event"])
+	}
+}

@@ -550,3 +550,53 @@ func TestInstallationRepos(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, f.seen(), n, "a second ask within minutes is answered from memory")
 }
+
+func TestCanPush(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(time.Hour)
+	setup := func(t *testing.T) (*Client, *fakeGitHub) {
+		t.Helper()
+		f := newFake()
+		f.route("GET /orgs/acme/installation", 200, `{"id":42}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		return client(t, f, now), f
+	}
+
+	t.Run("an account that can push to every repo can push", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 200,
+			`{"permission":"write","user":{"permissions":{"push":true}}}`)
+		f.route("GET /repos/acme/b/collaborators/dana/permission", 200, `{"permission":"admin"}`)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a", "b"}, "dana")
+		require.NoError(t, err)
+		assert.True(t, ok)
+		calls := f.seen()
+		assert.Equal(t, "Bearer ghs_minted", calls[len(calls)-1].Auth, "asked with an installation token")
+	})
+
+	t.Run("read on one repo is no", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 200,
+			`{"permission":"write","user":{"permissions":{"push":true}}}`)
+		f.route("GET /repos/acme/b/collaborators/dana/permission", 200,
+			`{"permission":"read","user":{"permissions":{"push":false}}}`)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a", "b"}, "dana")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("somebody who is not a collaborator is no", func(t *testing.T) {
+		c, _ := setup(t)
+		ok, err := c.CanPush(t.Context(), "acme", []string{"a"}, "stranger")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("an answer that is neither is an error", func(t *testing.T) {
+		c, f := setup(t)
+		f.route("GET /repos/acme/a/collaborators/dana/permission", 502, `{"message":"bad gateway"}`)
+		_, err := c.CanPush(t.Context(), "acme", []string{"a"}, "dana")
+		require.Error(t, err)
+	})
+}
