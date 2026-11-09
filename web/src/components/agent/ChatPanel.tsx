@@ -1616,6 +1616,17 @@ function Conversation({
   const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
   const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  // The pending question is let go once the stream carries it and a turn has taken it up:
+  // running, waiting on a reply, or already answered. Held past that, it kept the chat busy
+  // (holdBusy, below) whenever the last row was not an answer, so anybody speaking after the
+  // answer brought the waiting row back with nothing running.
+  if (
+    pendingUser !== null &&
+    userCount > pendingUser.before &&
+    (stream.running || stream.awaiting || last?.role === "assistant")
+  ) {
+    setPendingUser(null);
+  }
   // Hold the waiting state until the stream says the turn started (or already finished).
   // send.isPending alone drops when the RPC returns, one frame before the status frame.
   const holdBusy =
