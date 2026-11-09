@@ -787,7 +787,7 @@ func (c *Conductor) startDelegatedTask(
 	}
 	// Keyed by the delegation id, which is what this task's brief carries as its turn id
 	// and therefore what Mint checks the status of.
-	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login)
+	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login, persona != nil)
 	if err != nil {
 		return nil, err
 	}

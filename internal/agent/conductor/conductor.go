@@ -1164,7 +1164,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	// The capability, before the task: admission refuses a spec naming a secret the control
 	// plane does not have, so the secret has to exist by the time CreateTask is called.
-	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login)
+	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login, persona != nil)
 	if err != nil {
 		c.logger.WarnContext(ctx, "preparing the turn's github credential failed",
 			"turn_id", turn.ID, "playbook", j.name, "error", err)

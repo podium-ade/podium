@@ -23,6 +23,11 @@ func (c *Conductor) DropGitCapabilityForTest(ctx context.Context, turnID string,
 	c.dropGitCapability(ctx, turnID, playbook)
 }
 
+// GitHubPersonaForTest is who a turn of playbook started by login commits as. Nil is the App.
+func (c *Conductor) GitHubPersonaForTest(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
+	return c.githubPersona(ctx, login, playbook)
+}
+
 // MintTurnTokenForTest issues the token a turn of sessionID started by login would hold.
 func (c *Conductor) MintTurnTokenForTest(sessionID, turnID, login string) (string, error) {
 	return c.mintTurnToken(turnGrant{turnID: turnID, sessionID: sessionID, login: login})
