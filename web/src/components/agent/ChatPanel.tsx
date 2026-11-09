@@ -970,7 +970,9 @@ function RailFold({ open, children }: { open: boolean; children: ReactNode }) {
         open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
       )}
     >
-      <div className={cn("min-h-0", !settled && "overflow-hidden")}>{children}</div>
+      {/* min-w-0: a grid item will not shrink below its content by default, and a row's
+          content is a title that is meant to truncate, so without it the rows overflow the rail. */}
+      <div className={cn("min-h-0 min-w-0", !settled && "overflow-hidden")}>{children}</div>
     </div>
   );
 }
