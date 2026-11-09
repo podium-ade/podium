@@ -539,9 +539,11 @@ async function main(): Promise<number> {
       if (code !== 0 && summary.code === ExitOK && !cancelled) {
         summary.code = ExitHarnessError;
         if (finalText.trim() === "") {
-          finalText = harnessError
-            ? `The turn failed before I could answer: ${harnessError}`
-            : `The turn failed before I could answer: the harness exited ${code}.`;
+          finalText = oc.credentialRefused(harnessError)
+            ? oc.CredentialRefusedText
+            : harnessError
+              ? `The turn failed before I could answer: ${harnessError}`
+              : `The turn failed before I could answer: the harness exited ${code}.`;
         }
       }
       // A clean answer can stay up for a follow-up. The answer is reported now, because
@@ -571,7 +573,10 @@ async function main(): Promise<number> {
   } catch (err) {
     if (!cancelled) {
       summary.code = ExitHarnessError;
-      finalText = `The turn failed before I could answer: ${redact(messageOf(err), token)}`;
+      const why = redact(messageOf(err), token);
+      finalText = oc.credentialRefused(why)
+        ? oc.CredentialRefusedText
+        : `The turn failed before I could answer: ${why}`;
     }
   } finally {
     stopHub();
