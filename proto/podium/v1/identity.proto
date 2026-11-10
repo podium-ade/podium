@@ -67,6 +67,10 @@ message WhoAmIResponse {
   // picture_url is an https avatar from Google Workspace sign-in. Empty for the local
   // token, a node, or a human whose profile has no photo.
   string picture_url = 14;
+  // organization_name and deployment_name are OrganizationService's names, empty when
+  // never set. The UI shows deployment_name where it would say "Podium".
+  string organization_name = 15;
+  string deployment_name = 16;
 }
 
 message ClaimRequest {
