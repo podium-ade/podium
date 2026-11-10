@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sidecarProblem } from "./sandboxProviders";
+import type { SandboxProvider } from "../gen/podium/v1/sandbox_pb";
+import { capacityOf, sidecarProblem } from "./sandboxProviders";
 
 describe("sidecarProblem", () => {
   const both = { docker: true, browser: true };
@@ -16,5 +17,21 @@ describe("sidecarProblem", () => {
     expect(sidecarProblem("modal", {}, "", browser)).toMatch(/vm runtime/);
     expect(sidecarProblem("modal", { runtime: "vm" }, "", browser)).toBe("");
     expect(sidecarProblem("nodes", {}, "", both)).toBe("");
+  });
+});
+
+describe("capacityOf", () => {
+  const p = (maxConcurrent: number, accountLimit: number, inUse = 1) =>
+    ({ maxConcurrent, accountLimit, inUse }) as SandboxProvider;
+
+  it("binds to the lower of the cap and the account's limit", () => {
+    expect(capacityOf(p(8, 0))).toEqual({ inUse: 1, limit: 8, byAccount: false });
+    expect(capacityOf(p(0, 10))).toEqual({ inUse: 1, limit: 10, byAccount: true });
+    expect(capacityOf(p(12, 10))).toEqual({ inUse: 1, limit: 10, byAccount: true });
+    expect(capacityOf(p(4, 10))).toEqual({ inUse: 1, limit: 4, byAccount: false });
+  });
+
+  it("has no limit when neither is set", () => {
+    expect(capacityOf(p(0, 0))).toEqual({ inUse: 1, limit: 0, byAccount: false });
   });
 });

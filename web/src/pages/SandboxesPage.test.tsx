@@ -69,13 +69,15 @@ describe("SandboxProviders", () => {
     expect(await within(row).findByText("configured")).toBeInTheDocument();
     expect(within(row).getByText("ci-base")).toBeInTheDocument();
     expect(within(row).getByText("stored, hidden")).toBeInTheDocument();
-    expect(within(row).getByTestId("capacity-boat")).toHaveTextContent("1 of account limit 2");
-    expect(within(row).getByText(/Podium runs boat.dev sandboxes itself/)).toBeInTheDocument();
+    const capacity = within(row).getByTestId("capacity-boat");
+    expect(capacity).toHaveTextContent(/1\s*of 2/);
+    expect(capacity).toHaveTextContent("1 free · account limit");
+    expect(within(capacity).getByRole("meter")).toHaveAttribute("aria-valuenow", "1");
     expect(within(row).queryByText(/node/)).toBeNull();
 
     const modal = screen.getByTestId("provider-modal");
     expect(within(modal).getByText("not set up")).toBeInTheDocument();
-    expect(within(modal).getByText(/There is nothing to install/)).toBeInTheDocument();
+    expect(within(modal).queryByText("stored, hidden")).toBeNull();
   });
 
   it("offers a pool of ready sandboxes on every provider", async () => {

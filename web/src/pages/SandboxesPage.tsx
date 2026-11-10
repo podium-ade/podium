@@ -30,12 +30,15 @@ import { canManageInfra } from "../lib/rbac";
 import {
   RUNS_ON_NODES,
   SANDBOX_PROVIDERS,
+  SECTIONS,
+  capacityOf,
   capacityText,
   sidecarProblem,
   withUnit,
   type ProviderSpec,
 } from "../lib/sandboxProviders";
 import { Snapshots } from "./SnapshotsPage";
+import { cn } from "@/lib/utils";
 
 type Tab = {
   id: string;
@@ -285,6 +288,10 @@ function DefaultBadge() {
   );
 }
 
+/**
+ * One provider: who it is and what can be done with it, then — once set up — its settings as a
+ * sheet to scan, in the order the setup dialog asks for them.
+ */
 function ProviderRow({
   spec,
   current,
@@ -303,67 +310,132 @@ function ProviderRow({
   onRemove: () => void;
 }) {
   const configured = current?.hasSecret ?? false;
-  const set = spec.fields.filter((f) => current?.settings[f.key]);
+  const order = new Map(SECTIONS.map((s, i) => [s.key, i]));
+  const set = spec.fields
+    .filter((f) => current?.settings[f.key])
+    .sort((a, b) => (order.get(a.section) ?? 0) - (order.get(b.section) ?? 0));
 
   return (
-    <li className="grid gap-4 p-6 sm:grid-cols-[minmax(0,1fr)_auto]" data-testid={`provider-${spec.name}`}>
-      <div className="min-w-0 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-lg font-bold">{spec.label}</h3>
-          {loading ? null : configured ? <Badge tone="ok">configured</Badge> : <Badge tone="idle">not set up</Badge>}
-          {isDefault ? <DefaultBadge /> : null}
-        </div>
-        <p className="m-0 text-soft">{spec.blurb}</p>
-        {configured && current ? (
-          <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-muted">{spec.secretLabel}</dt>
-            <dd className="m-0 text-fg">stored, hidden</dd>
-            <dt className="text-muted">Running</dt>
-            <dd className="m-0 text-fg" data-testid={`capacity-${spec.name}`}>
-              {capacityText(current)}
-            </dd>
-            {set.map((f) => (
-              <SettingRow key={f.key} label={f.label} value={withUnit(f, current.settings[f.key])} />
-            ))}
-            <dt className="text-muted">Last set</dt>
-            <dd className="m-0 text-fg" title={absolute(current.updatedAt)}>
-              {relative(current.updatedAt)} by {current.createdBy || "-"}
-            </dd>
-          </dl>
-        ) : null}
-        <p className="m-0 text-sm text-muted">
-          {configured
-            ? `Podium runs ${spec.label} sandboxes itself: a task or playbook that runs on ${spec.label} gets one.`
-            : `Once set up, Podium runs ${spec.label} sandboxes itself. There is nothing to install.`}
-        </p>
-      </div>
-      {manage ? (
-        <div className="flex flex-wrap items-start gap-2">
-          <Button variant={configured ? "outline" : "default"} onClick={onEdit} aria-label={`${configured ? "Edit" : "Set up"} ${spec.label}`}>
-            {configured ? "Edit" : "Set up"}
-          </Button>
-          {configured ? (
-            <Button
-              variant="ghost"
-              onClick={onRemove}
-              aria-label={`Remove ${spec.label}`}
-              className="text-err hover:bg-err-bg hover:text-err"
-            >
-              Remove
-            </Button>
+    <li className="min-w-0" data-testid={`provider-${spec.name}`}>
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 px-6 py-5">
+        <div className="min-w-0 flex-1 basis-80 space-y-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="m-0 text-lg leading-tight font-bold">{spec.label}</h3>
+            {loading ? null : configured ? <Badge tone="ok">configured</Badge> : <Badge tone="idle">not set up</Badge>}
+            {isDefault ? <DefaultBadge /> : null}
+          </div>
+          <p className="m-0 max-w-[70ch] text-soft">{spec.blurb}</p>
+          {configured && current ? (
+            <p className="m-0 flex flex-col gap-x-2 pt-1 text-sm text-muted sm:flex-row sm:flex-wrap">
+              <span>
+                {spec.secretLabel} <span className="text-fg">stored, hidden</span>
+              </span>
+              <span aria-hidden className="hidden sm:inline">·</span>
+              <span title={absolute(current.updatedAt)}>
+                Set {relative(current.updatedAt)} by {current.createdBy || "-"}
+              </span>
+            </p>
           ) : null}
         </div>
+        {configured && current ? <Capacity provider={current} name={spec.name} /> : null}
+        {manage ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {configured ? (
+              <Button
+                variant="ghost"
+                onClick={onRemove}
+                aria-label={`Remove ${spec.label}`}
+                className="text-err hover:bg-err-bg hover:text-err"
+              >
+                Remove
+              </Button>
+            ) : null}
+            <Button
+              variant={configured ? "outline" : "default"}
+              onClick={onEdit}
+              aria-label={`${configured ? "Edit" : "Set up"} ${spec.label}`}
+            >
+              {configured ? "Edit" : "Set up"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {configured && current && set.length > 0 ? (
+        <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-6 sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-y-4 border-t border-hairline bg-bg/60 px-6 py-4">
+          {set.map((f) => {
+            const value = withUnit(f, current.settings[f.key]);
+            return (
+              <Fact key={f.key} label={f.label}>
+                {value.includes(",")
+                  ? value.split(",").map((v) => (
+                      <span key={v} className="block">
+                        {v.trim()}
+                      </span>
+                    ))
+                  : value}
+              </Fact>
+            );
+          })}
+        </dl>
       ) : null}
     </li>
   );
 }
 
-function SettingRow({ label, value }: { label: string; value: string }) {
+/**
+ * How many of this provider's sandboxes are up, against the cap that binds — the operator's or
+ * the account's, whichever is lower — with what is left. With no cap there is nothing to fill.
+ */
+function Capacity({ provider, name }: { provider: SandboxProvider; name: string }) {
+  const { inUse, limit, byAccount } = capacityOf(provider);
+  const share = limit > 0 ? Math.min(1, inUse / limit) : 0;
+  const free = Math.max(0, limit - inUse);
+  const tone = share >= 1 ? "bg-err" : share >= 0.8 ? "bg-warn" : "bg-accent";
   return (
-    <>
-      <dt className="text-muted">{label}</dt>
-      <dd className="m-0 truncate font-mono text-xs text-fg">{value}</dd>
-    </>
+    <div
+      className="grid w-full shrink-0 content-start gap-1.5 sm:w-48 sm:border-l sm:border-hairline sm:pl-6"
+      data-testid={`capacity-${name}`}
+      title={`Running ${capacityText(provider)}`}
+    >
+      <span className="text-xs text-muted">Running</span>
+      <span className="flex items-baseline gap-1.5 leading-none tabular-nums">
+        <span className="text-2xl font-bold text-fg">{inUse}</span>
+        {limit > 0 ? <span className="text-sm text-muted">of {limit}</span> : null}
+      </span>
+      {limit > 0 ? (
+        <>
+          <div
+            role="meter"
+            aria-label={`${name} sandboxes running`}
+            aria-valuemin={0}
+            aria-valuemax={limit}
+            aria-valuenow={inUse}
+            className="h-1.5 overflow-hidden rounded-full bg-raised"
+          >
+            <div className={cn("h-full rounded-full transition-[width] duration-500 ease-out", tone)} style={{ width: `${share * 100}%` }} />
+          </div>
+          <span className="text-xs text-muted">
+            {free > 0 ? `${free} free` : "Full: new tasks wait"}
+            {byAccount ? " · account limit" : ""}
+          </span>
+        </>
+      ) : (
+        <span className="text-xs text-muted">No cap set</span>
+      )}
+    </div>
+  );
+}
+
+/** One of a provider's settings: its name small above, the value as stored below. */
+function Fact({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="m-0 font-mono text-[0.8125rem] [overflow-wrap:anywhere] text-fg" title={title}>
+        {children}
+      </dd>
+    </div>
   );
 }
 
