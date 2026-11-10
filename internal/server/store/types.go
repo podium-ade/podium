@@ -32,6 +32,9 @@ var (
 	// ErrLastOwner is returned by AssignRole when demoting the only remaining owner.
 	// An instance with no owner cannot recover from the UI.
 	ErrLastOwner = errors.New("store: cannot demote the last owner")
+	// ErrInvalidArgument is returned for a value a caller sent that cannot be saved as it
+	// is, such as an organization name over its cap.
+	ErrInvalidArgument = errors.New("store: invalid argument")
 )
 
 // Status mirrors the tasks.status column.

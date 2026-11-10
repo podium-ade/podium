@@ -402,6 +402,8 @@ func (s *Server) mux() http.Handler {
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSnapshotServiceHandler(
 		api.NewSnapshotService(s.snapshots, s.sandboxSnaps, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewOrganizationServiceHandler(
+		api.NewOrganizationService(s.store, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -445,6 +447,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.SandboxProviderServiceName,
 		podiumv1connect.ArtifactServiceName,
 		podiumv1connect.SnapshotServiceName,
+		podiumv1connect.OrganizationServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
 	}
@@ -481,7 +484,7 @@ func (s *Server) mux() http.Handler {
 	if desktops != nil {
 		frameSrc = desktops.Origin()
 	}
-	root.Handle("/", api.NewUIHandler(s.logger, frameSrc))
+	root.Handle("/", api.NewUIHandler(s.logger, frameSrc, s.deploymentName))
 	if desktops == nil {
 		return root
 	}
@@ -531,6 +534,22 @@ func (s *Server) agentInfra(ctx context.Context) bool {
 }
 
 // readyz reports whether the dependencies this process cannot work without are reachable.
+// deploymentName is what this deployment is called, for the page's title before sign-in.
+// Empty when never set, or when the database cannot say right now: the page then keeps
+// the name it was built with, which beats failing to load.
+func (s *Server) deploymentName(r *http.Request) string {
+	if s.store == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	org, err := s.store.GetOrganization(ctx)
+	if err != nil {
+		return ""
+	}
+	return org.DeploymentName
+}
+
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()

@@ -36,6 +36,8 @@ var expectedTables = []string{
 	"snapshot_retention",
 	// task_log_index arrives with 0017_log_index.sql.
 	"task_log_index",
+	// organization arrives with 0021_organization.sql.
+	"organization",
 }
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
@@ -54,6 +56,7 @@ var migrationFiles = []string{
 	"0018_node_sessions.sql",
 	"0019_snapshot_deltas.sql",
 	"0020_sandbox_snapshots.sql",
+	"0021_organization.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {
