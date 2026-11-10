@@ -9,6 +9,7 @@ import { ViewerContext, type Viewer } from "../lib/identity";
 import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
+import { OrgSettingsPage } from "./OrgSettingsPage";
 import { ToastHost } from "../components/Toast";
 
 const KEY = "sk-ant-not-a-real-key-abcd";
@@ -80,6 +81,10 @@ vi.mock("../lib/client", async () => {
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
     users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
     sandboxProviders: { listSandboxProviders: (...a: unknown[]) => listSandboxProviders(...a) },
+    organization: {
+      getOrganization: () => Promise.resolve({ organization: { organizationName: "", deploymentName: "" } }),
+      updateOrganization: vi.fn(),
+    },
   };
 });
 
@@ -153,6 +158,7 @@ function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer
           <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/agent/*" element={<AgentPage />} />
+              <Route path="/org/*" element={<OrgSettingsPage />} />
             </Routes>
           </MemoryRouter>
         </ViewerContext>
@@ -483,7 +489,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/runs-on");
-    expect(await screen.findByRole("heading", { name: "Backend" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Backend" })).toBeInTheDocument();
 
     const group = screen.getByRole("radiogroup", { name: "Runs on" });
     expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
@@ -510,15 +516,16 @@ describe("AgentPage", () => {
   });
 
   it("has no Backend page without a conductor", async () => {
+    // An old Backend link lands on Organization settings, which has no Backend without one.
     mount("/agent/settings/runs-on", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Backend" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Backend" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {
     mount("/agent/settings/connections");
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
@@ -539,21 +546,26 @@ describe("AgentPage", () => {
 
     cleanup();
     mount("/agent/settings/connections", human);
-    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     expect(getConnections).not.toHaveBeenCalled();
-    // A member connects their own account here, which is not the App's configuration.
+
+    cleanup();
+    // A member connects their own account on Your account, which is not the App's configuration.
+    mount("/agent/settings/account", human);
+    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /connect github/i })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
-    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {
@@ -583,7 +595,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/users");
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Members" })).toBeInTheDocument();
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Permission")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();

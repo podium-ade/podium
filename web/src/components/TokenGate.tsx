@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { errorMessage, identity, isUnauthenticated } from "../lib/client";
 import { fetchAuthStatus, getToken, onRejected, setToken } from "../lib/auth";
 import { ViewerContext, viewerFrom } from "../lib/identity";
+import { brandName, useDocumentTitle } from "../lib/brand";
 import { ClaimScreen, GoogleSignIn, SignInShell, TokenForm } from "./SignInControls";
 
 /**
@@ -48,6 +49,7 @@ export function TokenGate({ children }: { children: ReactNode }) {
   useEffect(() => onRejected(() => setForced(true)), []);
 
   const viewer = probe.isSuccess ? viewerFrom(probe.data) : undefined;
+  useDocumentTitle(brandName(viewer));
   // A failed Google callback lands on /?auth_error=… Stay on the sign-in screen so
   // the error is visible instead of vanishing into the app.
   const authError =
