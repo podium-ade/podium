@@ -1,6 +1,5 @@
 import type { NavIconName } from "../components/NavIcon";
 import type { Viewer } from "./identity";
-import { canManageInfra } from "./rbac";
 
 /**
  * NavPage is one sidebar entry. `desc` and `keys` are what the sidebar search matches
@@ -56,8 +55,6 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "access",
     label: "Access",
     pages: [
-      // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
-      { id: "connections", label: "Connections", to: "/agent/settings/connections", icon: "connections", desc: "GitHub App and Slack app for this conductor.", keys: "github slack pull request pr app webhook", show: (who) => who.agentEnabled && canManageInfra(who) },
       { id: "channels", label: "Channels", to: "/agent/channels", icon: "channels", desc: "Where assistants listen and reply.", keys: "slack listen reply", show: agent },
       { id: "secrets", label: "Secrets", to: "/secrets", icon: "secrets", desc: "Credentials tasks and registries receive.", keys: "credentials keys tokens passwords vault" },
     ],
@@ -68,7 +65,6 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "models", label: "Models", to: "/agent/settings/models", icon: "models", desc: "Model providers chat can spend on.", keys: "llm provider claude anthropic openai gpt grok api key", show: agent },
       { id: "nodes", label: "Nodes", to: "/nodes", icon: "nodes", desc: "Workers enrolled with this control plane.", keys: "workers machines enroll drain" },
-      { id: "backend", label: "Backend", to: "/agent/settings/runs-on", icon: "backend", desc: "Where a session’s workspace runs.", keys: "runs on sandbox runtime self-hosted", show: agent },
       { id: "sandboxes", label: "Sandboxes", to: "/sandboxes", icon: "sandboxes", desc: "Sandbox providers sessions and tasks can run in.", keys: "modal daytona e2b provider capacity" },
       { id: "snapshots", label: "Snapshots", to: "/snapshots", icon: "snapshots", desc: "Saved conversation workspaces, and when they are deleted.", keys: "workspace storage disk retention cleanup s3 bucket" },
       { id: "registries", label: "Registries", to: "/registries", icon: "registries", desc: "Image registries workers pull from.", keys: "images docker containers" },
@@ -78,11 +74,12 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "organization",
     label: "Organization",
     pages: [
-      { id: "members", label: "Members", to: "/agent/settings/users", icon: "members", desc: "Who can sign in, and their roles.", keys: "users roles team permissions owner admin" },
-      // Everyone's routines as metadata, and the per-person limits: admins and owners.
-      { id: "routines-admin", label: "Routines", to: "/agent/settings/routines", icon: "routines", desc: "Everyone's routines, and how many each person may have.", keys: "routines schedules cron limits spend", show: (who) => who.agentEnabled && canManageInfra(who) },
       // Cost is recorded per agent turn, so with no conductor there is nothing to report.
       { id: "usage", label: "Usage", to: "/usage", icon: "usage", desc: "Spend and activity across the organization.", keys: "cost spend billing tokens", show: agent },
+      // Everything set once for the whole organization: its name, Members, Connections, the
+      // global model keys, the default backend and the routines policy. Each of those used to
+      // be an entry of its own, and Routines appeared twice. See pages/OrgSettingsPage.
+      { id: "org-settings", label: "Settings", to: "/org/settings", icon: "settings", desc: "Organization name, members, connections, global keys, backend and routines policy.", keys: "organization name rename brand deployment members users roles team permissions owner admin connections github slack app webhook global keys backend runs on sandbox routines limits policy" },
     ],
   },
 ];
@@ -111,7 +108,7 @@ const ALIASES: [prefix: string, page: string][] = [
   ["/agent/profile", "assistants"],
   ["/submit", "tasks"],
   ["/tasks/", "tasks"],
-  ["/users", "members"],
+  ["/users", "org-settings"],
 ];
 
 function pageFor(pathname: string): { group: NavGroup; page: NavPage } | undefined {
