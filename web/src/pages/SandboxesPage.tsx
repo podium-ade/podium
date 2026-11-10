@@ -354,6 +354,7 @@ function ProviderRow({
               variant={configured ? "outline" : "default"}
               onClick={onEdit}
               aria-label={`${configured ? "Edit" : "Set up"} ${spec.label}`}
+              className="min-w-24"
             >
               {configured ? "Edit" : "Set up"}
             </Button>
