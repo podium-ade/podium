@@ -495,7 +495,9 @@ describe("AgentPage", () => {
     mount("/agent/settings/runs-on");
     const select = await screen.findByRole("combobox", { name: "Default sandbox" });
     expect(select).toHaveTextContent("Your nodes");
-    expect(await screen.findByTestId("capacity-boat")).toHaveTextContent("1 of 2");
+    const meter = within(await screen.findByTestId("capacity-boat")).getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "1");
+    expect(meter).toHaveAttribute("aria-valuemax", "2");
     expect(screen.queryByText("These playbooks' sidecars cannot run on the default")).toBeNull();
 
     // Once Modal is the default, a playbook whose sidecars it cannot run is named.

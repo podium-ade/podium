@@ -281,6 +281,17 @@ export function providerLabel(name: string): string {
   return `sandbox.provider=${name}`;
 }
 
+/**
+ * capacityOf is how many sandboxes are up against the lower of the operator's cap and the
+ * account's own limit, and which of the two that is. A limit of 0 is no cap at all.
+ */
+export function capacityOf(p: SandboxProvider): { inUse: number; limit: number; byAccount: boolean } {
+  const cap = p.maxConcurrent > 0 ? p.maxConcurrent : Infinity;
+  const account = p.accountLimit > 0 ? p.accountLimit : Infinity;
+  const limit = Math.min(cap, account);
+  return { inUse: p.inUse, limit: Number.isFinite(limit) ? limit : 0, byAccount: account < cap };
+}
+
 /** capacityText is how many sandboxes are up against what may be. */
 export function capacityText(p: SandboxProvider): string {
   const caps = [
