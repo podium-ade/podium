@@ -585,6 +585,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
+| `PODIUM_AGENT_LINEAR_TOKEN_URL` | no | `https://api.linear.app/oauth/token` | the OAuth token endpoint the Linear app saved under Access → Connections signs in through; the same kind of seam. The app itself is never set in the environment |
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
 | `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
