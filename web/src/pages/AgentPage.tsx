@@ -161,8 +161,8 @@ function ProfileRedirect() {
 /**
  * SETTINGS_SECTIONS are the pages that used to be Settings' tabs and are still the
  * viewer's own: their account and the models their chats spend. The organization's —
- * Members, Connections, Backend and the routines policy — moved to Organization settings
- * (pages/OrgSettingsPage); MOVED sends an old /agent/settings link there.
+ * Members, Connections and the routines policy — moved to Organization settings
+ * (pages/OrgSettingsPage), and Backend to the Sandboxes page; MOVED sends an old link there.
  */
 const SETTINGS_SECTIONS: {
   id: string;
@@ -187,7 +187,7 @@ const SETTINGS_SECTIONS: {
 /** Where each section that moved to Organization settings lives now. */
 const MOVED: Record<string, string> = {
   users: "/org/settings/members",
-  "runs-on": "/org/settings/backend",
+  "runs-on": "/sandboxes/providers",
   connections: "/org/settings/connections",
   routines: "/org/settings/routines",
 };
@@ -252,12 +252,10 @@ function SettingsTab() {
  * The picker in Chat is which model a turn uses. This panel is how those models get a
  * credential.
  */
-export function ModelsPanel({ globalOnly = false }: { globalOnly?: boolean } = {}) {
+function ModelsPanel() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
-  // Organization settings shows the global keys alone: a person's own are theirs, not the
-  // organization's, and stay on Compute › Models.
-  const personal = !globalOnly && viewer?.kind === IdentityKind.USER;
+  const personal = viewer?.kind === IdentityKind.USER;
   const [tab, setTab] = useState<"yours" | "global">(personal ? "yours" : "global");
   const qc = useQueryClient();
   const settings = useQuery({
