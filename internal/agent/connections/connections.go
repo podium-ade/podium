@@ -116,6 +116,10 @@ type Linear struct {
 
 	SetBy string    `json:"set_by"`
 	SetAt time.Time `json:"set_at"`
+	// RevokedAt is when Linear said the app was revoked: de-authorized in the workspace, so
+	// nothing it is sent can be answered. It is not a setting either, and the next save that
+	// passes the check clears it, because MergeLinear never carries it over.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 	// Vaulted means the secrets are in the vault rather than in this row.
 	Vaulted bool `json:"vaulted,omitempty"`
 }
@@ -347,6 +351,26 @@ func ClearGitHub(ctx context.Context, st *store.Store, v Vault) error {
 		}
 	}
 	return st.DeleteSetting(ctx, GitHubKey)
+}
+
+// MarkLinearRevoked records on the saved app that Linear revoked it at at. It touches the row
+// and nothing in the vault. A row that is gone, or that is now another app, is left alone:
+// the revoke was for an app that is no longer saved.
+func MarkLinearRevoked(ctx context.Context, st *store.Store, clientID string, at time.Time) error {
+	var row Linear
+	err := st.GetSetting(ctx, LinearKey, &row)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.ClientID != clientID || !row.Vaulted {
+		return nil
+	}
+	at = at.UTC()
+	row.RevokedAt = &at
+	return st.PutSetting(ctx, LinearKey, row)
 }
 
 // ClearLinear removes the saved app, its secrets and its access token.

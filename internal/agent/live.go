@@ -191,6 +191,7 @@ func (l *liveConnections) group(fatal chan<- error) (run func(string, func(conte
 func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Checked, error) {
 	l.mu.Lock()
 	running := l.running
+	revoked := l.linearApp != nil && l.linearApp.Revoked()
 	l.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -222,7 +223,9 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Ch
 			return api.Checked{}, err
 		}
 	}
-	if next.LinearAppEnabled() && connections.LinearDiffers(next, running, nil) {
+	// An app Linear revoked is tried again even unchanged: saving it is how an operator says
+	// it was authorized again, and the save is refused if it was not.
+	if next.LinearAppEnabled() && (connections.LinearDiffers(next, running, nil) || revoked) {
 		// Refused here rather than found when the source cannot be built: the app would be
 		// saved, the poller turned off, and nothing would answer.
 		if l.linearPlaybook == nil || l.linearPlaybook() == "" {
@@ -345,7 +348,9 @@ func (l *liveConnections) apply(ctx context.Context, next config.Config, savedLi
 	defer l.mu.Unlock()
 	slackChanged := connections.SlackDiffers(next, l.running, nil)
 	githubChanged := connections.GitHubDiffers(next, l.running, nil)
-	linearChanged := connections.LinearDiffers(next, l.running, nil)
+	// A save that clears a revoke changes no setting, and still has to start the app again.
+	linearChanged := connections.LinearDiffers(next, l.running, nil) ||
+		(l.linearApp != nil && l.linearApp.Revoked() && (savedLinear == nil || savedLinear.RevokedAt == nil))
 	if !slackChanged && !githubChanged && !linearChanged {
 		return nil
 	}
@@ -517,9 +522,24 @@ func (l *liveConnections) newLinearApp(
 		AppName:        saved.AppUserName,
 		Playbook:       playbook,
 		TaskURL:        taskURL(cfg),
+		Revoked:        saved.RevokedAt != nil,
+		OnRevoked:      l.linearRevoked(cfg.LinearClientID),
 		Metrics:        l.linearMetrics,
 		Logger:         l.logger,
 	})
+}
+
+// linearRevoked records on the saved app that Linear revoked it, so Settings → Connections
+// says so until it is saved again.
+func (l *liveConnections) linearRevoked(clientID string) func(context.Context) {
+	return func(ctx context.Context) {
+		if l.store == nil {
+			return
+		}
+		if err := connections.MarkLinearRevoked(ctx, l.store, clientID, time.Now()); err != nil {
+			l.logger.ErrorContext(ctx, "linear: recording that Linear revoked the app failed", "error", err)
+		}
+	}
 }
 
 // taskURL renders a link to a task page as a HUMAN reaches the web UI, which is not always
