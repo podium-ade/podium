@@ -266,8 +266,11 @@ type Attachment struct {
 }
 
 // ActivityPoster is a Source that draws what a turn is doing — its tool calls and its
-// reasoning — beside what it says. Only the web chat is one: a Slack thread or a Linear
-// issue would be buried in it, so a source that is not one is told none of it.
+// reasoning — beside what it says. The web chat keeps every one as a row of the chat. A
+// Linear agent session shows each as an ephemeral activity that the next replaces, so it
+// shows what the turn is doing now rather than a trail of it. A Slack thread or a GitHub pull
+// request would be buried in them, since everything said there stays, so a source that is not
+// one is told none of it.
 type ActivityPoster interface {
 	PostActivity(ctx context.Context, ref string, out Outbound) error
 }

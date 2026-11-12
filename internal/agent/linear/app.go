@@ -26,6 +26,36 @@ const maxRemembered = 10000
 // chosen a playbook. It is ephemeral, so the turn's first progress replaces it.
 const acknowledgement = "Starting on this."
 
+// ActivityThrottle is the shortest gap between two ephemeral activities in one session: a
+// progress line, a tool call, a piece of reasoning. Each replaces the last on screen, so the
+// newest wins and one inside the window is held until it closes, superseded by anything newer
+// meanwhile. A turn can make a dozen tool calls a second, and the app has 5,000 requests an
+// hour for every session in the workspace; at one every ten seconds a busy session spends at
+// most 360 of them.
+const ActivityThrottle = 10 * time.Second
+
+// KeepAliveAfter is how long a running turn may say nothing before the source says something
+// for it. Linear marks a session stale after thirty minutes without an activity, and a turn
+// running a long build or a long test suite can be silent for longer than that.
+const KeepAliveAfter = 20 * time.Minute
+
+// What the source says on its own behalf.
+const (
+	keepAliveText = "Still working."
+	stoppedText   = "Stopped."
+	idleStopText  = "Nothing was running, so there was nothing to stop."
+	cantStopText  = "I couldn't stop the work. An operator should check the logs."
+)
+
+// The labels of the links the source adds to a session.
+const (
+	taskLinkLabel        = "Podium task"
+	pullRequestLinkLabel = "Pull request"
+)
+
+// StopReason is what the control plane records as why a task a Stop cancelled was cancelled.
+const StopReason = "stopped from the Linear agent session"
+
 // AppOptions configures the agent app's source.
 type AppOptions struct {
 	// Client is signed in as the app, with a TokenSource. Required.
@@ -56,6 +86,11 @@ type AppOptions struct {
 	// OnRevoked is told when Linear revokes the app, so the saved connection can say so. It
 	// runs off the request.
 	OnRevoked func(ctx context.Context)
+	// Stop stops the turn answering a conversation, named by its source key, and the turns
+	// queued behind it, and reports whether anything was stopped: the conductor's
+	// CancelSessionTurn. A source never holds the conductor, so it is handed this. Nil stops
+	// nothing, and a Stop pressed in Linear is answered with an error saying so.
+	Stop func(ctx context.Context, sourceKey string) (bool, error)
 	// Metrics is optional; nil registers nothing.
 	Metrics *Metrics
 	Logger  *slog.Logger
@@ -63,6 +98,9 @@ type AppOptions struct {
 	HTTPClient *http.Client
 	// Clock is time.Now unless a test replaces it.
 	Clock func() time.Time
+	// AfterFunc runs f once d has passed and returns what cancels it. It is time.AfterFunc
+	// unless a test replaces it, with Clock, so that it can move time itself.
+	AfterFunc func(d time.Duration, f func()) (cancel func() bool)
 }
 
 // AppSource is Linear as an agent app: webhooks in, agent activities out. It is the same
@@ -91,7 +129,9 @@ type AppSource struct {
 	appName        string
 	playbook       func() string
 	onRevoked      func(ctx context.Context)
+	stopTurn       func(ctx context.Context, sourceKey string) (bool, error)
 	now            func() time.Time
+	afterFunc      func(d time.Duration, f func()) func() bool
 
 	// work is the context deliveries are handled on. It outlives the request that brought
 	// each one and ends when Run returns.
@@ -107,23 +147,64 @@ type AppSource struct {
 	// queues is the work waiting in each session, in the order it arrived. A session with a
 	// key here has a goroutine draining it; one with none has nothing waiting.
 	queues map[string][]func(context.Context)
-	// turns is the per-ref bookkeeping between the conductor's calls.
-	turns map[string]*appTurn
+	// sessions is what the source remembers about each agent session between the
+	// conductor's calls, by session id.
+	sessions map[string]*appSession
 }
 
-// appTurn is what the source remembers about one turn between the conductor's calls. Like
-// the poller's, it is in memory only.
-type appTurn struct {
-	// lastThought is when a progress thought was last posted, for the edit throttle.
-	lastThought time.Time
-	// closing is the activity type the turn ended on, response or error. An attachment that
-	// arrives after it is posted as the same type, so Linear's view of how the session ended
-	// does not change.
+// appSession is what the source remembers about one agent session between the conductor's
+// calls. Like the poller's, it is in memory only: after a restart a resumed turn starts with
+// none of it, which costs a link added twice and a keep-alive that waits for the next turn.
+//
+// The conductor never says "a turn started" or "a turn ended" to a source in so many words,
+// so it is read off what it does say. A turn starts with the placeholder, and the conductor
+// runs one turn of a session at a time, so a placeholder is never part of the turn before it.
+// It ends with an answer or a failure, or the reaction after it.
+//
+// Every field but send is guarded by AppSource.mu.
+type appSession struct {
+	// send is held across posting an activity, and across the check that it may still be
+	// posted. Without it a keep-alive that checked the turn was running could land just after
+	// the answer, and a thought after a response reopens a session that was complete.
+	send sync.Mutex
+
+	// lastActivity is when anything was last posted into the session, for the keep-alive,
+	// and lastEphemeral when an ephemeral activity was, for ActivityThrottle.
+	lastActivity  time.Time
+	lastEphemeral time.Time
+	// held is the newest ephemeral activity the throttle kept back, and heldTask the task it
+	// came from. flush posts it when the window closes; flushGen tells a flush that was
+	// cancelled from the one armed after it.
+	held     *ActivityContent
+	heldTask string
+	flush    func() bool
+	flushGen int
+	// running is a turn that is working: started and not yet answered, failed, stopped or
+	// waiting on a question. Only a running turn is kept alive.
+	running      bool
+	keepAlive    func() bool
+	keepAliveGen int
+	// closing is the activity type the turn ended on, response or error, and empty while it
+	// has not. Anything said after it — an attachment, a line about one — is said as the same
+	// type, so Linear's view of how the session ended does not change.
 	closing string
-	taskID  string
+	// taskID is the newest task the session's turns ran, for the fallback attachment link and
+	// to know which task a stop is about.
+	taskID string
+	// linked is every URL already added to the session's links.
+	linked map[string]bool
+	// stopped is a session somebody pressed Stop in. Nothing more is said for the turn that
+	// was stopped, whatever the conductor still hands over as it unwinds, until the next turn
+	// starts. stoppedTasks are the tasks of stopped turns, refused for good: a stopped
+	// task's last words can arrive after a new turn has started.
+	stopped      bool
+	stoppedTasks map[string]bool
 }
 
-var _ conductor.Source = (*AppSource)(nil)
+var (
+	_ conductor.Source         = (*AppSource)(nil)
+	_ conductor.ActivityPoster = (*AppSource)(nil)
+)
 
 // NewApp builds the agent app's source. Nothing is served until Run.
 func NewApp(opts AppOptions) (*AppSource, error) {
@@ -164,6 +245,16 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 	if onRevoked == nil {
 		onRevoked = func(context.Context) {}
 	}
+	stopTurn := opts.Stop
+	if stopTurn == nil {
+		stopTurn = func(context.Context, string) (bool, error) {
+			return false, errors.New("this conductor was not given a way to stop a turn")
+		}
+	}
+	afterFunc := opts.AfterFunc
+	if afterFunc == nil {
+		afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
+	}
 	work, stop := context.WithCancel(context.Background())
 	return &AppSource{
 		client: opts.Client,
@@ -192,13 +283,15 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		appName:        opts.AppName,
 		playbook:       opts.Playbook,
 		onRevoked:      onRevoked,
+		stopTurn:       stopTurn,
 		now:            now,
+		afterFunc:      afterFunc,
 		work:           work,
 		stopWork:       stop,
 		revoked:        opts.Revoked,
 		seen:           map[string]time.Time{},
 		queues:         map[string][]func(context.Context){},
-		turns:          map[string]*appTurn{},
+		sessions:       map[string]*appSession{},
 	}, nil
 }
 
@@ -225,10 +318,14 @@ func (s *AppSource) Run(ctx context.Context) error {
 	return nil
 }
 
-// stop ends the work in flight and waits for it, so nothing is emitted on a closed channel.
+// stop ends the work in flight and waits for it, so nothing is emitted on a closed channel
+// and no timer posts into a session after the source is gone.
 func (s *AppSource) stop() {
 	s.mu.Lock()
 	s.stopped = true
+	for _, st := range s.sessions {
+		s.disarmLocked(st)
+	}
 	s.mu.Unlock()
 	s.stopWork()
 	s.wg.Wait()
@@ -422,6 +519,10 @@ func (s *AppSource) FetchTranscript(ctx context.Context, ref string) ([]conducto
 //   - a failure is an error;
 //   - a question is an elicitation, which waits for the person.
 //
+// The placeholder starts a turn: the keep-alive with it. Progress said after the turn has
+// answered — a file that was not produced, or one too large to relay — belongs to the answer
+// and is said as the same type, because a thought after a response reopens the session.
+//
 // A ref with no session is a turn the poller started, and is answered with a comment.
 func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	issueID, _, _, sessionID, err := ParseSessionRef(ref)
@@ -431,33 +532,30 @@ func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound
 	if sessionID == "" {
 		return s.comments.Post(ctx, ref, out)
 	}
+	st := s.session(sessionID)
+	if out.Type == conductor.OutProgress && out.Text == conductor.Placeholder {
+		s.turnStarted(sessionID, st)
+	}
+	s.linkTask(ctx, sessionID, st, out.TaskID)
 	content, ephemeral := activityFor(out)
+	s.mu.Lock()
+	if closing := st.closing; out.Type == conductor.OutProgress && closing != "" {
+		content, ephemeral = ActivityContent{Type: closing, Body: content.Body}, false
+	}
+	s.mu.Unlock()
 	if strings.TrimSpace(content.Body) == "" {
 		return "", nil
 	}
-	id, err := s.client.CreateAgentActivity(ctx, sessionID, content, ephemeral)
+	id, err := s.send(ctx, sessionID, st, content, ephemeral, out.TaskID, false)
 	if err != nil {
 		return "", fmt.Errorf("linear: post a %s in session %s on %s: %w", content.Type, sessionID, issueID, err)
 	}
-	st := s.turn(ref)
-	s.mu.Lock()
-	switch content.Type {
-	case ActivityThought:
-		st.lastThought = s.now()
-	case ActivityResponse, ActivityError:
-		st.closing = content.Type
-	}
-	if out.TaskID != "" {
-		st.taskID = out.TaskID
-	}
-	s.mu.Unlock()
 	return id, nil
 }
 
 // Edit replaces a progress post with a newer one. An activity cannot be edited, but an
-// ephemeral thought is replaced by the next activity, which is the same thing on screen. An
-// edit inside EditThrottle of the last thought is dropped: the next one, or the answer,
-// supersedes it, as an edit of the poller's working comment is.
+// ephemeral thought is replaced by the next activity, which is the same thing on screen. It
+// shares ActivityThrottle with the turn's tool calls, newest first.
 func (s *AppSource) Edit(ctx context.Context, ref, msgID string, out conductor.Outbound) error {
 	_, _, _, sessionID, err := ParseSessionRef(ref)
 	if err != nil {
@@ -466,21 +564,43 @@ func (s *AppSource) Edit(ctx context.Context, ref, msgID string, out conductor.O
 	if sessionID == "" {
 		return s.comments.Edit(ctx, ref, msgID, out)
 	}
-	st := s.turn(ref)
-	s.mu.Lock()
-	if s.now().Sub(st.lastThought) < EditThrottle {
-		s.mu.Unlock()
+	st := s.session(sessionID)
+	s.linkTask(ctx, sessionID, st, out.TaskID)
+	body := thoughtText(out.Text)
+	if body == "" {
 		return nil
 	}
-	s.mu.Unlock()
-	out.Type = conductor.OutProgress
-	_, err = s.Post(ctx, ref, out)
-	return err
+	return s.throttled(ctx, sessionID, st, ActivityContent{Type: ActivityThought, Body: body}, out.TaskID)
 }
 
-// React has nothing to send into a session: Linear derives the session's state from its last
-// activity, so the answer or the error already said how the turn went. A ref with no session
-// reacts as the poller does.
+// PostActivity implements conductor.ActivityPoster: one tool call as an ephemeral action, or
+// one piece of reasoning as an ephemeral thought. They replace each other on screen, so a
+// session shows what the turn is doing now rather than a trail of it — which is why Linear,
+// unlike a comment thread, can be told. A turn the poller started is told nothing.
+func (s *AppSource) PostActivity(ctx context.Context, ref string, out conductor.Outbound) error {
+	_, _, _, sessionID, err := ParseSessionRef(ref)
+	if err != nil || sessionID == "" {
+		return err
+	}
+	content, ok := actionFor(out.Text)
+	if !ok {
+		return nil
+	}
+	st := s.session(sessionID)
+	s.linkTask(ctx, sessionID, st, out.TaskID)
+	return s.throttled(ctx, sessionID, st, content, out.TaskID)
+}
+
+// React shows a turn's state where Linear has somewhere to show it. The session's own state is
+// Linear's to derive from the last activity, so the answer or the error already says how a
+// turn went; what a reaction moves here is the source's own bookkeeping.
+//
+//   - working is a turn working, so it is kept alive.
+//   - awaiting is a question waiting for a person, which is not kept alive: a thought would
+//     tell Linear the agent is working when it is waiting.
+//   - done and failed end the turn.
+//
+// A ref with no session reacts as the poller does.
 func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reaction) error {
 	_, _, _, sessionID, err := ParseSessionRef(ref)
 	if err != nil {
@@ -490,8 +610,32 @@ func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reacti
 		return s.comments.React(ctx, ref, kind)
 	}
 	switch kind {
-	case conductor.ReactionWorking, conductor.ReactionDone, conductor.ReactionFailed,
-		conductor.ReactionAwaiting, conductor.ReactionRefused:
+	case conductor.ReactionWorking:
+		st := s.session(sessionID)
+		s.mu.Lock()
+		if st.stopped {
+			// The stopped turn, unparking as it unwinds. It is not working.
+			s.mu.Unlock()
+			return nil
+		}
+		st.running = true
+		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
+		s.mu.Unlock()
+		return nil
+	case conductor.ReactionAwaiting:
+		st := s.session(sessionID)
+		s.mu.Lock()
+		st.running = false
+		s.disarmLocked(st)
+		s.mu.Unlock()
+		return nil
+	case conductor.ReactionDone, conductor.ReactionFailed:
+		st := s.session(sessionID)
+		s.mu.Lock()
+		s.endTurnLocked(st)
+		s.mu.Unlock()
+		return nil
+	case conductor.ReactionRefused:
 		return nil
 	default:
 		return fmt.Errorf("linear: %q is not a reaction", kind)
@@ -516,8 +660,13 @@ func (s *AppSource) Attach(ctx context.Context, ref string, file conductor.Attac
 	case file.Body == nil:
 		return fmt.Errorf("linear: attachment %q has no body", file.Name)
 	}
-	st := s.turn(ref)
+	st := s.session(sessionID)
 	s.mu.Lock()
+	if s.refusedLocked(st, file.TaskID) {
+		// Nothing is uploaded for a turn that was stopped.
+		s.mu.Unlock()
+		return nil
+	}
 	taskID, closing := firstNonEmpty(file.TaskID, st.taskID), st.closing
 	s.mu.Unlock()
 
@@ -539,16 +688,336 @@ func (s *AppSource) Attach(ctx context.Context, ref string, file conductor.Attac
 	return err
 }
 
-// turn returns the bookkeeping for a ref, creating it on first use.
-func (s *AppSource) turn(ref string) *appTurn {
+// LinkPullRequests implements the conductor's optional pull-request half of Source: each
+// pull request a turn's answer named is added to the session's links, beside the task. Linear
+// shows them by the session, so whoever delegated the issue finds the work without reading
+// the answer for a URL.
+func (s *AppSource) LinkPullRequests(ctx context.Context, ref string, prs []conductor.PullRequest) error {
+	_, _, _, sessionID, err := ParseSessionRef(ref)
+	if err != nil || sessionID == "" {
+		return err
+	}
+	st := s.session(sessionID)
+	var links []ExternalURL
+	s.mu.Lock()
+	if st.stopped {
+		s.mu.Unlock()
+		return nil
+	}
+	for _, pr := range prs {
+		if pr.URL == "" || st.linked[pr.URL] {
+			continue
+		}
+		st.linked[pr.URL] = true
+		links = append(links, ExternalURL{Label: pullRequestLinkLabel, URL: pr.URL})
+	}
+	s.mu.Unlock()
+	if err := s.client.AddSessionLinks(ctx, sessionID, links...); err != nil {
+		return fmt.Errorf("linear: link pull requests to session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// one session's bookkeeping
+// ---------------------------------------------------------------------------
+
+// session returns the bookkeeping for a session, creating it on first use.
+func (s *AppSource) session(sessionID string) *appSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := s.turns[ref]
+	st := s.sessions[sessionID]
 	if st == nil {
-		st = &appTurn{}
-		s.turns[ref] = st
+		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}}
+		s.sessions[sessionID] = st
 	}
 	return st
+}
+
+// turnStarted is the placeholder of a new turn: whatever the last one ended on, this one has
+// not ended. It is also the end of a stop: the
+// conductor runs a session's turns one at a time, so the stopped turn has finished by now.
+func (s *AppSource) turnStarted(sessionID string, st *appSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st.stopped = false
+	st.closing = ""
+	st.running = true
+	st.lastActivity = s.now()
+	s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
+}
+
+// endTurnLocked is a turn that is not working any more: answered, failed or stopped. Nothing
+// it held back is said, and it is not kept alive. The caller holds s.mu.
+func (s *AppSource) endTurnLocked(st *appSession) {
+	st.running = false
+	s.disarmLocked(st)
+}
+
+// disarmLocked cancels both of a session's timers and forgets what the throttle held. The
+// caller holds s.mu.
+func (s *AppSource) disarmLocked(st *appSession) {
+	st.held, st.heldTask = nil, ""
+	if st.flush != nil {
+		st.flush()
+		st.flush = nil
+	}
+	st.flushGen++
+	if st.keepAlive != nil {
+		st.keepAlive()
+		st.keepAlive = nil
+	}
+	st.keepAliveGen++
+}
+
+// refusedLocked reports whether something from taskID may not be said in the session: it was
+// stopped, and this is the stopped turn, or a task a stop already named. A task heard of while
+// the session is stopped is the stopped turn's, and is remembered as stopped. The caller holds
+// s.mu.
+func (s *AppSource) refusedLocked(st *appSession, taskID string) bool {
+	if taskID != "" && st.stoppedTasks[taskID] {
+		return true
+	}
+	if !st.stopped {
+		return false
+	}
+	if taskID != "" {
+		st.stoppedTasks[taskID] = true
+	}
+	return true
+}
+
+// send posts one activity into a session and records what it did to the session: an answer
+// or a failure ends the turn, a question parks it. It is the one place activities are posted
+// from, so the checks that may stop one — a stopped turn, an ephemeral one after the answer —
+// are made here, under st.send, against the session as it is at that moment. closing is the
+// source's own last word after a stop, and is the one thing a stopped session takes.
+func (s *AppSource) send(
+	ctx context.Context, sessionID string, st *appSession, content ActivityContent, ephemeral bool,
+	taskID string, closing bool,
+) (string, error) {
+	st.send.Lock()
+	defer st.send.Unlock()
+	s.mu.Lock()
+	refused := !closing && s.refusedLocked(st, taskID)
+	late := ephemeral && st.closing != ""
+	s.mu.Unlock()
+	if refused || late {
+		s.logger.DebugContext(ctx, "not posting into a linear session that was stopped or has answered",
+			"session", sessionID, "type", content.Type, "stopped", refused)
+		return "", nil
+	}
+	if taskID != "" {
+		s.mu.Lock()
+		st.taskID = taskID
+		s.mu.Unlock()
+	}
+	id, err := s.client.CreateAgentActivity(ctx, sessionID, content, ephemeral)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	st.lastActivity = now
+	if ephemeral {
+		st.lastEphemeral = now
+	}
+	switch content.Type {
+	case ActivityResponse, ActivityError:
+		st.closing = content.Type
+		s.endTurnLocked(st)
+	case ActivityElicitation:
+		// Waiting for a person. Whatever was held is older than the question, and the turn
+		// is not working until somebody answers.
+		st.running = false
+		s.disarmLocked(st)
+	}
+	return id, nil
+}
+
+// throttled posts an ephemeral activity, or holds it when the session had one inside
+// ActivityThrottle. Only the newest held one is posted, when the window closes; an answer,
+// a question or a stop before then drops it.
+func (s *AppSource) throttled(
+	ctx context.Context, sessionID string, st *appSession, content ActivityContent, taskID string,
+) error {
+	s.mu.Lock()
+	if s.refusedLocked(st, taskID) || st.closing != "" {
+		s.mu.Unlock()
+		return nil
+	}
+	if wait := ActivityThrottle - s.now().Sub(st.lastEphemeral); wait > 0 {
+		st.held, st.heldTask = &content, taskID
+		s.armFlushLocked(sessionID, st, wait)
+		s.mu.Unlock()
+		return nil
+	}
+	st.held, st.heldTask = nil, ""
+	s.mu.Unlock()
+	_, err := s.send(ctx, sessionID, st, content, true, taskID, false)
+	if err != nil {
+		return fmt.Errorf("linear: post a %s in session %s: %w", content.Type, sessionID, err)
+	}
+	return nil
+}
+
+// armFlushLocked has the held activity posted in d, unless a flush is already due. The
+// caller holds s.mu.
+func (s *AppSource) armFlushLocked(sessionID string, st *appSession, d time.Duration) {
+	if st.flush != nil || s.stopped {
+		return
+	}
+	st.flushGen++
+	gen := st.flushGen
+	st.flush = s.afterFunc(d, func() { s.flushHeld(sessionID, st, gen) })
+}
+
+// flushHeld posts what the throttle held, once its window has closed.
+func (s *AppSource) flushHeld(sessionID string, st *appSession, gen int) {
+	s.mu.Lock()
+	if gen != st.flushGen {
+		// Cancelled, and something has been armed since.
+		s.mu.Unlock()
+		return
+	}
+	st.flush = nil
+	held, taskID := st.held, st.heldTask
+	if held == nil || s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	if wait := ActivityThrottle - s.now().Sub(st.lastEphemeral); wait > 0 {
+		// Something ephemeral went out directly since this was armed.
+		s.armFlushLocked(sessionID, st, wait)
+		s.mu.Unlock()
+		return
+	}
+	st.held, st.heldTask = nil, ""
+	s.wg.Add(1)
+	s.mu.Unlock()
+	defer s.wg.Done()
+	if _, err := s.send(s.work, sessionID, st, *held, true, taskID, false); err != nil {
+		s.logger.WarnContext(s.work, "linear: posting a held activity failed", "session", sessionID, "error", err)
+	}
+}
+
+// armKeepAliveLocked has the session checked for silence in d, unless a check is already
+// due. The caller holds s.mu.
+func (s *AppSource) armKeepAliveLocked(sessionID string, st *appSession, d time.Duration) {
+	if st.keepAlive != nil || s.stopped {
+		return
+	}
+	st.keepAliveGen++
+	gen := st.keepAliveGen
+	st.keepAlive = s.afterFunc(d, func() { s.keepAliveFired(sessionID, st, gen) })
+}
+
+// keepAliveFired says something in a running turn that has said nothing for KeepAliveAfter,
+// so Linear does not mark the session stale, and checks again later. A turn that said
+// something since is checked again KeepAliveAfter after that. A turn that is not running —
+// answered, failed, waiting on a question, stopped — is not checked again until it runs.
+func (s *AppSource) keepAliveFired(sessionID string, st *appSession, gen int) {
+	s.mu.Lock()
+	if gen != st.keepAliveGen {
+		s.mu.Unlock()
+		return
+	}
+	st.keepAlive = nil
+	if s.stopped || !st.running || st.stopped {
+		s.mu.Unlock()
+		return
+	}
+	if idle := s.now().Sub(st.lastActivity); idle < KeepAliveAfter {
+		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter-idle)
+		s.mu.Unlock()
+		return
+	}
+	s.wg.Add(1)
+	s.mu.Unlock()
+	defer s.wg.Done()
+	if _, err := s.send(s.work, sessionID, st,
+		ActivityContent{Type: ActivityThought, Body: keepAliveText}, true, "", false); err != nil {
+		s.logger.WarnContext(s.work, "linear: keeping a session alive failed", "session", sessionID, "error", err)
+	}
+	s.mu.Lock()
+	if st.running && !st.stopped {
+		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
+	}
+	s.mu.Unlock()
+}
+
+// linkTask adds the Podium task to the session's links the first time the session hears of
+// it, which is the first thing the turn says once its task exists: the conductor posts the
+// placeholder before there is one.
+func (s *AppSource) linkTask(ctx context.Context, sessionID string, st *appSession, taskID string) {
+	if taskID == "" {
+		return
+	}
+	url := s.comments.taskURL(taskID)
+	s.mu.Lock()
+	if url == "" || st.linked[url] || s.refusedLocked(st, taskID) {
+		s.mu.Unlock()
+		return
+	}
+	st.linked[url] = true
+	s.mu.Unlock()
+	if err := s.client.AddSessionLinks(ctx, sessionID, ExternalURL{Label: taskLinkLabel, URL: url}); err != nil {
+		// The answer names the task too, so a link that did not land costs a click.
+		s.logger.WarnContext(ctx, "linear: linking the task to the session failed",
+			"session", sessionID, "task_id", taskID, "error", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stop
+// ---------------------------------------------------------------------------
+
+// stopping marks a session stopped the moment a Stop arrives, before the conductor has been
+// asked to do anything: from here on nothing the turn says is posted. Prompts of the session
+// still waiting to reach the conductor are dropped, since they were sent before the Stop.
+func (s *AppSource) stopping(sessionID string) {
+	st := s.session(sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st.stopped = true
+	if st.taskID != "" {
+		st.stoppedTasks[st.taskID] = true
+	}
+	s.endTurnLocked(st)
+	if _, draining := s.queues[sessionID]; draining {
+		s.queues[sessionID] = nil
+	}
+}
+
+// closeStopped asks the conductor to stop the session's work and closes the session with one
+// response, as Linear requires of an agent after a Stop: "Stopped.", or that nothing was
+// running. A stop that failed is closed with an error instead, and the session stays stopped:
+// the person asked for nothing more to happen in it.
+func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
+	stopped, err := s.stopTurn(ctx, SessionKey(sessionID))
+	content := ActivityContent{Type: ActivityResponse, Body: stoppedText}
+	switch {
+	case err != nil:
+		s.logger.ErrorContext(ctx, "linear: stopping a session's turn failed", "session", sessionID, "error", err)
+		content = ActivityContent{Type: ActivityError, Body: cantStopText}
+	case !stopped:
+		content.Body = idleStopText
+	}
+	st := s.session(sessionID)
+	s.mu.Lock()
+	// Marked again rather than left as stopping marked it: a turn that was starting as the
+	// Stop arrived may have posted its placeholder since, which ends a stop, and it is that
+	// turn the conductor just cancelled.
+	st.stopped = err != nil || stopped
+	if st.stopped && st.taskID != "" {
+		st.stoppedTasks[st.taskID] = true
+	}
+	s.endTurnLocked(st)
+	s.mu.Unlock()
+	if _, err := s.send(ctx, sessionID, st, content, false, "", true); err != nil {
+		s.logger.WarnContext(ctx, "linear: closing a stopped session failed", "session", sessionID, "error", err)
+	}
 }
 
 // activityFor is the activity an Outbound becomes, and whether it is ephemeral. A final and

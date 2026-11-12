@@ -53,6 +53,10 @@ type appHarness struct {
 	// pending is how many events were already waiting for the conductor each time an
 	// activity was posted, in order. It is how a test sees the acknowledgement go first.
 	pending []int
+	// stops is every source key the conductor was asked to stop, and stopAnswer what it
+	// answers. Nil answers that something was stopped.
+	stops      []string
+	stopAnswer func(key string) (bool, error)
 }
 
 type lockedBuffer struct {
@@ -101,6 +105,16 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 		Metrics:        h.metrics,
 		Logger:         slog.New(slog.NewTextHandler(h.log, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Clock:          h.clock.Now,
+		AfterFunc:      h.clock.AfterFunc,
+		Stop: func(_ context.Context, key string) (bool, error) {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.stops = append(h.stops, key)
+			if h.stopAnswer == nil {
+				return true, nil
+			}
+			return h.stopAnswer(key)
+		},
 	}
 	for _, m := range mutate {
 		m(&opts)
@@ -510,19 +524,6 @@ func TestPromptsInOneSessionKeepTheirOrder(t *testing.T) {
 	assert.Equal(t, []string{"EME-5 — Test issue", "first", "second", "third"}, texts)
 }
 
-// A stop asks for a turn to be cancelled, which this source cannot do yet. It must not start
-// a turn of its own.
-func TestAStopStartsNothing(t *testing.T) {
-	h := newAppHarness(t)
-	rec := h.deliver(h.fixture(t, "session_prompted_stop"), "delivery-1")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	h.noEvent(t)
-	assert.Empty(t, h.activities())
-	assert.Contains(t, h.log.String(), "level=INFO")
-	assert.Contains(t, h.log.String(), `reason="stop signal"`)
-	assert.Contains(t, h.log.String(), "signal=stop")
-}
-
 // Every delegation and mention also arrives as a notification, which would start it twice.
 func TestANotificationStartsNothing(t *testing.T) {
 	for _, name := range []string{"notification_assigned", "notification_comment_mention"} {
@@ -629,37 +630,6 @@ func TestEachKindOfPostIsTheMatchingActivity(t *testing.T) {
 			assert.Empty(t, h.stub.callsOf("PodiumAddComment"), "a session is answered with activities, not comments")
 		})
 	}
-}
-
-// A progress edit is a new ephemeral thought, which replaces the last one on screen, at most
-// one every EditThrottle.
-func TestAProgressEditIsANewThoughtThrottled(t *testing.T) {
-	h := newAppHarness(t)
-	ctx := context.Background()
-	id, err := h.src.Post(ctx, sessionRef(), conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
-	require.NoError(t, err)
-
-	require.NoError(t, h.src.Edit(ctx, sessionRef(), id, conductor.Outbound{Type: conductor.OutProgress, Text: "⏳ one"}))
-	assert.Len(t, h.activities(), 1, "inside the throttle the edit is superseded")
-	h.clock.advance(EditThrottle)
-	require.NoError(t, h.src.Edit(ctx, sessionRef(), id, conductor.Outbound{Type: conductor.OutProgress, Text: "⏳ two"}))
-	acts := h.activities()
-	require.Len(t, acts, 2)
-	assert.Equal(t, map[string]any{"type": "thought", "body": "two"}, acts[1]["content"])
-	assert.Equal(t, true, acts[1]["ephemeral"])
-}
-
-// The session's state is Linear's to derive from the last activity: a reaction sends nothing.
-func TestAReactionSendsNothingIntoASession(t *testing.T) {
-	h := newAppHarness(t)
-	for _, r := range []conductor.Reaction{
-		conductor.ReactionWorking, conductor.ReactionDone, conductor.ReactionFailed,
-		conductor.ReactionAwaiting, conductor.ReactionRefused,
-	} {
-		require.NoError(t, h.src.React(context.Background(), sessionRef(), r))
-	}
-	assert.Empty(t, h.stub.seen())
-	assert.Error(t, h.src.React(context.Background(), sessionRef(), "sparkles"))
 }
 
 // A turn the poller started before the app took over has a three-part ref. It is answered on
