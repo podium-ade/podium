@@ -74,3 +74,18 @@ func TestARedactedLinearRequestLogsNoSecret(t *testing.T) {
 	assert.Contains(t, out, "client_secret=[redacted]")
 	assert.Contains(t, out, "webhook_secret=[redacted]")
 }
+
+func TestLinearViewSaysWhenLinearRevokedTheApp(t *testing.T) {
+	at := time.Date(2026, 11, 12, 21, 0, 0, 0, time.UTC)
+	saved := &connections.Linear{
+		ClientID: "client-1", ClientSecret: "lsec-not-real", WebhookSecret: "lin_wh_not-real",
+		WebhookListen: "0.0.0.0:8091", RevokedAt: &at,
+	}
+	running := connections.Overlay(config.Config{}, nil, nil, saved)
+	out := linearView(config.Config{}, running, saved)
+	assert.True(t, out.GetRevokedAt().AsTime().Equal(at))
+	assert.True(t, out.GetConfigured(), "a revoked app is still the saved one")
+
+	saved.RevokedAt = nil
+	assert.Nil(t, linearView(config.Config{}, running, saved).GetRevokedAt())
+}

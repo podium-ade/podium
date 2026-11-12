@@ -410,6 +410,9 @@ func linearView(env, running config.Config, saved *connections.Linear) *agentv1.
 		if !saved.SetAt.IsZero() {
 			out.SetAt = timestamppb.New(saved.SetAt)
 		}
+		if saved.RevokedAt != nil {
+			out.RevokedAt = timestamppb.New(*saved.RevokedAt)
+		}
 		out.Configured = saved.ClientID != "" && saved.ClientSecret != ""
 	}
 	out.RestartRequired = connections.LinearDiffers(config.Config{}, running, saved)

@@ -869,6 +869,10 @@ message LinearConnection {
   // PODIUM_AGENT_LINEAR_API_KEY: the key is set and no app is in force. A saved app turns
   // the poller off, and clearing it brings the poller back.
   bool polling = 16;
+  // revoked_at is when Linear said the saved app was revoked in its workspace. Nothing
+  // starts from Linear until the app is authorized there again and saved here, which
+  // clears it. Unset when the app has not been revoked.
+  google.protobuf.Timestamp revoked_at = 17;
 }
 
 message GetConnectionsResponse {
