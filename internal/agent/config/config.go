@@ -264,14 +264,15 @@ type Config struct {
 	// every turn's container gets it. SENSITIVE: never log it.
 	MemoryAPIKey string
 	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
-	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
-	// turns the Linear source off entirely. SENSITIVE: never log it.
+	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). It is the
+	// poller's, which runs only while no Linear app is saved. Empty turns the poller off.
+	// SENSITIVE: never log it.
 	LinearAPIKey string
 	// LinearURL is PODIUM_AGENT_LINEAR_URL, default DefaultLinearURL.
 	LinearURL string
 	// LinearPollInterval is PODIUM_AGENT_LINEAR_POLL_INTERVAL, default 30s, floor 10s.
-	// Linear is polled and never listened to: the conductor dials out, like every other
-	// thing on this host.
+	// The poller dials out, like every other thing on this host. A saved Linear app is
+	// listened to instead, on its webhook.
 	LinearPollInterval time.Duration
 	// LinearClientID is the Linear agent app's OAuth client id, saved under Settings →
 	// Connections. It is not read from the environment: PODIUM_AGENT_LINEAR_API_KEY is
@@ -481,13 +482,13 @@ func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
 }
 
-// LinearEnabled reports whether the Linear source should be started. One variable turns it
-// on: an API key belonging to the bot user.
+// LinearEnabled reports whether the poller's key is set: an API key belonging to the bot
+// user. A saved app still wins: the poller runs only while LinearAppEnabled is false.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
 
 // LinearAppEnabled reports whether a Linear agent app is saved: a client id and its
-// secret. Nothing runs on it yet. It does not turn the poller off, because the webhook
-// source that will replace the poller is not built.
+// secret. When it is, the app's webhooks run and the poller does not, whatever
+// LinearEnabled says: the two would start every ticket twice.
 func (c Config) LinearAppEnabled() bool {
 	return c.LinearClientID != "" && c.LinearClientSecret != ""
 }

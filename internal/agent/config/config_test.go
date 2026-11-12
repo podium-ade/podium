@@ -492,7 +492,8 @@ func linearApp(c *Config) {
 	c.LinearWebhookListen = "0.0.0.0:8091"
 }
 
-// The saved app is its own switch: it does not turn the poller on or off.
+// The saved app and the poller's key are separate settings. Which of the two runs is decided
+// where the source is built: the app, when one is saved.
 func TestTheLinearAppAndThePollerAreSeparate(t *testing.T) {
 	cfg := valid(t)
 	assert.False(t, cfg.LinearAppEnabled())
@@ -502,7 +503,7 @@ func TestTheLinearAppAndThePollerAreSeparate(t *testing.T) {
 	assert.False(t, cfg.LinearEnabled(), "the app is not the poller's key")
 
 	cfg.LinearAPIKey = "lin_api_key"
-	assert.True(t, cfg.LinearEnabled(), "the poller keeps running beside a saved app")
+	assert.True(t, cfg.LinearEnabled(), "the key is still read; a saved app is what keeps the poller off")
 }
 
 func TestAHalfConfiguredLinearAppIsRefused(t *testing.T) {
