@@ -371,6 +371,33 @@ func TestSelect(t *testing.T) {
 		assert.Empty(t, sel.Playbook.Name)
 		assert.Equal(t, "hello", sel.Instruction)
 	})
+
+	// A Linear agent session runs the linear: true playbook unless somebody named another.
+	t.Run("nothing else picked one, so the source's default runs", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "  look at this  "})
+		assert.Equal(t, "coder", sel.Playbook.Name)
+		assert.Equal(t, "look at this", sel.Instruction)
+		assert.False(t, sel.Explicit, "a default is not somebody naming a playbook")
+	})
+
+	t.Run("a /playbook prefix beats the source's default", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "/general what is this"})
+		assert.Equal(t, "general", sel.Playbook.Name)
+		assert.Equal(t, "what is this", sel.Instruction)
+		assert.True(t, sel.Explicit)
+	})
+
+	t.Run("an unknown /name falls through to the source's default with the text intact", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "/shrug hi"})
+		assert.Equal(t, "coder", sel.Playbook.Name)
+		assert.Equal(t, "/shrug hi", sel.Instruction)
+		assert.False(t, sel.Explicit)
+	})
+
+	t.Run("a default that is not loaded selects nothing", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "gone", Text: "hello"})
+		assert.Empty(t, sel.Playbook.Name)
+	})
 }
 
 func TestPlaybookPrefixRE(t *testing.T) {
@@ -382,9 +409,9 @@ func TestPlaybookPrefixRE(t *testing.T) {
 	}
 }
 
-// TestExactlyOnePlaybookMayTakeLinearTickets. Two is refused at load: a ticket has no channel
-// and no /playbook prefix, so there is nothing to disambiguate two claims with, and routing
-// that resolved by map iteration order would be worse than a refusal.
+// TestExactlyOnePlaybookMayTakeLinearTickets. Two is refused at load: a polled ticket and a
+// delegated issue name no playbook, so there is nothing to disambiguate two claims with, and
+// routing that resolved by map iteration order would be worse than a refusal.
 func TestExactlyOnePlaybookMayTakeLinearTickets(t *testing.T) {
 	files := base()
 	files["playbooks/coder.yaml"] = goodPlaybook + "linear: true\n"
