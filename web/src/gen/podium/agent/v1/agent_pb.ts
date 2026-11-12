@@ -2384,8 +2384,9 @@ export type LinearConnection = Message<"podium.agent.v1.LinearConnection"> & {
   restartRequired: boolean;
 
   /**
-   * polling is true when PODIUM_AGENT_LINEAR_API_KEY is set, so this conductor polls
-   * Linear for assigned issues with that key. A saved app does not change that yet.
+   * polling is true when this conductor polls Linear for assigned issues with
+   * PODIUM_AGENT_LINEAR_API_KEY: the key is set and no app is in force. A saved app turns
+   * the poller off, and clearing it brings the poller back.
    *
    * @generated from field: bool polling = 16;
    */

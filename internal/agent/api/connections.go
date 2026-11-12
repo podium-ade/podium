@@ -171,8 +171,8 @@ func (s *AgentService) ClearGitHubConnection(
 }
 
 // SetLinearConnection validates the app the way start-up does, signs in to Linear with it,
-// stores it with who it signed in as, and records it as running. Nothing is started on it
-// yet: the webhook source comes next.
+// stores it with who it signed in as, and switches the conductor to it: its webhooks start,
+// and the poller, if the environment runs one, stops.
 func (s *AgentService) SetLinearConnection(
 	ctx context.Context, req *connect.Request[agentv1.SetLinearConnectionRequest],
 ) (*connect.Response[agentv1.SetLinearConnectionResponse], error) {
@@ -222,7 +222,8 @@ func (s *AgentService) SetLinearConnection(
 	}), nil
 }
 
-// ClearLinearConnection drops the saved app and its access token.
+// ClearLinearConnection drops the saved app and its access token. The poller comes back if
+// PODIUM_AGENT_LINEAR_API_KEY is set.
 func (s *AgentService) ClearLinearConnection(
 	ctx context.Context, _ *connect.Request[agentv1.ClearLinearConnectionRequest],
 ) (*connect.Response[agentv1.ClearLinearConnectionResponse], error) {
@@ -388,8 +389,12 @@ func githubView(running config.Config, saved *connections.GitHub, filters connec
 
 func linearView(env, running config.Config, saved *connections.Linear) *agentv1.LinearConnection {
 	// The Linear app is not read from the environment. The environment's key is the
-	// poller's, and polling says whether it is set.
-	out := &agentv1.LinearConnection{Available: true, Polling: env.LinearEnabled()}
+	// poller's, and it polls only while no app is in force: the two would start every
+	// ticket twice.
+	out := &agentv1.LinearConnection{
+		Available: true,
+		Polling:   env.LinearEnabled() && !running.LinearAppEnabled(),
+	}
 	if saved != nil {
 		out.Source = connections.SourceSaved
 		out.ClientId = saved.ClientID
