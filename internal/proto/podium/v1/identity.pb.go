@@ -154,9 +154,13 @@ type WhoAmIResponse struct {
 	ClaimDomain string `protobuf:"bytes,13,opt,name=claim_domain,json=claimDomain,proto3" json:"claim_domain,omitempty"`
 	// picture_url is an https avatar from Google Workspace sign-in. Empty for the local
 	// token, a node, or a human whose profile has no photo.
-	PictureUrl    string `protobuf:"bytes,14,opt,name=picture_url,json=pictureUrl,proto3" json:"picture_url,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PictureUrl string `protobuf:"bytes,14,opt,name=picture_url,json=pictureUrl,proto3" json:"picture_url,omitempty"`
+	// organization_name and deployment_name are OrganizationService's names, empty when
+	// never set. The UI shows deployment_name where it would say "Podium".
+	OrganizationName string `protobuf:"bytes,15,opt,name=organization_name,json=organizationName,proto3" json:"organization_name,omitempty"`
+	DeploymentName   string `protobuf:"bytes,16,opt,name=deployment_name,json=deploymentName,proto3" json:"deployment_name,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WhoAmIResponse) Reset() {
@@ -287,6 +291,20 @@ func (x *WhoAmIResponse) GetPictureUrl() string {
 	return ""
 }
 
+func (x *WhoAmIResponse) GetOrganizationName() string {
+	if x != nil {
+		return x.OrganizationName
+	}
+	return ""
+}
+
+func (x *WhoAmIResponse) GetDeploymentName() string {
+	if x != nil {
+		return x.DeploymentName
+	}
+	return ""
+}
+
 type ClaimRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// hosted_domain is the Workspace domain the caller is confirming. It must match the
@@ -390,7 +408,7 @@ var File_podium_v1_identity_proto protoreflect.FileDescriptor
 const file_podium_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"\x18podium/v1/identity.proto\x12\tpodium.v1\"\x0f\n" +
-	"\rWhoAmIRequest\"\xe1\x03\n" +
+	"\rWhoAmIRequest\"\xb7\x04\n" +
 	"\x0eWhoAmIResponse\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
@@ -407,7 +425,9 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	"\x13google_auth_enabled\x18\f \x01(\bR\x11googleAuthEnabled\x12!\n" +
 	"\fclaim_domain\x18\r \x01(\tR\vclaimDomain\x12\x1f\n" +
 	"\vpicture_url\x18\x0e \x01(\tR\n" +
-	"pictureUrl\"3\n" +
+	"pictureUrl\x12+\n" +
+	"\x11organization_name\x18\x0f \x01(\tR\x10organizationName\x12'\n" +
+	"\x0fdeployment_name\x18\x10 \x01(\tR\x0edeploymentName\"3\n" +
 	"\fClaimRequest\x12#\n" +
 	"\rhosted_domain\x18\x01 \x01(\tR\fhostedDomain\"S\n" +
 	"\rClaimResponse\x12#\n" +

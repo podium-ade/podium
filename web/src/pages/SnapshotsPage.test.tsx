@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { SnapshotsPage } from "./SnapshotsPage";
+import { Snapshots } from "./SnapshotsPage";
 import { ToastHost } from "../components/Toast";
 
 const listSnapshots = vi.fn();
@@ -36,7 +36,7 @@ function mount(path = "/snapshots") {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
         <ToastHost>
-          <SnapshotsPage />
+          <Snapshots />
         </ToastHost>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -54,7 +54,7 @@ const snap = (id: string, daysOld: number, gib: number, inUse = false) => ({
   inUse,
 });
 
-describe("SnapshotsPage", () => {
+describe("Snapshots", () => {
   beforeEach(() => {
     listSnapshots.mockReset();
     deleteSnapshot.mockReset();

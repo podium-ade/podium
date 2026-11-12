@@ -2,6 +2,7 @@ import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { AgentService } from "../gen/podium/agent/v1/agent_pb";
 import { NodeAdminService } from "../gen/podium/v1/admin_pb";
+import { OrganizationService } from "../gen/podium/v1/organization_pb";
 import { ArtifactService } from "../gen/podium/v1/artifact_pb";
 import { IdentityService } from "../gen/podium/v1/identity_pb";
 import { RegistryService } from "../gen/podium/v1/registry_pb";
@@ -49,6 +50,7 @@ export const sandboxProviders = createClient(SandboxProviderService, transport);
 export const artifacts = createClient(ArtifactService, transport);
 export const snapshots = createClient(SnapshotService, transport);
 export const users = createClient(UserService, transport);
+export const organization = createClient(OrganizationService, transport);
 // The conductor's own service, on the SAME transport: podium-server reverse-proxies
 // /podium.agent.v1.AgentService/ to it, so the bearer interceptor and the 401 re-gate above
 // keep working and the page still only ever talks to its own origin.

@@ -205,6 +205,8 @@ type Conductor struct {
 	store    *store.Store
 	podium   *podium.Client
 	profiles *profiles.Live
+	// brand is the deployment's names, read from podium-server. See branding.go.
+	brand brandCache
 	// sources is guarded by mu: ReplaceSource swaps Slack and GitHub while turns run.
 	sources []Source
 	metrics *Metrics
@@ -1295,6 +1297,7 @@ func (c *Conductor) brief(
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
+	names := c.branding(ctx)
 	// The choice is resolved once by the caller and handed to the brief, the task spec and
 	// the turn row alike. It used to be resolved separately here and in taskSpec, which left
 	// the credential and the model one profile reload apart from disagreeing.
@@ -1305,8 +1308,8 @@ func (c *Conductor) brief(
 		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL, Channel: c.sourceChannel(ctx, ev)},
 		Profile: BriefProfile{
 			Name:         profile.Name,
-			DisplayName:  profile.DisplayName,
-			SystemPrompt: systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt),
+			DisplayName:  displayNameFor(profile.DisplayName, names),
+			SystemPrompt: withBranding(systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt), names),
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},

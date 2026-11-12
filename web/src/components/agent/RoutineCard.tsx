@@ -60,6 +60,7 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
 import { ScheduleField } from "./ScheduleField";
 import { TimezonePicker } from "./TimezonePicker";
+import { useBrand } from "../../lib/brand";
 
 /**
  * RoutineCard sits at the top of a routine's chat: when it runs, how it has been doing, and the
@@ -68,6 +69,7 @@ import { TimezonePicker } from "./TimezonePicker";
  * owner's alone; a system routine's card is shown to the admins who run it, marked as such.
  */
 export function RoutineCard({ chatId }: { chatId: string }) {
+  const brand = useBrand();
   const qc = useQueryClient();
   const toast = useToast();
   const routine = useQuery({
@@ -208,7 +210,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
               data-testid="routine-status"
               className="pl-6 text-xs text-muted tabular-nums"
             >
-              {system ? "Runs as Podium · " : ""}
+              {system ? `Runs as ${brand} · ` : ""}
               {routineStatus(r)}
               {r.lastRunAt ? ` · last ran ${relative(r.lastRunAt)}` : ""}
               {r.idleCount > 0
@@ -620,6 +622,7 @@ export function RoutineDialog({
   onClose: () => void;
   onSave: (draft: RoutineDraft, scope: Scope) => Promise<void>;
 }) {
+  const brand = useBrand();
   const [scope, setScope] = useState<Scope>(fixedScope ?? "personal");
   const system = scope === "system";
   const [name, setName] = useState(initial.name ?? "");
@@ -738,7 +741,7 @@ export function RoutineDialog({
                     className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
                   >
                     {s.scope === "system" ? <ShieldCheck aria-hidden /> : <User aria-hidden />}
-                    {s.label}
+                    {s.scope === "system" ? `${brand} (system)` : s.label}
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
@@ -806,7 +809,7 @@ export function RoutineDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_ASSISTANT}>Podium</SelectItem>
+                  <SelectItem value={DEFAULT_ASSISTANT}>{brand}</SelectItem>
                   {assistants.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.displayName || p.name}
