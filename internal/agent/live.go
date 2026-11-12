@@ -28,10 +28,10 @@ import (
 const checkTimeout = 15 * time.Second
 
 // liveConnections is the half of the conductor Settings → Connections changes: the Slack
-// source, the GitHub review source and the GitHub App turns mint from. Apply swaps them
-// while everything else keeps running, turns in flight included. A turn that started on
-// the old Slack source keeps posting through it, which still works for as long as the old
-// bot token does.
+// source, the GitHub review source, the GitHub App turns mint from, and the Linear source.
+// Apply swaps them while everything else keeps running, turns in flight included. A turn
+// that started on the old Slack source keeps posting through it, which still works for as
+// long as the old bot token does.
 type liveConnections struct {
 	// env is the process configuration before any saved connection was laid over it.
 	env    config.Config
@@ -46,14 +46,31 @@ type liveConnections struct {
 	conductor *conductor.Conductor
 	svc       *api.AgentService
 
+	// linearPlaybook is the playbook Linear runs, the one marked linear: true. Set by New.
+	linearPlaybook func() string
+	// linearMetrics is shared by every Linear source this process builds, because their
+	// collectors are registered once.
+	linearMetrics *agentlinear.Metrics
+	// linearSession and linearCursor are the store, as the poller is allowed to see it.
+	linearSession agentlinear.SessionLookup
+	linearCursor  agentlinear.CursorStore
+
 	mu      sync.Mutex
 	running config.Config
 	slack   *agentslack.Source
 	gh      *ghreview.Source
+	// The Linear source is one of two, never both: each would start every ticket. A saved
+	// app runs its webhooks (linearApp); with none, PODIUM_AGENT_LINEAR_API_KEY runs the
+	// poller (linearPoll). linearRow is the saved app's row, which says who it signed in as.
+	linearApp  *agentlinear.AppSource
+	linearPoll *agentlinear.Source
+	linearRow  *connections.Linear
 	// ctx is Run's, nil before it. stop ends the sources started on it and waits for them
 	// to return, so a webhook listener has let go of its port before a new one binds it.
-	ctx  context.Context
-	stop func()
+	// stopLinear is the same for the Linear source, which is swapped on its own.
+	ctx        context.Context
+	stop       func()
+	stopLinear func()
 }
 
 var _ api.ConnectionApplier = (*liveConnections)(nil)
@@ -109,12 +126,47 @@ func (l *liveConnections) start(ctx context.Context, fatal chan<- error) {
 	defer l.mu.Unlock()
 	l.ctx = ctx
 	l.startLocked(fatal)
+	l.startLinearLocked(fatal)
 }
 
+// startLocked runs Slack and the GitHub review source, which are swapped together.
 func (l *liveConnections) startLocked(fatal chan<- error) {
+	run, stop := l.group(fatal)
+	if l.slack != nil {
+		run(agentslack.Kind, l.slack.Run)
+	}
+	if l.gh != nil {
+		run(ghreview.Kind, l.gh.Run)
+	}
+	l.stop = stop
+}
+
+// startLinearLocked runs the Linear source. The app's webhooks run on every conductor: a
+// delivery reaches whichever one the tunnel sends it to. The poller runs on one at a time,
+// because every one that polled would start the same ticket.
+func (l *liveConnections) startLinearLocked(fatal chan<- error) {
+	run, stop := l.group(fatal)
+	switch {
+	case l.linearApp != nil:
+		run(agentlinear.Kind, l.linearApp.Run)
+	case l.linearPoll != nil:
+		poll := l.linearPoll
+		run(agentlinear.Kind, func(ctx context.Context) error {
+			return l.conductor.WhileLeader(ctx, "source:linear", poll.Run)
+		})
+	}
+	l.stopLinear = stop
+}
+
+// group starts sources on a context of their own. stop ends them and waits for them to
+// return. fatal is where a first start's errors go: a bot that cannot reach Slack at boot
+// fails loudly. A source swapped in later only logs, because Check already tried its
+// credentials and a conductor serving turns should not stop over a connection an operator
+// can fix and save again.
+func (l *liveConnections) group(fatal chan<- error) (run func(string, func(context.Context) error), stop func()) {
 	ctx, cancel := context.WithCancel(l.ctx)
 	var wg sync.WaitGroup
-	run := func(name string, run func(context.Context) error) {
+	run = func(name string, run func(context.Context) error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -129,13 +181,7 @@ func (l *liveConnections) startLocked(fatal chan<- error) {
 			}
 		}()
 	}
-	if l.slack != nil {
-		run(agentslack.Kind, l.slack.Run)
-	}
-	if l.gh != nil {
-		run(ghreview.Kind, l.gh.Run)
-	}
-	l.stop = func() {
+	return run, func() {
 		cancel()
 		wg.Wait()
 	}
@@ -177,6 +223,11 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Ch
 		}
 	}
 	if next.LinearAppEnabled() && connections.LinearDiffers(next, running, nil) {
+		// Refused here rather than found when the source cannot be built: the app would be
+		// saved, the poller turned off, and nothing would answer.
+		if l.linearPlaybook == nil || l.linearPlaybook() == "" {
+			return api.Checked{}, agentlinear.ErrNoPlaybook("then save the Linear app again")
+		}
 		app, err := checkLinearApp(ctx, next)
 		if err != nil {
 			return api.Checked{}, err
@@ -284,7 +335,12 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
+	return l.apply(ctx, next, savedLinear)
+}
 
+// apply switches to next. Everything that changed is built before anything is stopped, so a
+// source that cannot be built leaves the running ones as they were.
+func (l *liveConnections) apply(ctx context.Context, next config.Config, savedLinear *connections.Linear) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	slackChanged := connections.SlackDiffers(next, l.running, nil)
@@ -296,11 +352,26 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 	if l.ctx == nil || l.ctx.Err() != nil {
 		return errors.New("the conductor is not running")
 	}
-	if slackChanged || githubChanged {
-		slack, gh, app, err := l.build(next)
-		if err != nil {
-			return err
+	var (
+		slack     *agentslack.Source
+		gh        *ghreview.Source
+		app       *github.Client
+		linApp    *agentlinear.AppSource
+		linPoll   *agentlinear.Source
+		buildErr  error
+		swapSlack = slackChanged || githubChanged
+	)
+	if swapSlack {
+		if slack, gh, app, buildErr = l.build(next); buildErr != nil {
+			return buildErr
 		}
+	}
+	if linearChanged {
+		if linApp, linPoll, buildErr = l.buildLinear(next, savedLinear); buildErr != nil {
+			return buildErr
+		}
+	}
+	if swapSlack {
 		if err := l.conductor.SetGitHub(app); err != nil {
 			return err
 		}
@@ -321,23 +392,145 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 		l.conductor.ReplaceSource(ghreview.Kind, ghSrc)
 		l.startLocked(nil)
 	}
-	// The Linear app has nothing to start yet: the webhook source that runs on it is the
-	// next step (docs/linear-agent-plan.md, phase 2). It is recorded as running all the
-	// same, so restart_required does not ask for a restart that would change nothing.
-	// Phase 2 builds the source here when linearChanged, stops the poller when an app is
-	// saved, and swaps it in with ReplaceSource the way Slack and GitHub are swapped above.
+	if linearChanged {
+		// The old Linear source lets go of its webhook path before the new one mounts its
+		// own, which may be the same path on the same address.
+		l.stopLinear()
+		l.linearApp, l.linearPoll, l.linearRow = linApp, linPoll, savedLinear
+		l.conductor.ReplaceSource(agentlinear.Kind, l.linearSourceLocked())
+		l.startLinearLocked(nil)
+	}
 	l.running = next
 
 	var dir api.SlackDirectory
 	if l.slack != nil {
 		dir = l.slack
 	}
-	l.svc.SetRunning(next, dir)
+	if l.svc != nil {
+		l.svc.SetRunning(next, dir)
+	}
 	l.logger.InfoContext(ctx, "connections: switched to the saved connections",
 		"slack", l.slack != nil, "github_reviews", l.gh != nil, "github_app", next.GitHubAppEnabled(),
-		"linear_app", next.LinearAppEnabled(),
+		"linear_app", l.linearApp != nil, "linear_polling", l.linearPoll != nil,
 		"slack_changed", slackChanged, "github_changed", githubChanged, "linear_changed", linearChanged)
 	return nil
+}
+
+// linearSource is the Linear source in force, nil when Linear is off.
+func (l *liveConnections) linearSource() conductor.Source {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.linearSourceLocked()
+}
+
+// linearSourceLocked is linearSource as a nil interface when there is none, so ReplaceSource
+// removes the kind rather than adding a source that is not there.
+func (l *liveConnections) linearSourceLocked() conductor.Source {
+	switch {
+	case l.linearApp != nil:
+		return l.linearApp
+	case l.linearPoll != nil:
+		return l.linearPoll
+	}
+	return nil
+}
+
+// buildLinear makes the Linear source cfg asks for: the app's webhooks when an app is saved,
+// whether or not PODIUM_AGENT_LINEAR_API_KEY is set, and otherwise the poller when the key
+// is. Two sources would start every ticket twice, so a saved app wins.
+func (l *liveConnections) buildLinear(
+	cfg config.Config, saved *connections.Linear,
+) (*agentlinear.AppSource, *agentlinear.Source, error) {
+	playbook := l.linearPlaybook
+	if playbook == nil {
+		playbook = func() string { return "" }
+	}
+	switch {
+	case cfg.LinearAppEnabled():
+		if saved == nil {
+			return nil, nil, errors.New("linear: an app is configured but no saved app was read")
+		}
+		app, err := l.newLinearApp(cfg, saved, playbook)
+		return app, nil, err
+	case cfg.LinearEnabled():
+		poll, err := agentlinear.New(agentlinear.Options{
+			APIKey:       cfg.LinearAPIKey,
+			Endpoint:     cfg.LinearURL,
+			PollInterval: cfg.LinearPollInterval,
+			// A ticket has no channel and no /playbook prefix, so the source names the playbook
+			// and the profile's routing rules are bypassed. Zero playbooks claiming Linear is
+			// only a misconfiguration when a key is set, which is exactly here.
+			Playbook: playbook,
+			Logger:   l.logger,
+			Metrics:  l.linearMetrics,
+			TaskURL:  taskURL(cfg),
+			Session:  l.linearSession,
+			Cursor:   l.linearCursor,
+		})
+		return nil, poll, err
+	}
+	return nil, nil, nil
+}
+
+// newLinearApp is the agent app's source, signed in with a token every conductor on this
+// database shares through the vault.
+func (l *liveConnections) newLinearApp(
+	cfg config.Config, saved *connections.Linear, playbook func() string,
+) (*agentlinear.AppSource, error) {
+	opts := agentlinear.TokenSourceOptions{
+		TokenURL:     cfg.LinearTokenURL,
+		ClientID:     cfg.LinearClientID,
+		ClientSecret: cfg.LinearClientSecret,
+		Logger:       l.logger,
+	}
+	if l.vault != nil {
+		clientID := cfg.LinearClientID
+		opts.Load = func(ctx context.Context) (agentlinear.Token, error) {
+			tok, err := connections.LoadLinearToken(ctx, l.vault, clientID)
+			return agentlinear.Token{AccessToken: tok.AccessToken, ExpiresAt: tok.ExpiresAt}, err
+		}
+		opts.Store = func(ctx context.Context, tok agentlinear.Token) error {
+			return connections.StoreLinearToken(ctx, l.vault, connections.LinearToken{
+				ClientID: clientID, AccessToken: tok.AccessToken, ExpiresAt: tok.ExpiresAt,
+			})
+		}
+	}
+	tokens, err := agentlinear.NewTokenSource(opts)
+	if err != nil {
+		return nil, err
+	}
+	client, err := agentlinear.NewClient(agentlinear.ClientOptions{Endpoint: cfg.LinearURL, Tokens: tokens})
+	if err != nil {
+		return nil, err
+	}
+	var serve func(context.Context, string, string, http.Handler) error
+	if l.webhooks != nil {
+		serve = l.webhooks.Serve
+	}
+	return agentlinear.NewApp(agentlinear.AppOptions{
+		Client:         client,
+		WebhookSecret:  cfg.LinearWebhookSecret,
+		Listen:         cfg.LinearWebhookListen,
+		Serve:          serve,
+		AppUserID:      saved.AppUserID,
+		OrganizationID: saved.OrganizationID,
+		AppName:        saved.AppUserName,
+		Playbook:       playbook,
+		TaskURL:        taskURL(cfg),
+		Metrics:        l.linearMetrics,
+		Logger:         l.logger,
+	})
+}
+
+// taskURL renders a link to a task page as a HUMAN reaches the web UI, which is not always
+// how this process reaches the API. Linear uses it only for a fallback attachment link.
+func taskURL(cfg config.Config) func(string) string {
+	return func(taskID string) string {
+		if taskID == "" {
+			return ""
+		}
+		return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
+	}
 }
 
 // githubSource is the GitHub source running now, nil when no App with webhooks is saved.
