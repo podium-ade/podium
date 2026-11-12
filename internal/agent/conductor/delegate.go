@@ -1074,7 +1074,10 @@ func (r *delegationRun) run(ctx context.Context) {
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post})
+		c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, true); note != "" {
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: note})

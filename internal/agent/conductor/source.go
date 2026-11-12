@@ -66,6 +66,13 @@ type Outbound struct {
 	// footer naming it, and its fallback attachment link points at the task's page. It is
 	// NOT part of Text: whether it is shown at all is the source's decision.
 	TaskID string
+	// CancelReason is why the control plane says the task was cancelled, on the failure that
+	// says a task was cancelled, and empty on everything else. It is the stop's own record,
+	// written by the control plane and read back by whichever conductor follows the task, so
+	// a source whose surface answered a stop itself (a Linear agent session's "Stopped.") can
+	// recognise the turn's "This was cancelled" as its own stop and leave it unsaid — on any
+	// conductor, and on an outbox retry after a restart. It is never shown to anybody.
+	CancelReason string
 	// Speaker is who said it. A source that posts everything the same way ignores it.
 	Speaker
 }

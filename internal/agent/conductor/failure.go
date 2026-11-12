@@ -27,6 +27,9 @@ var missingSecretRE = regexp.MustCompile(`missing secret\s+(.*)$`)
 type outcome struct {
 	Status string
 	Post   string
+	// CancelReason is the task's recorded cancel reason, for a cancelled task only. It goes
+	// with Post to the source (Outbound.CancelReason), never into it.
+	CancelReason string
 }
 
 // classify maps a terminal task onto a turn status and a human sentence. It reads only the
@@ -43,8 +46,9 @@ func classify(task *podiumv1.Task, timeout time.Duration) outcome {
 		}
 	case podiumv1.TaskStatus_TASK_STATUS_CANCELLED:
 		return outcome{
-			Status: store.TurnCancelled,
-			Post:   fmt.Sprintf("This was cancelled. Task `%s`.", id),
+			Status:       store.TurnCancelled,
+			Post:         fmt.Sprintf("This was cancelled. Task `%s`.", id),
+			CancelReason: task.GetFailureReason(),
 		}
 	}
 
