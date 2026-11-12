@@ -114,6 +114,10 @@ type Source struct {
 	// me is the bot user, learned once in Run. Its id is the assignee filter and its
 	// comments are the ones that never start a turn.
 	me User
+	// byPosition makes the started state the team's first one of type started, whatever it
+	// is called. It is Linear's own rule for an agent app; the poller keeps looking for a
+	// state called In Progress first, as its setup instructions tell a team to name one.
+	byPosition bool
 
 	mu sync.Mutex
 	// states caches each team's "In Progress" state id for the process's lifetime. A
@@ -638,9 +642,26 @@ func (s *Source) start(ctx context.Context, issueID, teamID string) error {
 	return nil
 }
 
+// startUnlessUnderway moves an issue to its team's started state unless its state already
+// says the work is underway or over: started, completed or cancelled. Linear asks an agent
+// app to do exactly this when it picks an issue up, and never to drag an issue somebody has
+// already moved on back to the start of the board.
+func (s *Source) startUnlessUnderway(ctx context.Context, issueID, teamID string) error {
+	state, team, err := s.client.IssueState(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("linear: read the state of %s: %w", issueID, err)
+	}
+	switch state.Type {
+	case StateTypeStarted, StateTypeCompleted, StateTypeCanceled:
+		return nil
+	}
+	return s.start(ctx, issueID, firstNonEmpty(teamID, team.ID))
+}
+
 // inProgressState resolves and caches a team's In Progress state id: by name first, because
 // that is the convention a team can see, then the lowest-positioned state with
-// type: started, because a renamed column is still the column that means started.
+// type: started, because a renamed column is still the column that means started. With
+// byPosition the name is not looked at.
 func (s *Source) inProgressState(ctx context.Context, teamID string) (string, error) {
 	s.mu.Lock()
 	cached, ok := s.states[teamID]
@@ -655,6 +676,9 @@ func (s *Source) inProgressState(ctx context.Context, teamID string) (string, er
 	}
 	chosen := ""
 	for _, st := range states {
+		if s.byPosition {
+			break
+		}
 		if strings.EqualFold(strings.TrimSpace(st.Name), InProgressStateName) {
 			chosen = st.ID
 			break
@@ -670,9 +694,11 @@ func (s *Source) inProgressState(ctx context.Context, teamID string) (string, er
 		sort.SliceStable(started, func(i, j int) bool { return started[i].Position < started[j].Position })
 		if len(started) > 0 {
 			chosen = started[0].ID
-			s.logger.InfoContext(ctx, "no workflow state is called "+InProgressStateName+
-				"; using the first one of type "+StateTypeStarted,
-				"team_id", teamID, "state", started[0].Name)
+			if !s.byPosition {
+				s.logger.InfoContext(ctx, "no workflow state is called "+InProgressStateName+
+					"; using the first one of type "+StateTypeStarted,
+					"team_id", teamID, "state", started[0].Name)
+			}
 		}
 	}
 	// An empty answer is cached too: the query is the expensive part and the board will
@@ -867,6 +893,24 @@ func SessionRef(issueID, teamID, identifier, sessionID string) string {
 	return Ref(issueID, teamID, identifier) + "/" + sessionID
 }
 
+// delegatedMark is the fifth part of a session ref whose session was opened by delegating the
+// issue to the app, rather than by an @mention.
+const delegatedMark = "delegated"
+
+// DelegatedSessionRef is a SessionRef for a session opened by delegating the issue. Which of
+// the two opened a session decides whether a turn moves the issue, and the ref is where that
+// is kept because it is the one thing that survives a restart with the turn: it is persisted
+// as turns.trigger_ref and inside every queued turn.
+func DelegatedSessionRef(issueID, teamID, identifier, sessionID string) string {
+	return SessionRef(issueID, teamID, identifier, sessionID) + "/" + delegatedMark
+}
+
+// delegatedRef reports whether a ref is a DelegatedSessionRef.
+func delegatedRef(ref string) bool {
+	parts := strings.Split(ref, "/")
+	return len(parts) == 5 && parts[4] == delegatedMark
+}
+
 // ParseRef splits a Ref or a SessionRef, without the session. Only the issue id is
 // required: an issue with no team or no identifier is not something Linear produces, but a
 // ref written by an older version must not make a resumed turn unpostable.
@@ -876,13 +920,15 @@ func ParseRef(ref string) (issueID, teamID, identifier string, err error) {
 }
 
 // ParseSessionRef splits a ref into its parts. The session is empty for a three-part ref:
-// one the poller wrote, which may outlive the poller in a queued or resumed turn.
+// one the poller wrote, which may outlive the poller in a queued or resumed turn. A
+// delegated session's mark is checked and not returned: delegatedRef reads it.
 func ParseSessionRef(ref string) (issueID, teamID, identifier, sessionID string, err error) {
 	parts := strings.Split(ref, "/")
-	if (len(parts) != 3 && len(parts) != 4) || parts[0] == "" {
-		return "", "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier[/session] ref", ref)
+	ok := len(parts) == 3 || len(parts) == 4 || (len(parts) == 5 && parts[4] == delegatedMark)
+	if !ok || parts[0] == "" || (len(parts) > 3 && parts[3] == "") {
+		return "", "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier[/session[/delegated]] ref", ref)
 	}
-	if len(parts) == 4 {
+	if len(parts) >= 4 {
 		sessionID = parts[3]
 	}
 	return parts[0], parts[1], parts[2], sessionID, nil

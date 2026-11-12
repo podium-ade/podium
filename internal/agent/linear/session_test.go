@@ -436,6 +436,88 @@ func TestAStoppedSourceKeepsNothingAlive(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// the issue's state
+// ---------------------------------------------------------------------------
+
+func delegationRef() string {
+	return DelegatedSessionRef(fixtureIssue, fixtureTeam, "EME-5", delegationSession)
+}
+
+// A delegated issue moves to the team's first started state — by position, whatever it is
+// called — when a turn starts working on it.
+func TestADelegatedIssueMovesToTheFirstStartedState(t *testing.T) {
+	h := newAppHarness(t)
+	h.issueIn(StateTypeBacklog)
+	ctx := context.Background()
+	h.startTurnOn(t, delegationRef())
+	require.NoError(t, h.src.React(ctx, delegationRef(), conductor.ReactionWorking))
+
+	moves := h.stub.callsOf("PodiumMoveIssue")
+	require.Len(t, moves, 1)
+	assert.Equal(t, fixtureIssue, moves[0].Vars["id"])
+	assert.Equal(t, "state-doing", moves[0].Vars["stateId"],
+		"the lowest started state, not the one called In Progress further along")
+	assert.Equal(t, fixtureTeam, h.stub.callsOf("PodiumTeamStates")[0].Vars["id"])
+
+	// Resuming after a question is the same turn, and does not look again.
+	require.NoError(t, h.src.React(ctx, delegationRef(), conductor.ReactionWorking))
+	assert.Len(t, h.stub.callsOf("PodiumIssueState"), 1)
+	// The next turn does, and the team's board is remembered.
+	h.startTurnOn(t, delegationRef())
+	require.NoError(t, h.src.React(ctx, delegationRef(), conductor.ReactionWorking))
+	assert.Len(t, h.stub.callsOf("PodiumIssueState"), 2)
+	assert.Len(t, h.stub.callsOf("PodiumTeamStates"), 1)
+}
+
+func TestAnIssueAlreadyUnderwayOrOverIsNotMoved(t *testing.T) {
+	for _, typ := range []string{StateTypeStarted, StateTypeCompleted, StateTypeCanceled} {
+		t.Run(typ, func(t *testing.T) {
+			h := newAppHarness(t)
+			h.issueIn(typ)
+			h.startTurnOn(t, delegationRef())
+			require.NoError(t, h.src.React(context.Background(), delegationRef(), conductor.ReactionWorking))
+			assert.Len(t, h.stub.callsOf("PodiumIssueState"), 1)
+			assert.Empty(t, h.stub.callsOf("PodiumMoveIssue"))
+		})
+	}
+}
+
+// Somebody asking a question in a comment has not asked for the issue to move.
+func TestAMentionDoesNotMoveTheIssue(t *testing.T) {
+	h := newAppHarness(t)
+	h.issueIn(StateTypeBacklog)
+	ref := SessionRef(fixtureIssue, fixtureTeam, "EME-5", mentionSession)
+	h.startTurnOn(t, ref)
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	assert.Empty(t, h.stub.callsOf("PodiumIssueState"))
+	assert.Empty(t, h.stub.callsOf("PodiumMoveIssue"))
+}
+
+func TestADelegationsRefSaysSoAndStillParses(t *testing.T) {
+	ref := DelegatedSessionRef("i", "t", "ENG-1", "s")
+	assert.Equal(t, "i/t/ENG-1/s/delegated", ref)
+	issue, team, ident, sess, err := ParseSessionRef(ref)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"i", "t", "ENG-1", "s"}, []string{issue, team, ident, sess})
+	assert.True(t, delegatedRef(ref))
+	assert.False(t, delegatedRef(SessionRef("i", "t", "ENG-1", "s")))
+	assert.False(t, delegatedRef(Ref("i", "t", "ENG-1")))
+	for _, bad := range []string{"i/t/ENG-1//delegated", "i/t/ENG-1/s/mentioned"} {
+		_, _, _, _, err := ParseSessionRef(bad)
+		assert.Error(t, err, bad)
+	}
+}
+
+// A mention's session has a plain session ref.
+func TestAMentionsRefIsNotADelegations(t *testing.T) {
+	h := newAppHarness(t)
+	h.deliver(h.fixture(t, "session_created_mention"), "delivery-1")
+	assert.False(t, delegatedRef(h.event(t).Ref))
+	h.deliver(h.fixture(t, "session_prompted_reply"), "delivery-2")
+	assert.True(t, delegatedRef(h.event(t).Ref), "a follow-up in a delegated session is one too")
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
@@ -461,6 +543,26 @@ func (h *appHarness) stopped() []string {
 
 func (h *appHarness) replyLinks() {
 	h.stub.reply("PodiumAgentSessionUpdate", map[string]any{"agentSessionUpdate": map[string]any{"success": true}})
+}
+
+// issueIn scripts the issue as being in a state of type typ, on a team whose first started
+// state is not the one called In Progress.
+func (h *appHarness) issueIn(typ string) {
+	h.stub.reply("PodiumIssueState", map[string]any{"issue": map[string]any{
+		"id":    fixtureIssue,
+		"state": map[string]any{"id": "state-now", "name": "Now", "type": typ},
+		"team":  map[string]any{"id": fixtureTeam, "key": "EME"},
+	}})
+	h.stub.reply("PodiumTeamStates", map[string]any{"team": map[string]any{
+		"id": fixtureTeam, "key": "EME",
+		"states": map[string]any{"nodes": []map[string]any{
+			{"id": "state-todo", "name": "Todo", "type": StateTypeUnstarted, "position": 1},
+			{"id": "state-progress", "name": "In Progress", "type": StateTypeStarted, "position": 3},
+			{"id": "state-doing", "name": "Doing", "type": StateTypeStarted, "position": 2},
+			{"id": "state-done", "name": "Done", "type": StateTypeCompleted, "position": 4},
+		}},
+	}})
+	h.stub.reply("PodiumMoveIssue", map[string]any{"issueUpdate": map[string]any{"success": true}})
 }
 
 // toolCall is the runtime's activity document for one finished tool call.
