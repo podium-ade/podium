@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/webhooks"
 	"github.com/podium-ade/podium/internal/netlisten"
 )
 
@@ -36,6 +38,9 @@ type liveConnections struct {
 	store  *store.Store
 	vault  connections.Vault
 	logger *slog.Logger
+	// webhooks owns the webhook listeners. The GitHub App's and the Linear app's may be one
+	// address, which only one owner can bind, so neither source binds its own.
+	webhooks *webhooks.Server
 
 	// Set by New once they exist, before Run.
 	conductor *conductor.Conductor
@@ -71,7 +76,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 	var gh *ghreview.Source
 	if cfg.GitHubSourceEnabled() {
 		var err error
-		gh, err = newGitHubSource(cfg, l.store, slack, l.logger)
+		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -163,9 +168,10 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Ch
 			return api.Checked{}, fmt.Errorf("github did not accept the app id and private key: %w", err)
 		}
 	}
-	// A new webhook address has to be one this host can listen on. The running one is
-	// already held by this process, which lets go of it when the source is swapped.
-	if next.GitHubSourceEnabled() && next.GitHubWebhookListen != running.GitHubWebhookListen {
+	// A new webhook address has to be one this host can listen on. One this process already
+	// listens on is not tried: the GitHub App's or the Linear app's, which may share it. A
+	// source moved onto it joins that listener, and one moved off it lets go of it.
+	if next.GitHubSourceEnabled() && !l.holds(next.GitHubWebhookListen) {
 		if err := canListen(next.GitHubWebhookListen); err != nil {
 			return api.Checked{}, err
 		}
@@ -177,15 +183,18 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Ch
 		}
 		checked.Linear = app
 	}
-	// The same for the Linear app's address, unless this process holds it already: the
-	// GitHub App's listener, which the Linear app may share.
-	heldByGitHub := running.GitHubSourceEnabled() && next.LinearWebhookListen == running.GitHubWebhookListen
-	if next.LinearAppEnabled() && next.LinearWebhookListen != running.LinearWebhookListen && !heldByGitHub {
+	// The same for the Linear app's address.
+	if next.LinearAppEnabled() && !l.holds(next.LinearWebhookListen) {
 		if err := canListen(next.LinearWebhookListen); err != nil {
 			return api.Checked{}, err
 		}
 	}
 	return checked, nil
+}
+
+// holds reports whether this process is listening on addr already.
+func (l *liveConnections) holds(addr string) bool {
+	return l.webhooks != nil && l.webhooks.Holds(addr)
 }
 
 // canListen proves addr can be bound now, and lets go of it.
@@ -340,7 +349,9 @@ func (l *liveConnections) githubSource() *ghreview.Source {
 
 // newGitHubSource is the pull-request review source: the App's webhooks, and the threads in
 // Slack bound to a review.
-func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Source, logger *slog.Logger) (*ghreview.Source, error) {
+func newGitHubSource(
+	cfg config.Config, st *store.Store, slack *agentslack.Source, hooks *webhooks.Server, logger *slog.Logger,
+) (*ghreview.Source, error) {
 	pem, err := cfg.GitHubAppPrivateKey()
 	if err != nil {
 		return nil, err
@@ -354,11 +365,16 @@ func newGitHubSource(cfg config.Config, st *store.Store, slack *agentslack.Sourc
 	if slack != nil {
 		bridge = slack
 	}
+	var serve func(context.Context, string, string, http.Handler) error
+	if hooks != nil {
+		serve = hooks.Serve
+	}
 	return ghreview.NewSource(ghreview.SourceOptions{
 		AppID:         cfg.GitHubAppID,
 		PrivateKey:    key,
 		WebhookSecret: cfg.GitHubWebhookSecret,
 		Listen:        cfg.GitHubWebhookListen,
+		Serve:         serve,
 		Slack:         bridge,
 		Logger:        logger,
 		TaskURL: func(taskID string) string {
