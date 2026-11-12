@@ -77,13 +77,13 @@ func (c *Conductor) sameAsker(st *sessionState, src Source, ev InboundEvent) boo
 	return st.turnLogin == login && st.turnKind == kind
 }
 
-// setTurnAsker records whose turn a session is running, for sameAsker and for the lease's
-// warm task. Called as each turn starts.
-func (c *Conductor) setTurnAsker(sessionID string, src Source, ev InboundEvent) {
+// setTurnAsker records whose turn a session is running, and of which playbook, for
+// sameAsker and for the lease's warm task. Called as each turn starts.
+func (c *Conductor) setTurnAsker(sessionID string, src Source, ev InboundEvent, playbook string) {
 	login, kind := c.askerOf(src, ev)
 	c.mu.Lock()
 	st := c.state(sessionID)
-	st.turnLogin, st.turnKind = login, kind
+	st.turnLogin, st.turnKind, st.turnPlaybook = login, kind, playbook
 	c.mu.Unlock()
 }
 
@@ -237,16 +237,27 @@ func (c *Conductor) decodeQueued(ctx context.Context, row store.QueuedTurn) (Inb
 }
 
 // sourceAndJob is the source a queued message answers through, and the job its turn runs.
-// A conversation's job is the assistant whichever surface asked; anything else keeps the
-// job the session was already running.
+// A conversation's job is the assistant whichever surface asked, or the playbook a Linear
+// prompt named for itself (runDirect). Anything else runs the playbook accept chose for it
+// (InboundEvent.Playbook), and a message queued without one keeps the job the session was
+// already running.
 func (c *Conductor) sourceAndJob(ev InboundEvent, src Source, j job) (Source, job) {
 	if ev.SourceKind != "" && (src == nil || src.Kind() != ev.SourceKind) {
 		if s := c.sourceOf(ev.SourceKind); s != nil {
 			src = s
 		}
 	}
-	if src != nil && c.host != nil && aConversation(src.Kind()) {
-		return src, assistantJob(c.profiles.Current().Assistant())
+	profile := c.profiles.Current()
+	pb, chosen := profile.Playbooks[ev.Playbook]
+	chosen = chosen && ev.Playbook != ""
+	if src != nil && c.conversational(src, ev) {
+		if chosen {
+			return src, directJob(pb)
+		}
+		return src, assistantJob(profile.Assistant())
+	}
+	if chosen {
+		return src, playbookJob(pb)
 	}
 	return src, j
 }
