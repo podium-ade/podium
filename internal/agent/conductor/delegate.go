@@ -169,24 +169,34 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Desktop: p.Desktop,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
-			GitHub:  p.GitHub,
+			GitHub:  p.Reviews(),
 		})
 	}
 	return out
 }
 
 // menuFor is the playbooks a turn from src may delegate to. Every playbook, except on a pull
-// request: anybody the GitHub triggers allow can comment there, so it is offered the review
-// playbook, and a playbook naming github_requires only when the speaker's role meets it.
-func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
+// request: anybody the GitHub triggers allow can comment there, so it is offered the playbook
+// that reviews its repository, and a playbook naming github_requires only when the speaker's
+// role meets it and it works in the same first repository as that review playbook. No other
+// review playbook is on it, so GitHub on an entry there means this pull request's review.
+func (c *Conductor) menuFor(src Source, sourceKey, role string) []DelegablePlaybook {
 	all := c.DelegablePlaybooks()
 	if src == nil || src.Kind() != SourceGitHub {
 		return all
 	}
-	playbooks := c.profiles.Current().Playbooks
+	profile := c.profiles.Current()
+	playbooks := profile.Playbooks
+	review := profile.GitHubPlaybookFor(pullRequestRepo(sourceKey))
 	out := make([]DelegablePlaybook, 0, len(all))
 	for _, p := range all {
-		if p.GitHub || profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) {
+		switch {
+		case p.Name == review:
+			out = append(out, p)
+		case p.GitHub:
+			// Another repository's review playbook.
+		case profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) &&
+			(review == "" || profiles.FirstRepoURL(playbooks[p.Name]) == profiles.FirstRepoURL(playbooks[review])):
 			out = append(out, p)
 		}
 	}
@@ -206,8 +216,8 @@ type DelegablePlaybook struct {
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`
-	// GitHub says this is the playbook that reviews pull requests. Only its answer becomes
-	// the review on one.
+	// GitHub says this is a playbook that reviews pull requests. On a pull request's menu it
+	// is the one for that repository, and only its answer becomes the review there.
 	GitHub bool `json:"github,omitempty"`
 }
 

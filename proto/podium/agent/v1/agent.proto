@@ -1898,9 +1898,13 @@ message PlaybookDefinition {
   repeated PlaybookRepo repos = 11;
   repeated string slack_channels = 12;
   bool linear = 13;
-  // github marks the one playbook a pull-request review runs. At most one playbook may
-  // set it. It is always on a pull request's menu, and only its answer is the review.
+  // github marks the playbook a pull-request review runs in every repository no playbook's
+  // github_repos names. At most one playbook may set it. It is always on such a pull
+  // request's menu, and only its answer is the review.
   bool github = 30;
+  // github_repos are the repositories, owner/name, whose pull requests this playbook reviews
+  // in place of the github one. A repository may be named by at most one playbook.
+  repeated string github_repos = 35;
   // github_requires offers this playbook on a pull request to a commenter whose role on the
   // repository is at least this: read, triage, write, maintain or admin. Empty is not
   // offered there.

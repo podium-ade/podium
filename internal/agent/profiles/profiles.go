@@ -414,10 +414,16 @@ type Playbook struct {
 	// so at start-up, where the key is known.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
-	// GitHub marks the one playbook a pull-request review runs. It is always on a pull
-	// request's menu, and only its answer becomes the review. At most one playbook may set
-	// it. Zero means a review is refused until one does.
+	// GitHub marks the playbook a pull-request review runs when no playbook names the pull
+	// request's repository in github_repos. It is always on that pull request's menu, and
+	// only its answer becomes the review. At most one playbook may set it. Zero, with no
+	// github_repos naming the repository either, means a review there is refused.
 	GitHub bool `yaml:"github" json:"github,omitempty"`
+
+	// GitHubRepos are the repositories, as owner/name, whose pull requests this playbook
+	// reviews instead of the github: true one. A repository may be named by at most one
+	// playbook, compared without case, as GitHub compares them.
+	GitHubRepos []string `yaml:"github_repos" json:"github_repos,omitempty"`
 
 	// GitHubRequires offers this playbook on a pull request, to a commenter whose role on the
 	// repository is at least this: read, triage, write, maintain or admin. Empty is not
@@ -889,6 +895,17 @@ func (s Playbook) validate(path string) error {
 			errs = append(errs, errors.New("slack_channels holds an empty entry"))
 		}
 	}
+	seenRepos := map[string]bool{}
+	for _, r := range s.GitHubRepos {
+		key := gitHubRepoKey(r)
+		switch {
+		case key == "":
+			errs = append(errs, fmt.Errorf("github_repos entry %q must be owner/name", r))
+		case seenRepos[key]:
+			errs = append(errs, fmt.Errorf("github_repos names %s twice", r))
+		}
+		seenRepos[key] = true
+	}
 	// The secrets, resources and env of a playbook are validated by exactly the code that
 	// validates a task spec's, because that is where they end up.
 	if err := ValidateRunsOn(s.RunsOn); err != nil {
@@ -990,6 +1007,22 @@ func (p *Profile) validate(path string) error {
 			"because a pull-request review has no choice of playbook",
 			strings.Join(github, ", ")))
 	}
+	// Two playbooks reviewing one repository is ambiguous routing, refused for the same
+	// reason two playbooks claiming one Slack channel are.
+	reviewers := map[string]string{}
+	for _, name := range p.PlaybookNames() {
+		for _, r := range p.Playbooks[name].GitHubRepos {
+			key := gitHubRepoKey(r)
+			if key == "" {
+				continue
+			}
+			if other, ok := reviewers[key]; ok && other != name {
+				errs = append(errs, fmt.Errorf("playbooks %q and %q both review %s in github_repos", other, name, r))
+				continue
+			}
+			reviewers[key] = name
+		}
+	}
 	errs = append(errs, p.validateGitHubMenu()...)
 	// Two playbooks claiming one channel is ambiguous routing, and ambiguous routing that
 	// resolves by map iteration order is worse than a refusal at start-up.
@@ -1020,10 +1053,18 @@ func GitHubRoleAtLeast(role, want string) bool {
 
 // validateGitHubMenu checks what a pull request may be offered. Every playbook on that menu
 // works in the session's one workspace snapshot, which is laid out around its first
-// repository, so each must name the same first repository as the review playbook.
+// repository, so each must name the same first repository as a review playbook: it is then
+// offered on the pull requests that review playbook reviews, and nowhere else.
 func (p *Profile) validateGitHubMenu() []error {
 	var errs []error
-	review := p.GitHubPlaybook()
+	reviewRepos := map[string]bool{}
+	anyReviewer := false
+	for _, name := range p.PlaybookNames() {
+		if s := p.Playbooks[name]; s.Reviews() {
+			anyReviewer = true
+			reviewRepos[firstRepo(s)] = true
+		}
+	}
 	for _, name := range p.PlaybookNames() {
 		s := p.Playbooks[name]
 		if s.GitHubRequires == "" {
@@ -1034,14 +1075,14 @@ func (p *Profile) validateGitHubMenu() []error {
 				name, s.GitHubRequires, strings.Join(GitHubRoles, ", ")))
 			continue
 		}
-		if s.GitHub {
+		if s.Reviews() {
 			errs = append(errs, fmt.Errorf("playbook %q: github_requires is for other playbooks; "+
-				"the review playbook is always offered on a pull request", name))
+				"a review playbook is always offered on the pull requests it reviews", name))
 			continue
 		}
-		if review != "" && firstRepo(s) != firstRepo(p.Playbooks[review]) {
+		if anyReviewer && !reviewRepos[firstRepo(s)] {
 			errs = append(errs, fmt.Errorf("playbook %q: github_requires needs the same first repository "+
-				"as the review playbook %q, because both work in the pull request's one workspace", name, review))
+				"as a review playbook, because both work in the pull request's one workspace", name))
 		}
 	}
 	return errs
@@ -1065,8 +1106,9 @@ func (p *Profile) LinearPlaybook() string {
 	return ""
 }
 
-// GitHubPlaybook is the name of the playbook a pull-request review runs, or "" when no
-// playbook claims reviews. validate has already refused more than one.
+// GitHubPlaybook is the name of the playbook marked github: true — the review playbook for
+// every repository no github_repos names — or "" when none is. validate has already refused
+// more than one.
 func (p *Profile) GitHubPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].GitHub {
@@ -1074,6 +1116,46 @@ func (p *Profile) GitHubPlaybook() string {
 		}
 	}
 	return ""
+}
+
+// GitHubPlaybookFor is the name of the playbook that reviews pull requests in repo
+// (owner/name): the one naming it in github_repos, else the github: true one, else "".
+func (p *Profile) GitHubPlaybookFor(repo string) string {
+	if key := gitHubRepoKey(repo); key != "" {
+		for _, name := range p.PlaybookNames() {
+			for _, r := range p.Playbooks[name].GitHubRepos {
+				if gitHubRepoKey(r) == key {
+					return name
+				}
+			}
+		}
+	}
+	return p.GitHubPlaybook()
+}
+
+// Reviews reports whether this playbook reviews pull requests in some repository: it is
+// the github: true fallback, or names repositories in github_repos.
+func (s Playbook) Reviews() bool {
+	return s.GitHub || len(s.GitHubRepos) > 0
+}
+
+// FirstRepoURL is the URL of the repository a playbook's workspace is laid out around, or
+// "" when it names none.
+func FirstRepoURL(s Playbook) string { return firstRepo(s) }
+
+// gitHubRepoKey is repo as github_repos compares it: owner/name, trimmed and lowercased,
+// with an optional https://github.com/ prefix and .git suffix dropped. "" is not a
+// repository.
+func gitHubRepoKey(repo string) string {
+	r := strings.ToLower(strings.TrimSpace(repo))
+	r = strings.TrimPrefix(r, "https://github.com/")
+	r = strings.TrimSuffix(strings.TrimSuffix(r, "/"), ".git")
+	owner, name, ok := strings.Cut(r, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") ||
+		strings.ContainsAny(r, " \t:") {
+		return ""
+	}
+	return owner + "/" + name
 }
 
 // PlaybookNames is every loaded playbook, sorted.
