@@ -37,9 +37,19 @@ type harness struct {
 	cursorErr error
 }
 
+// fakeClock is a clock a test moves by hand, with timers that fire as it is moved past them.
+// A timer's function runs on the goroutine that moved the clock, so whatever it posts has
+// been posted by the time advance returns.
 type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeTimer
+}
+
+type fakeTimer struct {
+	at      time.Time
+	f       func()
+	stopped bool
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -48,10 +58,60 @@ func (c *fakeClock) Now() time.Time {
 	return c.now
 }
 
-func (c *fakeClock) advance(d time.Duration) {
+// AfterFunc is time.AfterFunc on this clock.
+func (c *fakeClock) AfterFunc(d time.Duration, f func()) func() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
+	t := &fakeTimer{at: c.now.Add(d), f: f}
+	c.timers = append(c.timers, t)
+	return func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		was := !t.stopped
+		t.stopped = true
+		return was
+	}
+}
+
+// pending is how many timers are armed and have not fired.
+func (c *fakeClock) pending() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, t := range c.timers {
+		if !t.stopped {
+			n++
+		}
+	}
+	return n
+}
+
+// advance moves the clock on by d, firing every timer it passes in the order they were due,
+// each at its own moment, including timers a fired one arms.
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	end := c.now.Add(d)
+	c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		var next *fakeTimer
+		for _, t := range c.timers {
+			if !t.stopped && !t.at.After(end) && (next == nil || t.at.Before(next.at)) {
+				next = t
+			}
+		}
+		if next == nil {
+			c.now = end
+			c.mu.Unlock()
+			return
+		}
+		next.stopped = true
+		if next.at.After(c.now) {
+			c.now = next.at
+		}
+		c.mu.Unlock()
+		next.f()
+	}
 }
 
 func newHarness(t *testing.T) *harness {

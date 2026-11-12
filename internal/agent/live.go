@@ -524,9 +524,20 @@ func (l *liveConnections) newLinearApp(
 		TaskURL:        taskURL(cfg),
 		Revoked:        saved.RevokedAt != nil,
 		OnRevoked:      l.linearRevoked(cfg.LinearClientID),
+		Stop:           l.stopLinearTurn,
 		Metrics:        l.linearMetrics,
 		Logger:         l.logger,
 	})
+}
+
+// stopLinearTurn is Stop pressed in a Linear agent session: the conductor cancels the turn
+// answering it and drops what is queued behind it. The source is built before the conductor
+// exists, so the conductor is looked up when somebody presses Stop, not when it is built.
+func (l *liveConnections) stopLinearTurn(ctx context.Context, sourceKey string) (bool, error) {
+	if l.conductor == nil {
+		return false, errors.New("the conductor is not running")
+	}
+	return l.conductor.CancelSessionTurn(ctx, sourceKey, agentlinear.StopReason)
 }
 
 // linearRevoked records on the saved app that Linear revoked it, so Settings → Connections
