@@ -975,8 +975,8 @@ func peopleToProto(ps []store.ChatParticipant) []*agentv1.ChatPerson {
 }
 
 // surfacesOf is where a mirrored conversation lives, read from the session it records. The
-// key is the conductor's, and its two mirrored shapes are fixed: slack:<channel>:<thread>
-// and github:<owner>/<repo>#<n>. A web chat lives nowhere else.
+// key is the conductor's, and its mirrored shapes are fixed: slack:<channel>:<thread>,
+// github:<owner>/<repo>#<n> and linear:session:<id>. A web chat lives nowhere else.
 func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
 	switch {
 	case strings.HasPrefix(c.SourceKey, "slack:"):
@@ -992,6 +992,10 @@ func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
 			url = "https://github.com/" + ref[:hash] + "/pull/" + ref[hash+1:]
 		}
 		return []*agentv1.ChatSurface{{Kind: store.ViaGitHub, Label: ref, Url: url}}
+	case strings.HasPrefix(c.SourceKey, "linear:session:"):
+		// The session's link is the Linear source's to give (0038): a session's URL needs the
+		// workspace's slug, which the key does not carry.
+		return []*agentv1.ChatSurface{{Kind: store.ViaLinear, Label: "Linear session", Url: c.SourceURL}}
 	}
 	return nil
 }
