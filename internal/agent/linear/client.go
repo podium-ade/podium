@@ -5,8 +5,10 @@
 // It DIALS OUT and never listens. Linear's own documentation prefers webhooks, and a
 // webhook would be better — AppUserNotification carries an `issueAssignedToYou` action,
 // which is the exact predicate this file has to reconstruct. It needs an OAuth `actor=app`
-// application, which this track deliberately does not build, and it would mean the host
-// accepting an inbound connection it does not accept today. So: polling.
+// application and an inbound listener, and Podium had neither when this was written. So:
+// polling. The agent app is being built now (docs/linear-agent-plan.md): the client can
+// already sign in as one with a TokenSource, and the webhook source that replaces the
+// poller comes after it.
 package linear
 
 import (
@@ -70,8 +72,9 @@ func (e *GraphQLError) RateLimited() bool {
 	return e.Code == CodeRateLimited || e.Status == http.StatusTooManyRequests
 }
 
-// Unauthorized reports whether the API key is wrong or missing. It is separated because it
-// is the one failure an operator fixes by editing .env rather than by reading a log.
+// Unauthorized reports whether the API key or access token is wrong or missing. It is
+// separated because it is the one failure an operator fixes by editing .env rather than by
+// reading a log, and the one an app's client fixes by minting a new token.
 func (e *GraphQLError) Unauthorized() bool {
 	return e.Code == CodeAuthentication || e.Status == http.StatusUnauthorized
 }
@@ -88,16 +91,22 @@ func isRateLimited(err error) bool {
 // author) are worth a comment each rather than a generated type.
 type Client struct {
 	endpoint string
-	apiKey   string
-	http     *http.Client
+	// Exactly one of apiKey and tokens is set: the poller's personal key, or the agent
+	// app's OAuth tokens.
+	apiKey string
+	tokens *TokenSource
+	http   *http.Client
 }
 
 // ClientOptions is what NewClient needs.
 type ClientOptions struct {
 	// Endpoint is the GraphQL endpoint. Required.
 	Endpoint string
-	// APIKey is a PERSONAL API key belonging to the bot user. Required. SENSITIVE.
+	// APIKey is a PERSONAL API key belonging to the bot user. SENSITIVE. Set this or
+	// Tokens, not both.
 	APIKey string
+	// Tokens signs requests in as an OAuth app instead, with a bearer token it mints.
+	Tokens *TokenSource
 	// HTTPClient lets a test point at an httptest server. Nil means one with DefaultTimeout.
 	HTTPClient *http.Client
 }
@@ -108,8 +117,11 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	switch {
 	case opts.Endpoint == "":
 		return nil, errors.New("linear: a GraphQL endpoint is required")
-	case opts.APIKey == "":
+	case opts.APIKey == "" && opts.Tokens == nil:
 		return nil, errors.New("linear: an API key is required")
+	case opts.APIKey != "" && opts.Tokens != nil:
+		return nil, errors.New("linear: an API key and a token source are both set: a client " +
+			"signs in one way, so there is no question whose actions it takes")
 	}
 	u, err := url.Parse(opts.Endpoint)
 	if err != nil {
@@ -122,7 +134,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	if client == nil {
 		client = &http.Client{Timeout: DefaultTimeout}
 	}
-	return &Client{endpoint: opts.Endpoint, apiKey: opts.APIKey, http: client}, nil
+	return &Client{endpoint: opts.Endpoint, apiKey: opts.APIKey, tokens: opts.Tokens, http: client}, nil
 }
 
 // gqlRequest is the wire request. OperationName is sent so a Linear-side log and this
@@ -147,19 +159,45 @@ type gqlResponse struct {
 
 // do runs one operation. A response with a non-empty errors array is a *GraphQLError
 // carrying the first message, whatever the HTTP status was.
+//
+// With a token source, a refused token is dropped and the operation sent once more with a
+// new one. A 30-day token can be revoked early, and the grant has no refresh token: a new
+// token is the only remedy, and it needs nobody. Resending a mutation is safe here because
+// a request Linear did not authenticate did nothing.
 func (c *Client) do(ctx context.Context, op, query string, vars map[string]any, out any) error {
 	raw, err := json.Marshal(gqlRequest{Query: query, Variables: vars, OperationName: op})
 	if err != nil {
 		return fmt.Errorf("linear: encode %s: %w", op, err)
 	}
+	if c.tokens == nil {
+		// A PERSONAL API key goes in Authorization RAW, with no "Bearer " prefix. Bearer
+		// is for OAuth access tokens, and Linear's own SDK only adds it when one is
+		// present. Getting this wrong is a 401 that reads like a wrong key.
+		return c.send(ctx, op, raw, c.apiKey, out)
+	}
+	token, err := c.tokens.Token(ctx)
+	if err != nil {
+		return err
+	}
+	err = c.send(ctx, op, raw, "Bearer "+token, out)
+	var gqlErr *GraphQLError
+	if !errors.As(err, &gqlErr) || !gqlErr.Unauthorized() {
+		return err
+	}
+	c.tokens.Invalidate(token)
+	if token, err = c.tokens.Token(ctx); err != nil {
+		return err
+	}
+	return c.send(ctx, op, raw, "Bearer "+token, out)
+}
+
+// send is one POST of an encoded operation with the given Authorization header.
+func (c *Client) send(ctx context.Context, op string, raw []byte, authorization string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("linear: build %s: %w", op, err)
 	}
-	// A PERSONAL API key goes in Authorization RAW, with no "Bearer " prefix. Bearer is
-	// for OAuth access tokens, and Linear's own SDK only adds it when one is present.
-	// Getting this wrong is a 401 that reads like a wrong key.
-	req.Header.Set("Authorization", c.apiKey)
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
