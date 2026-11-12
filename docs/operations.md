@@ -598,6 +598,13 @@ A conversation's turn runs on the host of the conductor that holds its session. 
 reaches another conductor is handed over to that one, so every conversation is reachable from
 every conductor.
 
+Give every conductor on one database the same host runtime setting (`PODIUM_AGENT_HOST_RUNTIME`).
+What answers a Linear @mention is decided by the conductor the webhook reaches: the assistant
+where there is a host runtime, the `linear: true` playbook as a task where there is none. Two
+conductors that differ answer the same session one way or the other depending on which one the
+tunnel picked. A Stop in a Linear session stops the tasks its assistant delegated too, whichever
+conductor follows them.
+
 ---
 
 ## Tuning

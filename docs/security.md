@@ -241,15 +241,20 @@ SAML is not implemented.
     Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Anybody else gets 🚫 in Slack
     or a plain-words error in the Linear session ("sign in to Podium with the same email"), and
     nothing runs; the message is the same whichever check they failed. The turn runs **as that
-    person**: their personal secrets, their MCP servers, their GitHub account. Pressing *Stop*
-    in a Linear session is not gated: it ends work and starts none, Linear offers it to
+    person**: their personal secrets, their MCP servers, their GitHub account. In a Linear agent
+    session that is **any playbook**, as it is in Slack: a `/playbook` at the start of a prompt
+    names one, and the assistant answering an @mention may delegate to any playbook it is offered,
+    which is all of them. A delegated issue that names nothing runs the `linear: true` playbook.
+    Pressing *Stop* in a Linear session is not gated: it ends work and starts none, Linear offers it to
     everybody who can see the session, and refusing it would leave running what somebody asked
     to end.
   - **Linear's poller: anybody who can assign the bot user a ticket.** Polling with a personal
     API key is the unauthenticated mode. The bot seat is told that an issue was assigned to it
     or commented on, not who could be proven to have done it, so a polled ticket runs as nobody
     — the company's credentials only — for anybody who can set the assignee on an issue the bot
-    user can see, or comment on one it holds. It is the weaker mode. The reason to keep it is
+    user can see, or comment on one it holds. What it runs is only ever the `linear: true`
+    playbook: a `/word` in a ticket or a comment is not read as a playbook's name, and there is no
+    assistant to delegate. It is the weaker mode. The reason to keep it is
     that it needs no inbound webhook: the conductor only dials out, so nothing on the internet
     has to reach it. Prefer the agent app wherever a webhook can reach the conductor; a saved
     app turns the poller off.
@@ -1039,7 +1044,7 @@ Everything below is a real hole, not a hypothetical:
   owner is enforced on the web UI and Connect procedures. The local token and every node still
   do everything, including running code as root on every worker. Members can still CreateTask,
   and a task may name only that member's own personal secrets. A global name is refused unless
-  the conductor attaches it. Slack mentions and Linear assignments are not roles.
+  the conductor attaches it. Slack mentions and Linear delegations and mentions are not roles.
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
 - **The local transport is plaintext**, secret values included.
@@ -1062,7 +1067,7 @@ Everything below is a real hole, not a hypothetical:
 - **With Linear's poller, anyone who can assign the bot user a ticket can run code on a worker.**
   Polling proves nobody, so a polled ticket runs as nobody for whoever assigned it. Slack and
   Linear's agent app answer only people signed in to Podium, but have no roles beyond that: any
-  of them can run any playbook their surface reaches. See *5. The conductor and the bot*.
+  of them can run any playbook their surface reaches, which for both is every playbook. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
   environment built from empty — unless `PODIUM_AGENT_HOST_ISOLATION=bwrap` puts each turn in a
