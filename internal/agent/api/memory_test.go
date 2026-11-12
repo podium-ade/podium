@@ -22,6 +22,7 @@ type fakeMemory struct {
 
 	items  []memory.Memory
 	next   string
+	total  int
 	err    error
 	forgot []string
 	// listedCursor, listedLimit and query record the last call's arguments.
@@ -44,14 +45,14 @@ func (f *fakeMemory) Recall(_ context.Context, query string, limit int) ([]memor
 	return f.items, nil
 }
 
-func (f *fakeMemory) List(_ context.Context, cursor string, limit int) ([]memory.Memory, string, error) {
+func (f *fakeMemory) List(_ context.Context, cursor string, limit int) ([]memory.Memory, string, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listedCursor, f.listedLimit = cursor, limit
 	if f.err != nil {
-		return nil, "", f.err
+		return nil, "", 0, f.err
 	}
-	return f.items, f.next, nil
+	return f.items, f.next, f.total, nil
 }
 
 func (f *fakeMemory) Forget(_ context.Context, id string) error {
@@ -134,7 +135,7 @@ func TestTheMemoryRPCsRefuseWhenMemoryIsNotConfigured(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListMemoriesReturnsTheProvenanceIntact(t *testing.T) {
-	mem := &fakeMemory{items: []memory.Memory{oneMemory()}, next: "50"}
+	mem := &fakeMemory{items: []memory.Memory{oneMemory()}, next: "50", total: 140}
 	s := memoryService(t, mem)
 
 	res, err := s.ListMemories(context.Background(),
@@ -144,6 +145,17 @@ func TestListMemoriesReturnsTheProvenanceIntact(t *testing.T) {
 	assert.Equal(t, "0", mem.listedCursor)
 	assert.Equal(t, 25, mem.listedLimit)
 	assert.Equal(t, "50", res.Msg.GetNextCursor())
+	assert.Equal(t, int32(140), res.Msg.GetTotal())
+
+	// A numbered page is an offset; a cursor, when there is one, wins.
+	_, err = s.ListMemories(context.Background(),
+		connect.NewRequest(&agentv1.ListMemoriesRequest{Offset: 75, Limit: 25}))
+	require.NoError(t, err)
+	assert.Equal(t, "75", mem.listedCursor)
+	_, err = s.ListMemories(context.Background(),
+		connect.NewRequest(&agentv1.ListMemoriesRequest{Cursor: "25", Offset: 75, Limit: 25}))
+	require.NoError(t, err)
+	assert.Equal(t, "25", mem.listedCursor)
 
 	require.Len(t, res.Msg.GetItems(), 1)
 	got := res.Msg.GetItems()[0]

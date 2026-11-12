@@ -78,7 +78,7 @@ is affected.
 
 | | what it unlocks | without it |
 |---|---|---|
-| `PODIUM_MEMORY_LLM_API_KEY` | the agents' shared memory | the `hindsight` container exits at boot and keeps restarting. It is the one container a bare `up` leaves broken. Any of [~25 providers](https://hindsight.vectorize.io/developer/models), chosen with `PODIUM_MEMORY_LLM_PROVIDER` |
+| a model chosen on the Memory page | the agents' shared memory | nothing new is remembered. Hindsight calls the conductor for extraction, which spends one of the keys saved under Models. `PODIUM_MEMORY_LLM_API_KEY`, with an empty `PODIUM_MEMORY_LLM_BASE_URL`, gives Hindsight a key of its own instead |
 | `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other. Access → Connections stores the same pair and replaces these on the next start |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
@@ -204,9 +204,11 @@ Then, each switching on one feature and each optional:
 | `PODIUM_AGENT_SKILLS_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_SKILLS_DIR`. Unset is the named volume `agent-skills` |
 | `PODIUM_AGENT_HOST_RUNTIME` + `PODIUM_AGENT_RUNNER_BIN` | answer a turn as a child process instead of a container. Opt-in, and a security decision — read [`../docs/security.md`](../docs/security.md) first. `auto` under `make stack-up` means this checkout's own build |
 
-The memory service is a container of its own, and its key is **not** the one above:
-`PODIUM_MEMORY_LLM_API_KEY` is read by Hindsight at start-up and is visible in
-`docker inspect`. Give it its own scoped key. Reads need no key at all; only writing does.
+The memory service is a container of its own. By default it holds no model key:
+`PODIUM_AGENT_MEMORY_LLM_TOKEN` is what it presents to the conductor's `/memory-llm/` route,
+and the conductor spends the key chosen on the Memory page. That token must differ from
+`PODIUM_AGENT_MEMORY_API_KEY`, which every turn's container holds. Reads need no model at all;
+only writing does.
 
 ### The worker
 
@@ -253,12 +255,11 @@ Nothing else has to be on disk: the Postgres bootstrap script is inline in the c
 the conductor's profile directory ships inside its image, and the master key is generated
 rather than carried.
 
-Hindsight wants an LLM key of its own for fact extraction (`PODIUM_MEMORY_LLM_API_KEY`) and
-exits at boot without one, so it is the single container that will be restarting after a bare
-`up`. Nothing else depends on it. The key can be from
-[any of its ~25 providers](https://hindsight.vectorize.io/developer/models) — set
-`PODIUM_MEMORY_LLM_PROVIDER` and `PODIUM_MEMORY_LLM_MODEL` to match; a local `ollama` keeps
-extraction off the network.
+Hindsight extracts facts with a model chosen on the Memory page, from the keys saved under
+Models; until one is chosen nothing new is remembered, and nothing else depends on it. To give
+it a key of its own instead — [any of its ~25 providers](https://hindsight.vectorize.io/developer/models),
+or a local `ollama` that keeps extraction off the network — set `PODIUM_MEMORY_LLM_PROVIDER`,
+`PODIUM_MEMORY_LLM_MODEL`, `PODIUM_MEMORY_LLM_API_KEY` and an empty `PODIUM_MEMORY_LLM_BASE_URL`.
 
 **It ships default credentials**, which is the trade that makes that one command possible.
 `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY` and `PODIUM_AGENT_TOKEN` are reachable only from

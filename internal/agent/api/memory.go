@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -28,13 +30,18 @@ func (s *AgentService) ListMemories(
 	if s.memory == nil {
 		return nil, notConfigured()
 	}
-	items, next, err := s.memory.List(ctx, req.Msg.GetCursor(), int(req.Msg.GetLimit()))
+	cursor := req.Msg.GetCursor()
+	if cursor == "" && req.Msg.GetOffset() > 0 {
+		cursor = strconv.Itoa(int(req.Msg.GetOffset()))
+	}
+	items, next, total, err := s.memory.List(ctx, cursor, int(req.Msg.GetLimit()))
 	if err != nil {
 		return nil, s.memoryError(ctx, "list memories", err)
 	}
 	return connect.NewResponse(&agentv1.ListMemoriesResponse{
 		Items:      memoriesToProto(items),
 		NextCursor: next,
+		Total:      int32(min(total, math.MaxInt32)),
 	}), nil
 }
 

@@ -312,29 +312,25 @@ Two things the conductor does not have out of the box, both credentials:
 **A model key.** A turn needs an Anthropic key, set on the UI's Agent screen rather than in
 `.env` — that way it lands in the encrypted secret store instead of in `docker inspect`.
 
-**Shared memory.** Hindsight came up in step 2 too — or rather it tried. It wants an LLM key of
-its own for fact extraction and exits at boot without one, so until you set it that is the one
-container in `docker compose ps` that keeps restarting. Nothing else depends on it, and the
-conductor runs with no memory quite happily: briefs carry no memory block and nothing is
-retained. One line:
+**Shared memory.** Hindsight came up in step 2 too. It needs a model to extract facts with,
+and it reuses one of the keys you just saved: open **Memory**, choose a key (Anthropic,
+OpenAI, xAI or Google) and a model under **Memory model**, and save. Saving sends one short
+test message first, so a model id the provider does not know is refused there and then. Until
+a model is chosen nothing new is remembered; nothing else depends on it. Extraction runs after
+every conversation, so a smaller model is usually the right call.
+
+Hindsight calls the conductor for each extraction and the conductor forwards it with the saved
+key, which is why changing it needs no restart. **To give Hindsight a key of its own instead** —
+any of [its ~25 providers](https://hindsight.vectorize.io/developer/models), or a local
+`ollama` that keeps extraction off the network — set the provider, model and key, and an empty
+base URL so it stops calling the conductor:
 
 ```sh
-echo 'PODIUM_MEMORY_LLM_API_KEY=...' >> .env
+printf 'PODIUM_MEMORY_LLM_BASE_URL=\nPODIUM_MEMORY_LLM_PROVIDER=ollama\nPODIUM_MEMORY_LLM_MODEL=llama3.1\n' >> .env
 docker compose up -d
 ```
 
-**The key does not have to be Anthropic's.** Hindsight puts LiteLLM underneath and takes
-[any of ~25 providers](https://hindsight.vectorize.io/developer/models): OpenAI, Gemini, Groq,
-Bedrock, Vertex AI, DeepSeek, a gateway, an existing ChatGPT or Claude subscription, or a local
-`ollama` / `lmstudio` / `llamacpp` — which keeps fact extraction off the network altogether.
-Set the provider and a matching model beside the key:
-
-```sh
-printf 'PODIUM_MEMORY_LLM_PROVIDER=ollama\nPODIUM_MEMORY_LLM_MODEL=llama3.1\n' >> .env
-```
-
-The defaults are `anthropic` and `claude-opus-5`. Its
-[configuration reference](https://hindsight.vectorize.io/developer/configuration) is the
+Its [configuration reference](https://hindsight.vectorize.io/developer/configuration) is the
 authority on which variables each provider wants.
 
 Read this before you turn it on: **Hindsight has no authentication beyond
@@ -440,9 +436,9 @@ PODIUM_S3_SECRET_KEY=REPLACE-ME
 PODIUM_AGENT_TOKEN=REPLACE-ME
 PODIUM_AGENT_MEMORY_API_KEY=REPLACE-ME
 
-# --- shared memory. The key can be from any of ~25 providers; a local ollama keeps fact
-# --- extraction off the network entirely.
-PODIUM_MEMORY_LLM_API_KEY=REPLACE-ME
+# --- shared memory. The model key is chosen on the Memory page; this is what the memory
+# --- service presents to the conductor to use it.
+PODIUM_AGENT_MEMORY_LLM_TOKEN=REPLACE-ME
 
 # --- memory placement: workers must reach 8888, and they are not on this machine. Both of
 # --- these are THIS HOST'S TAILNET ADDRESS, not loopback and not host.docker.internal.

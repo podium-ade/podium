@@ -79,11 +79,14 @@ services:
       # and "LLM API key is required" — which is fail-closed and names the fix.
       HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
       HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
-      # Any of Hindsight's ~25 providers; change the model to match.
-      # https://hindsight.vectorize.io/developer/models
-      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-anthropic}
-      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
-      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}
+      # Fact extraction calls the conductor, which forwards it to the model key chosen on
+      # the Memory page. Needs PODIUM_AGENT_MEMORY_LLM_TOKEN; empty, this exits naming it.
+      # For a key of Hindsight's own, set PODIUM_MEMORY_LLM_PROVIDER, _MODEL, _API_KEY and an
+      # empty PODIUM_MEMORY_LLM_BASE_URL. https://hindsight.vectorize.io/developer/models
+      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-openai}
+      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-podium}
+      HINDSIGHT_API_LLM_BASE_URL: ${PODIUM_MEMORY_LLM_BASE_URL-http://agent:8090/memory-llm/v1}
+      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-${PODIUM_AGENT_MEMORY_LLM_TOKEN:-}}
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
       HINDSIGHT_ENABLE_CP: "false"
       HINDSIGHT_API_WORKER_ID: hindsight
@@ -221,6 +224,7 @@ services:
       PODIUM_AGENT_MEMORY_SANDBOX_URL: ${PODIUM_AGENT_MEMORY_SANDBOX_URL:-}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      PODIUM_AGENT_MEMORY_LLM_TOKEN: ${PODIUM_AGENT_MEMORY_LLM_TOKEN:-}
       # Grok. The credential is set in the web UI, not here; these three are the endpoint,
       # the OIDC issuer a subscription sign-in discovers from, and the OAuth client id.
       # Unset uses Hermes's public desktop client; `off` leaves the API key path.

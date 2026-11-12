@@ -2,16 +2,21 @@ import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { MemoryPanel } from "./MemoryPanel";
+import { ViewerContext, type Viewer } from "../../lib/identity";
+import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { ToastHost } from "../Toast";
 
 const listMemories = vi.fn();
 const searchMemories = vi.fn();
 const deleteMemory = vi.fn();
+const getMemorySettings = vi.fn();
+const setMemorySettings = vi.fn();
+const listAgents = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -21,23 +26,74 @@ vi.mock("../../lib/client", async () => {
       listMemories: (...a: unknown[]) => listMemories(...a),
       searchMemories: (...a: unknown[]) => searchMemories(...a),
       deleteMemory: (...a: unknown[]) => deleteMemory(...a),
+      getMemorySettings: (...a: unknown[]) => getMemorySettings(...a),
+      setMemorySettings: (...a: unknown[]) => setMemorySettings(...a),
+      listAgents: (...a: unknown[]) => listAgents(...a),
     },
   };
 });
 
-function mount() {
+function admin(): Viewer {
+  return {
+    login: "local",
+    displayName: "",
+    kind: IdentityKind.LOCAL_TOKEN,
+    agentEnabled: true,
+    serverVersion: "test",
+    roles: [],
+    claimed: false,
+    hostedDomain: "",
+    canClaim: false,
+    googleAuthEnabled: false,
+    claimDomain: "",
+    pictureUrl: "",
+  };
+}
+
+function member(): Viewer {
+  return {
+    ...admin(),
+    login: "ada@acme.com",
+    kind: IdentityKind.USER,
+    roles: ["member"],
+    claimed: true,
+    googleAuthEnabled: true,
+  };
+}
+
+function mount(viewer?: Viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <ToastHost>
-        <MemoryRouter>
-          <Suspense fallback={null}>
-            <MemoryPanel />
-          </Suspense>
-        </MemoryRouter>
-      </ToastHost>
-    </QueryClientProvider>,
+    <ViewerContext.Provider value={viewer}>
+      <QueryClientProvider client={qc}>
+        <ToastHost>
+          <MemoryRouter>
+            <Suspense fallback={null}>
+              <MemoryPanel />
+            </Suspense>
+          </MemoryRouter>
+        </ToastHost>
+      </QueryClientProvider>
+    </ViewerContext.Provider>,
   );
+}
+
+const providers = [
+  { provider: "anthropic", label: "Anthropic", available: true, reason: "" },
+  { provider: "xai", label: "xAI", available: false, reason: "No xAI key is saved for everyone." },
+  { provider: "openai", label: "OpenAI", available: true, reason: "" },
+  { provider: "google", label: "Google", available: false, reason: "No Google key is saved for everyone." },
+];
+
+function settings(over: Record<string, unknown> = {}) {
+  return {
+    provider: "",
+    model: "",
+    setBy: "",
+    proxyEnabled: true,
+    providers,
+    ...over,
+  };
 }
 
 const memory = {
@@ -64,9 +120,25 @@ describe("MemoryPanel", () => {
     listMemories.mockReset();
     searchMemories.mockReset();
     deleteMemory.mockReset();
-    listMemories.mockResolvedValue({ items: [memory], nextCursor: "" });
+    getMemorySettings.mockReset();
+    setMemorySettings.mockReset();
+    listAgents.mockReset();
+    listMemories.mockResolvedValue({ items: [memory], nextCursor: "", total: 1 });
     searchMemories.mockResolvedValue({ items: [] });
     deleteMemory.mockResolvedValue({});
+    getMemorySettings.mockResolvedValue({
+      settings: settings({ provider: "anthropic", model: "claude-haiku-5-5", setBy: "ada" }),
+    });
+    listAgents.mockResolvedValue({
+      agents: [
+        {
+          provider: "anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          models: [{ id: "claude-sonnet-5-5" }, { id: "claude-haiku-5-5" }],
+        },
+        { provider: "openai", defaultModel: "gpt-5-mini", models: [{ id: "gpt-5-mini" }] },
+      ],
+    });
   });
 
   it("shows a memory with the provenance a human needs to judge it", async () => {
@@ -203,22 +275,135 @@ describe("MemoryPanel", () => {
     expect(screen.getByTestId("memory-search")).toBeInTheDocument();
   });
 
-  it("loads the next page without losing the first", async () => {
-    listMemories.mockResolvedValueOnce({ items: [memory], nextCursor: "25" });
+  it("pages through the memory by number", async () => {
+    const page = (n: number) =>
+      Array.from({ length: n === 3 ? 10 : 25 }, (_, i) => ({
+        ...memory,
+        id: `p${n}-${i}`,
+        text: `fact ${n}.${i}`,
+      }));
+    listMemories.mockImplementation(({ offset }: { offset?: number }) => {
+      const n = Math.floor((offset ?? 0) / 25) + 1;
+      return Promise.resolve({ items: page(n), nextCursor: n < 3 ? String(n * 25) : "", total: 60 });
+    });
+    mount();
+    expect(await screen.findByText("fact 1.0")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "60 memories, newest first"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-range")).toHaveTextContent("1–25 of 60");
+    expect(screen.getByTestId("memory-prev")).toBeDisabled();
+
+    await userEvent.click(screen.getByTestId("memory-next"));
+    expect(await screen.findByText("fact 2.0")).toBeInTheDocument();
+    expect(screen.queryByText("fact 1.0")).toBeNull();
+    expect(listMemories).toHaveBeenLastCalledWith({ offset: 25, limit: 25 });
+    expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("memory-next"));
+    expect(await screen.findByText("fact 3.0")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-range")).toHaveTextContent("51–60 of 60");
+    expect(screen.getByTestId("memory-next")).toBeDisabled();
+
+    await userEvent.click(screen.getByTestId("memory-prev"));
+    expect(await screen.findByText("fact 2.0")).toBeInTheDocument();
+  });
+
+  it("shows no pager when everything fits on one page", async () => {
     mount();
     await screen.findByTestId("memory-row");
+    expect(screen.queryByTestId("memory-next")).toBeNull();
+  });
+});
 
+describe("Memory model settings", () => {
+  beforeEach(() => {
     listMemories.mockReset();
-    listMemories.mockImplementation(({ cursor }: { cursor: string }) =>
-      cursor === ""
-        ? Promise.resolve({ items: [memory], nextCursor: "25" })
-        : Promise.resolve({ items: [{ ...memory, id: "second", text: "a later fact" }], nextCursor: "" }),
+    getMemorySettings.mockReset();
+    setMemorySettings.mockReset();
+    listAgents.mockReset();
+    listMemories.mockResolvedValue({ items: [memory], nextCursor: "", total: 1 });
+    listAgents.mockResolvedValue({
+      agents: [
+        {
+          provider: "anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          models: [{ id: "claude-sonnet-5-5" }, { id: "claude-haiku-5-5" }],
+        },
+      ],
+    });
+  });
+
+  it("shows a member what is in use, with nothing to change", async () => {
+    getMemorySettings.mockResolvedValue({
+      settings: settings({ provider: "anthropic", model: "claude-haiku-5-5", setBy: "ada" }),
+    });
+    mount(member());
+    const card = await screen.findByTestId("memory-model");
+    expect(await within(card).findByText("claude-haiku-5-5")).toBeInTheDocument();
+    expect(within(card).getByText(/saved Anthropic key/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Change" })).toBeNull();
+  });
+
+  it("opens itself for an admin when nothing is chosen, and saves a saved key's model", async () => {
+    getMemorySettings.mockResolvedValue({ settings: settings() });
+    setMemorySettings.mockResolvedValue({
+      settings: settings({ provider: "anthropic", model: "claude-haiku-5-5", setBy: "local" }),
+    });
+    mount(admin());
+    const card = await screen.findByTestId("memory-model");
+    expect(within(card).getByText("Not chosen")).toBeInTheDocument();
+    expect(within(card).getByText(/Nothing new is being remembered/)).toBeInTheDocument();
+
+    // The first usable key is preselected and its default model filled in.
+    const input = await within(card).findByTestId("memory-model-input");
+    await waitFor(() => expect(input).toHaveValue("claude-sonnet-5-5"));
+    await userEvent.clear(input);
+    await userEvent.type(input, "claude-haiku-5-5");
+    await userEvent.click(within(card).getByTestId("memory-model-save"));
+
+    await waitFor(() =>
+      expect(setMemorySettings).toHaveBeenCalledWith({ provider: "anthropic", model: "claude-haiku-5-5" }),
     );
+    expect(await within(card).findByText("claude-haiku-5-5")).toBeInTheDocument();
+    expect(within(card).queryByTestId("memory-model-input")).toBeNull();
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  it("keeps the form open with the provider's own words when the test message fails", async () => {
+    getMemorySettings.mockResolvedValue({ settings: settings() });
+    setMemorySettings.mockRejectedValue(
+      new ConnectError("anthropic did not answer with nope: model nope does not exist", Code.FailedPrecondition),
+    );
+    mount(admin());
+    const card = await screen.findByTestId("memory-model");
+    const input = await within(card).findByTestId("memory-model-input");
+    await userEvent.clear(input);
+    await userEvent.type(input, "nope");
+    await userEvent.click(within(card).getByTestId("memory-model-save"));
+    expect(await within(card).findByTestId("memory-model-error")).toHaveTextContent(
+      "model nope does not exist",
+    );
+    expect(within(card).getByTestId("memory-model-input")).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText("a later fact")).toBeInTheDocument();
-    expect(screen.getByText("Bob owns the Podium scheduler.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Load more" })).toBeNull());
+  it("points an admin at Models when no key is saved for everyone", async () => {
+    getMemorySettings.mockResolvedValue({
+      settings: settings({ providers: providers.map((p) => ({ ...p, available: false })) }),
+    });
+    mount(admin());
+    const card = await screen.findByTestId("memory-model");
+    expect(await within(card).findByRole("link", { name: "Add one under Models" })).toHaveAttribute(
+      "href",
+      "/agent/settings/models",
+    );
+  });
+
+  it("says the host uses its own key when the conductor does not serve extraction", async () => {
+    getMemorySettings.mockResolvedValue({ settings: settings({ proxyEnabled: false }) });
+    mount(admin());
+    const card = await screen.findByTestId("memory-model");
+    expect(within(card).getByText(/uses the key it was started with/)).toBeInTheDocument();
+    expect(within(card).queryByTestId("memory-model-input")).toBeNull();
   });
 });

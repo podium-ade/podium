@@ -126,7 +126,7 @@ func TestEveryCallCarriesTheBearer(t *testing.T) {
 	require.NoError(t, err)
 
 	f.body = `{"items":[],"total":0,"limit":50,"offset":0}`
-	_, _, err = c.List(ctx, "", 0)
+	_, _, _, err = c.List(ctx, "", 0)
 	require.NoError(t, err)
 
 	f.body = `{}`
@@ -289,8 +289,9 @@ func TestListMapsTheWireAndPages(t *testing.T) {
 	f, c := newFake(t)
 	f.body = listBody
 
-	items, next, err := c.List(context.Background(), "", 1)
+	items, next, total, err := c.List(context.Background(), "", 1)
 	require.NoError(t, err)
+	assert.Equal(t, 3, total, "the bank's size is what a page count is built from")
 
 	got := f.last()
 	assert.Equal(t, http.MethodGet, got.Method)
@@ -314,13 +315,13 @@ func TestListFollowsItsOwnCursor(t *testing.T) {
 	f, c := newFake(t)
 	f.body = `{"items":[{"id":"a","text":"a"},{"id":"b","text":"b"}],"total":5,"limit":2,"offset":2}`
 
-	_, next, err := c.List(context.Background(), "2", 2)
+	_, next, _, err := c.List(context.Background(), "2", 2)
 	require.NoError(t, err)
 	assert.Equal(t, "limit=2&offset=2", f.last().Query)
 	assert.Equal(t, "4", next)
 
 	f.body = `{"items":[{"id":"e","text":"e"}],"total":5,"limit":2,"offset":4}`
-	_, next, err = c.List(context.Background(), "4", 2)
+	_, next, _, err = c.List(context.Background(), "4", 2)
 	require.NoError(t, err)
 	assert.Empty(t, next, "the last page has no cursor")
 }
@@ -328,7 +329,7 @@ func TestListFollowsItsOwnCursor(t *testing.T) {
 func TestListRefusesACursorThisBuildDidNotIssue(t *testing.T) {
 	f, c := newFake(t)
 	for _, cursor := range []string{"not-a-number", "-1"} {
-		_, _, err := c.List(context.Background(), cursor, 10)
+		_, _, _, err := c.List(context.Background(), cursor, 10)
 		require.Error(t, err, "cursor %q", cursor)
 	}
 	assert.Empty(t, f.calls)
@@ -338,11 +339,11 @@ func TestListClampsTheLimit(t *testing.T) {
 	f, c := newFake(t)
 	f.body = `{"items":[],"total":0,"limit":0,"offset":0}`
 
-	_, _, err := c.List(context.Background(), "", 0)
+	_, _, _, err := c.List(context.Background(), "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "limit=50&offset=0", f.last().Query)
 
-	_, _, err = c.List(context.Background(), "", 100000)
+	_, _, _, err = c.List(context.Background(), "", 100000)
 	require.NoError(t, err)
 	assert.Equal(t, "limit=200&offset=0", f.last().Query)
 }
@@ -353,7 +354,7 @@ func TestListOfAnUnwrittenBankIsAnEmptyPage(t *testing.T) {
 	f, c := newFake(t)
 	f.body = `{"items":[],"total":0,"limit":50,"offset":0}`
 
-	items, next, err := c.List(context.Background(), "", 0)
+	items, next, _, err := c.List(context.Background(), "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, items)
 	assert.Empty(t, next)
@@ -427,7 +428,7 @@ func TestAWrongKeyIsATypedError(t *testing.T) {
 		f.status = status
 		f.body = `{"detail":"Authentication failed: Invalid API key"}`
 
-		_, _, err := c.List(context.Background(), "", 10)
+		_, _, _, err := c.List(context.Background(), "", 10)
 		require.ErrorIs(t, err, ErrUnauthorized)
 		assert.Contains(t, err.Error(), "Invalid API key", "the provider's own words reach the log")
 	}
@@ -482,7 +483,7 @@ func TestABodyThatIsNotJSONIsAnError(t *testing.T) {
 	f, c := newFake(t)
 	f.body = "not json"
 
-	_, _, err := c.List(context.Background(), "", 10)
+	_, _, _, err := c.List(context.Background(), "", 10)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode")
 }

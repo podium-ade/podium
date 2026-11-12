@@ -105,7 +105,7 @@ func TestTheRealMemoryEngineSpeaksWhatTheClientExpects(t *testing.T) {
 
 	// A bank nobody has written to is an empty page, not a 404 — which is why nothing in
 	// Podium provisions a bank.
-	items, next, err := client.List(ctx, "", 10)
+	items, next, _, err := client.List(ctx, "", 10)
 	require.NoError(t, err)
 	assert.Empty(t, items)
 	assert.Empty(t, next)
@@ -136,7 +136,7 @@ func TestTheRealMemoryEngineSpeaksWhatTheClientExpects(t *testing.T) {
 		BaseURL: endpoint, Bank: "podium", APIKey: "not-the-key",
 	})
 	require.NoError(t, err)
-	_, _, err = wrong.List(ctx, "", 10)
+	_, _, _, err = wrong.List(ctx, "", 10)
 	require.ErrorIs(t, err, memory.ErrUnauthorized)
 
 	status, _ := plainGet(t, endpoint+"/v1/default/banks/podium/memories/list")

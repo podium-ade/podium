@@ -49,12 +49,17 @@ services:
       # Hindsight has NO authentication until this extension is given a key.
       HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
       HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-podium}
-      # Any of Hindsight's 25+ providers — LiteLLM sits underneath. openai, gemini, groq,
-      # bedrock, vertexai, ollama, lmstudio and the subscription ones all work; change the
-      # model to match. https://hindsight.vectorize.io/developer/models
-      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-anthropic}
-      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
-      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}   # REQUIRED or this exits
+      # Fact extraction calls the conductor, which forwards it to the model key and model an
+      # admin chooses on the Memory page — one of the keys already saved under Models. The
+      # provider and model here are placeholders the conductor replaces.
+      #
+      # To give Hindsight a key of its own instead (any of its ~25 providers, a local
+      # ollama), set PODIUM_MEMORY_LLM_PROVIDER, _MODEL and _API_KEY, and set
+      # PODIUM_MEMORY_LLM_BASE_URL to empty. https://hindsight.vectorize.io/developer/models
+      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-openai}
+      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-podium}
+      HINDSIGHT_API_LLM_BASE_URL: ${PODIUM_MEMORY_LLM_BASE_URL-http://agent:8090/memory-llm/v1}
+      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-${PODIUM_AGENT_MEMORY_LLM_TOKEN:-podium-memory-llm}}
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: local                    # bundled, so offline
       HINDSIGHT_ENABLE_CP: "false"                                # Podium's UI is the front door
       HINDSIGHT_API_WORKER_ID: hindsight                          # stable, or retains wedge
@@ -191,6 +196,9 @@ services:
       PODIUM_AGENT_MEMORY_SANDBOX_URL: ${PODIUM_AGENT_MEMORY_SANDBOX_URL:-}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-podium}
+      # What Hindsight presents when it calls back for fact extraction. Reachable only inside
+      # this compose network, like the tokens above.
+      PODIUM_AGENT_MEMORY_LLM_TOKEN: ${PODIUM_AGENT_MEMORY_LLM_TOKEN:-podium-memory-llm}
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}

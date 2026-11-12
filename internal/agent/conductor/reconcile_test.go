@@ -32,7 +32,7 @@ func (s *stubMemory) Recall(context.Context, string, int) ([]memory.Memory, erro
 	panic("not under test")
 }
 
-func (s *stubMemory) List(context.Context, string, int) ([]memory.Memory, string, error) {
+func (s *stubMemory) List(context.Context, string, int) ([]memory.Memory, string, int, error) {
 	panic("not under test")
 }
 func (s *stubMemory) Forget(context.Context, string) error { panic("not under test") }
