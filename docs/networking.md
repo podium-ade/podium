@@ -497,8 +497,11 @@ GitHub App webhooks land on **a second listener** on `podium-agent` (the listen 
 saved with the App under Access → Connections), muxed to `POST /webhooks/github` only,
 HMAC-verified.
 Tailscale Funnel or a tunnel points at that address and nowhere else — so exposing a webhook
-never exposes the API or the UI. Slack is still Socket Mode (zero ingress). Linear is still
-polling.
+never exposes the API or the UI. A Linear agent app saved on the same screen lands on
+`POST /webhooks/linear`, signed with its own secret, on the listen address saved with it. That
+address may be the GitHub App's: the conductor then binds it once and serves both paths on it,
+and the tunnel needs no second route. Slack is still Socket Mode (zero ingress). Linear without
+a saved app is polled with a personal API key, dialling out.
 
 ## Architecture: the daemon binary and the task image are different questions
 
