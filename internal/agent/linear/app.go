@@ -227,8 +227,10 @@ type appSession struct {
 	// type, so Linear's view of how the session ended does not change.
 	closing string
 	// taskID is the newest task the session's turns ran, for the fallback attachment link and
-	// to know which task a stop is about.
-	taskID string
+	// to know which task a stop is about. pastTasks are the tasks of turns that have been
+	// followed by another, so an outbox retry of one of their posts is known for what it is.
+	taskID    string
+	pastTasks map[string]bool
 	// linked is every URL already added to the session's links.
 	linked map[string]bool
 	// moveChecked is set once the turn has looked at the issue's state, so a turn that parks
@@ -954,18 +956,24 @@ func (s *AppSource) session(sessionID string) *appSession {
 	defer s.mu.Unlock()
 	st := s.sessions[sessionID]
 	if st == nil {
-		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}}
+		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}, pastTasks: map[string]bool{}}
 		s.sessions[sessionID] = st
 	}
 	return st
 }
 
 // turnStarted is the placeholder of a new turn: whatever the last one ended on, this one has
-// not ended, and it has not looked at the issue's state. It is also the end of a stop: the
+// not ended, it has not looked at the issue's state, and the last turn's task is not its own. It is also the end of a stop: the
 // conductor runs a session's turns one at a time, so the stopped turn has finished by now.
 func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A new turn is a new task (a warm task takes a follow-up without one), and which it is
+	// is not known until it says something.
+	if st.taskID != "" {
+		st.pastTasks[st.taskID] = true
+	}
+	st.taskID = ""
 	st.stopped = false
 	st.closing = ""
 	st.moveChecked = false
@@ -1030,13 +1038,17 @@ func (s *AppSource) send(
 	s.mu.Lock()
 	refused := !closing && s.refusedLocked(st, taskID)
 	late := ephemeral && st.closing != ""
+	// An earlier turn's answer, question or failure, retried by the delivery outbox after a
+	// newer turn has started. It is still said, since it is owed, but it is not the turn now
+	// running, so it neither ends that turn nor parks it.
+	earlier := taskID != "" && taskID != st.taskID && st.pastTasks[taskID]
 	s.mu.Unlock()
 	if refused || late {
 		s.logger.DebugContext(ctx, "not posting into a linear session that was stopped or has answered",
 			"session", sessionID, "type", content.Type, "stopped", refused)
 		return "", nil
 	}
-	if taskID != "" {
+	if taskID != "" && !earlier {
 		s.mu.Lock()
 		st.taskID = taskID
 		s.mu.Unlock()
@@ -1051,6 +1063,9 @@ func (s *AppSource) send(
 	st.lastActivity = now
 	if ephemeral {
 		st.lastEphemeral = now
+	}
+	if earlier {
+		return id, nil
 	}
 	switch content.Type {
 	case ActivityResponse, ActivityError:
@@ -1269,7 +1284,7 @@ func (s *AppSource) StoppedElsewhere(sourceKey, taskID string) {
 	switch {
 	case taskID != "":
 		st.stoppedTasks[taskID] = true
-		if st.taskID == taskID {
+		if st.taskID == taskID || (st.taskID == "" && st.open) {
 			s.endTurnLocked(st)
 		}
 	case st.open:
