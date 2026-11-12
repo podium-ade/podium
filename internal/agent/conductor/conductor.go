@@ -288,8 +288,8 @@ type Conductor struct {
 	// TranscriptKeepRecent with their defaults applied.
 	transcriptBudget int
 	transcriptKeep   int
-	// idents caches who a Slack or GitHub account is, and rate-limits review commands from
-	// outside Podium. See identity.go.
+	// idents caches who a Slack, Linear or GitHub account is, and rate-limits review
+	// commands from outside Podium. See identity.go.
 	idents identityCache
 	// clock is time.Now, replaceable by a test.
 	clock        func() time.Time
@@ -1676,7 +1676,8 @@ func (c *Conductor) logUnavailableMCP(ctx context.Context, turnID, job string, u
 
 // credentialOwner is whose model credential a turn spends: the person who asked, when they
 // saved their own for the provider this backend spends, and the global one otherwise. A turn
-// with no person — Slack, Linear, GitHub, the dev token — always spends the global one.
+// with no person — a polled Linear ticket, an automatic review, the dev token — always spends
+// the global one, and so does every turn of a shared conversation (turnCredentialOwner).
 //
 // A control plane that cannot be asked falls back to the global credential and says so: a
 // turn that runs on the company key beats a turn that does not run, and the log is where an
@@ -1724,14 +1725,17 @@ func (c *Conductor) turnCredentialOwner(ctx context.Context, sess store.Session,
 	return c.credentialOwner(ctx, login, agent, onChatHost)
 }
 
-// sharedConversation is whether a conversation is shared: a Slack thread or a pull request
-// always is, and a web chat is once it is multiplayer (shared, or a second person spoke in
-// it; store.Chat.Multiplayer, which never goes back). A chat whose record cannot be read is
-// treated as shared: the company key is what every turn falls back to anyway, and spending
-// a person's own key in a conversation they may have shared is the outcome to avoid.
+// sharedConversation is whether a conversation is shared: a Slack thread, a Linear issue or
+// a pull request always is, and a web chat is once it is multiplayer (shared, or a second
+// person spoke in it; store.Chat.Multiplayer, which never goes back). A Linear agent session
+// is a thread anybody in the workspace who can see the issue may reply in, exactly as a Slack
+// thread is, and a polled ticket has nobody's key to spend in the first place. A chat whose
+// record cannot be read is treated as shared: the company key is what every turn falls back
+// to anyway, and spending a person's own key in a conversation they may have shared is the
+// outcome to avoid.
 func (c *Conductor) sharedConversation(ctx context.Context, sess store.Session) bool {
 	switch sess.SourceKind {
-	case SourceSlack, SourceGitHub:
+	case SourceSlack, SourceGitHub, SourceLinear:
 		return true
 	}
 	if c.store == nil || sess.SourceKey == "" {
@@ -1760,9 +1764,10 @@ func turnOwner(login string) string {
 	}
 }
 
-// asker is the signed-in login a turn's personal secrets attach to. Slack, Linear, and
-// GitHub have none: a mentioner's name is not a Podium login, and a mirrored chat's login
-// is empty. A Slack speaker's email is a separate hint, used for MCP servers only.
+// asker is who a turn falls back to when its speaker did not resolve (turnLogin). Slack,
+// Linear, and GitHub have nobody to fall back to: a mentioner's name is not a Podium login,
+// and a mirrored chat's login is empty. A speaker of theirs who resolved is ev.Login, which
+// turnLogin takes first.
 func (c *Conductor) asker(ctx context.Context, src Source, sess store.Session) string {
 	kind := sess.SourceKind
 	if src != nil && src.Kind() != "" {

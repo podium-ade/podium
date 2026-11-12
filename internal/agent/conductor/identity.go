@@ -12,21 +12,29 @@ import (
 
 // Who may start a turn, and as whom (multiplayer sessions, docs/agent.md).
 //
-// Every surface is one identity: a Slack account or a GitHub account counts as a person only
-// once it has been PROVEN to be a Podium login — a Slack workspace email that matches a login
-// which has signed in, a GitHub numeric id from that person's own OAuth connect. resolveSpeaker
-// turns what a source proved into InboundEvent.Login, and admit decides from it:
+// Every surface is one identity: a Slack, Linear or GitHub account counts as a person only
+// once it has been PROVEN to be a Podium login — a Slack workspace email or a Linear email
+// that matches a login which has signed in, a GitHub numeric id from that person's own OAuth
+// connect. resolveSpeaker turns what a source proved into InboundEvent.Login, and admit
+// decides from it:
 //
 //   - the web chat: always admitted; its caller is the signed-in person.
 //   - Slack: only a speaker who resolved. Anybody else is recorded in the mirror, gets 🚫,
 //     and nothing runs.
+//   - Linear, the agent app: Slack's rule. Every prompt names the person who wrote it, and
+//     only one who resolved is answered; anybody else is told in the session, which then
+//     ends, and nothing runs. A Stop is not a prompt and is not gated at all (linear's
+//     webhook.go says why).
+//   - Linear, the poller: no accounts. A bot seat's API key sees an assignment or a comment
+//     and not who could be proven to have made it, so a polled ticket runs as nobody, as it
+//     always has. It is the unauthenticated mode, and docs/security.md says so.
 //   - GitHub: what nobody said (a pull request opened, marked ready, pushed to by this App)
 //     runs as it always has. A resolved speaker is answered with their own credentials. A
 //     speaker who did not resolve may ask for exactly one thing — a review — and only
 //     through the review command's narrow grammar; anything else gets a confused reaction.
-//   - Linear and the dev source have no accounts and are unchanged.
+//   - the dev source has no accounts and is unchanged.
 
-// Slack identity resolution is cached: the Slack candidate check is a database read per
+// Slack and Linear identity resolution is cached: the candidate check is a database read per
 // message, and a busy thread repeats the same speakers. A miss is remembered for less time
 // than a hit so that somebody who has just signed in is not refused for long.
 //
@@ -123,12 +131,14 @@ func (c *Conductor) resolveSpeaker(ctx context.Context, src Source, ev *InboundE
 	switch ev.SpeakerProvider {
 	case store.ProviderSlack:
 		ev.Login = c.resolveSlack(ctx, ev)
+	case store.ProviderLinear:
+		ev.Login = c.resolveLinear(ctx, ev)
 	case store.ProviderGitHub:
 		ev.Login = c.resolveGitHub(ctx, ev)
 	default:
-		// A Slack or GitHub event that names no account proves nobody: whatever Login a
-		// source put there is not taken on trust.
-		if src != nil && (src.Kind() == SourceSlack || src.Kind() == SourceGitHub) {
+		// A Slack, GitHub or Linear event that names no account proves nobody: whatever Login
+		// a source put there is not taken on trust.
+		if src != nil && (src.Kind() == SourceSlack || src.Kind() == SourceGitHub || src.Kind() == SourceLinear) {
 			ev.Login = ""
 		}
 	}
@@ -137,24 +147,39 @@ func (c *Conductor) resolveSpeaker(ctx context.Context, src Source, ev *InboundE
 // resolveSlack keeps the source's candidate email only if it is on an allowed domain and is
 // a login that has signed in to Podium, and records the Slack account as that person's.
 func (c *Conductor) resolveSlack(ctx context.Context, ev *InboundEvent) string {
+	return c.resolveEmail(ctx, store.ProviderSlack, ev)
+}
+
+// resolveLinear is resolveSlack for the Linear agent app: the candidate is the email of the
+// person who wrote the prompt, a full member of the app's own workspace (the source's
+// checks), and it is kept on the same terms.
+func (c *Conductor) resolveLinear(ctx context.Context, ev *InboundEvent) string {
+	return c.resolveEmail(ctx, store.ProviderLinear, ev)
+}
+
+// resolveEmail keeps a source's candidate email only if it is on an allowed domain and is a
+// login that has signed in to Podium, and records the account as that person's. It is the
+// whole of the rule for a surface whose source can vouch for an email but not for a Podium
+// login: Slack and the Linear app.
+func (c *Conductor) resolveEmail(ctx context.Context, provider string, ev *InboundEvent) string {
 	candidate := strings.ToLower(strings.TrimSpace(ev.Login))
 	if candidate == "" || ev.SpeakerID == "" || c.store == nil {
 		return ""
 	}
-	key := store.ProviderSlack + "|" + ev.SpeakerID + "|" + candidate
+	key := provider + "|" + ev.SpeakerID + "|" + candidate
 	now := c.now()
 	if login, ok := c.idents.get(key, now); ok {
 		return login
 	}
 	login := ""
 	if c.domainAllowed(candidate) {
-		// The Slack email is lowercased; the person's login is however podium-server spells
+		// The candidate is lowercased; the person's login is however podium-server spells
 		// it (0040), which is what every other comparison uses.
 		canonical, ok, err := c.store.CanonicalWebLogin(ctx, candidate)
 		if err != nil {
 			// Not cached: a database blip must not refuse somebody for a minute.
-			c.logger.WarnContext(ctx, "checking whether a slack speaker is in podium failed",
-				"slack_user", ev.SpeakerID, "error", err)
+			c.logger.WarnContext(ctx, "checking whether a "+provider+" speaker is in podium failed",
+				provider+"_user", ev.SpeakerID, "error", err)
 			return ""
 		}
 		if ok {
@@ -163,11 +188,11 @@ func (c *Conductor) resolveSlack(ctx context.Context, ev *InboundEvent) string {
 	}
 	if login != "" {
 		if err := c.store.UpsertIdentity(ctx, store.Identity{
-			Login: login, Provider: store.ProviderSlack, ExternalID: ev.SpeakerID,
+			Login: login, Provider: provider, ExternalID: ev.SpeakerID,
 			DisplayName: ev.Author, AvatarURL: ev.SpeakerAvatar, VerifiedAt: now.UTC(),
 		}); err != nil {
-			c.logger.WarnContext(ctx, "recording a slack identity failed",
-				"slack_user", ev.SpeakerID, "login", login, "error", err)
+			c.logger.WarnContext(ctx, "recording a "+provider+" identity failed",
+				provider+"_user", ev.SpeakerID, "login", login, "error", err)
 		}
 	}
 	c.idents.put(key, login, now)
@@ -230,6 +255,21 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 		}
 		c.refuse(ctx, src, *ev, "not in podium")
 		return false
+	case SourceLinear:
+		switch {
+		case ev.SpeakerProvider == "":
+			// The poller: a bot seat's API key, which can see that a ticket was assigned or
+			// commented on and cannot prove by whom. It runs as nobody, as it always has.
+			// The app names its provider on every prompt, so its events never come here.
+			c.gateDecision(kind, "polled")
+			return true
+		case ev.Login != "":
+			c.gateDecision(kind, "admitted")
+			return true
+		default:
+			c.refuse(ctx, src, *ev, "not in podium")
+			return false
+		}
 	case SourceGitHub:
 		switch {
 		case ev.Automatic:
@@ -327,6 +367,8 @@ func (c *Conductor) recordParticipant(ctx context.Context, chat store.Chat, ev I
 		via = store.JoinedSlack
 	case store.ProviderGitHub:
 		via = store.JoinedGitHub
+	case store.ProviderLinear:
+		via = store.JoinedLinear
 	}
 	at := ev.TS
 	if at.IsZero() {
@@ -348,8 +390,8 @@ func (c *Conductor) recordParticipant(ctx context.Context, chat store.Chat, ev I
 // turnLogin is whose credentials a turn runs with: the person who started it, on every
 // surface. Never the chat's owner on somebody else's behalf — in a conversation several
 // people speak in, the owner is only whoever happened to be first. A turn with no resolved
-// speaker (Linear, the dev source, an automatic review) falls back to asker, which is the
-// web chat's owner and nobody for every other source.
+// speaker (a polled Linear ticket, the dev source, an automatic review) falls back to asker,
+// which is the web chat's owner and nobody for every other source.
 func (c *Conductor) turnLogin(ctx context.Context, src Source, sess store.Session, ev InboundEvent) string {
 	if l := strings.TrimSpace(ev.Login); l != "" && !ev.Automatic {
 		return l
