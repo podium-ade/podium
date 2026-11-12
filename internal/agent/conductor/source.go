@@ -34,6 +34,7 @@ const (
 const (
 	SpeakerSlack  = "slack"
 	SpeakerGitHub = "github"
+	SpeakerLinear = "linear"
 )
 
 // The privacies a source can name in InboundEvent.ChannelPrivacy: the store's, spelled here
@@ -124,16 +125,24 @@ type InboundEvent struct {
 	//   - Slack sets a CANDIDATE, the workspace email of a user who passed the source's
 	//     account checks, which the conductor keeps only if that login has signed in to
 	//     Podium;
+	//   - the Linear agent app sets a candidate the same way, the email of the person who
+	//     wrote the prompt;
 	//   - GitHub sets nothing: the conductor looks the speaker's numeric id up in the
-	//     identities a GitHub connect wrote.
+	//     identities a GitHub connect wrote;
+	//   - the Linear poller sets nothing and names no account: it proves nobody.
 	//
 	// After resolveSpeaker it is either a person who is in Podium or empty. A turn runs
 	// with this person's credentials, and it is what makes them a participant of the chat.
 	Login string
 	// SpeakerProvider and SpeakerID name the account that spoke, as its source proved it:
-	// store.ProviderSlack and "<team>/<user>", or store.ProviderGitHub and the numeric user
-	// id. Empty for a source that has no accounts (Linear, the dev source) and for the web
-	// chat, whose Login is already the proof.
+	// store.ProviderSlack and "<team>/<user>", store.ProviderGitHub and the numeric user id,
+	// or store.ProviderLinear and "<organization>/<user>". Empty for a source that has no
+	// accounts (the Linear poller, the dev source) and for the web chat, whose Login is
+	// already the proof.
+	//
+	// The Linear app names its provider on every prompt, even one whose speaker it could not
+	// read: a Linear event that names a provider is held to the rule that only a Podium person
+	// starts a turn, and one that names none is the poller's (admit).
 	SpeakerProvider string
 	SpeakerID       string
 	// SpeakerAvatar is the account's picture, when the source had it for free.
