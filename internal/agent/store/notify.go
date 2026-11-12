@@ -19,6 +19,11 @@ const ChatChannel = "podium_chat"
 // conductor that runs it (phase 4: anybody in a chat may stop its answer, from any conductor).
 const TurnCancelChannel = "podium_turn_cancel"
 
+// SessionStopChannel carries word that a conversation's turn was stopped from its own surface
+// (CancelSessionTurn), to every other conductor, so the one following the turn stops saying
+// things in a conversation that was told it stopped.
+const SessionStopChannel = "podium_session_stop"
+
 // MaxNotifyPayload is the largest payload Postgres accepts on a NOTIFY, less a margin for
 // the envelope. Anything that would not fit is announced as a pointer to re-read instead.
 const MaxNotifyPayload = 7900
