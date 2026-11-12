@@ -428,6 +428,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Notifiers:          notifiers,
 		NotifyAwayAfter:    a.cfg.NotifyAway,
 		PublicURL:          a.cfg.PublicURL,
+		Keys:               keyHealth{a},
 	})
 	if err != nil {
 		st.Close()
@@ -475,6 +476,19 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Logger:                     a.logger,
 	})
 	a.live.conductor, a.live.svc = a.conductor, a.svc
+	// The person who saved a model key is told when the provider stops accepting it, the
+	// same way a person is told their task ended: Slack, then email.
+	a.svc.SetKeyAlert(func(ctx context.Context, login, subject, body string) error {
+		var errs []error
+		for _, n := range notifiers {
+			err := n.Notify(ctx, login, subject, body)
+			if err == nil {
+				return nil
+			}
+			errs = append(errs, fmt.Errorf("%s: %w", n.Name(), err))
+		}
+		return errors.Join(errs...)
+	})
 	// Routines run in their chats, so they need the web chat and a host runtime to answer it.
 	conductor.DescribeSchedule = routines.Describe
 	if a.chat != nil && host != nil {
@@ -890,4 +904,21 @@ func resolveBinary(bin string) string {
 		path = abs
 	}
 	return path
+}
+
+// keyHealth is the conductor's view of the stored model keys. The service that knows is
+// built after the conductor, so this resolves it when a turn asks rather than now.
+type keyHealth struct{ a *Agent }
+
+func (k keyHealth) KeyRefused(ctx context.Context, provider string) (bool, error) {
+	if k.a.svc == nil {
+		return false, nil
+	}
+	return k.a.svc.KeyRefused(ctx, provider)
+}
+
+func (k keyHealth) SuspectKey(provider string) {
+	if k.a.svc != nil {
+		k.a.svc.SuspectKey(provider)
+	}
 }
