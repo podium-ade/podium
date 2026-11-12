@@ -199,6 +199,60 @@ func (c *Client) Viewer(ctx context.Context) (User, error) {
 	return out.Viewer, nil
 }
 
+const appIdentityQuery = `query PodiumAppIdentity {
+  viewer { id name displayName app }
+  organization { id name urlKey }
+}`
+
+// AppIdentity is who an OAuth app's token signs in as, and in which workspace.
+type AppIdentity struct {
+	// UserID is the app user, unique to this workspace. It is what an issue is delegated
+	// to and what an @mention names.
+	UserID      string
+	Name        string
+	DisplayName string
+	// App is true for an app user. A personal API key or a user's OAuth token has false.
+	App bool
+	// The workspace. URLKey is the part of linear.app/<urlKey>/ that names it.
+	OrganizationID     string
+	OrganizationName   string
+	OrganizationURLKey string
+}
+
+// AppIdentity reads the viewer and its workspace. Settings → Connections runs it when an
+// app's credentials are saved, so the operator sees what they connected and a user's
+// credentials are refused rather than saved as an app.
+func (c *Client) AppIdentity(ctx context.Context) (AppIdentity, error) {
+	var out struct {
+		Viewer struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+			App         bool   `json:"app"`
+		} `json:"viewer"`
+		Organization struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			URLKey string `json:"urlKey"`
+		} `json:"organization"`
+	}
+	if err := c.do(ctx, "PodiumAppIdentity", appIdentityQuery, nil, &out); err != nil {
+		return AppIdentity{}, err
+	}
+	if out.Viewer.ID == "" {
+		return AppIdentity{}, errors.New("linear: viewer returned no user id")
+	}
+	return AppIdentity{
+		UserID:             out.Viewer.ID,
+		Name:               out.Viewer.Name,
+		DisplayName:        out.Viewer.DisplayName,
+		App:                out.Viewer.App,
+		OrganizationID:     out.Organization.ID,
+		OrganizationName:   out.Organization.Name,
+		OrganizationURLKey: out.Organization.URLKey,
+	}, nil
+}
+
 // assignedIssuesQuery is one tick's page.
 //
 // `orderBy: updatedAt` is DESCENDING and there is no ascending option — PaginationOrderBy
