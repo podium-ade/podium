@@ -249,13 +249,21 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 	if p.Action == ActionPrompted && strings.TrimSpace(act.Content.Body) == "" {
 		return DeliveryIgnored, "empty prompt", slog.LevelInfo
 	}
-	// A retried delivery has a new delivery id and the same prompt. There is no record of
-	// this conversation to dedupe it against, so the prompt's id is remembered here.
-	if !s.firstSighting("activity:" + act.ID) {
-		return DeliveryDuplicate, "prompt already handled", slog.LevelInfo
+	created := p.Action == ActionCreated
+	// A retried delivery has a new delivery id and the same prompt. The conductor's record
+	// dedupes the prompt itself, on every conductor, so a follow-up is handed over again and
+	// stops there. A session's opening prompt is remembered here as well, because the source
+	// acknowledges it before the conductor sees it, and an acknowledgement after the session
+	// has answered would show it working again. A retry that reaches another conductor is
+	// acknowledged there a second time; that thought is ephemeral, and nothing runs twice.
+	if created && !s.firstSighting("activity:"+act.ID) {
+		return DeliveryDuplicate, "session already acknowledged", slog.LevelInfo
 	}
 	ev := s.inbound(p)
-	created := p.Action == ActionCreated
+	teamID := sess.Issue.TeamID
+	if teamID == "" && sess.Issue.Team != nil {
+		teamID = sess.Issue.Team.ID
+	}
 	s.enqueue(sess.ID, func(work context.Context) {
 		if created {
 			// Linear marks a session unresponsive when nothing is said within ten seconds of
@@ -265,9 +273,10 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 			// refusal follows it as an error, which ends the session.
 			s.acknowledge(work, sess.ID)
 		}
-		// Who asked is read here, off the request: it can take a call to Linear, and the
-		// webhook has five seconds to answer.
+		// Who asked, and whether the issue's team is private, are read here, off the request:
+		// each can take a call to Linear, and the webhook has five seconds to answer.
 		ev.Login = s.candidate(work, act.User)
+		ev.ChannelPrivacy = s.privacy(work, teamID)
 		s.emit(work, ev)
 	})
 	return DeliveryAccepted, "", slog.LevelInfo
