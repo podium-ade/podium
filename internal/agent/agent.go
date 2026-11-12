@@ -546,6 +546,11 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	root.Handle("/"+agentv1connect.AgentServiceName+"/",
 		api.RequireBearer(a.cfg.Token, api.RecordWebIdentities(a.store, a.logger, rpc)))
 	a.mountSurface(root)
+	if a.memory != nil && a.cfg.MemoryLLMToken != "" {
+		// The memory service's fact extraction, forwarded to the model chosen on the Memory
+		// page. Its own bearer, not the operator token: see config.MemoryLLMToken.
+		root.Handle(api.MemoryLLMPath, a.svc.MemoryLLMHandler())
+	}
 	if a.chatHost != nil {
 		// The chat host's model gateway and tools. Each request names a conversation by a
 		// token only that conversation's location holds, and is refused outside its turns.

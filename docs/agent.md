@@ -2812,8 +2812,8 @@ not that a fact exists. Extraction runs afterwards, in the engine's own worker, 
 API this process never calls. When that fails it fails for every retain at once, and nothing on
 the turn path can see it: the engine answers `/health`, `Retain` keeps returning 202, the
 conductor keeps logging hand-offs, turns keep succeeding, and the bank stays empty. An install
-can sit like that for weeks. The usual cause is a model key the provider rejects — see
-`PODIUM_MEMORY_LLM_API_KEY` in `deploy/.env.example`.
+can sit like that for weeks. The usual causes are no model chosen on the Memory page, or a
+model key the provider rejects — see `PODIUM_AGENT_MEMORY_LLM_TOKEN` in `deploy/.env.example`.
 
 So the conductor asks. Every five minutes it reads the engine's failed operations and reports
 them on `podium_agent_memory_extraction_failed`, a gauge of how many accepted retains produced
@@ -2884,10 +2884,17 @@ by tag **and** digest. Notes an operator needs:
   through the Docker bridge gateway and a service on `127.0.0.1` is not reachable from there.
   Firewall it down to the bridge and tailnet ranges — see
   [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
-- **Its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
-  from `.env` rather than from the web UI's secret store. It may be the same key the agents use,
-  and its calls are billed like any other. `PODIUM_MEMORY_LLM_MODEL` chooses the model: this is
-  background work over short prose, so a cheaper model is a reasonable choice.
+- **No LLM key of its own, by default.** Hindsight reads its model settings only at start-up,
+  so the compose file points it at the conductor instead: provider `openai`, base URL
+  `http://agent:8090/memory-llm/v1`, and `PODIUM_AGENT_MEMORY_LLM_TOKEN` as its key. The
+  conductor forwards each chat completion to the provider and model an admin chose on the Memory
+  page (`SetMemorySettings`), with that provider's saved **global** key — never a person's own,
+  and never a ChatGPT sign-in, which the OpenAI API refuses. Anthropic, OpenAI, xAI and Google
+  all answer the OpenAI chat completions shape, so forwarding swaps the model and renames
+  `max_tokens` for OpenAI; nothing is translated. Saving sends one short test completion first.
+  The token is deliberately not `PODIUM_AGENT_MEMORY_API_KEY`: every turn holds that one, and
+  this one spends the organisation's model key. To give Hindsight its own key instead, set
+  `PODIUM_MEMORY_LLM_PROVIDER`, `_MODEL`, `_API_KEY` and an empty `PODIUM_MEMORY_LLM_BASE_URL`.
 - **The models are baked into the image.** It comes up in seconds with no HuggingFace egress and
   needs no volume of its own — every byte of state is in `podium_memory`.
 - **Hindsight's own web UI (port 9999) is not published.** Podium's UI is the front door.

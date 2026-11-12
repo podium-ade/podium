@@ -86,6 +86,13 @@ service AgentService {
   // DeleteMemory takes one memory out of every future recall. It is a tombstone rather
   // than a row deletion: the memory engine keeps the record for audit and stops serving it.
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+  // GetMemorySettings reports which saved model key the memory service's fact extraction
+  // spends, and which keys it could spend instead. No credential is ever returned.
+  rpc GetMemorySettings(GetMemorySettingsRequest) returns (GetMemorySettingsResponse);
+  // SetMemorySettings points fact extraction at one provider's saved global key and a model.
+  // The pair is tried with one small completion first; a pair that does not answer is not
+  // saved. Admin or owner only.
+  rpc SetMemorySettings(SetMemorySettingsRequest) returns (SetMemorySettingsResponse);
   // ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
   // a name, an image and which one the chat starts with.
   rpc ListPlaybooks(ListPlaybooksRequest) returns (ListPlaybooksResponse);
@@ -1119,12 +1126,17 @@ message ListMemoriesRequest {
   // cursor is opaque and comes from a previous response.
   string cursor = 1;
   int32 limit = 2;
+  // offset is how many of the newest memories to skip, for jumping straight to a numbered
+  // page. Read only when cursor is empty.
+  int32 offset = 3;
 }
 
 message ListMemoriesResponse {
   repeated Memory items = 1;
   // Empty when there is no further page.
   string next_cursor = 2;
+  // total is how many memories the bank holds, for a page count.
+  int32 total = 3;
 }
 
 message SearchMemoriesRequest {
@@ -1141,6 +1153,54 @@ message DeleteMemoryRequest {
 }
 
 message DeleteMemoryResponse {}
+
+message GetMemorySettingsRequest {}
+
+// MemorySettings is the model the memory service extracts facts with.
+//
+// The memory service is set up once to call the conductor for every extraction, and the
+// conductor forwards the call to the chosen provider with that provider's saved global key.
+// That indirection is what lets the key and model change here, with no restart: the memory
+// service reads its own model settings only when it starts.
+message MemorySettings {
+  // provider is anthropic, openai, xai or google. Empty when nothing has been chosen yet,
+  // and every extraction fails until something is.
+  string provider = 1;
+  string model = 2;
+  // set_by and set_at say who chose and when.
+  string set_by = 3;
+  google.protobuf.Timestamp set_at = 4;
+  // proxy_enabled is false when this conductor does not serve extraction calls
+  // (PODIUM_AGENT_MEMORY_LLM_TOKEN is unset). The memory service then uses the key it was
+  // started with, and nothing chosen here has any effect.
+  bool proxy_enabled = 5;
+  // providers is every provider, and whether its saved key can be used for this.
+  repeated MemoryProviderOption providers = 6;
+}
+
+// MemoryProviderOption is one provider extraction could spend.
+message MemoryProviderOption {
+  string provider = 1;
+  // label is the provider's own name: Anthropic, OpenAI, xAI, Google.
+  string label = 2;
+  // available is whether a global key is saved and is a kind the provider's API accepts.
+  bool available = 3;
+  // reason says why it is not available. Empty when it is.
+  string reason = 4;
+}
+
+message GetMemorySettingsResponse {
+  MemorySettings settings = 1;
+}
+
+message SetMemorySettingsRequest {
+  string provider = 1;
+  string model = 2;
+}
+
+message SetMemorySettingsResponse {
+  MemorySettings settings = 1;
+}
 
 // Playbook is one job the bot can do, as much of it as a browser needs to offer the choice.
 message Playbook {

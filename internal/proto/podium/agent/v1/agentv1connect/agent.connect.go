@@ -102,6 +102,12 @@ const (
 	// AgentServiceDeleteMemoryProcedure is the fully-qualified name of the AgentService's DeleteMemory
 	// RPC.
 	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
+	// AgentServiceGetMemorySettingsProcedure is the fully-qualified name of the AgentService's
+	// GetMemorySettings RPC.
+	AgentServiceGetMemorySettingsProcedure = "/podium.agent.v1.AgentService/GetMemorySettings"
+	// AgentServiceSetMemorySettingsProcedure is the fully-qualified name of the AgentService's
+	// SetMemorySettings RPC.
+	AgentServiceSetMemorySettingsProcedure = "/podium.agent.v1.AgentService/SetMemorySettings"
 	// AgentServiceListPlaybooksProcedure is the fully-qualified name of the AgentService's
 	// ListPlaybooks RPC.
 	AgentServiceListPlaybooksProcedure = "/podium.agent.v1.AgentService/ListPlaybooks"
@@ -362,6 +368,13 @@ type AgentServiceClient interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// GetMemorySettings reports which saved model key the memory service's fact extraction
+	// spends, and which keys it could spend instead. No credential is ever returned.
+	GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error)
+	// SetMemorySettings points fact extraction at one provider's saved global key and a model.
+	// The pair is tried with one small completion first; a pair that does not answer is not
+	// saved. Admin or owner only.
+	SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error)
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
@@ -718,6 +731,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceDeleteMemoryProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+			connect.WithClientOptions(opts...),
+		),
+		getMemorySettings: connect.NewClient[v1.GetMemorySettingsRequest, v1.GetMemorySettingsResponse](
+			httpClient,
+			baseURL+AgentServiceGetMemorySettingsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetMemorySettings")),
+			connect.WithClientOptions(opts...),
+		),
+		setMemorySettings: connect.NewClient[v1.SetMemorySettingsRequest, v1.SetMemorySettingsResponse](
+			httpClient,
+			baseURL+AgentServiceSetMemorySettingsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetMemorySettings")),
 			connect.WithClientOptions(opts...),
 		),
 		listPlaybooks: connect.NewClient[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse](
@@ -1128,6 +1153,8 @@ type agentServiceClient struct {
 	listMemories               *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
 	searchMemories             *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
 	deleteMemory               *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	getMemorySettings          *connect.Client[v1.GetMemorySettingsRequest, v1.GetMemorySettingsResponse]
+	setMemorySettings          *connect.Client[v1.SetMemorySettingsRequest, v1.SetMemorySettingsResponse]
 	listPlaybooks              *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
 	getProfile                 *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile              *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
@@ -1316,6 +1343,16 @@ func (c *agentServiceClient) SearchMemories(ctx context.Context, req *connect.Re
 // DeleteMemory calls podium.agent.v1.AgentService.DeleteMemory.
 func (c *agentServiceClient) DeleteMemory(ctx context.Context, req *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return c.deleteMemory.CallUnary(ctx, req)
+}
+
+// GetMemorySettings calls podium.agent.v1.AgentService.GetMemorySettings.
+func (c *agentServiceClient) GetMemorySettings(ctx context.Context, req *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error) {
+	return c.getMemorySettings.CallUnary(ctx, req)
+}
+
+// SetMemorySettings calls podium.agent.v1.AgentService.SetMemorySettings.
+func (c *agentServiceClient) SetMemorySettings(ctx context.Context, req *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error) {
+	return c.setMemorySettings.CallUnary(ctx, req)
 }
 
 // ListPlaybooks calls podium.agent.v1.AgentService.ListPlaybooks.
@@ -1712,6 +1749,13 @@ type AgentServiceHandler interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// GetMemorySettings reports which saved model key the memory service's fact extraction
+	// spends, and which keys it could spend instead. No credential is ever returned.
+	GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error)
+	// SetMemorySettings points fact extraction at one provider's saved global key and a model.
+	// The pair is tried with one small completion first; a pair that does not answer is not
+	// saved. Admin or owner only.
+	SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error)
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
@@ -2064,6 +2108,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceDeleteMemoryProcedure,
 		svc.DeleteMemory,
 		connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetMemorySettingsHandler := connect.NewUnaryHandler(
+		AgentServiceGetMemorySettingsProcedure,
+		svc.GetMemorySettings,
+		connect.WithSchema(agentServiceMethods.ByName("GetMemorySettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetMemorySettingsHandler := connect.NewUnaryHandler(
+		AgentServiceSetMemorySettingsProcedure,
+		svc.SetMemorySettings,
+		connect.WithSchema(agentServiceMethods.ByName("SetMemorySettings")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceListPlaybooksHandler := connect.NewUnaryHandler(
@@ -2496,6 +2552,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSearchMemoriesHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteMemoryProcedure:
 			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
+		case AgentServiceGetMemorySettingsProcedure:
+			agentServiceGetMemorySettingsHandler.ServeHTTP(w, r)
+		case AgentServiceSetMemorySettingsProcedure:
+			agentServiceSetMemorySettingsHandler.ServeHTTP(w, r)
 		case AgentServiceListPlaybooksProcedure:
 			agentServiceListPlaybooksHandler.ServeHTTP(w, r)
 		case AgentServiceGetProfileProcedure:
@@ -2729,6 +2789,14 @@ func (UnimplementedAgentServiceHandler) SearchMemories(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMemory is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetMemorySettings is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetMemorySettings is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error) {

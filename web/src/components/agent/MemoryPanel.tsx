@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
-import { Brain, Search, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Brain, ChevronLeft, ChevronRight, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { Code } from "@connectrpc/connect";
 import type { Memory } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -23,6 +29,7 @@ import {
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
+import { MemoryModelSettings } from "./MemoryModelSettings";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 
@@ -42,7 +49,7 @@ const FACT_TONE: Record<string, Tone> = {
   observation: "ok",
 };
 
-type MemoryPage = { items: Memory[]; nextCursor: string };
+type MemoryPage = { items: Memory[]; nextCursor: string; total: number };
 
 /** What the first read decided. The panel does not render until this exists. */
 type MemoryScreen =
@@ -54,7 +61,7 @@ type MemoryScreen =
 async function readMemoryScreen(): Promise<MemoryScreen> {
   try {
     const res = await agent.listMemories({ cursor: "", limit: PAGE });
-    return { kind: "ready", page: { items: res.items, nextCursor: res.nextCursor } };
+    return { kind: "ready", page: { items: res.items, nextCursor: res.nextCursor, total: res.total } };
   } catch (error) {
     if (connectCode(error) === Code.FailedPrecondition) return { kind: "unconfigured" };
     return { kind: "failed", error };
@@ -75,7 +82,9 @@ export function MemoryPanel() {
   const qc = useQueryClient();
   const [typed, setTyped] = useState("");
   const [query, setQuery] = useState("");
-  const [pages, setPages] = useState<string[]>([""]);
+  // page is 1-based. Page 1 is the suspense read; any other is its own query.
+  const [page, setPage] = useState(1);
+  const top = useRef<HTMLDivElement>(null);
 
   // Suspends until the first read classifies the screen. Rendering before that is how the
   // empty bank paints, then gets replaced by "memory is not configured".
@@ -89,7 +98,7 @@ export function MemoryPanel() {
     if (next === query) return;
     const id = setTimeout(() => {
       setQuery(next);
-      setPages([""]);
+      setPage(1);
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [typed, query]);
@@ -98,22 +107,16 @@ export function MemoryPanel() {
   const ready = screen.data.kind === "ready";
 
   const list = useQuery({
-    queryKey: ["agent", "memories", pages],
-    queryFn: async () => {
-      const out: Memory[] = [];
-      let next = "";
-      for (const cursor of pages) {
-        const res = await agent.listMemories({ cursor, limit: PAGE });
-        out.push(...res.items);
-        next = res.nextCursor;
-      }
-      return { items: out, nextCursor: next };
+    queryKey: ["agent", "memories", "page", page],
+    queryFn: async (): Promise<MemoryPage> => {
+      const res = await agent.listMemories({ offset: (page - 1) * PAGE, limit: PAGE });
+      return { items: res.items, nextCursor: res.nextCursor, total: res.total };
     },
-    // The first page is the suspense read. This query exists for "load more", and it must
-    // not suspend: a new key would throw the whole screen away.
-    enabled: ready && !searching && pages.length > 1,
-    placeholderData: (prev) =>
-      prev ?? (screen.data.kind === "ready" ? screen.data.page : undefined),
+    // The first page is the suspense read. This query exists for every page after it, and it
+    // must not suspend: a new key would throw the whole screen away. The page being left
+    // stays on screen until the next one arrives.
+    enabled: ready && !searching && page > 1,
+    placeholderData: keepPreviousData,
   });
 
   const search = useQuery({
@@ -122,12 +125,15 @@ export function MemoryPanel() {
     enabled: searching,
   });
   const searchPending = searching && search.isPending;
-  const morePending = !searching && pages.length > 1 && list.isPending && !list.data;
+  const morePending = !searching && page > 1 && list.isPending && !list.data;
 
   const forget = useMutation({
     mutationFn: (id: string) => agent.deleteMemory({ id }),
     onSuccess: async () => {
       toast("Forgotten", "ok");
+      // Forgetting the only memory on the last page lands on the page before it, not on an
+      // empty one.
+      if (!searching && page > 1 && (list.data?.items.length ?? 0) <= 1) setPage(page - 1);
       await qc.invalidateQueries({ queryKey: ["agent", "memories"] });
     },
     onError: (err) => toast(errorMessage(err)),
@@ -146,20 +152,38 @@ export function MemoryPanel() {
     );
   }
 
-  const page = pages.length > 1 && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
-  const items = searching ? search.data?.items : page?.items;
-  const failed =
-    (searching ? search.isError : screen.data.kind === "failed") &&
-    !isAgentUnreachable(searching ? search.error : screen.data.kind === "failed" ? screen.data.error : undefined);
-  const failure = searching ? search.error : screen.data.kind === "failed" ? screen.data.error : undefined;
+  const shown =
+    page > 1 && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
+  const items = searching ? search.data?.items : morePending ? undefined : shown?.items;
+  const total = shown?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE));
+  const current = Math.min(page, pageCount);
+  const start = (current - 1) * PAGE;
+  const goTo = (n: number) => {
+    setPage(n);
+    top.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
+  // A later page fails on its own query; the first page's failure is the screen's.
+  const failure = searching
+    ? search.error
+    : page > 1 && list.isError
+      ? list.error
+      : screen.data.kind === "failed"
+        ? screen.data.error
+        : undefined;
+  const failed = (searching ? search.isError : failure != null) && !isAgentUnreachable(failure);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" ref={top}>
+      <MemoryModelSettings manage={manage} />
+
       {isAgentUnreachable(searching ? search.error : failure) ? (
         <ConductorDown
           what={searching ? "The search could not run" : "The memory could not be read"}
-          onRetry={() => void (searching ? search.refetch() : screen.refetch())}
-          retrying={searching ? search.isFetching : screen.isFetching}
+          onRetry={() =>
+            void (searching ? search.refetch() : page > 1 ? list.refetch() : screen.refetch())
+          }
+          retrying={searching ? search.isFetching : page > 1 ? list.isFetching : screen.isFetching}
         />
       ) : null}
 
@@ -194,8 +218,8 @@ export function MemoryPanel() {
             <>Reading the memory…</>
           ) : (
             <>
-              <span className="tabular">{items?.length ?? 0}</span> most recent
-              {page?.nextCursor ? ", and there are more" : ""}
+              <span className="tabular">{total}</span> {total === 1 ? "memory" : "memories"}, newest
+              first
             </>
           )}
         </p>
@@ -238,16 +262,42 @@ export function MemoryPanel() {
         ))}
       </ul>
 
-      {!searching && page?.nextCursor ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={list.isFetching}
-          onClick={() => setPages((p) => [...p, page.nextCursor])}
+      {!searching && pageCount > 1 ? (
+        <nav
+          aria-label="Memory pages"
+          className="flex flex-wrap items-center justify-between gap-2"
         >
-          {list.isFetching ? "Loading…" : "Load more"}
-        </Button>
+          <p className="tabular text-2xs text-faint" data-testid="memory-range">
+            {start + 1}–{start + (items?.length ?? 0)} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="memory-prev"
+              disabled={current <= 1 || list.isFetching}
+              onClick={() => goTo(current - 1)}
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <span className="tabular text-2xs text-faint" aria-live="polite">
+              Page {current} of {pageCount}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="memory-next"
+              disabled={current >= pageCount || list.isFetching}
+              onClick={() => goTo(current + 1)}
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </nav>
       ) : null}
     </div>
   );
