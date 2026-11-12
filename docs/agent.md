@@ -1641,6 +1641,37 @@ never as markup. **The key never appears in it.**
 A key with an unfamiliar prefix is **not** refused — Anthropic has changed prefixes before — but
 the card says `key format looks unusual; validated anyway` next to the success line.
 
+### When a saved key stops working
+
+A key that worked when it was saved can stop working later: it expires, it is revoked in the
+provider's console, or its workspace is disabled. The conductor checks for that itself.
+
+- **About once an hour** the background pass that renews subscriptions also makes the same
+  free model-list call for each stored **global** API key. A 429, a 5xx or a network failure
+  tells it nothing about the key, so nothing is recorded and the next tick tries again.
+- **A turn that fails because its credential was refused asks for a check at once**, so it
+  doesn't wait out the hour. The runtime recognises the provider's refusal (Anthropic's
+  `invalid x-api-key`, OpenAI's `Incorrect API key`, Google's `API key not valid` and so on). It
+  answers with one plain sentence instead of the provider's error. Several turns failing
+  together trigger one check, not one each.
+- When the provider refuses the key, the conductor records that on its metadata row:
+  - The Models page shows **Key refused** and what the provider said.
+  - The notification inbox raises an alert.
+  - The login that saved the key is told once, by Slack DM or else email, with the same
+    notifiers as *task finished* messages.
+  - From then on, **a turn that would spend that key is stopped before it starts**. That covers a
+    review, a Slack mention, a Linear issue, a delegated task, and an assistant turn outside the
+    chat host. Instead of a sandbox that boots and then posts the provider's raw error, the
+    conversation gets one sentence: *I can't run this right now: Anthropic is refusing this
+    bot's API key, so nothing ran.*
+- Saving a working key clears the refusal. So does a later check that finds the key working
+  again.
+
+The refusal is believed only about the key it was recorded for. A key replaced with
+`podium secret set` is not refused, and the next pass checks it. Personal keys are not checked
+in the background: a person's own key is theirs to look after. A turn on one still answers with
+the plain sentence when it is refused.
+
 **Remove key** deletes the secret and the metadata row. It asks for an inline confirmation
 first, because every turn on that backend fails until a credential is set again. Doing it twice
 is not an error.

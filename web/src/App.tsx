@@ -14,7 +14,7 @@ import { NodesPage } from "./pages/NodesPage";
 import { RegistriesPage } from "./pages/RegistriesPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { SecretsPage } from "./pages/SecretsPage";
-import { SnapshotsPage } from "./pages/SnapshotsPage";
+import { OrgSettingsPage } from "./pages/OrgSettingsPage";
 import { SubmitPage } from "./pages/SubmitPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -75,10 +75,11 @@ export function App() {
                     <Route path="/nodes/:id" element={<NodeEditPage />} />
                     <Route path="/secrets" element={<SecretsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />
-                    <Route path="/sandboxes" element={<SandboxesPage />} />
-                    <Route path="/snapshots" element={<SnapshotsPage />} />
+                    <Route path="/sandboxes/*" element={<SandboxesPage />} />
+                    <Route path="/snapshots" element={<Navigate to="/sandboxes/snapshots" replace />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="/users" element={<Navigate to="/agent/settings/users" replace />} />
+                    <Route path="/users" element={<Navigate to="/org/settings/members" replace />} />
+                    <Route path="/org/*" element={<OrgSettingsPage />} />
                     {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
                     <Route path="/agent/*" element={<AgentPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

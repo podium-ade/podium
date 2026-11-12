@@ -728,6 +728,17 @@ message ProviderSettings {
   // global is true for the company credential an admin set, which every turn without a
   // credential of its person's own spends, and false for one person's own.
   bool global = 11;
+  // checked_at is when the conductor last asked the provider whether this API key still
+  // works. The background pass re-checks a stored global key about once an hour, because a
+  // key can be revoked or expire long after it was saved. Unset when it has not been
+  // checked since it was saved.
+  google.protobuf.Timestamp checked_at = 12;
+  // refused_at is set while the provider is refusing this key: when the conductor first saw
+  // it refused. Turns that would spend it are stopped before they start, and the person who
+  // set it is told once. Saving a new key clears it.
+  google.protobuf.Timestamp refused_at = 13;
+  // refusal is what the provider said when it refused the key, scrubbed of the key.
+  string refusal = 14;
 }
 
 message GetSettingsResponse {

@@ -46,6 +46,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { assistantName, useBrand } from "../../lib/brand";
 
 const SECTIONS: { id: AssistantSection; label: string; icon: LucideIcon; sentence: string }[] = [
   {
@@ -380,6 +381,7 @@ export function AssistantForm({
  * whole definition. Members see the same sections with every control disabled.
  */
 export function PodiumEditor({ section, readOnly }: { section: AssistantSection; readOnly: boolean }) {
+  const brand = useBrand();
   const qc = useQueryClient();
   const toast = useToast();
   const { agents, defaultAgent } = useAgents();
@@ -424,7 +426,7 @@ export function PodiumEditor({ section, readOnly }: { section: AssistantSection;
   }));
 
   const frame = {
-    title: initial?.displayName || "Podium",
+    title: assistantName(initial?.displayName, brand),
     back: { to: "/agent/assistants", label: "Assistants" },
     meta: <Chip>Built-in</Chip>,
     actions: (

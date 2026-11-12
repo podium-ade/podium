@@ -45,6 +45,25 @@ describe("alertsFromProviders", () => {
     expect(alerts[0]?.href).toBe("/agent/settings/models");
     expect(alertsFromProviders([], now)).toEqual([]);
   });
+
+  it("warns for an API key the provider is refusing, and not for one it accepts", () => {
+    const refused = create(ProviderSettingsSchema, {
+      provider: "anthropic",
+      keySet: true,
+      authKind: "api_key",
+      keyHint: "abcd",
+      refusedAt: timestampFromDate(new Date(now - 60_000)),
+      refusal: "invalid x-api-key",
+    });
+    const alerts = alertsFromProviders([refused], now);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.key).toBe("provider-key-refused:anthropic");
+    expect(alerts[0]?.title).toBe("Anthropic is refusing the API key");
+    expect(alerts[0]?.href).toBe("/agent/settings/models");
+
+    const working = create(ProviderSettingsSchema, { provider: "anthropic", keySet: true, authKind: "api_key" });
+    expect(alertsFromProviders([working], now)).toEqual([]);
+  });
 });
 
 describe("mergeNotifications", () => {

@@ -60,9 +60,9 @@ describe("Header", () => {
     for (const label of ["Nodes", "Secrets", "Registries", "Sandboxes"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
-    expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/agent/settings/users");
-    // Settings is not a page any more: each of its sections is an entry in its group.
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    // Members, and the rest of what the organization shares, are sections of its Settings.
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/org/settings");
+    expect(screen.queryByRole("link", { name: "Members" })).toBeNull();
   });
 
   it("groups the pages by what an operator is asking", () => {
@@ -75,16 +75,27 @@ describe("Header", () => {
     // Sessions is hidden for now, though its page still answers at its address.
     expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
-    expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
-    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Snapshots", "Registries"]);
-    expect(groupLinks("Organization")).toEqual(["Members", "Routines", "Usage"]);
+    expect(groupLinks("Access")).toEqual(["Channels", "Secrets"]);
+    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Sandboxes", "Registries"]);
+    // Routines appears once, under Work: the admin's view of everyone's is a section of Settings.
+    expect(groupLinks("Organization")).toEqual(["Usage", "Settings"]);
   });
 
-  it("links each former settings section to its own address", () => {
+  it("links the viewer's own settings and the organization's to their addresses", () => {
     mount({ ...base, agentEnabled: true });
-    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("href", "/agent/settings/connections");
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "/agent/settings/models");
-    expect(screen.getByRole("link", { name: "Backend" })).toHaveAttribute("href", "/agent/settings/runs-on");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/org/settings");
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Backend" })).toBeNull();
+  });
+
+  it("names the deployment in the wordmark once an admin renames it", () => {
+    const view = mount(base);
+    expect(screen.getByText("podium")).toBeInTheDocument();
+    view.unmount();
+    mount({ ...base, deploymentName: "Acme AI" });
+    expect(screen.getByText("Acme AI")).toBeInTheDocument();
+    expect(screen.queryByText("podium")).toBeNull();
   });
 
   // A control plane with no conductor has no Agent screen worth reaching, and WhoAmI is what
@@ -104,19 +115,16 @@ describe("Header", () => {
     expect(screen.queryByRole("searchbox", { name: "Search pages" })).toBeNull();
   });
 
-  it("keeps Connections from a member and gives it to an admin and an owner", () => {
-    const member = mount(human);
-    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
-    expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
-    member.unmount();
-
-    const admin = mount({ ...human, roles: [RoleAdmin] });
-    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
-    admin.unmount();
-
-    mount({ ...human, roles: [RoleOwner] });
-    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
+  it("gives organization Settings to a member, an admin and an owner alike", () => {
+    // Which sections each of them gets is the page's business (OrgSettingsPage.test).
+    for (const roles of [[RoleMember], [RoleAdmin], [RoleOwner]]) {
+      const view = mount({ ...human, roles });
+      expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+      expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+      view.unmount();
+    }
   });
 
   it("lights each page on its own route and nothing else", () => {
@@ -130,8 +138,10 @@ describe("Header", () => {
       ["/agent/mcp", "MCP servers"],
       ["/agent/channels", "Channels"],
       ["/agent/settings/models", "Models"],
-      ["/agent/settings/users", "Members"],
-      ["/agent/settings/runs-on", "Backend"],
+      ["/org/settings", "Settings"],
+      ["/org/settings/members", "Settings"],
+      ["/org/settings/connections", "Settings"],
+      ["/agent/routines", "Routines"],
     ];
     for (const [path, label] of cases) {
       const view = mount(who, path);
@@ -162,7 +172,7 @@ describe("Header", () => {
     const search = screen.getByRole("searchbox", { name: "Search pages" });
 
     await userEvent.type(search, "github");
-    expect(screen.getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual(["Connections"]);
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual(["Settings"]);
     expect(screen.queryByRole("group", { name: "Work" })).toBeNull();
 
     await userEvent.clear(search);
@@ -283,17 +293,14 @@ describe("Header", () => {
       ["Skills", "skills"],
       ["Memory", "memory"],
       ["MCP servers", "mcp"],
-      ["Connections", "connections"],
       ["Channels", "channels"],
       ["Secrets", "secrets"],
       ["Models", "models"],
       ["Nodes", "nodes"],
-      ["Backend", "backend"],
       ["Sandboxes", "sandboxes"],
-      ["Snapshots", "snapshots"],
       ["Registries", "registries"],
-      ["Members", "members"],
       ["Usage", "usage"],
+      ["Settings", "settings"],
     ];
     for (const [label, name] of pages) {
       const icon = screen.getByRole("link", { name: label }).querySelector("svg");
