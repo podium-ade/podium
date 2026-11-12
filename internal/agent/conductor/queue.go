@@ -498,15 +498,17 @@ const (
 	stopStartingPoll = 200 * time.Millisecond
 )
 
-// CancelSessionTurn stops the turn answering one conversation, named by its source key, and
-// drops every turn queued behind it. It reports whether anything was stopped. It is how a
-// source whose surface has a Stop of its own — a Linear agent session — stops the work: the
-// source holds no conductor and is handed this.
+// CancelSessionTurn stops the work of one conversation, named by its source key: the turn
+// answering it, every task the conversation delegated that is still running, and every turn
+// queued behind them. It reports whether anything was stopped. It is how a source whose
+// surface has a Stop of its own — a Linear agent session — stops the work: the source holds
+// no conductor and is handed this.
 //
-// It differs from CancelChatTurn in the queue. Stopping a web chat's turn lets the next queued
-// message start; a Stop on a Linear session ends the session's work, and Linear forbids an
-// agent to act in a session after it was stopped, so a follow-up queued before the Stop never
-// runs.
+// It differs from CancelChatTurn in the queue and in the delegated tasks. Stopping a web
+// chat's turn lets the next queued message start and leaves the tasks running; a Stop on a
+// Linear session ends the session's work, and Linear forbids an agent to act in a session
+// after it was stopped, so a follow-up queued before the Stop never runs, and a task the
+// assistant delegated would otherwise go on talking into a session that said "Stopped.".
 //
 // The turn is stopped as every other turn is: a task through the control plane, which does
 // not care which conductor follows it, and a host turn by cancelling it here or asking the
@@ -515,8 +517,9 @@ const (
 // The run may be on another conductor, whose source never heard the Stop, so the stop is
 // announced to every conductor's sources first (StopHearer), and the cancellation it posts
 // carries the control plane's cancel reason (Outbound.CancelReason), which outlives a restart.
-// A turn parked on a question is released first, so a reply that arrives as it ends is not
-// injected into a task that is going away.
+// Each delegated task is announced and cancelled the same way. A task parked on a question is
+// released first, so a reply that arrives as it ends is not injected into a task that is
+// going away.
 func (c *Conductor) CancelSessionTurn(ctx context.Context, sourceKey, reason string) (bool, error) {
 	sess, err := c.store.GetSessionByKey(ctx, sourceKey)
 	if errors.Is(err, store.ErrNotFound) {
@@ -526,22 +529,34 @@ func (c *Conductor) CancelSessionTurn(ctx context.Context, sourceKey, reason str
 		return false, err
 	}
 	dropped := c.dropQueuedTurns(ctx, sess)
+	// The turn first: it is what could delegate another task while the others are stopped.
+	turnStopped, turnErr := c.stopSessionTurn(ctx, sess, sourceKey, reason, dropped)
+	tasks, taskErr := c.stopSessionDelegations(ctx, sess, sourceKey, reason)
+	return dropped > 0 || turnStopped || tasks > 0, errors.Join(turnErr, taskErr)
+}
+
+// stopSessionTurn stops the session's running turn, if it has one, and reports whether it did.
+func (c *Conductor) stopSessionTurn(
+	ctx context.Context, sess store.Session, sourceKey, reason string, dropped int,
+) (bool, error) {
 	turn, ok, err := c.stoppableTurn(ctx, sess)
 	if err != nil || !ok {
-		return dropped > 0, err
+		return false, err
 	}
 	if turn.TaskID == "" {
 		if c.CancelHostTurn(turn.TriggerRef) {
+			c.logger.InfoContext(ctx, "stopped a host turn at its conversation's request",
+				"session_id", sess.ID, "turn_id", turn.ID, "dropped_queued", dropped)
 			return true, nil
 		}
 		// No task after the wait, and not a host turn here: a host turn on another
 		// conductor, or a turn that is taking far longer than it should to get its task.
 		if !c.leasing() {
-			return dropped > 0, fmt.Errorf("conductor: turn %s has no task to cancel", turn.ID)
+			return false, fmt.Errorf("conductor: turn %s has no task to cancel", turn.ID)
 		}
 		c.announceStop(ctx, sourceKey, "")
 		if err := c.store.Notify(ctx, store.TurnCancelChannel, turn.TriggerRef); err != nil {
-			return dropped > 0, fmt.Errorf("conductor: asking the other conductors to stop turn %s: %w", turn.ID, err)
+			return false, fmt.Errorf("conductor: asking the other conductors to stop turn %s: %w", turn.ID, err)
 		}
 		return true, nil
 	}
@@ -552,12 +567,46 @@ func (c *Conductor) CancelSessionTurn(ctx context.Context, sourceKey, reason str
 		// FailedPrecondition is a task that is already over: stopped by a Stop before this one,
 		// or finishing as it was pressed. Either way nothing of it is running.
 		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-			return dropped > 0, fmt.Errorf("conductor: cancelling turn %s: %w", turn.ID, err)
+			return false, fmt.Errorf("conductor: cancelling turn %s: %w", turn.ID, err)
 		}
 	}
 	c.logger.InfoContext(ctx, "stopped a turn at its conversation's request",
 		"session_id", sess.ID, "turn_id", turn.ID, "task_id", turn.TaskID, "dropped_queued", dropped)
 	return true, nil
+}
+
+// stopSessionDelegations stops every task the session delegated that is still running —
+// those of the turn just stopped, and those of earlier turns still working — and reports how
+// many it stopped. Each is announced before it is cancelled, as a turn's task is, so the
+// sources that answer a stop refuse what it says as it dies. A delegation whose task does not
+// exist yet is not one the control plane can cancel, and is left.
+func (c *Conductor) stopSessionDelegations(
+	ctx context.Context, sess store.Session, sourceKey, reason string,
+) (int, error) {
+	running, err := c.store.RunningDelegationsForSession(ctx, sess.ID)
+	if err != nil {
+		return 0, fmt.Errorf("conductor: reading what the conversation delegated: %w", err)
+	}
+	stopped := 0
+	var errs []error
+	for _, dlg := range running {
+		if dlg.TaskID == "" {
+			continue
+		}
+		c.clearAwaiting(sess.ID, dlg.TaskID)
+		c.announceStop(ctx, sourceKey, dlg.TaskID)
+		if err := c.podium.CancelTask(ctx, dlg.TaskID, reason); err != nil {
+			if connect.CodeOf(err) == connect.CodeFailedPrecondition {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("conductor: cancelling delegation %s: %w", dlg.ID, err))
+			continue
+		}
+		stopped++
+		c.logger.InfoContext(ctx, "stopped a delegated task at its conversation's request",
+			"session_id", sess.ID, "delegation_id", dlg.ID, "task_id", dlg.TaskID, "playbook", dlg.Playbook)
+	}
+	return stopped, errors.Join(errs...)
 }
 
 // stoppableTurn is the session's running turn, once it is one CancelSessionTurn can stop: it

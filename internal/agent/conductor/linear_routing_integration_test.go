@@ -4,6 +4,7 @@ package conductor_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/chathost"
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
 	"github.com/podium-ade/podium/internal/agent/store"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
@@ -189,4 +191,105 @@ func TestALinearMentionThatNamesAPlaybookDelegatesIt(t *testing.T) {
 	require.NoError(t, src.Send(ctx, mentionPrompt("s-32", "a-36", "/shrug what now")))
 	waitFor(t, 30*time.Second, "the assistant", func() bool { return len(assistant.prompts()) == 1 })
 	assert.Equal(t, []string{"/shrug what now"}, assistant.prompts())
+}
+
+// Stop while the assistant is thinking ends its turn, and the turn is recorded cancelled.
+func TestAStopWhileTheAssistantThinksOnALinearSession(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := linearAppSource()
+	t.Cleanup(src.Close)
+	host := &blockingChatHost{}
+	r := startWith(t, st, fake, src, withAssistant(t, host))
+
+	ctx := context.Background()
+	ev := mentionPrompt("s-33", "a-37", "think hard")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 20*time.Second, "the assistant to be thinking", func() bool {
+		started, _ := host.counts()
+		return started == 1
+	})
+
+	stopped, err := r.cond.CancelSessionTurn(ctx, ev.SourceKey, stopReason)
+	require.NoError(t, err)
+	assert.True(t, stopped)
+	waitFor(t, 20*time.Second, "the turn to be recorded cancelled", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnCancelled
+	})
+	_, interrupted := host.counts()
+	assert.Equal(t, 1, interrupted)
+	assert.Empty(t, fake.Cancels(), "there was no task")
+}
+
+// stopDelegated starts n delegated tasks in one mention session, one playbook each, and stops
+// the session. It returns the source, the task ids and what the Stop said.
+func stopDelegated(t *testing.T, playbooks ...string) (*fakesource.Source, *fakePodium, []string, bool) {
+	t.Helper()
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	src := linearAppSource()
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, withAssistant(t, &answeringChatHost{answer: "unused"}))
+
+	ctx := context.Background()
+	key := ""
+	for i, name := range playbooks {
+		ev := mentionPrompt("s-34", "a-4"+string(rune('0'+i)), "/"+name+" do the thing")
+		key = ev.SourceKey
+		require.NoError(t, src.Send(ctx, ev))
+		waitFor(t, 30*time.Second, "the task", func() bool { return len(fake.TaskIDs()) == i+1 })
+	}
+	waitFor(t, 30*time.Second, "the turns", func() bool { return len(startedBy(t, st, key)) == len(playbooks) })
+	stopped, err := r.cond.CancelSessionTurn(ctx, key, stopReason)
+	require.NoError(t, err)
+	waitFor(t, 30*time.Second, "every delegation to end", func() bool {
+		for _, d := range delegationsOf(t, st, key) {
+			if d.Status == store.TurnRunning {
+				return false
+			}
+		}
+		return true
+	})
+	return src, fake, fake.TaskIDs(), stopped
+}
+
+// Stop while a task the conversation delegated runs: the task is announced, cancelled for the
+// stop's reason, and what it posts as it ends carries that reason, so the source refuses it.
+func TestAStopWhileADelegatedTaskRunsOnALinearSession(t *testing.T) {
+	src, fake, tasks, stopped := stopDelegated(t, "dogfood")
+	assert.True(t, stopped, "a running delegated task is something to stop")
+	cancels := fake.Cancels()
+	require.Len(t, cancels, 1)
+	assert.Equal(t, tasks[0], cancels[0].GetTaskId())
+	assert.Equal(t, stopReason, cancels[0].GetReason())
+	assert.Equal(t, tasks, heardStopped(src), "the source is told the task it stopped")
+	for _, f := range posts(src.Records(), conductor.OutFailure) {
+		assert.Equal(t, stopReason, f.CancelReason, "everything it says about the cancel is the stop's")
+	}
+}
+
+// Stop with two delegated tasks: each is announced and cancelled.
+func TestAStopWithTwoDelegatedTasksOnALinearSession(t *testing.T) {
+	src, fake, tasks, stopped := stopDelegated(t, "dogfood", "looker")
+	assert.True(t, stopped)
+	var cancelled []string
+	for _, c := range fake.Cancels() {
+		cancelled = append(cancelled, c.GetTaskId())
+		assert.Equal(t, stopReason, c.GetReason())
+	}
+	assert.ElementsMatch(t, tasks, cancelled)
+	assert.ElementsMatch(t, tasks, heardStopped(src))
+}
+
+func heardStopped(src *fakesource.Source) []string {
+	var out []string
+	for _, r := range src.Records() {
+		if r.Action == fakesource.ActionStoppedElsewhere && strings.HasPrefix(r.Ref, "linear:session:") {
+			out = append(out, r.Text)
+		}
+	}
+	return out
 }
