@@ -38,8 +38,12 @@ a second listener), so that reason no longer holds.
   A saved connection wins and turns the poller off, so a ticket is never started twice.
 - **An unmatched Linear user is refused.** They get an `error` activity and nothing runs,
   the same rule as Slack.
-- **One webhook listener for both.** The GitHub listener becomes a shared mux serving
-  `/webhooks/github` and `/webhooks/linear`.
+- **Each app names its own webhook address, and the two may be the same.** The Linear
+  connection stores a listen address of its own. When it equals the GitHub App's, one
+  listener serves `/webhooks/github` and `/webhooks/linear`.
+- **Minting a token does not revoke the last one.** A token from an earlier
+  client-credentials grant kept working after a second grant, so conductors that race to
+  mint do no harm. They still share one token through the vault.
 
 ## What Linear's docs say
 
@@ -121,15 +125,14 @@ What else the spike showed:
 ## Phase 1: the connection
 
 - **Storage:** `connection.linear` in `internal/agent/connections/connections.go`, holding
-  the client id, the app user id and the mode. The client secret, the webhook signing secret
-  and the cached token go in the vault under `spec.ConnectionSecretPrefix`.
+  the client id, the webhook listen address, and the app user and workspace the check found.
+  The client secret, the webhook signing secret and the cached token go in the vault under
+  `spec.ConnectionSecretPrefix`.
 - **API:** `SetLinearConnection` and `ClearLinearConnection` in
   `proto/podium/agent/v1/agent.proto`. The `LinearConnection` placeholder message becomes
   real.
 - **Live reload:** `internal/agent/live.go` gains a third source beside Slack and GitHub.
   `Check` fetches a token and runs `viewer` before anything is saved.
-- **Listener:** rename `GitHubWebhookListen` to a shared webhook address, reading the old
-  saved GitHub value so nothing breaks.
 - **UI:** a Linear card in `web/src/components/agent/ConnectionsPanel.tsx` showing the
   webhook URL to paste into Linear and the scopes to request.
 - **Client:** `client.go` takes a token source. OAuth tokens go out as `Bearer`; the personal
