@@ -10,11 +10,13 @@ import (
 	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
-// The account providers an identity can be proven for. See 0031_identities.sql.
+// The account providers an identity can be proven for. See 0031_identities.sql and
+// 0045_linear_identities.sql.
 const (
 	ProviderWeb    = "web"
 	ProviderSlack  = "slack"
 	ProviderGitHub = "github"
+	ProviderLinear = "linear"
 )
 
 // Where a participant was first seen. JoinedBackfill is a migration's guess from a name,
@@ -23,6 +25,7 @@ const (
 	JoinedWeb      = "web"
 	JoinedSlack    = "slack"
 	JoinedGitHub   = "github"
+	JoinedLinear   = "linear"
 	JoinedBackfill = "backfill"
 )
 
@@ -41,12 +44,17 @@ type Identity struct {
 // user id is only unique inside one workspace.
 func SlackExternalID(teamID, userID string) string { return teamID + "/" + userID }
 
+// LinearExternalID is the identities key of a Linear user: the workspace and the user, because
+// one app can be installed in several workspaces and a user id is only unique inside one.
+func LinearExternalID(organizationID, userID string) string { return organizationID + "/" + userID }
+
 // UpsertIdentity records that an account is a login. The newest proof wins.
 func (s *Store) UpsertIdentity(ctx context.Context, id Identity) error {
 	switch {
 	case strings.TrimSpace(id.Login) == "":
 		return errors.New("upsert identity: a login is required")
-	case id.Provider != ProviderWeb && id.Provider != ProviderSlack && id.Provider != ProviderGitHub:
+	case id.Provider != ProviderWeb && id.Provider != ProviderSlack && id.Provider != ProviderGitHub &&
+		id.Provider != ProviderLinear:
 		return fmt.Errorf("upsert identity: %q is not a provider", id.Provider)
 	case strings.TrimSpace(id.ExternalID) == "":
 		return errors.New("upsert identity: an external id is required")
