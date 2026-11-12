@@ -407,11 +407,13 @@ type Playbook struct {
 	// agent-runtime-desktop` builds and nobody publishes. See docs/agent.md#desktop-true.
 	Desktop bool `yaml:"desktop" json:"desktop,omitempty"`
 
-	// Linear marks the one playbook Linear tickets run. Tickets are not chat, so there is no
-	// /playbook prefix to route them and no channel to match: the flag is the routing rule.
+	// Linear marks the one playbook Linear work runs: every ticket the poller finds, every issue
+	// delegated to the agent app, and an @mention of the app on a conductor with no host
+	// runtime (with one, the assistant answers a mention). A person can name another with a
+	// /playbook prefix in an agent session; nothing else picks one, so the flag is the default.
 	// At most one playbook may set it; zero means this bot does not take tickets, which is
-	// only a misconfiguration when a Linear API key is also set — and the conductor says
-	// so at start-up, where the key is known.
+	// only a misconfiguration when Linear is connected — and the conductor says so where the
+	// connection is made.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
 	// GitHub marks the playbook a pull-request review runs when no playbook names the pull
@@ -983,8 +985,8 @@ func (p *Profile) validate(path string) error {
 	if p.Timeout < 0 {
 		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", p.Timeout))
 	}
-	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — there
-	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.
+	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — a polled
+	// ticket and a delegated issue name no playbook — so it is refused at load.
 	var linear []string
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
@@ -993,7 +995,7 @@ func (p *Profile) validate(path string) error {
 	}
 	if len(linear) > 1 {
 		errs = append(errs, fmt.Errorf("playbooks %s all set linear: true; exactly one playbook may, "+
-			"because a ticket has no channel and no /playbook prefix to choose with",
+			"because it is what a Linear issue runs when nobody named a playbook",
 			strings.Join(linear, ", ")))
 	}
 	var github []string
@@ -1095,8 +1097,8 @@ func firstRepo(s Playbook) string {
 	return s.Repos[0].URL
 }
 
-// LinearPlaybook is the name of the playbook Linear tickets run, or "" when no playbook claims
-// them. validate has already refused more than one.
+// LinearPlaybook is the name of the playbook Linear work runs when nobody named one, or ""
+// when no playbook claims it. validate has already refused more than one.
 func (p *Profile) LinearPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
@@ -1175,33 +1177,40 @@ type Selection struct {
 	// Instruction is the triggering text with a /playbook prefix stripped.
 	Instruction string
 	// Explicit is true when the caller named the playbook — a /playbook prefix, or a source that
-	// chose one itself. An explicit playbook that disagrees with an existing session's playbook is
-	// refused rather than honoured: one session, one playbook. A default is never explicit.
+	// chose one itself. In a Slack thread an explicit playbook that disagrees with the session's
+	// is refused rather than honoured: one thread, one playbook. In a Linear agent session it
+	// runs for that turn alone. A default is never explicit.
 	Explicit bool
 }
 
 // Routing is what Select decides from.
 //
-// It only ever describes a TASK: a Slack thread or a Linear ticket, which are one piece of
-// work and run one playbook in a container. A conversation does not appear here at all — it
-// is answered by the assistant, and the playbooks are what that turn delegates to rather
-// than something a routing rule picks for it.
+// It describes a TASK: a Slack thread on a conductor with no host runtime, a ticket the Linear
+// poller found, or a Linear agent session that runs a playbook — a delegated issue, or a
+// mention where there is no assistant to answer it. A conversation the assistant answers does
+// not appear here at all: the playbooks are what that turn delegates to rather than something
+// a routing rule picks for it.
 type Routing struct {
 	// Playbook is a playbook the source KNOWS is right, and which no routing rule may
-	// second-guess: Linear's linear: true playbook. Empty means the rules decide. Slack
-	// always leaves it empty.
+	// second-guess: the Linear poller's linear: true playbook. Empty means the rules decide.
+	// Slack and the Linear agent app always leave it empty.
 	Playbook string
 	// Channel is the routing key matched against a playbook's slack_channels.
 	Channel string
 	// Text is what the human said, a /playbook prefix included.
 	Text string
+	// Default is the playbook a source runs when nothing else picked one: the linear: true
+	// playbook, for a Linear agent session. Unlike Playbook it is not explicit, so a
+	// /playbook the human typed comes before it.
+	Default string
 }
 
 // Select applies the routing rules in order: a playbook the source knows, then a leading
-// /playbook the human typed, then the channel's claim. There is no default playbook: an
-// operator registers the ones the assistant may delegate to, and a ticket or /name that
-// matches none of them is refused. An unknown /name is deliberately not an error —
-// somebody typing /shrug must not break the bot — it is left in the text and falls through.
+// /playbook the human typed, then the channel's claim, then the source's default. There is
+// no profile-wide default playbook: an operator registers the ones the assistant may
+// delegate to, and a ticket or /name that matches none of them is refused. An unknown /name
+// is deliberately not an error — somebody typing /shrug must not break the bot — it is left
+// in the text and falls through.
 func (p *Profile) Select(r Routing) Selection {
 	if r.Playbook != "" {
 		if s, ok := p.Playbooks[r.Playbook]; ok {
@@ -1226,6 +1235,9 @@ func (p *Profile) Select(r Routing) Selection {
 				}
 			}
 		}
+	}
+	if s, ok := p.Playbooks[r.Default]; ok && r.Default != "" {
+		return Selection{Playbook: s, Instruction: instruction}
 	}
 	return Selection{Instruction: instruction}
 }
