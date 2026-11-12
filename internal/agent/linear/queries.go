@@ -741,3 +741,26 @@ func (c *Client) UserAccount(ctx context.Context, id string) (Account, error) {
 		ID: out.User.ID, Email: out.User.Email, Active: out.User.Active, Guest: out.User.Guest, App: out.User.App,
 	}, nil
 }
+
+// teamPrivacyQuery reads whether a team is private: one that only its members can see, whose
+// issues a Podium user who is not on it must not be shown by somebody sharing a chat.
+const teamPrivacyQuery = `query PodiumTeamPrivacy($id: String!) {
+  team(id: $id) { id private }
+}`
+
+// TeamPrivate reads whether one of the workspace's teams is private.
+func (c *Client) TeamPrivate(ctx context.Context, id string) (bool, error) {
+	var out struct {
+		Team *struct {
+			ID      string `json:"id"`
+			Private bool   `json:"private"`
+		} `json:"team"`
+	}
+	if err := c.do(ctx, "PodiumTeamPrivacy", teamPrivacyQuery, map[string]any{"id": id}, &out); err != nil {
+		return false, err
+	}
+	if out.Team == nil || out.Team.ID == "" {
+		return false, fmt.Errorf("linear: no team %s", id)
+	}
+	return out.Team.Private, nil
+}
