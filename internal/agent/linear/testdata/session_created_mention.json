@@ -1,0 +1,111 @@
+{
+  "type": "AgentSessionEvent",
+  "action": "created",
+  "createdAt": "2026-11-12T20:47:00.600Z",
+  "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+  "oauthClientId": "00000000000000000000000000000000",
+  "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+  "agentSession": {
+    "id": "1ae62bd3-e89b-462c-8f33-36eb67ec4a2a",
+    "createdAt": "2026-11-12T20:47:00.299Z",
+    "updatedAt": "2026-11-12T20:47:00.299Z",
+    "archivedAt": null,
+    "creatorId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+    "commentId": "8b101b07-f940-49fb-b7b3-ee755973caca",
+    "sourceCommentId": null,
+    "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+    "pullRequestId": null,
+    "slugId": "23ae1e4a1eb94",
+    "status": "pending",
+    "startedAt": null,
+    "endedAt": null,
+    "lastAgentReplyAt": null,
+    "dismissedAt": null,
+    "dismissedById": null,
+    "externalLink": null,
+    "summary": null,
+    "sourceMetadata": {
+      "type": "comment",
+      "agentSessionMetadata": {
+        "sourceCommentId": "8b101b07-f940-49fb-b7b3-ee755973caca"
+      }
+    },
+    "modelSelection": null,
+    "plan": null,
+    "workspaceDiff": null,
+    "context": [],
+    "url": "https://linear.app/acme/agent-session/1ae62bd3-e89b-462c-8f33-36eb67ec4a2a",
+    "externalUrls": [],
+    "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+    "creator": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    },
+    "comment": {
+      "id": "8b101b07-f940-49fb-b7b3-ee755973caca",
+      "body": "@podium what is the time?",
+      "userId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8"
+    },
+    "issue": {
+      "id": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+      "title": "Test issue",
+      "teamId": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+      "team": {
+        "id": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+        "key": "EME",
+        "name": "Acme"
+      },
+      "identifier": "EME-5",
+      "url": "https://linear.app/acme/issue/EME-5/test-issue",
+      "description": ""
+    }
+  },
+  "agentActivity": {
+    "id": "5e1c605c-1cf6-427c-a132-8ea2f36daef7",
+    "createdAt": "2026-11-12T20:47:00.299Z",
+    "updatedAt": "2026-11-12T20:47:00.299Z",
+    "archivedAt": null,
+    "agentSessionId": "1ae62bd3-e89b-462c-8f33-36eb67ec4a2a",
+    "sourceCommentId": "8b101b07-f940-49fb-b7b3-ee755973caca",
+    "userId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "sourceMetadata": {
+      "type": "comment",
+      "agentSessionMetadata": {
+        "sourceCommentId": "8b101b07-f940-49fb-b7b3-ee755973caca"
+      }
+    },
+    "executionSkippedReason": null,
+    "signal": null,
+    "ephemeral": false,
+    "pushSummary": null,
+    "queued": false,
+    "sentAt": null,
+    "signalMetadata": null,
+    "content": {
+      "type": "prompt",
+      "body": "@podium what is the time?"
+    },
+    "user": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    }
+  },
+  "previousComments": [
+    {
+      "id": "8b101b07-f940-49fb-b7b3-ee755973caca",
+      "body": "@podium what is the time?",
+      "userId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8"
+    }
+  ],
+  "guidance": null,
+  "promptContext": "<issue identifier=\"EME-5\">\n<title>Test issue</title>\n<team name=\"Acme\"/>\n</issue>\n\n<primary-directive-thread comment-id=\"8b101b07-f940-49fb-b7b3-ee755973caca\"><comment author=\"Ada Lovelace\" created-at=\"2026-11-12T20:47:00.176Z\"><user id=\"41609a0d-3393-47b0-b78c-c4fc06cafa1c\" label=\"podium\" notify /> what is the time?</comment></primary-directive-thread>\n\n<other-thread comment-id=\"0b902dea-5867-4c25-84bb-94cf97309285\">\n<comment author=\"Podium\" created-at=\"2026-11-12T20:46:11.818Z\">Spike question: reply with anything to continue.</comment>\n<comment author=\"Ada Lovelace\" created-at=\"2026-11-12T20:46:28.410Z\">What is the time?</comment>\n<comment author=\"Podium\" created-at=\"2026-11-12T20:46:42.681Z\">Stopped, as asked.</comment>\n</other-thread>\n\n<user-request>\n@podium what is the time?\n</user-request>",
+  "webhookTimestamp": 1794516420612,
+  "webhookId": "b16038f6-14cd-4c06-b6ae-7aec35ea53db"
+}
