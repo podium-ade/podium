@@ -206,21 +206,38 @@ type AgentServiceOptions struct {
 	// with nothing configured, which is what tests that never touch connections want.
 	Env     config.Config
 	Running config.Config
-	// Connections switches the running conductor to a saved Slack pair or GitHub App, so a
-	// save takes effect without a restart. Nil leaves the change for the next start, and
-	// restart_required says so.
+	// Connections switches the running conductor to a saved Slack pair, GitHub App or
+	// Linear app, so a save takes effect without a restart. Nil leaves the change for the
+	// next start, and restart_required says so.
 	Connections ConnectionApplier
 }
 
-// ConnectionApplier is the part of the conductor that holds Slack and GitHub open.
+// ConnectionApplier is the part of the conductor that holds Slack, GitHub and Linear open.
 type ConnectionApplier interface {
-	// Check tries the Slack pair and GitHub App in cfg against Slack and GitHub, where they
-	// differ from what is running. It is how a mistyped token is refused at save rather
-	// than found by the conductor failing to connect with it.
-	Check(ctx context.Context, cfg config.Config) error
+	// Check tries the Slack pair, GitHub App and Linear app in cfg against Slack, GitHub
+	// and Linear, where they differ from what is running. It is how a mistyped token is
+	// refused at save rather than found by the conductor failing to connect with it. What
+	// it learned on the way comes back, to be saved with the connection.
+	Check(ctx context.Context, cfg config.Config) (Checked, error)
 	// Apply rereads the saved connections and swaps in whatever changed. Turns in flight
 	// keep running. On success it calls SetRunning with what it switched to.
 	Apply(ctx context.Context) error
+}
+
+// Checked is what Check learned about the connections it tried.
+type Checked struct {
+	// Linear is who the Linear app signs in as. Nil when the app was not tried, because
+	// none is configured or it is the one already running.
+	Linear *LinearApp
+}
+
+// LinearApp is the Linear app user and workspace a client id and secret sign in as.
+type LinearApp struct {
+	UserID             string
+	UserName           string
+	OrganizationID     string
+	OrganizationName   string
+	OrganizationURLKey string
 }
 
 // AgentService implements podium.agent.v1.AgentService.

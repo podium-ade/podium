@@ -56,6 +56,15 @@ service AgentService {
   // ClearGitHubConnection removes the saved App. Calling it twice is not an error.
   // The App is off on the next start.
   rpc ClearGitHubConnection(ClearGitHubConnectionRequest) returns (ClearGitHubConnectionResponse);
+  // SetLinearConnection stores the Linear agent app: its OAuth client id and secret, its
+  // webhook signing secret and the address its webhooks reach. The credentials are tried
+  // against Linear first, and refused unless they sign in as an app user. A blank secret
+  // keeps the saved one while the client id is the same. Nothing runs on the app yet, and
+  // PODIUM_AGENT_LINEAR_API_KEY keeps polling beside it.
+  rpc SetLinearConnection(SetLinearConnectionRequest) returns (SetLinearConnectionResponse);
+  // ClearLinearConnection removes the saved app and its access token. Calling it twice is
+  // not an error.
+  rpc ClearLinearConnection(ClearLinearConnectionRequest) returns (ClearLinearConnectionResponse);
   // GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
   // connect one at all.
   rpc GetGitHubAccount(GetGitHubAccountRequest) returns (GetGitHubAccountResponse);
@@ -831,12 +840,34 @@ message GitHubWebhookFilters {
   bool conversation_replies = 10;
 }
 
-// LinearConnection is a placeholder. available stays false until Linear can be saved
-// here. configured is true only when the environment still holds a key, which is the
-// only way the Linear source runs today.
+// LinearConnection is the Linear agent app as the UI may see it. The client secret and
+// the webhook signing secret are never returned. client_id and webhook_listen are not
+// secrets.
 message LinearConnection {
+  // available is true when this conductor can save a Linear app here.
   bool available = 1;
+  // configured is true when an app is saved: a client id and its secret.
   bool configured = 2;
+  // source is "saved", or "" when no app is saved. The app is never read from the
+  // environment.
+  string source = 3;
+  string client_id = 4;
+  bool client_secret_set = 5;
+  bool webhook_secret_set = 6;
+  string webhook_secret_hint = 7;
+  string webhook_listen = 8;
+  // app_user_id and app_user_name are who the app signs in as, learned from Linear when
+  // it was saved. organization_name and organization_url_key are its workspace.
+  string app_user_id = 9;
+  string app_user_name = 10;
+  string organization_name = 11;
+  string organization_url_key = 12;
+  string set_by = 13;
+  google.protobuf.Timestamp set_at = 14;
+  bool restart_required = 15;
+  // polling is true when PODIUM_AGENT_LINEAR_API_KEY is set, so this conductor polls
+  // Linear for assigned issues with that key. A saved app does not change that yet.
+  bool polling = 16;
 }
 
 message GetConnectionsResponse {
@@ -891,6 +922,29 @@ message ClearGitHubConnectionRequest {}
 
 message ClearGitHubConnectionResponse {
   GitHubConnection github = 1;
+}
+
+message SetLinearConnectionRequest {
+  // client_id is the OAuth application's client id. Blank keeps the saved one.
+  string client_id = 1;
+  // SENSITIVE. Blank keeps the saved client secret while the client id is the same.
+  string client_secret = 2;
+  // SENSITIVE: the webhook signing secret, lin_wh_…. Blank keeps the saved one while the
+  // client id is the same.
+  string webhook_secret = 3;
+  // webhook_listen is the host:port the webhook handler binds. It may be the GitHub App's
+  // address. Blank keeps the saved one.
+  string webhook_listen = 4;
+}
+
+message SetLinearConnectionResponse {
+  LinearConnection linear = 1;
+}
+
+message ClearLinearConnectionRequest {}
+
+message ClearLinearConnectionResponse {
+  LinearConnection linear = 1;
 }
 
 // GitHubAccount is one person's connected GitHub account. The token is never returned.
