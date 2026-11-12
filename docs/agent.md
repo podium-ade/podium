@@ -56,16 +56,19 @@ somebody says something in a CONVERSATION
   ↓  relay                                    over a unix socket, exactly as a task's events are
   ↓  FinishTurn                                and turns.task_id stays empty
 
-somebody mentions the bot in a THREAD, or assigns a Linear ticket
+somebody mentions the bot in a THREAD, or gives a Linear issue to it
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
   ↓  Select                                  which playbook? /playbook, the channel, or a Linear claim
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
-  ↓  React ⏳                                 before any work starts
-  ↓  post "👀 working…"                       Linear's working comment. Slack skips it: ⏳ is the ack
+  ↓  React ⏳                                 before any work starts. Linear moves an assigned or
+                                              delegated issue to started
+  ↓  post "👀 working…"                       a polled issue's working comment, or a thought in an
+                                              agent session. Slack skips it: ⏳ is the ack
   ↓  FetchTranscript                          the thread so far
   ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 96 KiB
   ↓  CreateTask                               image + brief + the playbook's secrets + the model key
-  ↓  StreamTaskEvents                         relay every `message` event, exactly once
+  ↓  StreamTaskEvents                         relay every `message` event, exactly once; a Linear
+                                              agent session is also shown the turn's tool calls
   ↓  GetTask                                  the terminal status decides what is said last
   ↓  FinishTurn  +  React ✅ or ❌
 ```
@@ -993,8 +996,10 @@ interactive: true
 timeout: 30m
 ```
 
-The web chat composer stays enabled while the turn is awaiting a reply. Slack and Linear keep
-the working reaction; the question is the message in the thread.
+The web chat composer stays enabled while the turn is awaiting a reply. Slack keeps the working
+reaction, and a polled Linear issue its working comment; the question is the message in the
+thread. In a Linear agent session the question is an *elicitation*, and the session shows that it
+is waiting for a reply.
 
 A follow-up after the assistant has already stopped — `@podium actually change xyz` while
 the delegated task is still running — is a new assistant turn. That turn can see in-flight
@@ -1998,7 +2003,7 @@ is and in which workspace. The listen address may be the GitHub App's: the condu
 | an issue delegated to the app | a turn, with the identifier, the title and the description as the instruction, worded as the poller words an assignment |
 | the app @mentioned in a comment | a turn, with the comment, less the mention, as the instruction |
 | a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question, otherwise a turn of its own |
-| *Stop* on the session | nothing yet. The turn runs to its end |
+| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, and the session closes with “Stopped.”, or, when nothing was running, says so |
 
 A new session gets a thought (“Starting on this.”) at once, before the conductor has chosen a
 playbook, because Linear marks a session unresponsive when nothing is said within ten seconds.
@@ -2016,8 +2021,29 @@ comments itself, and the transcript a turn reads is the issue and those comments
 poller. An attachment is uploaded to Linear and linked in a response of its own; over 50 MB, or
 refused, it is a link to the task.
 
-**What it does not do yet.** It does not move the issue to *In Progress*, link the Podium task on
-the session, honour *Stop*, or show tool calls. See
+While the turn works, the session shows what it is doing: each tool call as an ephemeral
+*action* ("Reading `internal/app.go`", "Running `make test`"), and its reasoning as a thought.
+An action names the file, the command's first line or the pattern, cut short, and never a
+file's contents or the rest of a tool's arguments; a tool Podium does not know is shown by its
+name. They replace each other, so the session shows the latest rather than a trail, and at most
+one ephemeral activity is posted every ten seconds per session, the newest winning: the app has
+5,000 requests an hour for the whole workspace. A turn that says nothing for twenty minutes —
+a long build — posts “Still working.”, because Linear marks a session stale after thirty.
+
+**Links.** The Podium task is added to the session's links the first time the turn says
+anything once its task exists, and each pull request the answer names is added when the turn
+ends.
+
+**The issue's state.** When a turn starts in a session opened by *delegating* the issue, the
+issue moves to the team's first state of type *started*, by position, whatever it is called —
+unless it is already started, completed or cancelled. A session opened by an @mention leaves the
+issue where it is: a question in a comment is not a request to move the ticket. Linear sets
+the issue's delegate itself.
+
+**What it does not do yet.** It does not resolve who asked to a Podium login, or route a
+mention to the assistant. A Stop reaches the conductor the webhook arrived at; when another
+conductor is running the turn, the task is still cancelled, but that conductor may post the
+turn's cancellation as an error after “Stopped.”. See
 [linear-agent-plan.md](linear-agent-plan.md).
 
 **When Linear revokes the app.** An admin de-authorizing it sends an `OAuthApp` webhook. The
