@@ -169,6 +169,7 @@ func TestCatalogCoversEveryServerProcedure(t *testing.T) {
 		podiumv1.File_podium_v1_sandbox_proto,
 		podiumv1.File_podium_v1_artifact_proto,
 		podiumv1.File_podium_v1_snapshot_proto,
+		podiumv1.File_podium_v1_organization_proto,
 		agentv1.File_podium_agent_v1_agent_proto,
 	}
 	var missing []string

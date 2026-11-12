@@ -31,6 +31,7 @@ import {
 } from "../ui/dialog";
 import { ConductorDown } from "./ConductorDown";
 import { RoutineDialog, SystemBadge } from "./RoutineCard";
+import { useBrand } from "../../lib/brand";
 
 /**
  * RoutinesPanel is the viewer's routines: what each does, when it runs next, and the controls.
@@ -41,6 +42,7 @@ import { RoutineDialog, SystemBadge } from "./RoutineCard";
  * "runs as Podium", and may make one: "Runs as" in the new-routine dialog.
  */
 export function RoutinesPanel() {
+  const brand = useBrand();
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -94,7 +96,7 @@ export function RoutinesPanel() {
       title="Routines"
       lead={
         admin
-          ? "Jobs an assistant does on a schedule, each in a chat of its own. Yours run as you; system routines run as Podium and are shared by every admin."
+          ? `Jobs an assistant does on a schedule, each in a chat of its own. Yours run as you; system routines run as ${brand} and are shared by every admin.`
           : "Jobs an assistant does on a schedule, each in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."
       }
       actions={
@@ -232,10 +234,11 @@ function RoutineRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const brand = useBrand();
   const flagged = !r.enabled && r.pausedReason !== "";
   const system = isSystem(r);
   // An admin's pause says so itself; Podium's own say what Podium saw.
-  const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by Podium. ${r.pausedReason}`;
+  const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by ${brand}. ${r.pausedReason}`;
   return (
     <li
       data-testid="routine-row"
@@ -262,7 +265,7 @@ function RoutineRow({
         <p className="text-sm text-muted">
           Runs {r.scheduleText}
           {r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
-          {system ? <span className="text-faint"> · as Podium</span> : null}
+          {system ? <span className="text-faint"> · as {brand}</span> : null}
         </p>
         {flagged ? (
           <p className="flex items-start gap-1.5 pt-0.5 text-xs leading-relaxed text-warn">

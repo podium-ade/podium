@@ -71,6 +71,14 @@ type NodeCommand struct {
 	CreatedAt time.Time
 }
 
+type Organization struct {
+	ID               int32
+	OrganizationName string
+	DeploymentName   string
+	UpdatedBy        string
+	UpdatedAt        time.Time
+}
+
 type Preview struct {
 	TaskID        string
 	NodeID        string
