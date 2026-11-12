@@ -42,6 +42,11 @@ import { BrandTile } from "./BrandIcon";
 /** How many model ids the confirmation card shows before it stops. */
 const MODEL_CHIPS = 6;
 
+// The row's two action slots keep one width whatever their label, so Connect, Rotate key and
+// Sign in again line up down the table, and so do Remove key and Sign out.
+const primaryAction = "min-w-32";
+const removeAction = "min-w-28";
+
 type Result =
   | { tone: "ok"; text: string; models: string[]; note?: string }
   | { tone: "err" | "warn"; text: string; detail?: { label: string; text: string } };
@@ -357,12 +362,18 @@ export function ProviderCard({
           {loading || readOnly ? null : (
             <div className="flex items-center justify-end gap-2">
               {!stored && !showWork ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={primaryAction}
+                  onClick={() => setOpen(true)}
+                >
                   Connect
                 </Button>
               ) : null}
               {stored && !rotating && !expired ? (
-                <Button variant="outline" size="sm" onClick={signInAgain}>
+                <Button variant="outline" size="sm" className={primaryAction} onClick={signInAgain}>
                   {subscriptionStored ? "Sign in again" : "Rotate key"}
                 </Button>
               ) : null}
@@ -371,12 +382,15 @@ export function ProviderCard({
                   variant="ghost"
                   size="sm"
                   data-testid={tid("provider-key-remove")}
-                  className="text-err hover:bg-err-bg"
+                  className={cn(removeAction, "text-err hover:bg-err-bg")}
                   onClick={() => setConfirming(true)}
                 >
                   {subscriptionStored ? "Sign out" : "Remove key"}
                 </Button>
-              ) : null}
+              ) : (
+                // Holds Remove's place, so every row's first button starts at the same x.
+                <span aria-hidden className={cn(removeAction, "shrink-0")} />
+              )}
             </div>
           )}
         </TableCell>
