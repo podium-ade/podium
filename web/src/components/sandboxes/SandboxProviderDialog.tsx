@@ -85,15 +85,13 @@ export function SandboxProviderDialog({
       ? `Add the ${spec.secretLabel.toLowerCase()} to save.`
       : cap === undefined || Object.keys(errors).length > 0
         ? "Fix the fields marked above to save."
-        : spec.requireMaxConcurrent && cap === 0
-          ? "Set Max concurrent sandboxes to save."
-          : undefined;
+        : undefined;
   const ready = blocker === undefined;
 
   // Which section each problem sits in, so the rail can point at it.
   const sectionOf = new Map(spec.fields.map((f) => [f.key, f.section]));
   const troubled = new Set<SectionKey>(Object.keys(errors).map((k) => sectionOf.get(k)!).filter(Boolean));
-  if (cap === undefined || (spec.requireMaxConcurrent && cap === 0)) troubled.add("capacity");
+  if (cap === undefined) troubled.add("capacity");
   if (!configured && secret.trim() === "") troubled.add("access");
 
   const sections = SECTIONS.filter(
@@ -289,7 +287,7 @@ export function SandboxProviderDialog({
                           <Label htmlFor="provider-max-concurrent" className={fieldLabel}>
                             <span>
                               Max concurrent sandboxes
-                              {spec.requireMaxConcurrent ? null : <span className="font-normal text-muted"> (optional)</span>}
+                              <span className="font-normal text-muted"> (optional)</span>
                             </span>
                           </Label>
                         }
@@ -305,13 +303,18 @@ export function SandboxProviderDialog({
                           inputMode="numeric"
                           value={maxConcurrent}
                           onChange={(e) => setMaxConcurrent(e.target.value)}
-                          placeholder={accountLimit > 0 ? String(accountLimit) : undefined}
-                          required={spec.requireMaxConcurrent}
+                          placeholder={accountLimit > 0 ? String(accountLimit) : "No cap"}
                           aria-invalid={cap === undefined}
                           aria-describedby="provider-max-concurrent-help"
                           className="max-w-40 font-mono text-xs tabular-nums"
                         />
                         {cap === undefined ? <p className="m-0 text-sm text-err">A whole number.</p> : null}
+                        {cap === 0 && spec.unbounded ? (
+                          <Alert variant="warn" title="No cap" data-testid="provider-uncapped">
+                            Nothing limits how many {spec.label} sandboxes run at once, or what they cost. Set a
+                            number to bound the bill.
+                          </Alert>
+                        ) : null}
                         {cap !== undefined && accountLimit > 0 && cap > accountLimit ? (
                           <Alert variant="warn" title={`Higher than the ${spec.label} account allows`}>
                             The account runs at most {accountLimit} sandboxes at once, so tasks past that wait
