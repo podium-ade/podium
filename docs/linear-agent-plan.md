@@ -155,14 +155,16 @@ What else the spike showed:
   - `prompted` becomes a follow-up with `agentActivity.body` as the text.
   - `OAuthApp revoked` stops the source and marks the connection broken in the UI.
 - **Ref:** it grows a fourth part, the agent session id. Three-part refs still parse, so
-  polled sessions keep working.
+  polled sessions keep working. Phase 3 adds a fifth, `delegated`, to a session opened by
+  delegation, because only that kind moves the issue and the ref is what survives a restart.
 - **Leadership:** the webhook source runs on every conductor with no leader lock. `ExternalID`
   is the prompt's activity id, which a retry keeps. The conductor dedupes on it only for a
   mirrored source, and Linear sessions are not mirrored until phase 6, so the source itself
   remembers delivery and activity ids for seven hours, past Linear's last retry.
 - **Listener:** a small server in `internal/agent/webhooks` owns the webhook listeners by
   address, and the GitHub and Linear sources mount their paths on it.
-- **On start:** moving the issue to `started` and setting the delegate moved to phase 3.
+- **On start:** moving the issue to `started` moved to phase 3. Setting the delegate was
+  dropped: Linear sets it on delegation.
 
 ## Phase 3: activities out
 
@@ -176,14 +178,19 @@ A second implementation of `conductor.Source` for session-mode refs.
 | `Post` final | `response` |
 | `Post` failure | `error` |
 | `Attach` | done in phase 2: uploaded as today and linked in a response of its own, since an activity cannot be edited; over 50 MB falls back to the task link |
-| `React` | nothing; Linear derives the session state from the last activity |
+| `React` | working moves a delegated issue to the team's lowest-position `started` state and starts the keep-alive; Linear derives the session state from the last activity |
+| `LinkPullRequests` | each pull request the answer named, added to the session's links |
 
-- **Links:** the Podium task page goes into the session's `externalUrls` when the task is
-  created, and a pull request URL is added when one opens.
+- **Links:** the Podium task page is added with `addedExternalUrls` the first time a turn
+  says anything once its task exists (the placeholder comes before the task), and each pull
+  request the answer names is added when the turn ends.
 - **Stop:** a `prompted` event carrying `signal: stop` cancels the turn, then posts a closing
-  `response`. How a source reaches turn cancellation still has to be worked out; the web
-  chat's cancel path is the starting point.
-- **Stale sessions:** send a keep-alive `thought` every 20 minutes for long tasks.
+  `response`. The source is handed a `Stop` function, which is the conductor's
+  `CancelSessionTurn`: it cancels the running turn's task and drops the turns queued behind
+  it, because Linear forbids acting in a session after a stop. The source also refuses
+  anything the stopped turn says as it unwinds.
+- **Stale sessions:** a keep-alive `thought` after 20 minutes without an activity, for as long
+  as the turn is working.
 
 ## Phase 4: identity
 
