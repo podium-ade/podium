@@ -98,8 +98,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     label: "boat.dev",
     blurb: "Every task gets a VM of its own with Docker, from boat's base image or a named snapshot.",
     secretLabel: "API key",
-    secretHelp:
-      "A key with only what Podium uses: boat api-key create podium --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
+    secretHelp: "A boat API key just for Podium. Don't use an admin key.",
     maxConcurrentHelp:
       "How many tasks run on boat at once. Empty or 0 holds them to your account's own limit.",
     fields: [
