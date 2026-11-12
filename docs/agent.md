@@ -407,7 +407,12 @@ polling Linear.
   twice.
 - One conductor polls Linear at a time; another takes over when it stops. A Linear app's
   webhooks are not leased: every conductor serves them, and a delivery is handled by the one the
-  tunnel sends it to.
+  tunnel sends it to. A retried prompt that reaches a different conductor is recorded once and
+  starts one turn, because the session's chat is the dedupe ([The agent app](#the-agent-app)).
+- A Stop pressed in a Linear session reaches one conductor, and the turn may be running on
+  another. The one that heard it announces the stop to the others (`podium_session_stop`)
+  before it cancels the task, and the conductor running the turn says nothing more in the
+  session for it.
 
 `PODIUM_AGENT_REPLICA_ID` is what the leases are held under. It defaults to
 `<hostname>/<listen>`, which is stable across a conductor's restarts — a restarted conductor picks
@@ -424,7 +429,7 @@ own, in order, run as the person who asked it — their secrets, their MCP serve
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
 - **A shared conversation spends the company's model key.** Once a chat is multiplayer, and
-  always for a Slack thread, a Linear issue or a pull request, every turn and every task it
+  always for a Slack thread, a Linear issue or agent session, or a pull request, every turn and every task it
   delegates runs on the company's credential, never on the asker's own
   `model.<provider>.api_key` or Claude sign-in, the owner's included. A shared conversation has one context, so it spends one
   credential: turns from different people then share the provider's prompt cache, which is
@@ -451,7 +456,8 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   that mentions Podium is queued; talk between people is recorded at once. A reply to a task's
   question is never queued.
 - **A multiplayer chat answers only a mention.** A web chat becomes multiplayer once a second
-  Podium person is in it or it is shared, and stays so; a Slack thread or pull request always is.
+  Podium person is in it or it is shared, and stays so; a Slack thread, a pull request or a
+  Linear agent session always is.
   A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
   would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
 - **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
@@ -462,7 +468,8 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   that run before it — the one running and those queued ahead — read back from the queue once the
   conductor has placed the message, so it holds across conductors. 0 is answered now.
 - **A mirrored conversation can be written from the web**, by the people taking part in it. It is
-  one-way: the message and its answer stay in Podium, and nothing is posted to Slack or GitHub.
+  one-way: the message and its answer stay in Podium, and nothing is posted to Slack, GitHub or
+  Linear.
 - **A shared chat with a personal assistant keeps its owner's assistant.** Anybody in it talks to
   that assistant under their own name and credentials; the assistant itself stays private — it is
   in nobody else's picker, and their chat list shows the chat under Podium, as shared.
@@ -504,7 +511,10 @@ write agrees.
 - **Mirrored private conversations can be shared**, with a warning in the dialog. Whether a
   Slack conversation is private is what `conversations.info` says (`is_private`, `is_im`,
   `is_mpim`), recorded on the chat (`0037`); a chat recorded before that falls back to the
-  id — a DM or `G…` channel is private, a `C…` channel may be and is warned about as such.
+  id — a DM or `G…` channel is private, a `C…` channel may be and is warned about as such. A
+  Linear agent session is as private as its issue's team, which the app asks Linear about
+  (`team { private }`, kept ten minutes) and records the same way; a team it could not ask
+  about is warned about as possibly private.
 - **Audit:** share, unshare, general-access changes, link resets, joins, leaves and deletes
   are written to podium-server's `audit_log` (`AuditService.RecordAudit`, which only the
   conductor's credential may call, and only for `chat.*` actions). An audit write that fails
@@ -2008,15 +2018,19 @@ is and in which workspace. The listen address may be the GitHub App's: the condu
 | an issue delegated to the app | a turn, with the identifier, the title and the description as the instruction, worded as the poller words an assignment |
 | the app @mentioned in a comment | a turn, with the comment, less the mention, as the instruction |
 | a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question and the reply is from the person whose turn it is, otherwise a turn of its own, run as whoever wrote it |
-| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, and the session closes with “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not |
+| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, on whichever conductor runs it, and the session closes with “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not |
 
 A new session gets a thought (“Starting on this.”) at once, before the conductor has chosen a
 playbook, because Linear marks a session unresponsive when nothing is said within ten seconds.
 Every delivery is checked first: the `Linear-Signature` HMAC with the signing secret, a
-`webhookTimestamp` within a minute, the delivery id and the prompt's id not seen in the last seven
-hours (Linear retries for six), and the workspace and app user the save found. Anything else is
-answered 200 and logged as `linear: webhook` with its outcome, and counted in
-`podium_agent_linear_webhook_deliveries_total`.
+`webhookTimestamp` within a minute, the delivery id not seen in the last seven hours (Linear
+retries for six), and the workspace and app user the save found. Anything else is answered 200
+and logged as `linear: webhook` with its outcome, and counted in
+`podium_agent_linear_webhook_deliveries_total`. A retried prompt keeps its id, and the session's
+chat records one row per prompt id, so a retry starts no second turn on whichever conductor it
+reaches. The conductor that heard a session open, or a Stop, also remembers that prompt's id for
+seven hours, so a retry of either is not acknowledged or answered twice there; a retry that reaches
+another conductor may show “Starting on this.” once more, and starts nothing.
 
 **Who may ask.** Every prompt — the delegation or mention that opens a session, and each reply
 in it — is answered only for a person in Podium, and the turn runs as them: their personal
@@ -2036,10 +2050,12 @@ may end work they can see.
 **What it says back.** Into the session, as agent activities, never as edited comments:
 progress is an ephemeral *thought* that the next one replaces, the answer a *response*, a
 failure an *error*, and a question an *elicitation*. The answer and a failure end with a line
-naming the Podium task. Linear writes the prompts, questions and answers into the issue's
-comments itself, and the transcript a turn reads is the issue and those comments, as with the
-poller. An attachment is uploaded to Linear and linked in a response of its own; over 50 MB, or
-refused, it is a link to the task.
+naming the Podium task. An answer, a question and a failure are owed through the delivery outbox
+([Delivery](#delivery)), so one Linear refused is retried rather than lost. Linear writes the
+prompts, questions and answers into the issue's comments itself. A turn reads the session's chat
+with the issue around it ([One record, one transcript](#one-record-one-transcript)). An
+attachment is uploaded to Linear and linked in a response of its own; over 50 MB, or refused, it
+is a link to the task.
 
 While the turn works, the session shows what it is doing: each tool call as an ephemeral
 *action* ("Reading `internal/app.go`", "Running `make test`"), and its reasoning as a thought.
@@ -2060,10 +2076,24 @@ unless it is already started, completed or cancelled. A session opened by an @me
 issue where it is: a question in a comment is not a request to move the ticket. Linear sets
 the issue's delegate itself.
 
-**What it does not do yet.** It does not route a mention to the assistant, and a session has
-no chat in the web UI. A Stop reaches the conductor the webhook arrived at; when another
-conductor is running the turn, the task is still cancelled, but that conductor may post the
-turn's cancellation as an error after “Stopped.”. See
+**The chat.** Each agent session is a chat in Podium (`linear:session:<id>`, origin `linear`),
+named after the issue (`EME-5 Test issue`) and renamed with it on the next prompt — Linear tells
+an app nothing when an issue is retitled. Every prompt is a message by whoever wrote it, linked to
+the issue; the answers, questions, failures, progress and tool calls are the bot's, as in a
+mirrored Slack thread. The chip in the chat's header opens the session in Linear. The people who
+spoke in the session and are in Podium are its participants, and the first of them owns it; it is
+visible to them and to nobody else unless they share it, and sharing a chat of a private team's
+issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused is recorded, as in Slack,
+and is never a participant; a session only they spoke in is a chat nobody can open. The refusal
+itself is the source's word in Linear and is not recorded, as Slack's 🚫 is not. A ticket the
+poller saw has no chat.
+
+**What it does not do yet.** It does not route a mention to the assistant. What a Stop silences
+is remembered in memory, on every conductor that was running when it was announced. A question, an
+answer or a failure the stopped turn had already failed to deliver before the Stop stays owed in
+the outbox, and a conductor that retries it after a restart does not know the turn was stopped,
+and may post it after “Stopped.”. The turn's own cancellation is never posted: it is recognised,
+on any conductor and after a restart, by the cancel reason the control plane recorded. See
 [linear-agent-plan.md](linear-agent-plan.md).
 
 **When Linear revokes the app.** An admin de-authorizing it sends an `OAuthApp` webhook. The
@@ -3143,14 +3173,16 @@ What that decides:
 
 ## One record, one transcript
 
-Every conversation — a web chat, a Slack thread, a pull request — is one record in
-`chat_messages`, and that record is what a turn is handed, labelled with who said what and
-where: `Dana (slack, not in Podium)`, `Bob (github)`, `Alvaro`. A Slack- or GitHub-started
-turn therefore also sees what was said in Podium beside the thread. A message deleted on its
-surface stays in the record and is left out of the transcript; an edited one is read as it
-stands. A source's own transcript is only used for a conversation with no record yet, and a
-pull request's history from before Podium first heard it is read from GitHub and put in
-front.
+Every conversation — a web chat, a Slack thread, a pull request, a Linear agent session — is
+one record in `chat_messages`, and that record is what a turn is handed, labelled with who
+said what and where: `Dana (slack, not in Podium)`, `Bob (github)`, `Ada (linear)`, `Alvaro`.
+A Slack-, GitHub- or Linear-started turn therefore also sees what was said in Podium beside
+the thread. A message deleted on its surface stays in the record and is left out of the
+transcript; an edited one is read as it stands. A source's own transcript is only used for a
+conversation with no record yet, and a pull request's history from before Podium first heard
+it is read from GitHub and put in front. A Linear session's issue is read from Linear on every
+turn and put around its record: the description and the comments before the session in front,
+and comments made on the issue beside the session where they were said.
 
 The transcript has a budget (`PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES`). Under it, everything
 goes through. Over it, what was put to Podium, its answers, the conversation's summary and
@@ -3161,7 +3193,7 @@ has to cut. The condensing is extractive and makes no model call.
 
 ### Delivery
 
-The web record is written first, and the copy on Slack or GitHub is then **owed**: an
+The web record is written first, and the copy on Slack, GitHub or Linear is then **owed**: an
 answer, a failure or a question in a conversation that lives elsewhere is a row in
 `chat_outbox`. It is attempted at once, where the post always was; a refused or failed post
 is retried by whichever conductor gets to it (10s, doubling, capped at 15 minutes), and given
@@ -3172,7 +3204,9 @@ is superseded by the answer.
 
 Where an answer goes follows from where the turn started: a web-started turn answers in the
 web chat only; a Slack-started one in its thread; a GitHub-started one on its pull request
-and in every Slack thread bound to it, each copy owed and retried on its own. Delivery is at
+and in every Slack thread bound to it, each copy owed and retried on its own; a Linear-started
+one in its agent session. A ticket the Linear poller saw has no record, so its answer is
+posted once, as before. Delivery is at
 least once — a conductor that dies after the surface accepted a post and before it recorded
 that can post it again — because losing an answer is the worse failure.
 `podium_agent_outbox_deliveries_total{surface,outcome}` counts sent, retry and failed.
@@ -3195,10 +3229,11 @@ task it delegates, and may choose several while answering once.
   started stay — they are the audit of the work, not the transcript. A task still answering
   the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
   is gone immediately. The web UI says so in the confirm before it acts.
-- **Slack threads and pull requests appear for the people in them.** A Slack thread or a
-  pull request the bot was in is mirrored into a read-only chat. It is listed — in Chat and
-  in Sessions — for every Podium person who spoke in it, and for nobody else except the dev
-  token; a thread only people outside Podium spoke in stays hidden. The first Podium person
+- **Slack threads, pull requests and Linear agent sessions appear for the people in them.** A
+  Slack thread, a pull request or a Linear agent session the bot was in is mirrored into a
+  read-only chat. It is listed — in Chat and in Sessions — for every Podium person who spoke in
+  it, and for nobody else except the dev token; a thread only people outside Podium spoke in
+  stays hidden. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
