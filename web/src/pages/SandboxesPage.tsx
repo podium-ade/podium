@@ -320,7 +320,8 @@ function ProviderRow({
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3 px-6 py-5">
         <div className="min-w-0 flex-1 basis-80 space-y-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h3 className="m-0 text-lg leading-tight font-bold">{spec.label}</h3>
+            {/* One width for every name, so each row's chips start in the same place. */}
+            <h3 className="m-0 text-lg leading-tight font-bold sm:min-w-24">{spec.label}</h3>
             {loading ? null : configured ? <Badge tone="ok">configured</Badge> : <Badge tone="idle">not set up</Badge>}
             {isDefault ? <DefaultBadge /> : null}
           </div>
