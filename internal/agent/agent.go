@@ -40,6 +40,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/routines"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/webhooks"
 	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
@@ -164,11 +165,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// Slack, the GitHub review source and the GitHub App are the connections Settings can
 	// change while the conductor runs. See live.go.
 	a.live = &liveConnections{
-		env:     envCfg,
-		store:   st,
-		vault:   pc,
-		logger:  logger,
-		running: cfg,
+		env:      envCfg,
+		store:    st,
+		vault:    pc,
+		logger:   logger,
+		webhooks: webhooks.New(logger),
+		running:  cfg,
 	}
 	slackSrc, ghSrc, gh, err := a.live.build(cfg)
 	if err != nil {
