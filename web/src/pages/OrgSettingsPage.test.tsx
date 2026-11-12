@@ -73,7 +73,7 @@ describe("OrgSettingsPage", () => {
   it("opens General and lists every section an admin shares with the organization", async () => {
     mount("/org/settings", admin);
     expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
-    expect(sections()).toEqual(["General", "Members", "Connections", "Model keys", "Backend", "Routines policy"]);
+    expect(sections()).toEqual(["General", "Members", "Connections", "Routines policy"]);
   });
 
   it("gives a member General and Members, read-only", async () => {

@@ -10,6 +10,7 @@ import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
 import { OrgSettingsPage } from "./OrgSettingsPage";
+import { SandboxesPage } from "./SandboxesPage";
 import { ToastHost } from "../components/Toast";
 
 const KEY = "sk-ant-not-a-real-key-abcd";
@@ -159,6 +160,7 @@ function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer
             <Routes>
               <Route path="/agent/*" element={<AgentPage />} />
               <Route path="/org/*" element={<OrgSettingsPage />} />
+              <Route path="/sandboxes/*" element={<SandboxesPage />} />
             </Routes>
           </MemoryRouter>
         </ViewerContext>
@@ -475,8 +477,8 @@ describe("AgentPage", () => {
     setRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
     listSandboxProviders.mockResolvedValue({
       providers: [
-        { name: "boat", settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
-        { name: "modal", settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
+        { name: "boat", hasSecret: true, settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
+        { name: "modal", hasSecret: true, settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
       ],
     });
     getProfile.mockResolvedValue({
@@ -488,38 +490,34 @@ describe("AgentPage", () => {
         { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
       ],
     });
+    // Backend is the Default sandbox section of Sandboxes › Providers now, and its old
+    // address lands there.
     mount("/agent/settings/runs-on");
-    expect(await screen.findByRole("region", { name: "Backend" })).toBeInTheDocument();
+    const select = await screen.findByRole("combobox", { name: "Default sandbox" });
+    expect(select).toHaveTextContent("Your nodes");
+    expect(await screen.findByTestId("capacity-boat")).toHaveTextContent("1 of 2");
+    expect(screen.queryByText("These playbooks' sidecars cannot run on the default")).toBeNull();
 
-    const group = screen.getByRole("radiogroup", { name: "Runs on" });
-    expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Your nodes/ })).toBeChecked();
-    expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-
-    const warning = async () =>
-      (await screen.findByText("These playbooks' sidecars cannot run there")).closest("[data-slot=alert]");
-    await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
-    let alert = await warning();
-    expect(alert).toHaveTextContent("coder: A Docker daemon is a privileged sidecar, which boat sandboxes do not run.");
-    expect(alert).not.toHaveTextContent("viewer");
-    expect(alert).not.toHaveTextContent("pinned");
-
-    await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
-    alert = await warning();
+    // Once Modal is the default, a playbook whose sidecars it cannot run is named.
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
+    await userEvent.click(select);
+    await userEvent.click(await screen.findByRole("option", { name: "Modal" }));
+    await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    const alert = (await screen.findByText("These playbooks' sidecars cannot run on the default")).closest(
+      "[data-slot=alert]",
+    );
     expect(alert).toHaveTextContent("coder: Modal runs sidecars only under the vm runtime");
     expect(alert).toHaveTextContent("viewer: Modal runs sidecars only under the vm runtime");
     expect(alert).not.toHaveTextContent("vmviewer");
-
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    expect(alert).not.toHaveTextContent("pinned");
+    expect(within(screen.getByTestId("provider-modal")).getByText("Default")).toBeInTheDocument();
   });
 
   it("has no Backend page without a conductor", async () => {
-    // An old Backend link lands on Organization settings, which has no Backend without one.
+    // With no conductor there are no turns to place, so Sandboxes opens on its providers.
     mount("/agent/settings/runs-on", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Backend" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "Sandbox providers" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Default sandbox" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {

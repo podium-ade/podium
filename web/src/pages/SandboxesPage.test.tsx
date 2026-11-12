@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { SandboxesPage } from "./SandboxesPage";
+import { SandboxProviders } from "./SandboxesPage";
 import { ToastHost } from "../components/Toast";
 import { NodeStatus } from "../gen/podium/v1/common_pb";
 
@@ -32,7 +32,7 @@ function mount() {
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <ToastHost>
-          <SandboxesPage />
+          <SandboxProviders />
         </ToastHost>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -51,7 +51,7 @@ const boat = {
   inUse: 1,
 };
 
-describe("SandboxesPage", () => {
+describe("SandboxProviders", () => {
   beforeEach(() => {
     for (const f of [listSandboxProviders, setSandboxProvider, deleteSandboxProvider, listNodes]) f.mockReset();
     listSandboxProviders.mockResolvedValue({ providers: [boat] });

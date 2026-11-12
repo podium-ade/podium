@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Building2, KeyRound, Plug, Repeat2, Server, Users } from "lucide-react";
+import { Building2, Plug, Repeat2, Users } from "lucide-react";
 import { Navigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,7 +14,6 @@ import {
 } from "../components/agent/AssistantPanel";
 import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
 import { RoutinesAdminPanel } from "../components/agent/RoutinesAdminPanel";
-import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { PageFrame } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
 import { Alert } from "../components/ui/alert";
@@ -25,7 +24,6 @@ import { errorMessage, organization } from "../lib/client";
 import { useViewer, type Viewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
 import { relative } from "../lib/format";
-import { ModelsPanel } from "./AgentPage";
 import { UsersPage } from "./UsersPage";
 
 /** The caps podium-server enforces (store/organization.go). */
@@ -46,7 +44,6 @@ type Section = {
   render: () => ReactNode;
 };
 
-const admin = (v: Viewer | undefined) => canManageInfra(v);
 const conductorAdmin = (v: Viewer | undefined) => Boolean(v?.agentEnabled) && canManageInfra(v);
 
 /**
@@ -81,33 +78,6 @@ const SECTIONS: Section[] = [
     show: conductorAdmin,
     flush: true,
     render: () => <ConnectionsPanel />,
-  },
-  {
-    id: "models",
-    icon: KeyRound,
-    title: "Model keys",
-    lead: "The keys everyone's chats fall back to when a person has not added their own. People add their own on Models.",
-    show: conductorAdmin,
-    flush: true,
-    render: () => <ModelsPanel globalOnly />,
-  },
-  {
-    id: "backend",
-    icon: Server,
-    title: "Backend",
-    lead: "Where your assistants do their work when a playbook doesn't say: on your own nodes, or in a cloud sandbox.",
-    show: (v) => Boolean(v?.agentEnabled) && admin(v),
-    flush: true,
-    render: () => (
-      <PanelBody>
-        <Row
-          label="Default sandbox"
-          hint="Where a turn runs when its playbook doesn't name one. A playbook's Runs on overrides it, for that playbook only."
-        >
-          <RunsOnSettings />
-        </Row>
-      </PanelBody>
-    ),
   },
   {
     id: "routines",

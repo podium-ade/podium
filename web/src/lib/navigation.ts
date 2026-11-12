@@ -65,8 +65,9 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "models", label: "Models", to: "/agent/settings/models", icon: "models", desc: "Model providers chat can spend on.", keys: "llm provider claude anthropic openai gpt grok api key", show: agent },
       { id: "nodes", label: "Nodes", to: "/nodes", icon: "nodes", desc: "Workers enrolled with this control plane.", keys: "workers machines enroll drain" },
-      { id: "sandboxes", label: "Sandboxes", to: "/sandboxes", icon: "sandboxes", desc: "Sandbox providers sessions and tasks can run in.", keys: "modal daytona e2b provider capacity" },
-      { id: "snapshots", label: "Snapshots", to: "/snapshots", icon: "snapshots", desc: "Saved conversation workspaces, and when they are deleted.", keys: "workspace storage disk retention cleanup s3 bucket" },
+      // One page for where work runs off your own nodes: the providers set up, the default a
+      // playbook falls back to (Backend), and the workspaces kept between turns (Snapshots).
+      { id: "sandboxes", label: "Sandboxes", to: "/sandboxes", icon: "sandboxes", desc: "Sandbox providers, where turns run by default, and saved workspaces.", keys: "modal daytona e2b provider capacity backend default runs on snapshots workspace storage disk retention cleanup s3 bucket" },
       { id: "registries", label: "Registries", to: "/registries", icon: "registries", desc: "Image registries workers pull from.", keys: "images docker containers" },
     ],
   },
@@ -76,10 +77,10 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       // Cost is recorded per agent turn, so with no conductor there is nothing to report.
       { id: "usage", label: "Usage", to: "/usage", icon: "usage", desc: "Spend and activity across the organization.", keys: "cost spend billing tokens", show: agent },
-      // Everything set once for the whole organization: its name, Members, Connections, the
-      // global model keys, the default backend and the routines policy. Each of those used to
-      // be an entry of its own, and Routines appeared twice. See pages/OrgSettingsPage.
-      { id: "org-settings", label: "Settings", to: "/org/settings", icon: "settings", desc: "Organization name, members, connections, global keys, backend and routines policy.", keys: "organization name rename brand deployment members users roles team permissions owner admin connections github slack app webhook global keys backend runs on sandbox routines limits policy" },
+      // Everything set once for the whole organization: its name, Members, Connections and
+      // the routines policy. Each of those used to be an entry of its own, and Routines
+      // appeared twice. See pages/OrgSettingsPage.
+      { id: "org-settings", label: "Settings", to: "/org/settings", icon: "settings", desc: "Organization name, members, connections and routines policy.", keys: "organization name rename brand deployment members users roles team permissions owner admin connections github slack app webhook routines limits policy" },
     ],
   },
 ];

@@ -76,7 +76,7 @@ describe("Header", () => {
     expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
     expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
     expect(groupLinks("Access")).toEqual(["Channels", "Secrets"]);
-    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Sandboxes", "Snapshots", "Registries"]);
+    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Sandboxes", "Registries"]);
     // Routines appears once, under Work: the admin's view of everyone's is a section of Settings.
     expect(groupLinks("Organization")).toEqual(["Usage", "Settings"]);
   });
@@ -298,7 +298,6 @@ describe("Header", () => {
       ["Models", "models"],
       ["Nodes", "nodes"],
       ["Sandboxes", "sandboxes"],
-      ["Snapshots", "snapshots"],
       ["Registries", "registries"],
       ["Usage", "usage"],
       ["Settings", "settings"],
