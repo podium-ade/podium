@@ -34,9 +34,9 @@ import { ConductorDown } from "./ConductorDown";
 /**
  * ConnectionsPanel is where this conductor's GitHub App, Slack app and Linear app are
  * saved. Slack can still come from the environment until a pair is saved. The GitHub App
- * and the Linear app cannot: they are saved here or not at all. Nothing runs on the
- * Linear app yet; the environment's Linear API key still polls. A saved value is what the
- * conductor uses the next time it starts.
+ * and the Linear app cannot: they are saved here or not at all. A saved Linear app answers
+ * on its webhooks and turns off the poller the environment's Linear API key runs. A saved
+ * value is what the conductor uses the next time it starts.
  */
 export function ConnectionsPanel() {
   const query = useQuery({
@@ -99,7 +99,7 @@ export function ConnectionsPanel() {
             <ConnectionRow
               name="Linear"
               mark="linear"
-              badge={status(savedSource(data.linear?.source), data.linear?.configured === true, data.linear?.restartRequired === true)}
+              badge={linearStatus(data.linear)}
               detail={linearDetail(data.linear)}
               onEdit={() => setEditing("linear")}
             />
@@ -120,9 +120,15 @@ export function ConnectionsPanel() {
 }
 
 function linearDetail(lin?: LinearConnection): string {
+  if (lin?.configured && lin.revokedAt) return "Linear revoked this app. Authorize it again in Linear, then save it here";
   if (lin?.configured) return `Connected as ${connectedAs(lin)}`;
   if (lin?.polling) return "No app saved. Polling with the environment's API key";
   return "No app saved";
+}
+
+function linearStatus(lin?: LinearConnection): { label: string; tone: "ok" | "warn" | "idle" } {
+  if (lin?.configured && lin.revokedAt) return { label: "Revoked", tone: "warn" };
+  return status(savedSource(lin?.source), lin?.configured === true, lin?.restartRequired === true);
 }
 
 /** "Podium in Acme": the app user and its workspace, as far as the save learned them. */
@@ -864,12 +870,19 @@ function LinearDialog({
             Linear
           </DialogTitle>
           <DialogDescription className="text-base text-soft">
-            The OAuth app people will delegate issues to and @mention. Saving signs in to Linear to
-            check it. Nothing runs on it yet: that comes with its webhooks.
+            The OAuth app people delegate issues to and @mention. Either one starts the playbook
+            marked linear: true, and its answer comes back in the agent session. Saving signs in to
+            Linear to check it.
           </DialogDescription>
         </DialogHeader>
         {lin?.restartRequired ? (
           <Alert variant="warn">Restart the conductor. It is still running with the previous Linear app.</Alert>
+        ) : null}
+        {lin?.configured && lin.revokedAt ? (
+          <Alert variant="destructive">
+            Linear revoked this app {relative(lin.revokedAt)}, so nothing starts from Linear. Authorize it
+            again in Linear, then save it here.
+          </Alert>
         ) : null}
         {lin?.configured ? (
           <p className="text-sm text-muted">
@@ -886,8 +899,8 @@ function LinearDialog({
         {lin?.polling ? (
           <p className="text-xs leading-relaxed text-muted">
             Polling is on: PODIUM_AGENT_LINEAR_API_KEY is set, so this conductor picks up issues
-            assigned to that key's user. The app will replace it once its webhooks ship. Saving
-            here does not change that yet.
+            assigned to that key's user. Saving an app here turns polling off, and removing the app
+            turns it back on.
           </p>
         ) : null}
         <div className="grid gap-3">
