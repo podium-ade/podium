@@ -193,6 +193,9 @@ type appSession struct {
 	taskID string
 	// linked is every URL already added to the session's links.
 	linked map[string]bool
+	// moveChecked is set once the turn has looked at the issue's state, so a turn that parks
+	// on a question and resumes does not look again.
+	moveChecked bool
 	// stopped is a session somebody pressed Stop in. Nothing more is said for the turn that
 	// was stopped, whatever the conductor still hands over as it unwinds, until the next turn
 	// starts. stoppedTasks are the tasks of stopped turns, refused for good: a stopped
@@ -267,10 +270,11 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 			now:      now,
 			upload:   upload,
 			// The app's own comments are its answers, not anybody's question.
-			me:       User{ID: opts.AppUserID, Name: opts.AppName},
-			states:   map[string]string{},
-			assigned: map[string]bool{},
-			turns:    map[string]*turnState{},
+			me:         User{ID: opts.AppUserID, Name: opts.AppName},
+			byPosition: true,
+			states:     map[string]string{},
+			assigned:   map[string]bool{},
+			turns:      map[string]*turnState{},
 		},
 		logger:         logger,
 		metrics:        metrics,
@@ -465,10 +469,14 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		author = firstNonEmpty(act.User.Name, act.User.Email, author)
 	}
 	title := strings.TrimSpace(iss.Identifier + " " + iss.Title)
+	ref := SessionRef(iss.ID, teamID, iss.Identifier, sess.ID)
+	if sess.delegated() {
+		ref = DelegatedSessionRef(iss.ID, teamID, iss.Identifier, sess.ID)
+	}
 	ev := conductor.InboundEvent{
 		SourceKind:  Kind,
 		SourceKey:   SessionKey(sess.ID),
-		Ref:         SessionRef(iss.ID, teamID, iss.Identifier, sess.ID),
+		Ref:         ref,
 		Author:      author,
 		ExternalID:  "activity:" + act.ID,
 		ExternalURL: sess.URL,
@@ -595,14 +603,17 @@ func (s *AppSource) PostActivity(ctx context.Context, ref string, out conductor.
 // Linear's to derive from the last activity, so the answer or the error already says how a
 // turn went; what a reaction moves here is the source's own bookkeeping.
 //
-//   - working is a turn working, so it is kept alive.
+//   - working is a turn working, so it is kept alive. In a session opened by delegating the
+//     issue, the first time in a turn it also moves the issue to the team's first started
+//     state, unless it is already started, completed or cancelled. A mention does not: a
+//     question asked in a comment is not a request to move the ticket.
 //   - awaiting is a question waiting for a person, which is not kept alive: a thought would
 //     tell Linear the agent is working when it is waiting.
 //   - done and failed end the turn.
 //
 // A ref with no session reacts as the poller does.
 func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reaction) error {
-	_, _, _, sessionID, err := ParseSessionRef(ref)
+	issueID, teamID, _, sessionID, err := ParseSessionRef(ref)
 	if err != nil {
 		return err
 	}
@@ -620,8 +631,13 @@ func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reacti
 		}
 		st.running = true
 		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
+		move := delegatedRef(ref) && !st.moveChecked
+		st.moveChecked = true
 		s.mu.Unlock()
-		return nil
+		if !move {
+			return nil
+		}
+		return s.comments.startUnlessUnderway(ctx, issueID, teamID)
 	case conductor.ReactionAwaiting:
 		st := s.session(sessionID)
 		s.mu.Lock()
@@ -735,13 +751,14 @@ func (s *AppSource) session(sessionID string) *appSession {
 }
 
 // turnStarted is the placeholder of a new turn: whatever the last one ended on, this one has
-// not ended. It is also the end of a stop: the
+// not ended, and it has not looked at the issue's state. It is also the end of a stop: the
 // conductor runs a session's turns one at a time, so the stopped turn has finished by now.
 func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st.stopped = false
 	st.closing = ""
+	st.moveChecked = false
 	st.running = true
 	st.lastActivity = s.now()
 	s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
