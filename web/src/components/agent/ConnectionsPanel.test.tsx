@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { ConnectionsPanel } from "./ConnectionsPanel";
 import { ToastHost } from "../Toast";
 
@@ -152,7 +153,24 @@ describe("ConnectionsPanel", () => {
     expect(await screen.findByText(/Polling with the environment's API key/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit Linear" }));
     expect(screen.getByText(/Polling is on/)).toBeInTheDocument();
-    expect(screen.getByText(/Saving here does not change that yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Saving an app here turns polling off/)).toBeInTheDocument();
+  });
+
+  it("says in plain words when Linear revoked the app", async () => {
+    const revokedAt = timestampFromDate(new Date(Date.now() - 3_600_000));
+    getConnections.mockResolvedValue({ ...empty, linear: { ...savedLinear, revokedAt } });
+    mount();
+    expect(await screen.findByText(/Linear revoked this app. Authorize it again in Linear/)).toBeInTheDocument();
+    expect(screen.getByText("Revoked")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/so nothing starts from Linear/)).toBeInTheDocument();
+  });
+
+  it("does not say the app is revoked when it is not", async () => {
+    getConnections.mockResolvedValue({ ...empty, linear: savedLinear });
+    mount();
+    expect(await screen.findByText("Connected as Podium in Acme")).toBeInTheDocument();
+    expect(screen.queryByText("Revoked")).toBeNull();
   });
 
   it("saves a Linear app with setup steps beside it", async () => {
