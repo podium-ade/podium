@@ -302,6 +302,119 @@ func TestASlackSpeakerResolvesToTheLoginAsPodiumSpellsIt(t *testing.T) {
 	assert.Equal(t, "Dana@acme.com", chat.Login)
 }
 
+// linearPrompt is a prompt in a Linear agent session, as the app hands it over: the email of
+// whoever wrote it, as a candidate, and their account in the workspace.
+func linearPrompt(session, text, email, user string) conductor.InboundEvent {
+	ev := inbound("issue-1/team-1/ENG-1/"+session, text)
+	ev.SourceKind = conductor.SourceLinear
+	ev.SourceKey = "linear:session:" + session
+	ev.BriefKind = conductor.SourceLinear
+	ev.Channel = ""
+	ev.Env = nil
+	ev.Mentioned = true
+	ev.Author = email
+	ev.Login = email
+	ev.SpeakerProvider = conductor.SpeakerLinear
+	ev.SpeakerID = store.LinearExternalID("org-1", user)
+	return ev
+}
+
+// A Linear agent session is answered only for somebody in Podium. Anybody else is told in the
+// session (the source turns ReactionRefused into an error) and nothing runs or is recorded.
+func TestALinearPromptFromOutsidePodiumIsRefused(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceLinear)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+
+	ctx := context.Background()
+	require.NoError(t, src.Send(ctx, linearPrompt("s-1", "deploy prod", "mallory@acme.com", "u-666")))
+	waitFor(t, 30*time.Second, "the refusal", func() bool {
+		return contains(reactions(src.Records()), string(conductor.ReactionRefused))
+	})
+	assert.Empty(t, fake.Specs(), "nothing runs")
+	assert.NotContains(t, reactions(src.Records()), string(conductor.ReactionWorking),
+		"so a delegated issue is never moved")
+	_, err := st.IdentityLogin(ctx, store.ProviderLinear, "org-1/u-666")
+	require.ErrorIs(t, err, store.ErrNotFound, "a stranger is never recorded as anybody")
+}
+
+// A Podium person's prompt runs, as them, and their Linear account is recorded as theirs.
+func TestALinearPromptFromAPodiumPersonRunsAsThem(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceLinear)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+
+	ctx := context.Background()
+	ev := linearPrompt("s-2", "fix the build", testSpeaker, "u-1")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+	waitFor(t, 30*time.Second, "the turn to be recorded", func() bool { return len(startedBy(t, st, ev.SourceKey)) == 1 })
+	assert.Equal(t, []string{testSpeaker}, startedBy(t, st, ev.SourceKey))
+
+	login, err := st.IdentityLogin(ctx, store.ProviderLinear, "org-1/u-1")
+	require.NoError(t, err)
+	assert.Equal(t, testSpeaker, login)
+}
+
+// The poller is the unauthenticated mode, and is unchanged: a polled ticket names nobody and
+// still runs, as nobody.
+func TestAPolledLinearTicketStillRunsAsNobody(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceLinear)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+
+	ev := inbound("issue-2/team-1/ENG-2", "ENG-2 — fix the build")
+	ev.SourceKind = conductor.SourceLinear
+	ev.SourceKey = "linear:issue-2"
+	ev.BriefKind = conductor.SourceLinear
+	ev.Channel = ""
+	ev.Env = nil
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+	waitFor(t, 30*time.Second, "the turn to be recorded", func() bool { return len(startedBy(t, st, ev.SourceKey)) == 1 })
+	assert.Equal(t, []string{""}, startedBy(t, st, ev.SourceKey))
+	assert.NotContains(t, reactions(src.Records()), string(conductor.ReactionRefused))
+}
+
+// While alice's Linear turn is up, bob replies in the same session. His words do not go into
+// her task, which runs with her credentials: they wait and become a turn of his own.
+func TestASecondLinearPersonsReplyIsATurnOfTheirOwn(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answer from "+taskID)}
+	}
+	src := fakesource.New(conductor.SourceLinear)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+	require.NoError(t, st.UpsertIdentity(ctx, store.Identity{
+		Login: "bob@acme.com", Provider: store.ProviderWeb, ExternalID: "bob@acme.com",
+	}))
+	key := "linear:session:s-3"
+
+	require.NoError(t, src.Send(ctx, linearPrompt("s-3", "first", testSpeaker, "u-1")))
+	waitFor(t, 30*time.Second, "alice's answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	require.NoError(t, src.Send(ctx, linearPrompt("s-3", "and mine", "bob@acme.com", "u-2")))
+	waitFor(t, 30*time.Second, "bob's reply to be queued", func() bool { return queued(t, st, key) == 1 })
+	assert.Empty(t, fake.Injects(), "bob's words never go into alice's task")
+
+	release()
+	waitFor(t, 60*time.Second, "bob's own turn", func() bool {
+		return len(startedBy(t, st, key)) == 2 && turnStatus(st, key) == store.TurnSucceeded
+	})
+	assert.Equal(t, []string{testSpeaker, "bob@acme.com"}, startedBy(t, st, key))
+}
+
 func contains(xs []string, x string) bool {
 	for _, v := range xs {
 		if v == x {
