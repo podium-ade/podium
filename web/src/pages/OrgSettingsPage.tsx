@@ -97,7 +97,17 @@ const SECTIONS: Section[] = [
     title: "Backend",
     lead: "Where your assistants do their work when a playbook doesn't say: on your own nodes, or in a cloud sandbox.",
     show: (v) => Boolean(v?.agentEnabled) && admin(v),
-    render: () => <RunsOnSettings />,
+    flush: true,
+    render: () => (
+      <PanelBody>
+        <Row
+          label="Default sandbox"
+          hint="Where a turn runs when its playbook doesn't name one. A playbook's Runs on overrides it, for that playbook only."
+        >
+          <RunsOnSettings />
+        </Row>
+      </PanelBody>
+    ),
   },
   {
     id: "routines",
