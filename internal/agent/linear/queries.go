@@ -563,3 +563,61 @@ func (c *Client) PrepareUpload(ctx context.Context, filename, contentType string
 	}
 	return UploadTarget{UploadURL: file.UploadURL, AssetURL: file.AssetURL, Headers: file.Headers}, nil
 }
+
+// The agent activity content types an app posts into a session. Linear derives the
+// session's state from the last one: a response completes it, an error fails it and an
+// elicitation waits for the person.
+const (
+	ActivityThought     = "thought"
+	ActivityAction      = "action"
+	ActivityElicitation = "elicitation"
+	ActivityResponse    = "response"
+	ActivityError       = "error"
+)
+
+// ActivityContent is the content of one agent activity. An action's own fields (action,
+// parameter, result) are not here yet: nothing posts one.
+type ActivityContent struct {
+	Type string `json:"type"`
+	Body string `json:"body"`
+}
+
+const agentActivityCreateMutation = `mutation PodiumAgentActivity($input: AgentActivityCreateInput!) {
+  agentActivityCreate(input: $input) {
+    success
+    agentActivity { id }
+  }
+}`
+
+// CreateAgentActivity posts one activity into an agent session and returns its id. An
+// ephemeral thought or action is replaced by the next activity, which is how a status line
+// is shown without leaving a trail of them; Linear refuses it on any other type.
+func (c *Client) CreateAgentActivity(
+	ctx context.Context, sessionID string, content ActivityContent, ephemeral bool,
+) (string, error) {
+	input := map[string]any{
+		"agentSessionId": sessionID,
+		"content":        map[string]any{"type": content.Type, "body": content.Body},
+	}
+	if ephemeral {
+		input["ephemeral"] = true
+	}
+	var out struct {
+		AgentActivityCreate struct {
+			Success       bool `json:"success"`
+			AgentActivity *struct {
+				ID string `json:"id"`
+			} `json:"agentActivity"`
+		} `json:"agentActivityCreate"`
+	}
+	if err := c.do(ctx, "PodiumAgentActivity", agentActivityCreateMutation, map[string]any{"input": input}, &out); err != nil {
+		return "", err
+	}
+	if !out.AgentActivityCreate.Success {
+		return "", fmt.Errorf("linear: agentActivityCreate in session %s reported no success", sessionID)
+	}
+	if a := out.AgentActivityCreate.AgentActivity; a != nil {
+		return a.ID, nil
+	}
+	return "", nil
+}
