@@ -101,7 +101,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretHelp:
       "A key with only what Podium uses: boat api-key create podium --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
     maxConcurrentHelp:
-      "How many tasks run on boat at once. Empty holds them to your account's own limit.",
+      "How many tasks run on boat at once. Empty or 0 holds them to your account's own limit.",
     fields: [
       {
         key: "template",
@@ -133,7 +133,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretLabel: "Token secret",
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
     maxConcurrentHelp:
-      "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill. Empty is no cap.",
+      "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill. Empty or 0 is no cap.",
     fields: [
       { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
       {

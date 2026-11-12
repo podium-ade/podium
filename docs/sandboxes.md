@@ -90,7 +90,7 @@ cap waits in the queue with `sandbox provider <name> is running as many sandboxe
 - **boat** reports the account's limit, so the cap is optional; the dialog shows the limit and
   warns when the cap is set above it.
 - **Modal** reports none, so the cap is the only thing that bounds the bill. It is optional all
-  the same: left empty, Modal runs with no cap.
+  the same: left empty or 0, Modal runs with no cap.
 
 Several podium-servers on one database each run every provider, and the cap holds across them.
 
