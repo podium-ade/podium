@@ -100,10 +100,12 @@ describe("SandboxProviders", () => {
     await userEvent.type(screen.getByLabelText("Token secret"), "as-secret");
     await userEvent.type(screen.getByLabelText("Token ID"), "ak-123");
     await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
-    expect(save).toBeDisabled();
-    expect(screen.getByTestId("provider-save-blocker")).toHaveTextContent("Set Max concurrent sandboxes to save.");
-    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
+    // No cap saves, with a warning that nothing bounds the bill.
+    expect(save).toBeEnabled();
     expect(screen.queryByTestId("provider-save-blocker")).toBeNull();
+    expect(screen.getByTestId("provider-uncapped")).toHaveTextContent("Nothing limits how many Modal sandboxes run");
+    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
+    expect(screen.queryByTestId("provider-uncapped")).toBeNull();
     await userEvent.click(save);
 
     await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
