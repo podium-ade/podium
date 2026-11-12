@@ -53,6 +53,8 @@ export type ProviderSpec = {
   secretHelp: string;
   /** What the concurrency cap means for this provider. */
   maxConcurrentHelp: string;
+  /** Put the secret after the other Access fields rather than first, as Modal's token reads. */
+  secretLast?: boolean;
   fields: ProviderField[];
 };
 
@@ -133,15 +135,8 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
     maxConcurrentHelp:
       "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill. Empty or 0 is no cap.",
+    secretLast: true,
     fields: [
-      { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
-      {
-        key: "environment",
-        label: "Environment",
-        help: "The Modal environment. Empty is the default one.",
-        placeholder: "main",
-        section: "access",
-      },
       {
         key: "app",
         label: "App",
@@ -149,6 +144,14 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         placeholder: "podium-sandbox",
         section: "access",
       },
+      {
+        key: "environment",
+        label: "Environment",
+        help: "The Modal environment. Empty is the default one.",
+        placeholder: "main",
+        section: "access",
+      },
+      { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
       {
         key: "runtime",
         label: "Runtime",
