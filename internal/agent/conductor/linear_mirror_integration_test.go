@@ -266,10 +266,14 @@ func TestAStopOnOneConductorIsHeardByTheConductorRunningTheTurn(t *testing.T) {
 		}
 		return false
 	})
+	told := 0
 	for _, r := range srcB.Records() {
-		assert.NotEqual(t, fakesource.ActionStoppedElsewhere, r.Action,
-			"the conductor that stopped it does not tell its own source again")
+		if r.Action == fakesource.ActionStoppedElsewhere {
+			told++
+			assert.Equal(t, taskID, r.Text, "the source that heard the Stop learns which task it stopped")
+		}
 	}
+	assert.Equal(t, 1, told, "the conductor that stopped it tells its own source once, not again off the notice")
 	waitFor(t, 30*time.Second, "the turn to be recorded cancelled", func() bool {
 		return turnStatus(a, ev.SourceKey) == store.TurnCancelled
 	})

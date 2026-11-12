@@ -616,25 +616,28 @@ func (c *Conductor) dropQueuedTurns(ctx context.Context, sess store.Session) int
 // agent session, which is closed with "Stopped." by the source that heard the Stop. A turn of
 // that conversation may be running on another conductor, whose source heard nothing, and goes
 // on relaying what the cancelled task says until it dies — after "Stopped.", which Linear
-// shows as the session working again. That conductor's source is told here, and treats the
-// turn as one it heard stopped. taskID is the task being cancelled, or empty for a host turn.
+// shows as the session working again. Every conductor's source is told here, this one's too,
+// since the source that heard the Stop may not know which task was running: it treats the task
+// as one it heard stopped. taskID is the task being cancelled, or empty for a host turn.
 type StopHearer interface {
 	StoppedElsewhere(sourceKey, taskID string)
 }
 
 // stopNotice is a SessionStopChannel payload.
 type stopNotice struct {
-	// From is the conductor that stopped the turn, whose own source already knows.
+	// From is the conductor that stopped the turn, which told its own sources directly.
 	From   string `json:"from"`
 	Key    string `json:"key"`
 	TaskID string `json:"task_id,omitempty"`
 }
 
-// announceStop tells the other conductors that a conversation's turn is being stopped. It is
-// sent before the task is cancelled, so it is heard before the task says anything more. A
-// notice that cannot be sent is logged: the task is still cancelled, and the cancellation the
-// run posts is still recognised by its cancel reason.
+// announceStop tells this conductor's sources, and then the other conductors, that a
+// conversation's turn is being stopped. It is said before the task is cancelled, so it is
+// heard before the task says anything more. A notice that cannot be sent is logged: the task
+// is still cancelled, and the cancellation the run posts is still recognised by its cancel
+// reason.
 func (c *Conductor) announceStop(ctx context.Context, sourceKey, taskID string) {
+	c.tellStop(sourceKey, taskID)
 	if !c.leasing() {
 		return
 	}
@@ -658,17 +661,21 @@ func (c *Conductor) listenStops(ctx context.Context) {
 	})
 }
 
-// heardStop tells every source that hears a stop about one another conductor announced. Its
-// own announcement comes back to it too, and is not passed on: the source that heard the Stop
-// already knows, and is the one closing the conversation.
+// heardStop is a stop another conductor announced. Its own announcement comes back to it too,
+// and is not passed on again: announceStop already told its sources.
 func (c *Conductor) heardStop(payload string) {
 	var n stopNotice
 	if json.Unmarshal([]byte(payload), &n) != nil || n.Key == "" || n.From == c.replicaID {
 		return
 	}
+	c.tellStop(n.Key, n.TaskID)
+}
+
+// tellStop tells every source of this conductor that hears a stop about one.
+func (c *Conductor) tellStop(sourceKey, taskID string) {
 	for _, src := range c.sourceList() {
 		if h, ok := src.(StopHearer); ok {
-			h.StoppedElsewhere(n.Key, n.TaskID)
+			h.StoppedElsewhere(sourceKey, taskID)
 		}
 	}
 }
