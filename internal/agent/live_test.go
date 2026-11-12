@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -8,11 +9,14 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
+	"github.com/podium-ade/podium/internal/agent/webhooks"
 )
 
 const (
@@ -92,7 +96,22 @@ func freeAddr(t *testing.T) string {
 }
 
 func newLive(running config.Config) *liveConnections {
-	return &liveConnections{logger: slog.New(slog.DiscardHandler), running: running}
+	logger := slog.New(slog.DiscardHandler)
+	return &liveConnections{logger: logger, webhooks: webhooks.New(logger), running: running}
+}
+
+// serving mounts a handler on the live connections' webhook server at addr, the way a
+// running source does, until the test ends.
+func serving(t *testing.T, l *liveConnections, addr, path string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- l.webhooks.Serve(ctx, addr, path, http.NotFoundHandler()) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	require.Eventually(t, func() bool { return l.webhooks.Holds(addr) }, 5*time.Second, 5*time.Millisecond)
 }
 
 func TestCheckLearnsWhoTheLinearAppIs(t *testing.T) {
@@ -150,26 +169,40 @@ func TestCheckRefusesALinearListenAddressInUse(t *testing.T) {
 	require.ErrorContains(t, err, "cannot be listened on")
 }
 
-// The GitHub App's listener is this process's own, and the Linear app may share it, so
-// the address being taken is not a refusal.
+// An address this process already listens on is its own: the Linear app may share the
+// GitHub App's, so the address being taken is not a refusal.
 func TestCheckAcceptsTheGitHubListenerForLinear(t *testing.T) {
 	f := newFakeLinear(t)
-	held, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = held.Close() })
-	running := config.Config{
-		GitHubAppID: "1", GitHubAppKey: "pem",
-		GitHubWebhookSecret: "whsec", GitHubWebhookListen: held.Addr().String(),
-	}
-	require.True(t, running.GitHubSourceEnabled())
-	cfg := running
-	app := f.config(t)
-	cfg.LinearURL, cfg.LinearTokenURL = app.LinearURL, app.LinearTokenURL
-	cfg.LinearClientID, cfg.LinearClientSecret = app.LinearClientID, app.LinearClientSecret
-	cfg.LinearWebhookSecret = app.LinearWebhookSecret
-	cfg.LinearWebhookListen = held.Addr().String()
+	addr := freeAddr(t)
+	live := newLive(config.Config{})
+	serving(t, live, addr, ghreview.WebhookPath)
+	cfg := f.config(t)
+	cfg.LinearWebhookListen = addr
 
-	checked, err := newLive(running).Check(t.Context(), cfg)
+	checked, err := live.Check(t.Context(), cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, checked.Linear)
+}
+
+// The same the other way round: a GitHub App moved onto the Linear app's address joins it.
+func TestCheckAcceptsTheLinearListenerForGitHub(t *testing.T) {
+	addr := freeAddr(t)
+	live := newLive(config.Config{})
+	serving(t, live, addr, "/webhooks/linear")
+	cfg := config.Config{GitHubWebhookSecret: "whsec", GitHubWebhookListen: addr}
+	cfg.GitHubAppID, cfg.GitHubAppKey = "1", "pem"
+	require.True(t, cfg.GitHubSourceEnabled())
+	// The App's key is not tried here: it is the one already running.
+	live.running = cfg
+	_, err := live.Check(t.Context(), cfg)
+	require.NoError(t, err)
+
+	other := freeAddr(t)
+	held, err := net.Listen("tcp", other)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = held.Close() })
+	cfg.GitHubWebhookListen = other
+	live.running = cfg
+	_, err = live.Check(t.Context(), cfg)
+	require.ErrorContains(t, err, "cannot be listened on", "an address somebody else holds is still refused")
 }
