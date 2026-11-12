@@ -69,13 +69,15 @@ describe("SandboxProviders", () => {
     expect(await within(row).findByText("configured")).toBeInTheDocument();
     expect(within(row).getByText("ci-base")).toBeInTheDocument();
     expect(within(row).getByText("stored, hidden")).toBeInTheDocument();
-    expect(within(row).getByTestId("capacity-boat")).toHaveTextContent("1 of account limit 2");
-    expect(within(row).getByText(/Podium runs boat.dev sandboxes itself/)).toBeInTheDocument();
+    const capacity = within(row).getByTestId("capacity-boat");
+    expect(capacity).toHaveTextContent(/1\s*of 2/);
+    expect(capacity).toHaveTextContent("1 free · account limit");
+    expect(within(capacity).getByRole("meter")).toHaveAttribute("aria-valuenow", "1");
     expect(within(row).queryByText(/node/)).toBeNull();
 
     const modal = screen.getByTestId("provider-modal");
     expect(within(modal).getByText("not set up")).toBeInTheDocument();
-    expect(within(modal).getByText(/There is nothing to install/)).toBeInTheDocument();
+    expect(within(modal).queryByText("stored, hidden")).toBeNull();
   });
 
   it("offers a pool of ready sandboxes on every provider", async () => {
@@ -98,10 +100,10 @@ describe("SandboxProviders", () => {
     await userEvent.type(screen.getByLabelText("Token secret"), "as-secret");
     await userEvent.type(screen.getByLabelText("Token ID"), "ak-123");
     await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
-    expect(save).toBeDisabled();
-    expect(screen.getByTestId("provider-save-blocker")).toHaveTextContent("Set Max concurrent sandboxes to save.");
-    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
+    // No cap saves: empty is no cap.
+    expect(save).toBeEnabled();
     expect(screen.queryByTestId("provider-save-blocker")).toBeNull();
+    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
     await userEvent.click(save);
 
     await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
