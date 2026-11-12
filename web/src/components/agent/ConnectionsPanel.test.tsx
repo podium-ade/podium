@@ -173,6 +173,13 @@ describe("ConnectionsPanel", () => {
     expect(screen.queryByText("Revoked")).toBeNull();
   });
 
+  it("says what a delegation and a mention each run", async () => {
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/A delegated issue runs the\s+playbook marked linear: true/)).toBeInTheDocument();
+    expect(screen.getByText(/A mention is answered by the assistant, or by that\s+playbook when this conductor has no host runtime/)).toBeInTheDocument();
+  });
+
   it("saves a Linear app with setup steps beside it", async () => {
     setLinearConnection.mockResolvedValue({ linear: savedLinear });
     mount();
