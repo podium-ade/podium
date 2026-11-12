@@ -126,7 +126,7 @@ export function RoutinesPanel() {
           title="No routines yet"
           hint="Make one here, or ask an assistant in a chat: “every weekday at 9, tell me which of my pull requests failed CI”."
           action={
-            <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+            <Button size="sm" data-testid="routines-new-empty" onClick={() => setCreating(true)}>
               <Plus />
               New routine
             </Button>
