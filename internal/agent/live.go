@@ -174,11 +174,11 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) error {
 
 // Apply implements api.ConnectionApplier.
 func (l *liveConnections) Apply(ctx context.Context) error {
-	savedSlack, savedGitHub, err := connections.Load(ctx, l.store, l.vault)
+	savedSlack, savedGitHub, savedLinear, err := connections.Load(ctx, l.store, l.vault)
 	if err != nil {
 		return err
 	}
-	next := connections.Overlay(l.env, savedSlack, savedGitHub)
+	next := connections.Overlay(l.env, savedSlack, savedGitHub, savedLinear)
 	if err := next.Validate(); err != nil {
 		return err
 	}
@@ -187,45 +187,54 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 	defer l.mu.Unlock()
 	slackChanged := connections.SlackDiffers(next, l.running, nil)
 	githubChanged := connections.GitHubDiffers(next, l.running, nil)
-	if !slackChanged && !githubChanged {
+	linearChanged := connections.LinearDiffers(next, l.running, nil)
+	if !slackChanged && !githubChanged && !linearChanged {
 		return nil
 	}
 	if l.ctx == nil || l.ctx.Err() != nil {
 		return errors.New("the conductor is not running")
 	}
-	slack, gh, app, err := l.build(next)
-	if err != nil {
-		return err
+	if slackChanged || githubChanged {
+		slack, gh, app, err := l.build(next)
+		if err != nil {
+			return err
+		}
+		if err := l.conductor.SetGitHub(app); err != nil {
+			return err
+		}
+		// Both sources are rebuilt whichever changed: each holds the other, Slack to hand a
+		// mention of a pull request to the review and the review to post into a bound thread.
+		l.stop()
+		l.slack, l.gh = slack, gh
+		// A nil pointer is passed as a nil interface, so ReplaceSource removes the kind
+		// rather than adding a source that is not there.
+		var slackSrc, ghSrc conductor.Source
+		if slack != nil {
+			slackSrc = slack
+		}
+		if gh != nil {
+			ghSrc = gh
+		}
+		l.conductor.ReplaceSource(agentslack.Kind, slackSrc)
+		l.conductor.ReplaceSource(ghreview.Kind, ghSrc)
+		l.startLocked(nil)
 	}
-	if err := l.conductor.SetGitHub(app); err != nil {
-		return err
-	}
-	// Both sources are rebuilt whichever changed: each holds the other, Slack to hand a
-	// mention of a pull request to the review and the review to post into a bound thread.
-	l.stop()
-	l.slack, l.gh = slack, gh
-	// A nil pointer is passed as a nil interface, so ReplaceSource removes the kind
-	// rather than adding a source that is not there.
-	var slackSrc, ghSrc conductor.Source
-	if slack != nil {
-		slackSrc = slack
-	}
-	if gh != nil {
-		ghSrc = gh
-	}
-	l.conductor.ReplaceSource(agentslack.Kind, slackSrc)
-	l.conductor.ReplaceSource(ghreview.Kind, ghSrc)
-	l.startLocked(nil)
+	// The Linear app has nothing to start yet: the webhook source that runs on it is the
+	// next step (docs/linear-agent-plan.md, phase 2). It is recorded as running all the
+	// same, so restart_required does not ask for a restart that would change nothing.
+	// Phase 2 builds the source here when linearChanged, stops the poller when an app is
+	// saved, and swaps it in with ReplaceSource the way Slack and GitHub are swapped above.
 	l.running = next
 
 	var dir api.SlackDirectory
-	if slack != nil {
-		dir = slack
+	if l.slack != nil {
+		dir = l.slack
 	}
 	l.svc.SetRunning(next, dir)
 	l.logger.InfoContext(ctx, "connections: switched to the saved connections",
-		"slack", slack != nil, "github_reviews", gh != nil, "github_app", app != nil,
-		"slack_changed", slackChanged, "github_changed", githubChanged)
+		"slack", l.slack != nil, "github_reviews", l.gh != nil, "github_app", next.GitHubAppEnabled(),
+		"linear_app", next.LinearAppEnabled(),
+		"slack_changed", slackChanged, "github_changed", githubChanged, "linear_changed", linearChanged)
 	return nil
 }
 
