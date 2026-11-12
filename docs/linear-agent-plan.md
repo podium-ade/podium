@@ -149,16 +149,20 @@ What else the spike showed:
   event reaches the conductor. Playbook selection and session setup can take longer than the
   10 seconds Linear allows.
 - **Events:**
-  - `created` becomes an `InboundEvent` with `Mentioned: true`. The text is the issue plus
-    `promptContext`.
+  - `created` becomes an `InboundEvent` with `Mentioned: true`. For a delegation the text is
+    the issue, worded as the poller words an assignment; for a mention it is the comment, less
+    the mention. `promptContext` is not used: the transcript carries the issue.
   - `prompted` becomes a follow-up with `agentActivity.body` as the text.
   - `OAuthApp revoked` stops the source and marks the connection broken in the UI.
 - **Ref:** it grows a fourth part, the agent session id. Three-part refs still parse, so
   polled sessions keep working.
-- **Leadership:** the webhook source runs on every conductor with no leader lock.
-  Deduplication moves to `ExternalID`, set to the delivery id.
-- **On start:** move the issue to the team's lowest-position `started` state (the existing
-  `start()` does this) and set the delegate if it is empty.
+- **Leadership:** the webhook source runs on every conductor with no leader lock. `ExternalID`
+  is the prompt's activity id, which a retry keeps. The conductor dedupes on it only for a
+  mirrored source, and Linear sessions are not mirrored until phase 6, so the source itself
+  remembers delivery and activity ids for seven hours, past Linear's last retry.
+- **Listener:** a small server in `internal/agent/webhooks` owns the webhook listeners by
+  address, and the GitHub and Linear sources mount their paths on it.
+- **On start:** moving the issue to `started` and setting the delegate moved to phase 3.
 
 ## Phase 3: activities out
 
@@ -171,7 +175,7 @@ A second implementation of `conductor.Source` for session-mode refs.
 | `Post` question | `elicitation`; the reply arrives as `prompted` and is injected into the parked container |
 | `Post` final | `response` |
 | `Post` failure | `error` |
-| `Attach` | upload as today, linked in the response; over 50 MB falls back to the task link |
+| `Attach` | done in phase 2: uploaded as today and linked in a response of its own, since an activity cannot be edited; over 50 MB falls back to the task link |
 | `React` | nothing; Linear derives the session state from the last activity |
 
 - **Links:** the Podium task page goes into the session's `externalUrls` when the task is
