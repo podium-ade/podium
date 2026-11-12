@@ -367,7 +367,7 @@ const (
 )
 
 // Saving a Linear app stores who Check found it signs in as, returns no secret, logs no
-// secret, and leaves the environment's poller reported as it is.
+// secret, and reports the environment's poller off while the app runs.
 func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", nil)
 	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL, LinearAPIKey: "lin_api_poller"}
@@ -404,7 +404,7 @@ func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	assert.Equal(t, "Acme", lin.GetOrganizationName())
 	assert.Equal(t, "acme", lin.GetOrganizationUrlKey())
 	assert.Equal(t, "ada", lin.GetSetBy())
-	assert.True(t, lin.GetPolling(), "the poller is untouched by a saved app")
+	assert.False(t, lin.GetPolling(), "a saved app turns the poller off")
 	assert.False(t, lin.GetRestartRequired(), "the app is recorded as running")
 	require.Len(t, applier.checked, 1)
 	assert.Equal(t, fakeLinearClientSecret, applier.checked[0].LinearClientSecret, "the app is checked before it is stored")
@@ -433,6 +433,7 @@ func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	assert.False(t, cleared.Msg.GetLinear().GetConfigured())
 	assert.Empty(t, cleared.Msg.GetLinear().GetSource())
 	assert.False(t, cleared.Msg.GetLinear().GetRestartRequired())
+	assert.True(t, cleared.Msg.GetLinear().GetPolling(), "clearing the app brings the poller back")
 	assert.NotContains(t, f.secrets.set, connections.LinearClientSecretSecret)
 	_, err = f.svc.ClearLinearConnection(ctx, connect.NewRequest(&agentv1.ClearLinearConnectionRequest{}))
 	require.NoError(t, err, "clearing twice is not an error")

@@ -23,6 +23,19 @@ func TestLinearViewWithNothingSaved(t *testing.T) {
 	assert.False(t, linearView(config.Config{}, config.Config{}, nil).GetPolling())
 }
 
+// A saved app turns the poller off, so the view stops saying it polls once the app runs.
+func TestLinearViewSaysThePollerStopsForAnApp(t *testing.T) {
+	env := config.Config{LinearAPIKey: "lin_api_poller"}
+	saved := &connections.Linear{
+		ClientID: "client-1", ClientSecret: "lsec-not-real", WebhookSecret: "lin_wh_not-real",
+		WebhookListen: "0.0.0.0:8091",
+	}
+	running := connections.Overlay(env, nil, nil, saved)
+	assert.False(t, linearView(env, running, saved).GetPolling())
+	assert.True(t, linearView(env, env, saved).GetPolling(),
+		"until the app is picked up, the poller is what runs")
+}
+
 func TestLinearViewReturnsNoSecret(t *testing.T) {
 	saved := &connections.Linear{
 		ClientID: "client-1", ClientSecret: "lsec-not-real-1234",

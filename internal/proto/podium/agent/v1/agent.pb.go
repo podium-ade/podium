@@ -4488,8 +4488,9 @@ type LinearConnection struct {
 	SetBy              string                 `protobuf:"bytes,13,opt,name=set_by,json=setBy,proto3" json:"set_by,omitempty"`
 	SetAt              *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=set_at,json=setAt,proto3" json:"set_at,omitempty"`
 	RestartRequired    bool                   `protobuf:"varint,15,opt,name=restart_required,json=restartRequired,proto3" json:"restart_required,omitempty"`
-	// polling is true when PODIUM_AGENT_LINEAR_API_KEY is set, so this conductor polls
-	// Linear for assigned issues with that key. A saved app does not change that yet.
+	// polling is true when this conductor polls Linear for assigned issues with
+	// PODIUM_AGENT_LINEAR_API_KEY: the key is set and no app is in force. A saved app turns
+	// the poller off, and clearing it brings the poller back.
 	Polling       bool `protobuf:"varint,16,opt,name=polling,proto3" json:"polling,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

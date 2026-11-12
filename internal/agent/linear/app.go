@@ -129,7 +129,7 @@ var _ conductor.Source = (*AppSource)(nil)
 func NewApp(opts AppOptions) (*AppSource, error) {
 	switch {
 	case opts.Playbook == nil || opts.Playbook() == "":
-		return nil, errors.New(noPlaybook + "or remove the Linear app under Settings → Connections")
+		return nil, ErrNoPlaybook("or remove the Linear app under Settings → Connections")
 	case opts.Client == nil:
 		return nil, errors.New("linear: the app needs a client signed in as it")
 	case opts.WebhookSecret == "":
@@ -574,3 +574,7 @@ func thoughtText(text string) string {
 	}
 	return strings.TrimSpace(strings.TrimPrefix(text, conductor.ProgressPrefix))
 }
+
+// ErrNoPlaybook is the refusal of a Linear source with no linear: true playbook to run, in
+// the poller's words, with what to do afterwards.
+func ErrNoPlaybook(then string) error { return errors.New(noPlaybook + then) }
