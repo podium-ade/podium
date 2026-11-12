@@ -431,7 +431,7 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 	assert.Equal(t, conductor.InboundEvent{
 		SourceKind:  Kind,
 		SourceKey:   "linear:session:" + delegationSession,
-		Ref:         fixtureIssue + "/" + fixtureTeam + "/EME-5/" + delegationSession,
+		Ref:         fixtureIssue + "/" + fixtureTeam + "/EME-5/" + delegationSession + "/delegated",
 		Author:      "Ada Lovelace",
 		ExternalID:  "activity:4f5f35e1-86e4-4dc7-9239-414bacd832a5",
 		ExternalURL: "https://linear.app/acme/agent-session/" + delegationSession,
