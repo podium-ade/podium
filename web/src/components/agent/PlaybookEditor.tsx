@@ -168,6 +168,7 @@ export function PlaybookEditor({
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [github, setGithub] = useState(playbook?.github ?? false);
+  const [githubRepos, setGithubRepos] = useState((playbook?.githubRepos ?? []).join(", "));
   const [githubRequires, setGithubRequires] = useState(playbook?.githubRequires ?? "");
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
@@ -252,7 +253,8 @@ export function PlaybookEditor({
     slackChannels: splitList(channels),
     linear,
     github,
-    githubRequires: github ? "" : githubRequires,
+    githubRepos: splitList(githubRepos),
+    githubRequires: github || splitList(githubRepos).length > 0 ? "" : githubRequires,
     interactive,
     docker,
     browser,
@@ -1073,20 +1075,34 @@ export function PlaybookEditor({
             />
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor={`${uid}-github`} className="text-fg">
-                This is the playbook pull-request reviews run
+                This is the default playbook pull-request reviews run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one playbook may set it. Only this playbook&rsquo;s answer becomes the review,
-                and it is always offered on a pull request.
+                At most one playbook may set it. It reviews every repository no playbook names
+                below. Only a review playbook&rsquo;s answer becomes the review, and it is always
+                offered on the pull requests it reviews.
               </p>
             </div>
           </div>
 
-          {github ? null : (
+          <Field
+            id={`${uid}-github-repos`}
+            label="Reviews pull requests in"
+            hint="Repositories, owner/name and comma-separated, whose pull requests this playbook reviews in place of the default one. A repository may be named by one playbook only."
+          >
+            <Input
+              id={`${uid}-github-repos`}
+              value={githubRepos}
+              onChange={(e) => setGithubRepos(e.target.value)}
+              placeholder="acme/api, acme/billing"
+            />
+          </Field>
+
+          {github || splitList(githubRepos).length > 0 ? null : (
             <Field
               id={`${uid}-github-requires`}
               label="Offered on pull requests to"
-              hint="Who may ask for this playbook in a pull-request comment. It shares the review's workspace, so it needs the review playbook's first repository."
+              hint="Who may ask for this playbook in a pull-request comment. It shares the review's workspace, so it is offered where the review playbook has the same first repository."
             >
               <select
                 id={`${uid}-github-requires`}

@@ -11463,9 +11463,13 @@ type PlaybookDefinition struct {
 	Repos         []*PlaybookRepo      `protobuf:"bytes,11,rep,name=repos,proto3" json:"repos,omitempty"`
 	SlackChannels []string             `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
 	Linear        bool                 `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
-	// github marks the one playbook a pull-request review runs. At most one playbook may
-	// set it. It is always on a pull request's menu, and only its answer is the review.
+	// github marks the playbook a pull-request review runs in every repository no playbook's
+	// github_repos names. At most one playbook may set it. It is always on such a pull
+	// request's menu, and only its answer is the review.
 	Github bool `protobuf:"varint,30,opt,name=github,proto3" json:"github,omitempty"`
+	// github_repos are the repositories, owner/name, whose pull requests this playbook reviews
+	// in place of the github one. A repository may be named by at most one playbook.
+	GithubRepos []string `protobuf:"bytes,35,rep,name=github_repos,json=githubRepos,proto3" json:"github_repos,omitempty"`
 	// github_requires offers this playbook on a pull request to a commenter whose role on the
 	// repository is at least this: read, triage, write, maintain or admin. Empty is not
 	// offered there.
@@ -11663,6 +11667,13 @@ func (x *PlaybookDefinition) GetGithub() bool {
 		return x.Github
 	}
 	return false
+}
+
+func (x *PlaybookDefinition) GetGithubRepos() []string {
+	if x != nil {
+		return x.GithubRepos
+	}
+	return nil
 }
 
 func (x *PlaybookDefinition) GetGithubRequires() string {
@@ -16040,7 +16051,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"7\n" +
 	"\vPlaybookGit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\x81\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\xa4\n" +
 	"\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
@@ -16057,7 +16068,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05repos\x18\v \x03(\v2\x1d.podium.agent.v1.PlaybookRepoR\x05repos\x12%\n" +
 	"\x0eslack_channels\x18\f \x03(\tR\rslackChannels\x12\x16\n" +
 	"\x06linear\x18\r \x01(\bR\x06linear\x12\x16\n" +
-	"\x06github\x18\x1e \x01(\bR\x06github\x12'\n" +
+	"\x06github\x18\x1e \x01(\bR\x06github\x12!\n" +
+	"\fgithub_repos\x18# \x03(\tR\vgithubRepos\x12'\n" +
 	"\x0fgithub_requires\x18! \x01(\tR\x0egithubRequires\x12>\n" +
 	"\x03env\x18\x0e \x03(\v2,.podium.agent.v1.PlaybookDefinition.EnvEntryR\x03env\x12\x16\n" +
 	"\x06origin\x18\x0f \x01(\tR\x06origin\x12\x1a\n" +

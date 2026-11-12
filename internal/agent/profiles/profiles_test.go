@@ -443,7 +443,62 @@ func TestAPlaybookIsOfferedOnAPullRequestByRole(t *testing.T) {
 	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: write\n" + repo
 	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\ngithub_requires: read\n" + repo
 	_, err = Load(write(t, files))
-	require.ErrorContains(t, err, "the review playbook is always offered")
+	require.ErrorContains(t, err, "a review playbook is always offered")
+}
+
+// A playbook naming a repository in github_repos reviews that repository's pull requests;
+// github: true is the fallback for every repository nobody names. One repository has one
+// reviewer, and an entry has to be owner/name.
+func TestAPlaybookReviewsTheRepositoriesItNames(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "github: true\n"
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api, https://github.com/Acme/Billing.git]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "api", p.GitHubPlaybookFor("acme/api"))
+	assert.Equal(t, "api", p.GitHubPlaybookFor("ACME/billing"), "GitHub compares repositories without case")
+	assert.Equal(t, "general", p.GitHubPlaybookFor("acme/web"))
+	assert.Equal(t, "general", p.GitHubPlaybookFor(""))
+	assert.True(t, p.Playbooks["api"].Reviews())
+	assert.False(t, p.Playbooks["api"].GitHub)
+
+	delete(files, "playbooks/general.yaml")
+	p, err = Load(write(t, files))
+	require.NoError(t, err)
+	assert.Empty(t, p.GitHubPlaybookFor("acme/web"), "no fallback: a repository nobody names has no reviewer")
+
+	files["playbooks/web.yaml"] = goodPlaybook + "github_repos: [acme/web, ACME/API]\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `playbooks "api" and "web" both review ACME/API`)
+
+	delete(files, "playbooks/web.yaml")
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [api]\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `github_repos entry "api" must be owner/name`)
+}
+
+// Each repository's reviewer gets the github_requires playbooks that share its first
+// repository; one sharing no reviewer's first repository is offered nowhere, so it is refused.
+func TestAGitHubMenuPlaybookMatchesSomeReviewer(t *testing.T) {
+	api := "repos: [{name: api, url: https://github.com/acme/api.git, default_branch: main}]\n"
+	web := "repos: [{name: web, url: https://github.com/acme/web.git, default_branch: main}]\n"
+	ops := "repos: [{name: ops, url: https://github.com/acme/ops.git, default_branch: main}]\n"
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "github: true\n" + web
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api]\n" + api
+	files["playbooks/api-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + api
+	files["playbooks/web-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + web
+	_, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	files["playbooks/ops-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + ops
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `playbook "ops-fixer": github_requires needs the same first repository`)
+
+	delete(files, "playbooks/ops-fixer.yaml")
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api]\ngithub_requires: read\n" + api
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, "a review playbook is always offered")
 }
 
 func TestGitHubRolesAreOrdered(t *testing.T) {

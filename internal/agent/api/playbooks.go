@@ -192,6 +192,7 @@ func protoToPlaybook(in *agentv1.PlaybookDefinition) (profiles.Playbook, error) 
 		SlackChannels:  append([]string(nil), in.SlackChannels...),
 		Linear:         in.Linear,
 		GitHub:         in.Github,
+		GitHubRepos:    append([]string(nil), in.GithubRepos...),
 		GitHubRequires: strings.TrimSpace(in.GithubRequires),
 		Interactive:    in.Interactive,
 		Docker:         in.Docker,

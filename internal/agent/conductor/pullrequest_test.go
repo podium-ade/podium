@@ -108,3 +108,10 @@ func TestParsingTheURLAHumanPasted(t *testing.T) {
 		assert.False(t, ok, "should not parse: %q", raw)
 	}
 }
+
+func TestAPullRequestSessionNamesItsRepository(t *testing.T) {
+	assert.Equal(t, "acme/api", pullRequestRepo("github:acme/api#12"))
+	assert.Equal(t, "", pullRequestRepo("slack:C1:123.4"))
+	assert.Equal(t, "", pullRequestRepo("github:acme#12"))
+	assert.Equal(t, "", pullRequestRepo("github:acme/api"))
+}
