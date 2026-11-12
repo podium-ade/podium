@@ -552,6 +552,7 @@ func (h *hostRun) run(ctx context.Context) {
 				hostTimedOut, r.job.assistantTimeout())})
 		}
 	}
+	c.noteRefusal(done, r.turn.Backend.Provider, r.answer(), status == store.TurnFailed)
 	if status != store.TurnSucceeded {
 		c.logger.WarnContext(done, "a host turn did not succeed", "turn_id", r.turn.ID,
 			"exit_code", cmd.ProcessState.ExitCode(), "status", status, "error", waitErr)

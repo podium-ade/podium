@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
 import { Badge } from "../components/Badge";
-import { PageFrame } from "../components/PageHeader";
 import { TableSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Alert } from "../components/ui/alert";
@@ -45,7 +44,7 @@ import { headCell, MobileLabel } from "./snapshotsShared";
  * the next task. A provider that keeps a directory as an image of its own (Modal) keeps the
  * workspaces of the conversations it runs that way instead, and they get a tab of their own.
  */
-export function SnapshotsPage() {
+export function Snapshots() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
   const toast = useToast();
@@ -82,63 +81,58 @@ export function SnapshotsPage() {
   }, [sandbox.data]);
   const tab = providers.includes(params.get("tab") ?? "") ? (params.get("tab") as string) : "nodes";
 
-  const lead =
-    "The workspace each conversation picks up from. Podium keeps one per conversation and restores it wherever the next task runs.";
-
   if (providers.length === 0) {
     return (
-      <PageFrame title="Snapshots" bodyClassName="space-y-5 p-6" lead={lead}>
+      <div>
         <NodeSnapshots manage={manage} sessions={sessionByID} />
-      </PageFrame>
+      </div>
     );
   }
   return (
-    <PageFrame title="Snapshots" bodyClassName="p-6" lead={lead}>
-      <Tabs
-        value={tab}
-        onValueChange={(v) =>
-          setParams(
-            (prev) => {
-              const next = new URLSearchParams(prev);
-              if (v === "nodes") next.delete("tab");
-              else next.set("tab", v);
-              return next;
-            },
-            { replace: true },
-          )
-        }
-      >
-        <TabsList aria-label="Where the snapshots are kept">
-          <TabsTrigger value="nodes">Nodes</TabsTrigger>
-          {providers.map((p) => (
-            <TabsTrigger key={p} value={p}>
-              {providerName(p)}
-              {sandbox.data ? (
-                <span className="text-xs font-normal text-muted tabular">
-                  {sandbox.data.snapshots.filter((s) => s.provider === p).length}
-                </span>
-              ) : null}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        <TabsContent value="nodes" className="space-y-5 pt-5">
-          <NodeSnapshots manage={manage} sessions={sessionByID} />
-        </TabsContent>
+    <Tabs
+      value={tab}
+      onValueChange={(v) =>
+        setParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            if (v === "nodes") next.delete("tab");
+            else next.set("tab", v);
+            return next;
+          },
+          { replace: true },
+        )
+      }
+    >
+      <TabsList className="px-4" aria-label="Where the snapshots are kept">
+        <TabsTrigger value="nodes">Nodes</TabsTrigger>
         {providers.map((p) => (
-          <TabsContent key={p} value={p} className="pt-5">
-            <SandboxSnapshotsPanel
-              provider={p}
-              label={providerName(p)}
-              data={sandbox.data}
-              pending={sandbox.isPending}
-              error={sandbox.error}
-              sessions={sessionByID}
-              manage={manage}
-            />
-          </TabsContent>
+          <TabsTrigger key={p} value={p}>
+            {providerName(p)}
+            {sandbox.data ? (
+              <span className="text-xs font-normal text-muted tabular">
+                {sandbox.data.snapshots.filter((s) => s.provider === p).length}
+              </span>
+            ) : null}
+          </TabsTrigger>
         ))}
-      </Tabs>
-    </PageFrame>
+      </TabsList>
+      <TabsContent value="nodes" className="pt-0">
+        <NodeSnapshots manage={manage} sessions={sessionByID} />
+      </TabsContent>
+      {providers.map((p) => (
+        <TabsContent key={p} value={p} className="pt-0">
+          <SandboxSnapshotsPanel
+            provider={p}
+            label={providerName(p)}
+            data={sandbox.data}
+            pending={sandbox.isPending}
+            error={sandbox.error}
+            sessions={sessionByID}
+            manage={manage}
+          />
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
@@ -187,14 +181,14 @@ function NodeSnapshots({ manage: canManage, sessions: sessionByID }: { manage: b
   return (
     <>
       {!enabled ? (
-        <Alert variant="warn" title="This server has no object store configured">
+        <Alert variant="warn" title="This server has no object store configured" className="mx-6 mt-6">
           Without one nothing is stored, and every task starts from an empty workspace. Set{" "}
           <span className="font-mono">PODIUM_S3_ENDPOINT</span> and restart podium-server.
         </Alert>
       ) : null}
 
       {query.error ? (
-        <Alert variant="destructive" title="Could not list snapshots">
+        <Alert variant="destructive" title="Could not list snapshots" className="mx-6 mt-6">
           <p>{errorMessage(query.error)}</p>
           <Button
             variant="outline"
@@ -219,7 +213,7 @@ function NodeSnapshots({ manage: canManage, sessions: sessionByID }: { manage: b
         onSaved={() => setDraft(undefined)}
       />
 
-      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel" aria-label="Snapshots">
+      <section className="min-w-0 overflow-hidden border-t border-border" aria-label="Snapshots">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border bg-raised px-6 py-4">
           <h2 className="text-base font-bold">Conversations</h2>
           {showTable ? (
@@ -357,7 +351,7 @@ function RetentionCard({
   });
 
   return (
-    <section className="min-w-0 rounded-lg border border-border bg-panel" aria-label="Retention">
+    <section className="min-w-0" aria-label="Retention">
       <form
         className="grid gap-5 p-6"
         onSubmit={(e) => {

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -76,13 +77,21 @@ const (
 // it gets a handler that says so instead of a confusing 404.
 //
 // frameSrc is the one origin the page may frame (the desktop origin), or empty for none.
-func NewUIHandler(logger *slog.Logger, frameSrc string) http.Handler {
+//
+// brand, when not nil, is the deployment's name (OrganizationService) or empty for none set.
+// index.html carries it in its <title> and a <meta> so a renamed deployment is named
+// before anybody signs in: WhoAmI, which carries it otherwise, needs a credential.
+func NewUIHandler(logger *slog.Logger, frameSrc string, brand func(*http.Request) string) http.Handler {
 	assets, err := web.FS()
 	if err != nil {
 		logger.Warn("web ui: asset tree unavailable", "error", err)
 		return missingUI()
 	}
-	return newUIHandler(assets, logger, frameSrc)
+	h := newUIHandler(assets, logger, frameSrc)
+	if u, ok := h.(*uiHandler); ok {
+		u.brand = brand
+	}
+	return h
 }
 
 func newUIHandler(assets fs.FS, logger *slog.Logger, frameSrc string) http.Handler {
@@ -109,6 +118,7 @@ func missingUI() http.Handler {
 type uiHandler struct {
 	assets   fs.FS
 	frameSrc string
+	brand    func(*http.Request) string
 }
 
 func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +166,9 @@ func (h *uiHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := injectStyleNonce(raw, nonce)
+	if h.brand != nil {
+		body = injectBrand(body, h.brand(r))
+	}
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce, h.frameSrc))
 	w.Header().Set("Cache-Control", indexCache)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -187,6 +200,33 @@ func injectStyleNonce(html []byte, nonce string) []byte {
 	out = append(out, '\n')
 	out = append(out, meta...)
 	out = append(out, html[i:]...)
+	return out
+}
+
+// brandMetaName is the <meta> the web UI reads the deployment name from before WhoAmI.
+const brandMetaName = "podium-deployment-name"
+
+// injectBrand names the page after the deployment: its <title>, and a <meta> the bundle
+// reads. An empty name leaves the page as built.
+func injectBrand(page []byte, name string) []byte {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return page
+	}
+	escaped := html.EscapeString(name)
+	page = bytes.Replace(page, []byte("<title>Podium</title>"), []byte("<title>"+escaped+"</title>"), 1)
+	meta := []byte(`<meta name="` + brandMetaName + `" content="` + escaped + `">`)
+	const head = "<head>"
+	i := bytes.Index(page, []byte(head))
+	if i < 0 {
+		return page
+	}
+	i += len(head)
+	out := make([]byte, 0, len(page)+len(meta)+1)
+	out = append(out, page[:i]...)
+	out = append(out, '\n')
+	out = append(out, meta...)
+	out = append(out, page[i:]...)
 	return out
 }
 

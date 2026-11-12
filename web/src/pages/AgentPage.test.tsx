@@ -9,6 +9,8 @@ import { ViewerContext, type Viewer } from "../lib/identity";
 import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
+import { OrgSettingsPage } from "./OrgSettingsPage";
+import { SandboxesPage } from "./SandboxesPage";
 import { ToastHost } from "../components/Toast";
 
 const KEY = "sk-ant-not-a-real-key-abcd";
@@ -80,6 +82,10 @@ vi.mock("../lib/client", async () => {
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
     users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
     sandboxProviders: { listSandboxProviders: (...a: unknown[]) => listSandboxProviders(...a) },
+    organization: {
+      getOrganization: () => Promise.resolve({ organization: { organizationName: "", deploymentName: "" } }),
+      updateOrganization: vi.fn(),
+    },
   };
 });
 
@@ -153,6 +159,8 @@ function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer
           <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/agent/*" element={<AgentPage />} />
+              <Route path="/org/*" element={<OrgSettingsPage />} />
+              <Route path="/sandboxes/*" element={<SandboxesPage />} />
             </Routes>
           </MemoryRouter>
         </ViewerContext>
@@ -469,8 +477,8 @@ describe("AgentPage", () => {
     setRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
     listSandboxProviders.mockResolvedValue({
       providers: [
-        { name: "boat", settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
-        { name: "modal", settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
+        { name: "boat", hasSecret: true, settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
+        { name: "modal", hasSecret: true, settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
       ],
     });
     getProfile.mockResolvedValue({
@@ -482,43 +490,42 @@ describe("AgentPage", () => {
         { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
       ],
     });
+    // Backend is the Default sandbox section of Sandboxes › Providers now, and its old
+    // address lands there.
     mount("/agent/settings/runs-on");
-    expect(await screen.findByRole("heading", { name: "Backend" })).toBeInTheDocument();
+    const select = await screen.findByRole("combobox", { name: "Default sandbox" });
+    expect(select).toHaveTextContent("Your nodes");
+    const meter = within(await screen.findByTestId("capacity-boat")).getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "1");
+    expect(meter).toHaveAttribute("aria-valuemax", "2");
+    expect(screen.queryByText("These playbooks' sidecars cannot run on the default")).toBeNull();
 
-    const group = screen.getByRole("radiogroup", { name: "Runs on" });
-    expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Your nodes/ })).toBeChecked();
-    expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-
-    const warning = async () =>
-      (await screen.findByText("These playbooks' sidecars cannot run there")).closest("[data-slot=alert]");
-    await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
-    let alert = await warning();
-    expect(alert).toHaveTextContent("coder: A Docker daemon is a privileged sidecar, which boat sandboxes do not run.");
-    expect(alert).not.toHaveTextContent("viewer");
-    expect(alert).not.toHaveTextContent("pinned");
-
-    await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
-    alert = await warning();
+    // Once Modal is the default, a playbook whose sidecars it cannot run is named.
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
+    await userEvent.click(select);
+    await userEvent.click(await screen.findByRole("option", { name: "Modal" }));
+    await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    const alert = (await screen.findByText("These playbooks' sidecars cannot run on the default")).closest(
+      "[data-slot=alert]",
+    );
     expect(alert).toHaveTextContent("coder: Modal runs sidecars only under the vm runtime");
     expect(alert).toHaveTextContent("viewer: Modal runs sidecars only under the vm runtime");
     expect(alert).not.toHaveTextContent("vmviewer");
-
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    expect(alert).not.toHaveTextContent("pinned");
+    expect(within(screen.getByTestId("provider-modal")).getByText("Default")).toBeInTheDocument();
   });
 
   it("has no Backend page without a conductor", async () => {
+    // With no conductor there are no turns to place, so Sandboxes opens on its providers.
     mount("/agent/settings/runs-on", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Backend" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "Sandbox providers" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Default sandbox" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {
     mount("/agent/settings/connections");
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
@@ -539,21 +546,26 @@ describe("AgentPage", () => {
 
     cleanup();
     mount("/agent/settings/connections", human);
-    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     expect(getConnections).not.toHaveBeenCalled();
-    // A member connects their own account here, which is not the App's configuration.
+
+    cleanup();
+    // A member connects their own account on Your account, which is not the App's configuration.
+    mount("/agent/settings/account", human);
+    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /connect github/i })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
-    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {
@@ -583,7 +595,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/users");
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Members" })).toBeInTheDocument();
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Permission")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();

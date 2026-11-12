@@ -85,9 +85,9 @@ export function SandboxSnapshotsPanel({
   const showTable = !pending && !error;
 
   return (
-    <div className="space-y-5">
+    <div>
       {!configured ? (
-        <Alert variant="warn" title={`${label} is not configured as a sandbox provider`}>
+        <Alert variant="warn" title={`${label} is not configured as a sandbox provider`} className="mx-6 mt-6">
           Nothing new is kept here until it is. These snapshots are what it kept before, and are
           deleted from {label} with the rules below.
         </Alert>
@@ -105,7 +105,7 @@ export function SandboxSnapshotsPanel({
       />
 
       <section
-        className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
+        className="min-w-0 overflow-hidden border-t border-border"
         aria-label={`${label} snapshots`}
       >
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-raised px-6 py-4">
@@ -272,7 +272,7 @@ function SandboxRetentionCard({
   });
 
   return (
-    <section className="min-w-0 rounded-lg border border-border bg-panel" aria-label={`${label} retention`}>
+    <section className="min-w-0" aria-label={`${label} retention`}>
       <form
         className="grid gap-5 p-6"
         onSubmit={(e) => {

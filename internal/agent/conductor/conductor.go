@@ -171,6 +171,9 @@ type Options struct {
 	NotifyAwayAfter time.Duration
 	// PublicURL is this deployment's web UI, for the link in a notification. Empty sends none.
 	PublicURL string
+	// Keys answers whether a stored model key is being refused, and is told when a turn was
+	// refused (keyhealth.go). Nil starts every turn and checks nothing.
+	Keys KeyHealth
 	// ChatHostClaude is true when the chat host can run Claude Code, so a person signed in
 	// with their Claude subscription has their conversations answered by opencode's
 	// claude-agent provider on it. Nowhere else spends a Claude sign-in.
@@ -202,6 +205,8 @@ type Conductor struct {
 	store    *store.Store
 	podium   *podium.Client
 	profiles *profiles.Live
+	// brand is the deployment's names, read from podium-server. See branding.go.
+	brand brandCache
 	// sources is guarded by mu: ReplaceSource swaps Slack and GitHub while turns run.
 	sources []Source
 	metrics *Metrics
@@ -258,6 +263,8 @@ type Conductor struct {
 	notifiers       []Notifier
 	notifyAwayAfter time.Duration
 	publicURL       string
+	// keys is Options.Keys.
+	keys KeyHealth
 	// replicaID, leaseTTL and heldLeases are this conductor's share of the work with the
 	// others on its database. heldLeases is guarded by mu. See lease.go.
 	replicaID string
@@ -421,6 +428,7 @@ func New(opts Options) (*Conductor, error) {
 		notifiers:           opts.Notifiers,
 		notifyAwayAfter:     cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
 		publicURL:           opts.PublicURL,
+		keys:                opts.Keys,
 		chatSlots:           make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
 		chatPerUser:         cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
 		replicaID:           cmp.Or(opts.ReplicaID, newReplicaID()),
@@ -1053,6 +1061,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 	c.logUnavailableMCP(ctx, turn.ID, j.name, unavailable)
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, j.onHost && c.chatHost != nil)
+	if text, refused := c.keyRefused(ctx, choice, j.onHost && c.chatHost != nil); refused {
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: text})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
@@ -1291,6 +1304,7 @@ func (c *Conductor) brief(
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
+	names := c.branding(ctx)
 	// The choice is resolved once by the caller and handed to the brief, the task spec and
 	// the turn row alike. It used to be resolved separately here and in taskSpec, which left
 	// the credential and the model one profile reload apart from disagreeing.
@@ -1301,8 +1315,8 @@ func (c *Conductor) brief(
 		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL, Channel: c.sourceChannel(ctx, ev)},
 		Profile: BriefProfile{
 			Name:         profile.Name,
-			DisplayName:  profile.DisplayName,
-			SystemPrompt: systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt),
+			DisplayName:  displayNameFor(profile.DisplayName, names),
+			SystemPrompt: withBranding(systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt), names),
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},

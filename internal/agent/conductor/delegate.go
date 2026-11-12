@@ -777,6 +777,9 @@ func (c *Conductor) startDelegatedTask(
 		return nil, err
 	}
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
+	if text, refused := c.keyRefused(ctx, choice, false); refused {
+		return nil, errors.New(text)
+	}
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login
@@ -1059,6 +1062,7 @@ func (r *delegationRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.playbook.Timeout.Std())
+	c.noteRefusal(ctx, r.dlg.Backend.Provider, r.answer(), result.Status == store.TurnFailed)
 	if r.released.Load() && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_CANCELLED {
 		// It had answered and was waiting for a follow-up when another task needed its
 		// workspace, and did not stop waiting when told. Its work is done and was said;

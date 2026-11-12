@@ -9,3 +9,10 @@ export function oauthExpired(settings?: ProviderSettings, now = Date.now()): boo
   if (!Number.isFinite(seconds) || seconds <= 0) return false;
   return seconds * 1000 <= now;
 }
+
+/** keyRefused is true when the provider refused a stored API key the last time the conductor
+ * checked it. Turns that would spend it are stopped before they start until a working key is
+ * saved, which clears it. */
+export function keyRefused(settings?: ProviderSettings): boolean {
+  return Boolean(settings?.keySet && settings.authKind !== "oauth" && settings.refusedAt);
+}
