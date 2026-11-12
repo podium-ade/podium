@@ -225,23 +225,7 @@ export function SandboxProviderDialog({
             <div ref={paneRef} className="relative min-h-0 overflow-y-auto overscroll-contain px-6 pb-10">
               {sections.map((section) => {
                 const fields = spec.fields.filter((f) => f.section === section.key);
-                return (
-                  <section
-                    key={section.key}
-                    id={sectionId(section.key)}
-                    aria-labelledby={`${sectionId(section.key)}-title`}
-                    className="pt-7"
-                  >
-                    <div className="grid gap-1 pb-2">
-                      <h3 id={`${sectionId(section.key)}-title`} className="m-0 text-base font-bold text-fg">
-                        {section.title}
-                      </h3>
-                      {section.description ? (
-                        <p className="m-0 max-w-[68ch] text-sm text-muted">{section.description}</p>
-                      ) : null}
-                    </div>
-
-                    {section.key === "access" ? (
+                const secretRow = (
                       <Row
                         label={
                           <Label htmlFor="provider-secret" className={fieldLabel}>
@@ -260,7 +244,7 @@ export function SandboxProviderDialog({
                             type={reveal ? "text" : "password"}
                             value={secret}
                             onChange={(e) => setSecret(e.target.value)}
-                            autoFocus
+                            autoFocus={!spec.secretLast}
                             spellCheck={false}
                             autoComplete="new-password"
                             placeholder={configured ? "Stored. Leave empty to keep it" : undefined}
@@ -279,7 +263,24 @@ export function SandboxProviderDialog({
                           </button>
                         </div>
                       </Row>
-                    ) : null}
+                );
+                return (
+                  <section
+                    key={section.key}
+                    id={sectionId(section.key)}
+                    aria-labelledby={`${sectionId(section.key)}-title`}
+                    className="pt-7"
+                  >
+                    <div className="grid gap-1 pb-2">
+                      <h3 id={`${sectionId(section.key)}-title`} className="m-0 text-base font-bold text-fg">
+                        {section.title}
+                      </h3>
+                      {section.description ? (
+                        <p className="m-0 max-w-[68ch] text-sm text-muted">{section.description}</p>
+                      ) : null}
+                    </div>
+
+                    {section.key === "access" && !spec.secretLast ? secretRow : null}
 
                     {section.key === "capacity" ? (
                       <Row
@@ -316,16 +317,18 @@ export function SandboxProviderDialog({
                       </Row>
                     ) : null}
 
-                    {fields.map((f) => (
+                    {fields.map((f, i) => (
                       <SettingField
                         key={f.key}
                         field={f}
+                        autoFocus={spec.secretLast && section.key === "access" && i === 0}
                         value={values[f.key] ?? ""}
                         values={values}
                         error={errors[f.key]}
                         onChange={(v) => setValues((old) => ({ ...old, [f.key]: v }))}
                       />
                     ))}
+                    {section.key === "access" && spec.secretLast ? secretRow : null}
                   </section>
                 );
               })}
@@ -380,12 +383,14 @@ function SettingField({
   values,
   error,
   onChange,
+  autoFocus,
 }: {
   field: ProviderField;
   value: string;
   values: Record<string, string>;
   error?: string;
   onChange: (v: string) => void;
+  autoFocus?: boolean;
 }) {
   const id = `provider-${f.key}`;
   const describedBy = error ? `${id}-error ${id}-help` : `${id}-help`;
@@ -409,6 +414,7 @@ function SettingField({
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          autoFocus={autoFocus}
           aria-describedby={describedBy}
           className="min-h-11 max-w-60 rounded-md border border-line-strong bg-panel px-3 font-mono text-xs text-fg hover:border-muted focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
         >
@@ -425,6 +431,7 @@ function SettingField({
             id={id}
             value={value}
             onChange={(e) => onChange(e.target.value)}
+            autoFocus={autoFocus}
             placeholder={placeholderOf(f, values)}
             inputMode={f.kind === "integer" ? "numeric" : f.kind === "number" ? "decimal" : undefined}
             spellCheck={false}
