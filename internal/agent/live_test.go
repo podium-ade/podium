@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -79,6 +83,12 @@ func newFakeLinear(t *testing.T) *fakeLinear {
 }
 
 // linearConfig is a Linear app pointed at the fake, with a listen address that is free.
+func (f *fakeLinear) grantCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.grants
+}
+
 func (f *fakeLinear) seenAuths() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -391,4 +401,52 @@ func TestCheckRefusesALinearAppWithNoPlaybook(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no playbook sets `linear: true`")
 	assert.Zero(t, f.grants, "nothing is asked of Linear for an app that could not run")
+}
+
+// Linear revoking the app stops it starting anything. Saving the same app again tries it
+// against Linear once more, and a save that clears the revoke starts it again.
+func TestARevokedLinearAppIsStartedAgainBySavingIt(t *testing.T) {
+	f := newFakeLinear(t)
+	env := config.Config{LinearURL: f.srv.URL + "/graphql", LinearTokenURL: f.srv.URL + "/oauth/token"}
+	l := running(t, env)
+	addr := freeAddr(t)
+	saved := f.savedApp(addr)
+	next := connections.Overlay(env, nil, nil, saved)
+	require.NoError(t, l.apply(t.Context(), next, saved))
+	require.Eventually(t, func() bool { return l.webhooks.Holds(addr) }, 5*time.Second, 5*time.Millisecond)
+
+	body, err := json.Marshal(map[string]any{
+		"type": "OAuthApp", "action": "revoked", "organizationId": "org-1",
+		"webhookTimestamp": time.Now().UnixMilli(),
+	})
+	require.NoError(t, err)
+	mac := hmac.New(sha256.New, []byte(saved.WebhookSecret))
+	_, _ = mac.Write(body)
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+agentlinear.WebhookPath, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Linear-Signature", hex.EncodeToString(mac.Sum(nil)))
+	res, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_ = res.Body.Close()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	revokedApp := l.linearApp
+	require.True(t, revokedApp.Revoked())
+
+	// The row says revoked: nothing to restart.
+	at := time.Now()
+	marked := *saved
+	marked.RevokedAt = &at
+	require.NoError(t, l.apply(t.Context(), next, &marked))
+	assert.Same(t, revokedApp, l.linearApp)
+
+	grants := f.grantCount()
+	_, err = l.Check(t.Context(), next)
+	require.NoError(t, err)
+	assert.Greater(t, f.grantCount(), grants, "an unchanged app that was revoked is tried again")
+
+	// Saved again, which clears the revoke: a new source, listening.
+	require.NoError(t, l.apply(t.Context(), next, saved))
+	require.NotSame(t, revokedApp, l.linearApp)
+	assert.False(t, l.linearApp.Revoked())
+	require.Eventually(t, func() bool { return l.webhooks.Holds(addr) }, 5*time.Second, 5*time.Millisecond)
 }
