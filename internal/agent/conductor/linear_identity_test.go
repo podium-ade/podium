@@ -215,7 +215,7 @@ func TestAReplyFromAnotherLinearPersonIsNotTheSameAsker(t *testing.T) {
 	now := time.Now()
 	c := identityConductor(&now)
 	src := linearSource()
-	c.setTurnAsker("s1", src, sessionPrompt("ada@acme.com", "u-1"))
+	c.setTurnAsker("s1", src, sessionPrompt("ada@acme.com", "u-1"), "linear-work")
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
