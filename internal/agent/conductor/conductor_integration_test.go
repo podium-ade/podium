@@ -122,9 +122,11 @@ allowed_tools: [read, grep]
 timeout: 15m
 slack_channels: [C1]
 `), 0o600))
+	// coder is what a Linear issue runs when nobody names a playbook.
 	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
 allowed_tools: [read, edit, bash]
+linear: true
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/playbooks/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: build podium
