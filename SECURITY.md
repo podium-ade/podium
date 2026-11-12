@@ -37,7 +37,7 @@ limitations rather than vulnerabilities. Reporting them tells us nothing we have
 - **RBAC gates Workspace users, not the CLI, nodes, or the bot.** After a Google Workspace
   claim, member / admin / owner is enforced on KindUser. The local token and every node still
   do everything. A Slack mention or a Linear agent session from any person signed in to Podium
-  is enough to run a playbook, as them. With Linear's poller (a personal API key, the mode
+  is enough to run any playbook, as them. With Linear's poller (a personal API key, the mode
   that needs no inbound webhook) an assignment from **anybody** who can assign the bot user a
   ticket is enough, and the turn runs as nobody: polling cannot prove who asked.
 - **A `podium-node` is root-equivalent on its host** — it holds the Docker socket. Running it as a
