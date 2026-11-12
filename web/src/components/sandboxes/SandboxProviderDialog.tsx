@@ -285,10 +285,7 @@ export function SandboxProviderDialog({
                       <Row
                         label={
                           <Label htmlFor="provider-max-concurrent" className={fieldLabel}>
-                            <span>
-                              Max concurrent sandboxes
-                              <span className="font-normal text-muted"> (optional)</span>
-                            </span>
+                            <span>Max concurrent sandboxes</span>
                           </Label>
                         }
                         help={
