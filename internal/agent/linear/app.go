@@ -1249,13 +1249,14 @@ func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
 	}
 }
 
-// StoppedElsewhere implements conductor.StopHearer: another conductor heard a Stop in one of
-// this app's sessions and is cancelling the session's turn, which may be running here. Its
-// task is refused from now on, as if the Stop had arrived here, so nothing it says as it dies
-// lands after the other conductor's "Stopped." — which would show the session working again.
-// A host turn has no task, and is refused as the session's open turn, when there is one here.
+// StoppedElsewhere implements conductor.StopHearer: a conductor is cancelling the turn of one
+// of this app's sessions because somebody pressed Stop — another conductor, whose source heard
+// the Stop, or this one, which then learns the task it may not have known. The turn may be
+// running here. Its task is refused from now on, as if the Stop had arrived here, so nothing
+// it says as it dies lands after "Stopped." — which would show the session working again. A
+// host turn has no task, and is refused as the session's open turn, when there is one here.
 //
-// Unlike a Stop heard here, it neither closes the session (the other conductor does) nor
+// Unlike a Stop heard here, it neither closes the session (the source that heard it does) nor
 // drops this conductor's queued prompts: those may have arrived after the Stop.
 func (s *AppSource) StoppedElsewhere(sourceKey, taskID string) {
 	sessionID, ok := strings.CutPrefix(sourceKey, SessionKey(""))

@@ -44,22 +44,25 @@ func TestOnlyACancelledTaskCarriesItsCancelReason(t *testing.T) {
 	assert.Empty(t, failed.CancelReason)
 }
 
-// A stop another conductor announced reaches the sources that hear one; this conductor's own
-// announcement, coming back on the same channel, does not.
-func TestAStopFromAnotherConductorReachesTheSourcesThatHearOne(t *testing.T) {
+// A stop reaches every source that hears one: this conductor's own as it stops the turn, and
+// another conductor's through the notice — which, coming back to the conductor that sent it,
+// is not passed on twice.
+func TestAStopReachesTheSourcesThatHearOneOnEveryConductor(t *testing.T) {
 	src := &hearer{}
 	c := &Conductor{replicaID: "here", sources: []Source{src}}
 
+	c.announceStop(context.Background(), "linear:session:s-1", "task_1")
+	assert.Equal(t, []string{"linear:session:s-1|task_1"}, src.stops, "this conductor's own source, at once")
+
 	notice := func(from string) string {
-		raw, err := json.Marshal(stopNotice{From: from, Key: "linear:session:s-1", TaskID: "task_1"})
+		raw, err := json.Marshal(stopNotice{From: from, Key: "linear:session:s-2", TaskID: "task_2"})
 		require.NoError(t, err)
 		return string(raw)
 	}
 	c.heardStop(notice("here"))
-	assert.Empty(t, src.stops, "the conductor that stopped it already told its own source")
 	c.heardStop("not json")
-	assert.Empty(t, src.stops)
+	assert.Len(t, src.stops, 1, "its own notice, coming back, is not passed on again")
 
 	c.heardStop(notice("there"))
-	assert.Equal(t, []string{"linear:session:s-1|task_1"}, src.stops)
+	assert.Equal(t, []string{"linear:session:s-1|task_1", "linear:session:s-2|task_2"}, src.stops)
 }
