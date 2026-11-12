@@ -1,0 +1,95 @@
+{
+  "type": "AgentSessionEvent",
+  "action": "prompted",
+  "createdAt": "2026-11-12T20:46:28.542Z",
+  "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+  "oauthClientId": "00000000000000000000000000000000",
+  "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+  "agentSession": {
+    "id": "1c306b38-90b6-43f4-b3c3-d1ac88f9229a",
+    "createdAt": "2026-11-12T20:46:10.167Z",
+    "updatedAt": "2026-11-12T20:46:28.438Z",
+    "archivedAt": null,
+    "creatorId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+    "commentId": "0b902dea-5867-4c25-84bb-94cf97309285",
+    "sourceCommentId": null,
+    "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+    "pullRequestId": null,
+    "slugId": "1af6bd8fa9ab0",
+    "status": "pending",
+    "startedAt": "2026-11-12T20:46:10.980Z",
+    "endedAt": null,
+    "lastAgentReplyAt": "2026-11-12T20:46:11.853Z",
+    "dismissedAt": null,
+    "dismissedById": null,
+    "externalLink": null,
+    "summary": "Work on EME-5 test issue",
+    "sourceMetadata": null,
+    "modelSelection": null,
+    "plan": null,
+    "workspaceDiff": null,
+    "context": [],
+    "url": "https://linear.app/acme/agent-session/1c306b38-90b6-43f4-b3c3-d1ac88f9229a",
+    "externalUrls": [
+      {
+        "url": "https://example.com/tasks/spike",
+        "label": "Podium task"
+      }
+    ],
+    "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+    "creator": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    },
+    "comment": {
+      "id": "0b902dea-5867-4c25-84bb-94cf97309285",
+      "body": "This thread is for an agent session with podium.",
+      "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8"
+    },
+    "issue": {
+      "id": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+      "title": "Test issue",
+      "teamId": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+      "team": {
+        "id": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+        "key": "EME",
+        "name": "Acme"
+      },
+      "identifier": "EME-5",
+      "url": "https://linear.app/acme/issue/EME-5/test-issue",
+      "description": ""
+    }
+  },
+  "agentActivity": {
+    "id": "663ba1da-7fac-4d15-a5e0-1556d70ccb3b",
+    "createdAt": "2026-11-12T20:46:28.400Z",
+    "updatedAt": "2026-11-12T20:46:28.400Z",
+    "archivedAt": null,
+    "agentSessionId": "1c306b38-90b6-43f4-b3c3-d1ac88f9229a",
+    "sourceCommentId": "965fffa0-862c-4eed-ae69-5136319b7380",
+    "userId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "sourceMetadata": null,
+    "executionSkippedReason": null,
+    "signal": null,
+    "ephemeral": false,
+    "pushSummary": null,
+    "queued": false,
+    "sentAt": null,
+    "signalMetadata": null,
+    "content": {
+      "type": "prompt",
+      "body": "What is the time?"
+    },
+    "user": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    }
+  },
+  "webhookTimestamp": 1794516388556,
+  "webhookId": "b16038f6-14cd-4c06-b6ae-7aec35ea53db"
+}

@@ -1,0 +1,46 @@
+{
+  "type": "AppUserNotification",
+  "action": "issueCommentMention",
+  "createdAt": "2026-11-12T20:47:00.482Z",
+  "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+  "oauthClientId": "00000000000000000000000000000000",
+  "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+  "notification": {
+    "id": "0101927e-792b-489b-ab05-c9468e106ca4",
+    "createdAt": "2026-11-12T20:47:00.356Z",
+    "updatedAt": "2026-11-12T20:47:00.356Z",
+    "archivedAt": null,
+    "type": "issueCommentMention",
+    "actorId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "externalUserActorId": null,
+    "userId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+    "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+    "issue": {
+      "id": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+      "title": "Test issue",
+      "teamId": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+      "team": {
+        "id": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+        "key": "EME",
+        "name": "Acme"
+      },
+      "identifier": "EME-5",
+      "url": "https://linear.app/acme/issue/EME-5/test-issue"
+    },
+    "commentId": "8b101b07-f940-49fb-b7b3-ee755973caca",
+    "comment": {
+      "id": "8b101b07-f940-49fb-b7b3-ee755973caca",
+      "body": "@podium what is the time?",
+      "userId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8"
+    },
+    "actor": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    }
+  },
+  "webhookTimestamp": 1794516420494,
+  "webhookId": "b16038f6-14cd-4c06-b6ae-7aec35ea53db"
+}
