@@ -505,8 +505,9 @@ func (s *AgentService) ListTurns(
 
 // mayReadSession is the session half of the chat partition. The dev token sees every
 // source. A signed-in user sees a session exactly when they may read the chat that holds it:
-// their own web chat, or the mirror of a Slack thread or pull request they took part in. A
-// Linear or dev session has no chat, so it stays the operator's.
+// their own web chat, or the mirror of a Slack thread, pull request or Linear agent session
+// they took part in. A ticket the Linear poller saw, or a dev session, has no chat, so it
+// stays the operator's.
 func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (bool, error) {
 	if SeesAll(ctx) {
 		return true, nil
