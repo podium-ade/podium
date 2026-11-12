@@ -138,6 +138,7 @@ func TestFromEnvAppliesTheDefaults(t *testing.T) {
 	assert.Equal(t, DefaultOpenAICodexBaseURL, cfg.OpenAICodexBaseURL)
 	assert.Equal(t, DefaultOpenAIOAuthIssuer, cfg.OpenAIOAuthIssuer)
 	assert.Equal(t, DefaultOpenAIOAuthClientID, cfg.OpenAIOAuthClientID)
+	assert.Equal(t, DefaultLinearTokenURL, cfg.LinearTokenURL)
 	assert.False(t, cfg.DevSource)
 }
 
@@ -190,12 +191,18 @@ func TestLoggingAConfigLeaksNoToken(t *testing.T) {
 	cfg.SlackAppToken = "xapp-secret"
 	cfg.SlackBotToken = "xoxb-secret"
 	cfg.GitHubWebhookSecret = "github-webhook-secret"
+	cfg.LinearClientID = "linear-client-id"
+	cfg.LinearClientSecret = "linear-client-secret"
+	cfg.LinearWebhookSecret = "lin_wh_secret"
 
 	var buf bytes.Buffer
 	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret"} {
+	for _, secret := range []string{
+		"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret",
+		"linear-client-secret", "lin_wh_secret",
+	} {
 		assert.NotContains(t, out, secret)
 	}
 	// And it still says the things an operator needs to see.
@@ -472,4 +479,59 @@ func TestSlackTeamIDsFromTheEnvironment(t *testing.T) {
 func TestDomainList(t *testing.T) {
 	assert.Equal(t, []string{"acme.com", "example.org"}, domainList(" Acme.com, ,@example.org "))
 	assert.Empty(t, domainList(""))
+}
+
+// ---------------------------------------------------------------------------
+// the Linear agent app
+// ---------------------------------------------------------------------------
+
+func linearApp(c *Config) {
+	c.LinearClientID = "client-id"
+	c.LinearClientSecret = "client-secret"
+	c.LinearWebhookSecret = "lin_wh_secret"
+	c.LinearWebhookListen = "0.0.0.0:8091"
+}
+
+// The saved app is its own switch: it does not turn the poller on or off.
+func TestTheLinearAppAndThePollerAreSeparate(t *testing.T) {
+	cfg := valid(t)
+	assert.False(t, cfg.LinearAppEnabled())
+	linearApp(&cfg)
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.LinearAppEnabled())
+	assert.False(t, cfg.LinearEnabled(), "the app is not the poller's key")
+
+	cfg.LinearAPIKey = "lin_api_key"
+	assert.True(t, cfg.LinearEnabled(), "the poller keeps running beside a saved app")
+}
+
+func TestAHalfConfiguredLinearAppIsRefused(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"no client id", func(c *Config) { c.LinearClientID = "" }, "client id"},
+		{"no client secret", func(c *Config) { c.LinearClientSecret = "" }, "client secret"},
+		{"no webhook secret", func(c *Config) { c.LinearWebhookSecret = "" }, "webhook signing secret"},
+		{"no listen", func(c *Config) { c.LinearWebhookListen = "" }, "listen address"},
+		{"listen without a port", func(c *Config) { c.LinearWebhookListen = "8091" }, "host:port"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := valid(t)
+			linearApp(&cfg)
+			tc.mutate(&cfg)
+			require.ErrorContains(t, cfg.ValidateConnectionFields(), tc.want)
+			require.ErrorContains(t, cfg.Validate(), tc.want)
+		})
+	}
+}
+
+func TestTheLinearTokenURLMustBeAbsolute(t *testing.T) {
+	cfg := valid(t)
+	cfg.LinearTokenURL = "/oauth/token"
+	require.ErrorContains(t, cfg.Validate(), "PODIUM_AGENT_LINEAR_TOKEN_URL")
+	cfg.LinearTokenURL = "http://127.0.0.1:9999/oauth/token"
+	require.NoError(t, cfg.Validate())
 }
