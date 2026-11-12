@@ -49,30 +49,33 @@ const KIND: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
 
 /**
  * sessionSections groups the list by where each conversation lives. A signed-in person now
- * sees the Slack threads and pull requests they took part in beside their own web chats, so
- * GitHub is a section of its own rather than "Other".
+ * sees the Slack threads, pull requests and Linear agent sessions they took part in beside
+ * their own web chats, so GitHub and Linear are sections of their own rather than "Other".
  */
 //
 // Phase 5 puts two sections in front of the surfaces and one after them: "Shared with me" is
 // every conversation somebody shared with the caller (by name, or one they opened from a
 // link), wherever it lives; "Workspace" is what is shared with every member and not opened
-// yet. A Slack thread or PR the caller spoke in stays under its surface: it is theirs.
+// yet. A Slack thread, PR or Linear session the caller spoke in stays under its surface: it
+// is theirs.
 function sessionSections(
   rows: Session[],
   workspace: Session[] = [],
 ): { key: string; label: string; rows: Session[] }[] {
-  const known = new Set(["chat", "slack", "github"]);
+  const known = new Set(["chat", "slack", "github", "linear"]);
   const shared = rows.filter((s) => s.accessReason === "shared");
   rows = rows.filter((s) => s.accessReason !== "shared");
   const web = rows.filter((s) => s.sourceKind === "chat");
   const slack = rows.filter((s) => s.sourceKind === "slack");
   const github = rows.filter((s) => s.sourceKind === "github");
+  const linear = rows.filter((s) => s.sourceKind === "linear");
   const other = rows.filter((s) => !known.has(s.sourceKind));
   const out: { key: string; label: string; rows: Session[] }[] = [];
   if (web.length > 0) out.push({ key: "web", label: "Web", rows: web });
   if (shared.length > 0) out.push({ key: "shared", label: "Shared with me", rows: shared });
   if (slack.length > 0) out.push({ key: "slack", label: "Slack", rows: slack });
   if (github.length > 0) out.push({ key: "github", label: "GitHub", rows: github });
+  if (linear.length > 0) out.push({ key: "linear", label: "Linear", rows: linear });
   if (other.length > 0) out.push({ key: "other", label: "Other", rows: other });
   if (workspace.length > 0) out.push({ key: "workspace", label: "Workspace", rows: workspace });
   return out;

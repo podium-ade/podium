@@ -290,4 +290,11 @@ describe("ChatComposer", () => {
       "Messages here stay in Podium — they aren't posted to GitHub.",
     );
   });
+
+  it("names Linear when a Linear session's chat is written in", () => {
+    mount({ mirrored: "linear", multiplayer: true });
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent(
+      "Messages here stay in Podium — they aren't posted to Linear.",
+    );
+  });
 });

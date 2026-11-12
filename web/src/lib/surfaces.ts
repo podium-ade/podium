@@ -2,6 +2,7 @@
 export const SURFACE_NAMES: Record<string, string> = {
   slack: "Slack",
   github: "GitHub",
+  linear: "Linear",
   web: "Podium",
 };
 
