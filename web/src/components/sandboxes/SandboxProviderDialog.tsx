@@ -100,35 +100,81 @@ export function SandboxProviderDialog({
     (s) => s.key === "access" || s.key === "capacity" || spec.fields.some((f) => f.section === s.key),
   );
   const scroller = useRef<HTMLDivElement>(null);
+  // The form pane mounts a render after this component does, once the dialog's portal is in
+  // the page, so following the reader waits on the element itself rather than on mount.
+  const [pane, setPane] = useState<HTMLDivElement | null>(null);
+  const paneRef = (el: HTMLDivElement | null) => {
+    scroller.current = el;
+    setPane(el);
+  };
   const [active, setActive] = useState<SectionKey>("access");
 
-  // The rail follows the reader: the topmost section in view is the one lit.
+  // While a click on the rail scrolls the form, the rail keeps the section clicked rather than
+  // lighting each one the scroll passes on the way.
+  const jumping = useRef(false);
+
+  // The rail follows the reader: the lit section is the last whose heading has passed a line a
+  // third of the way down the form, and the last section once the form is scrolled to its end,
+  // however short that section is.
   useEffect(() => {
-    const root = scroller.current;
-    if (!root || typeof IntersectionObserver === "undefined") return;
-    const seen = new Map<string, boolean>();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) seen.set(e.target.id, e.isIntersecting);
-        const first = sections.find((s) => seen.get(sectionId(s.key)));
-        if (first) setActive(first.key);
-      },
-      { root, rootMargin: "0px 0px -55% 0px" },
-    );
-    for (const s of sections) {
-      const el = document.getElementById(sectionId(s.key));
-      if (el) io.observe(el);
-    }
-    return () => io.disconnect();
+    const root = pane;
+    if (!root) return;
+    let frame = 0;
+    const follow = () => {
+      frame = 0;
+      if (jumping.current) return;
+      const atEnd = root.scrollTop + root.clientHeight >= root.scrollHeight - 2;
+      let lit = sections[0]?.key;
+      if (atEnd) {
+        lit = sections[sections.length - 1]?.key;
+      } else {
+        const line = root.scrollTop + root.clientHeight / 3;
+        for (const sec of sections) {
+          const el = document.getElementById(sectionId(sec.key));
+          if (el && el.offsetTop <= line) lit = sec.key;
+        }
+      }
+      if (lit) setActive(lit);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(follow);
+    };
+    // A jump is over when its scroll ends; where that is supported, scrollend says so, and
+    // otherwise a scroll that has been still for a moment has ended. The section clicked stays
+    // lit, even one too short to reach the line, until the reader scrolls again.
+    let still: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      clearTimeout(still);
+      jumping.current = false;
+    };
+    const onScrollIdle = () => {
+      if (!jumping.current) return;
+      clearTimeout(still);
+      still = setTimeout(settle, 150);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    root.addEventListener("scroll", onScrollIdle, { passive: true });
+    root.addEventListener("scrollend", settle);
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      root.removeEventListener("scroll", onScrollIdle);
+      root.removeEventListener("scrollend", settle);
+      if (frame) cancelAnimationFrame(frame);
+      clearTimeout(still);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spec.name]);
+  }, [pane, spec.name]);
 
   const jump = (key: SectionKey) => {
     setActive(key);
     // Scroll the form pane only: scrollIntoView would also scroll the dialog around it.
     const el = document.getElementById(sectionId(key));
     const root = scroller.current;
-    if (el && root) root.scrollTo?.({ top: el.offsetTop, behavior: "smooth" });
+    if (!el || !root) return;
+    const top = Math.min(el.offsetTop, root.scrollHeight - root.clientHeight);
+    if (Math.abs(root.scrollTop - top) < 1) return;
+    jumping.current = true;
+    root.scrollTo?.({ top, behavior: "smooth" });
   };
 
   const secretNoun = spec.secretLabel.toLowerCase();
@@ -178,7 +224,7 @@ export function SandboxProviderDialog({
               </ul>
             </nav>
 
-            <div ref={scroller} className="relative min-h-0 overflow-y-auto overscroll-contain px-6 pb-10">
+            <div ref={paneRef} className="relative min-h-0 overflow-y-auto overscroll-contain px-6 pb-10">
               {sections.map((section) => {
                 const fields = spec.fields.filter((f) => f.section === section.key);
                 return (
