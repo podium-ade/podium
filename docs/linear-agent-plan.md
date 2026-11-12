@@ -1,6 +1,10 @@
 # Plan: Linear as an agent app
 
-Status: proposed, not started. Written 2026-11-12.
+Status: built, by the branches `feature/linear-1-connection` (phase 1), `feature/linear-2-webhooks`
+(phase 2), `feature/linear-3-activities` (phase 3), `feature/linear-4-identity` (phase 4),
+`feature/linear-5-mirror` (phase 5) and `feature/linear-6-routing` (phase 6), each stacked on the
+one before. Written 2026-11-12. Nothing has been tried against a real Linear workspace with a
+running conductor yet; see [What is left](#what-is-left).
 
 This moves Linear from a polled bot seat to a Linear agent app with webhooks, live
 activities and per-person identity, in six phases that each ship alone.
@@ -222,14 +226,35 @@ a conversation in the conductor is built on a chat row.
 
 ## Phase 6: routing
 
-- **Delegation** runs a playbook as a task. A `/playbook` prefix in the prompt picks one;
-  otherwise the `linear: true` playbook runs.
-- **@mention** with no delegation goes to the assistant on the host when the host runtime is
-  on, and it may delegate from there. Without the host runtime it runs the `linear: true`
-  playbook.
-- **Later, if wanted:** a `linear_teams:` list on a playbook, mirroring `slack_channels`.
-- **Docs:** `docs/agent.md`, `docs/networking.md` (the "Linear is still polling" line),
-  `docs/operations.md`, and the README environment table.
+- **The source says what happened, the conductor routes.** The app no longer names a playbook
+  (`InboundEvent.Playbook` stays the poller's, which keeps its behaviour byte for byte). It sets
+  `InboundEvent.Delegated` on every prompt of a session opened by delegation, read off
+  `agentSession.sourceMetadata` as the ref's fifth part is.
+- **Delegation** runs a playbook as a task, on any conductor. A `/playbook` prefix in a person's
+  words picks one for that turn — a delegation's opening prompt is Linear's own, so in practice
+  a follow-up; otherwise the session's playbook runs, which is the `linear: true` playbook
+  (`Routing.Default`, after the prefix). Unlike a Slack thread, a Linear session does not refuse
+  a second playbook: a `/name` runs for that turn alone, and is never injected into a task that is
+  already up.
+- **@mention** with no delegation is a conversation when the host runtime is on: the assistant
+  answers on the host with the issue and its thread as context, and may delegate to any playbook
+  it would be offered in Slack — `linear: true` plays no part in that menu. Its follow-ups stay
+  with the assistant. A mention that starts with a `/playbook` on that menu runs that playbook
+  directly as the conversation's task (`runDirect`), as a pull request's review is delegated
+  without asking the assistant. Without the host runtime a mention runs the `linear: true`
+  playbook as a task, as before, and is not refused.
+- **What the session shows of a conversation.** The assistant's turn has no task: no task
+  footer, no task link. Each task it delegates is linked as `Podium task: <playbook> (<id>)` and
+  drawn on its own — its progress a thought even after the assistant answered, its answer a
+  response naming its task, its question an elicitation — and the session is kept alive while any
+  of them works.
+- **Stop on a conversation** stops the assistant's turn and every task the session delegated that
+  is still running, announcing each task id to every conductor's source before cancelling it,
+  drops what is queued, and closes the session with one "Stopped.".
+- **Later, if wanted:** a `linear_teams:` list on a playbook, mirroring `slack_channels`. Not
+  built.
+- **Docs:** `docs/agent.md`, `docs/networking.md`, `docs/operations.md`, `docs/security.md`, the
+  README and `deploy/.env.example`.
 
 ## Testing
 
@@ -256,3 +281,42 @@ needs the session's chat row.
 | 4: identity | half a day |
 | 5: chat mirror | one day |
 | 6: routing and docs | one day |
+
+## What is left
+
+Across the whole stack, what is still open:
+
+- **Nothing has run against a real Linear workspace with a running conductor.** The spike
+  (phase 0) captured payloads with a throwaway listener; every phase since was built against
+  those fixtures and a GraphQL stub. One live pass per phase on the dev stack, through a tunnel,
+  is still owed.
+- **The stack's integration tests and `make e2e` have not been run.** They compile. The ones that
+  matter here are in `internal/agent/conductor` (`gate_`, `linear_mirror_`, `cancel_session_`,
+  `linear_routing_integration_test.go`) and need Postgres.
+- **The `OAuthApp` `revoked` and `PermissionChange` payloads were never captured** from a real
+  workspace. Revocation is handled from Linear's documentation; a team-access change is only
+  logged.
+- **A message owed from before a Stop can be posted after "Stopped." following a restart.** What a
+  Stop silences is remembered in memory. An answer, question or failure that had already failed to
+  deliver stays owed in the outbox, and a conductor that retries it after a restart does not know
+  it was stopped. A cancellation itself is recognised everywhere by its cancel reason.
+- **Outbox delivery is at least once.** A conductor that dies after Linear accepted an activity and
+  before it recorded that can post it again.
+- **A task the assistant was starting at the moment of a Stop** — recorded, not yet created — is
+  not one the control plane can cancel, and runs; nothing it says is posted while the session
+  stays stopped.
+- **The source tells a delegated task from a turn's own in memory.** After a restart, a resumed
+  delegated task is drawn as the session's turn (linked as `Podium task`, its answer taken as the
+  turn's) until the next prompt; an answer the outbox retries from an earlier assistant turn,
+  after the next has started, is taken as the new turn's.
+- **A follow-up put into a task that has already answered** is said as responses rather than
+  thoughts until that task answers again: nothing tells the source the task is working again. This
+  was so for the linear: true playbook's warm tasks before phase 6, and holds for delegated ones.
+- **Across conductors, a follow-up that names no playbook** can be injected into another
+  conductor's warm task of a playbook a previous turn named for itself: the lease records the warm
+  task's person and surface, not its playbook.
+- **Conductors on one database must agree on the host runtime.** What answers a mention is
+  decided by the conductor the webhook reaches.
+- **`linear_teams:` routing is not built.**
+- **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
+  the machine they were built on. CI is the first place it runs.
