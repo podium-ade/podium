@@ -107,6 +107,21 @@ describe("SessionsTable", () => {
     expect(screen.queryByTestId("session-section-other")).not.toBeInTheDocument();
   });
 
+  it("gives the Linear sessions a person spoke in a section of their own", async () => {
+    listSessions.mockResolvedValue({
+      sessions: [
+        session,
+        { ...session, id: "sess_lin", sourceKind: "linear", sourceKey: "linear:session:1c306b38" },
+      ],
+      nextCursor: "",
+    });
+    mount();
+    expect(await screen.findByTestId("session-section-linear")).toHaveTextContent("Linear");
+    expect(screen.queryByTestId("session-section-other")).not.toBeInTheDocument();
+    const rows = screen.getAllByTestId("session-row");
+    expect(rows[1]).toHaveTextContent("linear");
+  });
+
   it("shows the source, a readable conversation ref and the playbook", async () => {
     mount();
     const row = await screen.findByTestId("session-row");

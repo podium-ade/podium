@@ -88,7 +88,7 @@ export interface ChatComposerProps {
    * mention Podium (or the chat's assistant) to start a turn, and the composer says so.
    */
   multiplayer?: boolean;
-  /** mirrored is where a mirrored conversation lives ("slack", "github"); empty for a web chat. */
+  /** mirrored is where a mirrored conversation lives ("slack", "github", "linear"); empty for a web chat. */
   mirrored?: string;
   /** personality is the chat's personal assistant's name, which also starts a turn. */
   personality?: string;
@@ -915,6 +915,8 @@ function surfaceLabel(kind: string): string {
       return "Slack";
     case "github":
       return "GitHub";
+    case "linear":
+      return "Linear";
     default:
       return kind;
   }
