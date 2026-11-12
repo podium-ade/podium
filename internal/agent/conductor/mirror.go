@@ -9,8 +9,9 @@ import (
 )
 
 // The mirror is a read-only COPY, in chats/chat_messages, of a conversation that lives
-// somewhere else. It exists so a Slack thread can be read in the Podium UI beside the web
-// chats — with the names of the people in it, which the turns table has never held.
+// somewhere else: a Slack thread, a pull request, a Linear agent session. It exists so they can
+// be read in the Podium UI beside the web chats — with the names of the people in them, which
+// the turns table has never held.
 //
 // Since Phase 3 of docs/agent.md it is also THE record: a turn is handed
 // its transcript from here (transcript.go), not from the source, so what was said in Podium
@@ -346,12 +347,16 @@ func viaOf(src Source, ev InboundEvent) string {
 		return store.ViaSlack
 	case store.ProviderGitHub:
 		return store.ViaGitHub
+	case store.ProviderLinear:
+		return store.ViaLinear
 	}
 	switch src.Kind() {
 	case SourceSlack:
 		return store.ViaSlack
 	case SourceGitHub:
 		return store.ViaGitHub
+	case SourceLinear:
+		return store.ViaLinear
 	}
 	return src.Kind()
 }

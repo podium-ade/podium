@@ -3,8 +3,8 @@ package conductor
 // The transcript a turn is handed.
 //
 // Phase 3 of docs/agent.md makes chat_messages the one record of every
-// conversation, whichever surface it lives on: a Slack thread, a pull request and a web chat
-// are all read back from the same table, so a turn sees what was said in Podium beside what
+// conversation, whichever surface it lives on: a Slack thread, a pull request, a Linear agent
+// session and a web chat are all read back from the same table, so a turn sees what was said in Podium beside what
 // was said in the thread, labelled with who said it and where. A source's own FetchTranscript
 // is only the seed for a conversation with no record yet — one Podium started hearing before
 // it kept a record, or a store that is not there (tests, a database-less dev run).
@@ -135,6 +135,11 @@ func (c *Conductor) transcriptFor(ctx context.Context, src Source, ref, sourceKe
 						lines = c.withEarlierHistory(ctx, gh, ghRef, lines)
 					}
 				}
+				if chat.Origin == SourceLinear {
+					if lin, linRef, ok := c.linearFor(ctx, src, ref, sourceKey); ok {
+						lines = c.withIssueHistory(ctx, lin, linRef, lines)
+					}
+				}
 				return lines, nil
 			}
 		}
@@ -202,6 +207,107 @@ func (c *Conductor) withEarlierHistory(ctx context.Context, src Source, ref stri
 		older = append(older, transcriptLine{BriefEntry: e, addressed: e.Role == RoleUser})
 	}
 	return append(older, lines...)
+}
+
+// linearTurnsSearched bounds how far back linearFor looks for a turn Linear carried.
+const linearTurnsSearched = 20
+
+// linearFor is the Linear source and a ref naming a Linear session's issue: the turn's own when
+// Linear carried it. A message sent from the web into a Linear session's chat carries the chat
+// as its ref, so the ref is then the latest one of the session's turns that the Linear source
+// recognises as this session's — the same test the mirror uses (MirrorKey). False when there is
+// none, or when this conductor runs no Linear source that is mirrored (the poller is not).
+func (c *Conductor) linearFor(ctx context.Context, src Source, ref, sourceKey string) (Source, string, bool) {
+	if src != nil && src.Kind() == SourceLinear {
+		return src, ref, true
+	}
+	lin := c.sourceOf(SourceLinear)
+	if lin == nil || c.store == nil {
+		return nil, "", false
+	}
+	sess, err := c.store.GetSessionByKey(ctx, sourceKey)
+	if err != nil {
+		return nil, "", false
+	}
+	turns, err := c.store.ListTurns(ctx, sess.ID, linearTurnsSearched)
+	if err != nil {
+		return nil, "", false
+	}
+	for _, t := range turns {
+		if key, ok := c.mirrorKey(lin, t.TriggerRef); ok && key == sourceKey {
+			return lin, t.TriggerRef, true
+		}
+	}
+	return nil, "", false
+}
+
+// withIssueHistory puts what a Linear issue holds around the record of an agent session on it.
+// The record starts with the session, and the issue is older: its description, and every
+// comment before the session — earlier sessions' included. People also go on commenting on the
+// issue outside the session, which no webhook tells the app about. All of that is read from
+// Linear on every turn, as it was before a session had a record.
+//
+// Linear writes the session's own prompts, questions and answers into the issue's comments
+// too, and those are in the record already: a comment by the app after the record starts is
+// left out, and so is a person's comment whose words are a prompt the record holds. What is
+// left goes in by time, before and between the recorded lines. A comment beside the session
+// was not put to Podium, so the budget may condense it.
+func (c *Conductor) withIssueHistory(ctx context.Context, src Source, ref string, lines []transcriptLine) []transcriptLine {
+	first, err := time.Parse(time.RFC3339, lines[0].TS)
+	if err != nil {
+		return lines
+	}
+	entries, err := src.FetchTranscript(ctx, ref)
+	if err != nil {
+		c.logger.WarnContext(ctx, "reading a Linear issue around its session's record failed; "+
+			"the turn has the record only", "ref", ref, "error", err)
+		return lines
+	}
+	recorded := map[string]bool{}
+	for _, l := range lines {
+		if l.Role == RoleUser {
+			recorded[strings.TrimSpace(l.Text)] = true
+		}
+	}
+	var issue []transcriptLine
+	for _, e := range entries {
+		ts, err := time.Parse(time.RFC3339, e.TS)
+		if err != nil {
+			continue
+		}
+		earlier := ts.Before(first)
+		switch {
+		case e.Role == RoleUser && recorded[strings.TrimSpace(e.Text)]:
+			continue
+		case !earlier && e.Role != RoleUser:
+			continue
+		}
+		issue = append(issue, transcriptLine{BriefEntry: e, addressed: earlier && e.Role == RoleUser})
+	}
+	return mergeByTime(issue, lines)
+}
+
+// mergeByTime interleaves two transcripts that are each in order, oldest first. A line of a
+// that is as old as one of b goes after it: b is the record, and the record's order wins.
+func mergeByTime(a, b []transcriptLine) []transcriptLine {
+	if len(a) == 0 {
+		return b
+	}
+	out := make([]transcriptLine, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		ta, erra := time.Parse(time.RFC3339, a[i].TS)
+		tb, errb := time.Parse(time.RFC3339, b[j].TS)
+		if erra == nil && errb == nil && ta.Before(tb) {
+			out = append(out, a[i])
+			i++
+			continue
+		}
+		out = append(out, b[j])
+		j++
+	}
+	out = append(out, a[i:]...)
+	return append(out, b[j:]...)
 }
 
 // botName is how the bot's own words are attributed in a transcript.

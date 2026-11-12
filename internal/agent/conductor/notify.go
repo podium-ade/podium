@@ -7,7 +7,8 @@ package conductor
 // gone by the time it answers. Its answer is posted in the chat regardless; this is the
 // nudge that it is there. It goes out only for a conversation whose person has said nothing
 // for NotifyAwayAfter, and only from a source with nobody of its own to notify them — a Slack
-// thread, a pull request and a Linear issue already notify the people in them.
+// thread, a pull request and a Linear agent session already notify the people in them, and a
+// ticket the Linear poller saw has no person to tell.
 
 import (
 	"context"
