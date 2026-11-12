@@ -43,6 +43,17 @@ const (
 	failedText = "❌ Failed"
 )
 
+// noPlaybook starts the refusal of a Linear source with nothing to run. The poller and the
+// agent app say the same thing and differ only in how to turn themselves off.
+const noPlaybook = "linear: no playbook sets `linear: true`, so there is nothing to run a " +
+	"ticket with. Set it on exactly one playbook — a playbooks/*.yaml, or one made in the web " +
+	"UI — "
+
+// sessionThreadOpener starts the comment Linear opens an agent session's thread with ("This
+// thread is for an agent session with podium."). Linear writes it as a bot with no user, and
+// it is not anything anybody said, so a transcript leaves it out.
+const sessionThreadOpener = "This thread is for an agent session"
+
 // SessionLookup reports whether a source key already has a session and, if so, when its
 // last turn started. It is injected rather than read from the store because a source never
 // touches the store.
@@ -143,9 +154,7 @@ var _ conductor.Source = (*Source)(nil)
 func New(opts Options) (*Source, error) {
 	switch {
 	case opts.Playbook == nil || opts.Playbook() == "":
-		return nil, errors.New("linear: no playbook sets `linear: true`, so there is nothing to run a " +
-			"ticket with. Set it on exactly one playbook — a playbooks/*.yaml, or one made in the web " +
-			"UI — or unset PODIUM_AGENT_LINEAR_API_KEY")
+		return nil, errors.New(noPlaybook + "or unset PODIUM_AGENT_LINEAR_API_KEY")
 	case opts.PollInterval <= 0:
 		return nil, errors.New("linear: a poll interval is required")
 	case opts.Session == nil:
@@ -469,7 +478,7 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 	}}
 	for _, c := range issue.Comments.Nodes {
 		text := strings.TrimSpace(c.Body)
-		if text == "" {
+		if text == "" || (c.User == nil && strings.HasPrefix(text, sessionThreadOpener)) {
 			continue
 		}
 		role := conductor.RoleUser
@@ -852,19 +861,40 @@ func Ref(issueID, teamID, identifier string) string {
 	return issueID + "/" + teamID + "/" + identifier
 }
 
-// ParseRef splits a Ref. Only the issue id is required: an issue with no team or no
-// identifier is not something Linear produces, but a ref written by an older version must
-// not make a resumed turn unpostable.
-func ParseRef(ref string) (issueID, teamID, identifier string, err error) {
-	parts := strings.Split(ref, "/")
-	if len(parts) != 3 || parts[0] == "" {
-		return "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier ref", ref)
-	}
-	return parts[0], parts[1], parts[2], nil
+// SessionRef is a Ref for a turn the agent app started: the same three parts and the agent
+// session as a fourth, because an app answers into the session rather than the issue.
+func SessionRef(issueID, teamID, identifier, sessionID string) string {
+	return Ref(issueID, teamID, identifier) + "/" + sessionID
 }
 
-// SourceKey is a session's identity: the issue, for the life of the ticket.
+// ParseRef splits a Ref or a SessionRef, without the session. Only the issue id is
+// required: an issue with no team or no identifier is not something Linear produces, but a
+// ref written by an older version must not make a resumed turn unpostable.
+func ParseRef(ref string) (issueID, teamID, identifier string, err error) {
+	issueID, teamID, identifier, _, err = ParseSessionRef(ref)
+	return issueID, teamID, identifier, err
+}
+
+// ParseSessionRef splits a ref into its parts. The session is empty for a three-part ref:
+// one the poller wrote, which may outlive the poller in a queued or resumed turn.
+func ParseSessionRef(ref string) (issueID, teamID, identifier, sessionID string, err error) {
+	parts := strings.Split(ref, "/")
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] == "" {
+		return "", "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier[/session] ref", ref)
+	}
+	if len(parts) == 4 {
+		sessionID = parts[3]
+	}
+	return parts[0], parts[1], parts[2], sessionID, nil
+}
+
+// SourceKey is a polled session's identity: the issue, for the life of the ticket.
 func SourceKey(issueID string) string { return Kind + ":" + issueID }
+
+// SessionKey is the identity of a conversation the agent app holds: one Linear agent
+// session. A second delegation or mention on the same issue is a session of its own, and
+// reads the earlier ones through the issue's comments.
+func SessionKey(sessionID string) string { return Kind + ":session:" + sessionID }
 
 // withFooter adds the one line that says which Podium task said this. It is the thread a
 // human pulls when they want the logs, and it is the only thing this source adds to text
