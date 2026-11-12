@@ -1049,18 +1049,19 @@ export function PlaybookEditor({
           <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
             <Switch
               id={`${uid}-linear`}
-              aria-label="Runs Linear tickets"
+              aria-label="Runs Linear issues"
               checked={linear}
               onCheckedChange={setLinear}
               className="mt-0.5"
             />
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor={`${uid}-linear`} className="text-fg">
-                This is the playbook Linear tickets run
+                This is the playbook Linear issues run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one playbook may set it: a ticket has no channel and no slash prefix to
-                choose with.
+                An issue delegated to Podium in Linear runs it, and so does an @mention when this
+                conductor has no host runtime; with one, the assistant answers a mention. Anyone
+                can name another playbook with /name. At most one playbook may set it.
               </p>
             </div>
           </div>

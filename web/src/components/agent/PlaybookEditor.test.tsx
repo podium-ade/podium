@@ -101,6 +101,16 @@ describe("PlaybookEditor", () => {
     });
   });
 
+  it("says the Linear switch is what delegated issues run, and mentions only without a host runtime", async () => {
+    mount();
+    const toggle = screen.getByRole("switch", { name: "Runs Linear issues" });
+    expect(screen.getByText("This is the playbook Linear issues run")).toBeInTheDocument();
+    expect(screen.getByText(/An issue delegated to Podium in Linear runs it/)).toBeInTheDocument();
+    expect(screen.getByText(/with one, the assistant answers a mention/)).toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(toggle).toBeChecked();
+  });
+
   // The gap Phase 2 left open: a playbook made in a browser had no way to name a skill, so
   // the allow-list only existed in a file.
   it("sends the skills allow-list, and nothing when none is named", async () => {
