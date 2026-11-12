@@ -53,11 +53,6 @@ export type ProviderSpec = {
   secretHelp: string;
   /** What the concurrency cap means for this provider. */
   maxConcurrentHelp: string;
-  /**
-   * A provider that reports no account limit: with no cap here nothing bounds it, so the setup
-   * dialog warns when the cap is left empty. It still saves; the bill is the admin's to call.
-   */
-  unbounded?: boolean;
   fields: ProviderField[];
 };
 
@@ -139,7 +134,6 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
     maxConcurrentHelp:
       "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill. Empty is no cap.",
-    unbounded: true,
     fields: [
       { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
       {

@@ -309,12 +309,6 @@ export function SandboxProviderDialog({
                           className="max-w-40 font-mono text-xs tabular-nums"
                         />
                         {cap === undefined ? <p className="m-0 text-sm text-err">A whole number.</p> : null}
-                        {cap === 0 && spec.unbounded ? (
-                          <Alert variant="warn" title="No cap" data-testid="provider-uncapped">
-                            Nothing limits how many {spec.label} sandboxes run at once, or what they cost. Set a
-                            number to bound the bill.
-                          </Alert>
-                        ) : null}
                         {cap !== undefined && accountLimit > 0 && cap > accountLimit ? (
                           <Alert variant="warn" title={`Higher than the ${spec.label} account allows`}>
                             The account runs at most {accountLimit} sandboxes at once, so tasks past that wait
