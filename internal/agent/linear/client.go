@@ -1,14 +1,14 @@
-// Package linear is the bot's Linear identity: assigned issues polled into inbound events,
-// and the five ways the conductor talks back. It implements conductor.Source and knows
+// Package linear is the bot's Linear identity: assigned issues polled, or an agent app's
+// webhooks, turned into inbound events, and the five ways the conductor talks back. It implements conductor.Source and knows
 // nothing about sessions, tasks or briefs.
 //
-// It DIALS OUT and never listens. Linear's own documentation prefers webhooks, and a
-// webhook would be better — AppUserNotification carries an `issueAssignedToYou` action,
-// which is the exact predicate this file has to reconstruct. It needs an OAuth `actor=app`
-// application and an inbound listener, and Podium had neither when this was written. So:
-// polling. The agent app is being built now (docs/linear-agent-plan.md): the client can
-// already sign in as one with a TokenSource, and the webhook source that replaces the
-// poller comes after it.
+// The poller (linear.go) DIALS OUT and never listens. Linear's own documentation prefers
+// webhooks — AppUserNotification carries an `issueAssignedToYou` action, which is the exact
+// predicate the poller has to reconstruct — and they need an OAuth `actor=app` application
+// and an inbound listener, which Podium had neither of when it was written. The agent app
+// (app.go, webhook.go) is that: it signs in with a TokenSource and is told of delegations and
+// mentions on a webhook. A saved app replaces the poller; the poller is kept for a workspace
+// that has no app.
 package linear
 
 import (
