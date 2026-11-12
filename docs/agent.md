@@ -424,9 +424,9 @@ own, in order, run as the person who asked it — their secrets, their MCP serve
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
 - **A shared conversation spends the company's model key.** Once a chat is multiplayer, and
-  always for a Slack thread or a pull request, every turn and every task it delegates runs on
-  the company's credential, never on the asker's own `model.<provider>.api_key` or Claude
-  sign-in, the owner's included. A shared conversation has one context, so it spends one
+  always for a Slack thread, a Linear issue or a pull request, every turn and every task it
+  delegates runs on the company's credential, never on the asker's own
+  `model.<provider>.api_key` or Claude sign-in, the owner's included. A shared conversation has one context, so it spends one
   credential: turns from different people then share the provider's prompt cache, which is
   scoped to the credential's workspace, and nobody's own key is spent by somebody else's
   question. Only the model key moves. The asker's secrets, MCP servers and GitHub account
@@ -521,7 +521,8 @@ link, which the assistant puts in its reply.
 
 - **It is the asker's chat.** The owner is the person who started the turn, on whatever
   surface they spoke — exactly as if they had opened it themselves. A turn nobody in Podium
-  started (an automatic review, Linear, an anonymous review command) cannot open one.
+  started (an automatic review, a ticket the Linear poller saw, an anonymous review command)
+  cannot open one.
 - **It starts from the opening and links home.** The first message is the assistant's,
   ending "_Opened for Dana from [another conversation](…)_". The backlink is the plain chat
   link, never the origin's link token, and leaves the origin's title out: the new chat may
@@ -1599,9 +1600,10 @@ A signed-in person sees two tabs, the same as Secrets and MCP servers:
 
 A turn somebody starts from Chat spends **their own credential when they set one for that
 provider, and the global key otherwise**; a row on Yours that is unset says *Using the global
-key*. A turn with no Podium person behind it — a Slack mention, a Linear assignment, a GitHub
-review — always spends the global key. The decision is made once when the turn starts, so the
-secret it is handed and the endpoint its brief names (an OpenAI subscription talks to Codex,
+key*. A turn with no Podium person behind it — a ticket the Linear poller saw, an automatic
+GitHub review — always spends the global key, and so does every turn of a shared conversation:
+a Slack thread, a Linear issue, a pull request. The decision is made once when the turn
+starts, so the secret it is handed and the endpoint its brief names (an OpenAI subscription talks to Codex,
 a key to `api.openai.com`) always agree. The picker's `ListAgents` reports a backend as ready
 when either credential is set, and says whose (`credential_source`).
 
@@ -1980,8 +1982,11 @@ Linear reaches Podium one of two ways, and never both:
 
 A saved app turns the poller off even when the key is set, because the two would start every
 ticket twice. Removing the app turns the poller back on. Either way the turn runs the playbook
-marked `linear: true`, as a task, and has no Podium person behind it: who asked is not resolved
-to a login yet, so the turn gets no one's personal secrets.
+marked `linear: true`, as a task. The two differ in **who may ask**: the app answers only a
+person signed in to Podium and runs as them ([Who is who](#who-is-who)); the poller cannot
+tell who asked, so anybody who can assign the bot user a ticket starts a turn, which runs as
+nobody. The poller is the weaker mode; its one advantage is that nothing has to reach the
+conductor from outside.
 
 ### The agent app
 
@@ -2002,8 +2007,8 @@ is and in which workspace. The listen address may be the GitHub App's: the condu
 |---|---|
 | an issue delegated to the app | a turn, with the identifier, the title and the description as the instruction, worded as the poller words an assignment |
 | the app @mentioned in a comment | a turn, with the comment, less the mention, as the instruction |
-| a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question, otherwise a turn of its own |
-| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, and the session closes with “Stopped.”, or, when nothing was running, says so |
+| a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question and the reply is from the person whose turn it is, otherwise a turn of its own, run as whoever wrote it |
+| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, and the session closes with “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not |
 
 A new session gets a thought (“Starting on this.”) at once, before the conductor has chosen a
 playbook, because Linear marks a session unresponsive when nothing is said within ten seconds.
@@ -2012,6 +2017,21 @@ Every delivery is checked first: the `Linear-Signature` HMAC with the signing se
 hours (Linear retries for six), and the workspace and app user the save found. Anything else is
 answered 200 and logged as `linear: webhook` with its outcome, and counted in
 `podium_agent_linear_webhook_deliveries_total`.
+
+**Who may ask.** Every prompt — the delegation or mention that opens a session, and each reply
+in it — is answered only for a person in Podium, and the turn runs as them: their personal
+secrets, their MCP servers, their GitHub account. The model key is the company's, because a
+Linear issue is a conversation anybody who can see it may speak in. The speaker is whoever wrote
+that prompt, not whoever opened the session. The app asks Linear about them (`user(id:)`, kept
+ten minutes) and offers their email only for an active, full member of its workspace — not a
+guest, not an app user; the conductor keeps it only when it is a login that has signed in to
+Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set, exactly as for Slack. Anybody else
+sees “Starting on this.” replaced by an error — *I can only work for people who are signed in to
+Podium. Sign in to Podium with the same email address you use in Linear, then ask me again.* —
+which ends the session; nothing runs, and a delegated issue is not moved. When somebody else's
+turn is still open in that session, the same words are a thought instead, so their turn is not
+ended under them. *Stop* is not gated: it starts nothing, and anybody Linear shows the button to
+may end work they can see.
 
 **What it says back.** Into the session, as agent activities, never as edited comments:
 progress is an ephemeral *thought* that the next one replaces, the answer a *response*, a
@@ -2040,8 +2060,8 @@ unless it is already started, completed or cancelled. A session opened by an @me
 issue where it is: a question in a comment is not a request to move the ticket. Linear sets
 the issue's delegate itself.
 
-**What it does not do yet.** It does not resolve who asked to a Podium login, or route a
-mention to the assistant. A Stop reaches the conductor the webhook arrived at; when another
+**What it does not do yet.** It does not route a mention to the assistant, and a session has
+no chat in the web UI. A Stop reaches the conductor the webhook arrived at; when another
 conductor is running the turn, the task is still cancelled, but that conductor may post the
 turn's cancellation as an error after “Stopped.”. See
 [linear-agent-plan.md](linear-agent-plan.md).
@@ -2056,6 +2076,12 @@ and clears the mark.
 Assign an issue to the bot and it picks the work up. Comment on that issue and it takes another
 turn. Nothing else is a trigger, and nothing about Linear reaches this host inbound: the
 conductor **polls**, on a timer, dialling out.
+
+Polling is the **unauthenticated** mode. The bot seat sees that an issue was assigned to it or
+commented on, not anybody it could prove is a Podium person, so every polled turn runs as
+nobody — company credentials, the global MCP list, no `user_secrets:` — for anybody who can
+assign the bot user a ticket. Use it where no webhook can reach the conductor, and prefer the
+agent app everywhere else.
 
 #### Setting it up
 
@@ -2651,8 +2677,9 @@ The turn fails, and says why, when:
   accepts their connection: the refresh token went six months unused, or they revoked the
   App. **Your account** then says the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
-- The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
-  the web chat.
+- The turn has no Podium person: a ticket the Linear poller saw, an automatic review, or a
+  review command from somebody outside Podium. Ask from the web chat, Slack or a Linear agent
+  session instead.
 
 **Disconnect** under **Your account** deletes the token. To revoke the grant on GitHub too, use
 **Settings → Applications → Authorized GitHub Apps** on GitHub.
@@ -3066,21 +3093,26 @@ engine features Podium does not surface.
 
 ## Who is who
 
-One person is one identity across every surface, and a Slack or GitHub account counts as a
-person only once it has been **proven** to be a Podium login (`identities` in
+One person is one identity across every surface, and a Slack, Linear or GitHub account counts
+as a person only once it has been **proven** to be a Podium login (`identities` in
 `podium_agent`):
 
 | Account | Proven by |
 |---|---|
 | Podium (web) | signing in through podium-server; the first proxied call records it |
 | Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| Linear (the agent app) | the person who wrote the prompt, an active, full member of the app's workspace — not a guest, not an app user — whose email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Keyed `<organization>/<user>` |
 | GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
+
+The Linear poller proves nobody: a polled ticket runs as nobody, whoever assigned it.
 
 What that decides:
 
 - **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
-  🚫; nothing runs. On GitHub, a commenter who has not connected GitHub may ask for exactly
-  one thing — a review, with `@podium review` or `/review` at the start of a line.
+  🚫; nothing runs. A Linear agent session from anybody else is told so in the session, which
+  ends; nothing runs. The Linear poller is the exception: it cannot tell who asked. On GitHub,
+  a commenter who has not connected GitHub may ask for exactly one thing — a review, with
+  `@podium review` or `/review` at the start of a line.
   Whatever follows the command is ignored: nothing the requester wrote is put to the model as
   a request. It runs the review playbook on the App's credentials, read-only, with a fixed
   instruction. One per person per pull request every ten minutes. Anything else from them
