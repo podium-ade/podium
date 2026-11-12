@@ -147,3 +147,33 @@ func TestAStopHeardElsewhereSilencesTheTurnRunningHere(t *testing.T) {
 	require.Len(t, acts, before+2)
 	assert.Equal(t, "response", acts[before+1]["content"].(map[string]any)["type"])
 }
+
+// An answer that failed to post is retried by the conductor's outbox, and may land after the
+// next turn has started. It is said, since it is owed, but it is the earlier turn's: the turn
+// now running is not ended by it, so its progress is still a passing thought and it is still
+// kept alive.
+func TestARetriedAnswerFromAnEarlierTurnDoesNotEndTheTurnNowRunning(t *testing.T) {
+	h := newAppHarness(t)
+	ctx := context.Background()
+	h.startTurn(t)
+	h.clock.advance(ActivityThrottle)
+	_, err := h.src.Post(ctx, sessionRef(), conductor.Outbound{Type: conductor.OutProgress, Text: "⏳ one", TaskID: "task-1"})
+	require.NoError(t, err)
+	h.startTurn(t)
+
+	_, err = h.src.Post(ctx, sessionRef(), conductor.Outbound{Type: conductor.OutFinal, Text: "The first answer.", TaskID: "task-1"})
+	require.NoError(t, err)
+	h.clock.advance(ActivityThrottle)
+	_, err = h.src.Post(ctx, sessionRef(), conductor.Outbound{Type: conductor.OutProgress, Text: "⏳ two", TaskID: "task-2"})
+	require.NoError(t, err)
+
+	acts := h.activities()
+	require.Len(t, acts, 5)
+	assert.Equal(t, "response", acts[3]["content"].(map[string]any)["type"], "the earlier answer is said")
+	assert.Equal(t, map[string]any{"type": "thought", "body": "two"}, acts[4]["content"],
+		"and the turn now running goes on as it was")
+	assert.Equal(t, true, acts[4]["ephemeral"])
+
+	h.clock.advance(KeepAliveAfter)
+	assert.Equal(t, keepAliveText, h.activities()[5]["content"].(map[string]any)["body"], "it is still kept alive")
+}
