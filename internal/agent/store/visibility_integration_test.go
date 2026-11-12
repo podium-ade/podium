@@ -220,6 +220,22 @@ func TestIdentitiesResolveAndMove(t *testing.T) {
 	require.Error(t, s.UpsertIdentity(ctx, Identity{Login: alice, Provider: "myspace", ExternalID: "x"}))
 }
 
+// A Linear account is a provider the table accepts (0045), keyed by workspace and user.
+func TestALinearAccountCanBeProvenToBeALogin(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	id := LinearExternalID("org-1", "u-1")
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: alice, Provider: ProviderLinear, ExternalID: id, DisplayName: "Alice"}))
+	login, err := s.IdentityLogin(ctx, ProviderLinear, id)
+	require.NoError(t, err)
+	assert.Equal(t, alice, login)
+
+	// The check constraint, not only the Go guard, refuses a provider nobody named.
+	_, err = s.pool.Exec(ctx, `insert into identities (login, provider, external_id, verified_at)
+		values ($1, 'myspace', 'x', now())`, alice)
+	require.Error(t, err)
+}
+
 // Participants are the Podium people first, then the names in the thread that are not one of
 // them. A Slack display name a participant is known by is merged into them, not listed twice.
 func TestChatParticipantsMergesAuthorsIntoPeople(t *testing.T) {
