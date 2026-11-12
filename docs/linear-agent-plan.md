@@ -159,7 +159,7 @@ What else the spike showed:
   delegation, because only that kind moves the issue and the ref is what survives a restart.
 - **Leadership:** the webhook source runs on every conductor with no leader lock. `ExternalID`
   is the prompt's activity id, which a retry keeps. The conductor dedupes on it only for a
-  mirrored source, and Linear sessions are not mirrored until phase 6, so the source itself
+  mirrored source, and Linear sessions are not mirrored until phase 5, so the source itself
   remembers delivery and activity ids for seven hours, past Linear's last retry.
 - **Listener:** a small server in `internal/agent/webhooks` owns the webhook listeners by
   address, and the GitHub and Linear sources mount their paths on it.
@@ -211,7 +211,16 @@ A second implementation of `conductor.Source` for session-mode refs.
 - **Docs:** rewrite the Linear paragraphs in `docs/security.md` and `SECURITY.md`. The
   "anyone who can assign runs code" warning then applies only to poll mode.
 
-## Phase 5: routing
+## Phase 5: chat mirror
+
+This comes before routing because answering a mention with the assistant is a conversation, and
+a conversation in the conductor is built on a chat row.
+
+- **Mirror:** Linear sessions get a chat row, like Slack threads and pull requests, so they
+  appear in the web UI with a link back and `startchat` works from them. The chat row brings
+  the conductor's own dedupe on `ExternalID` and the delivery outbox to Linear.
+
+## Phase 6: routing
 
 - **Delegation** runs a playbook as a task. A `/playbook` prefix in the prompt picks one;
   otherwise the `linear: true` playbook runs.
@@ -219,12 +228,6 @@ A second implementation of `conductor.Source` for session-mode refs.
   on, and it may delegate from there. Without the host runtime it runs the `linear: true`
   playbook.
 - **Later, if wanted:** a `linear_teams:` list on a playbook, mirroring `slack_channels`.
-
-## Phase 6: chat mirror and docs
-
-- **Mirror:** Linear sessions get a chat row, like Slack threads and pull requests, so they
-  appear in the web UI with a link back and `startchat` works from them. This needs a
-  migration.
 - **Docs:** `docs/agent.md`, `docs/networking.md` (the "Linear is still polling" line),
   `docs/operations.md`, and the README environment table.
 
@@ -241,7 +244,8 @@ A second implementation of `conductor.Source` for session-mode refs.
 
 Phases 1 to 3 are the core and only make sense together for users, though each merges alone
 behind the unsaved connection. Phase 4 should land before this is documented as ready, since
-it closes the security gap. Phases 5 and 6 are independent of each other.
+it closes the security gap. Phase 6 builds on phase 5: routing a mention to the assistant
+needs the session's chat row.
 
 | Phase | Rough size |
 |---|---|
@@ -250,5 +254,5 @@ it closes the security gap. Phases 5 and 6 are independent of each other.
 | 2: webhooks in | one day |
 | 3: activities out | one day |
 | 4: identity | half a day |
-| 5: routing | one day |
-| 6: chat mirror and docs | one day |
+| 5: chat mirror | one day |
+| 6: routing and docs | one day |
