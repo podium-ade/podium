@@ -522,7 +522,7 @@ func TestAMentionsRefIsNotADelegations(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // startTurn posts a turn's placeholder into the delegation's session, as the conductor does
-// first thing, and returns its id.
+// first thing for a turn of the linear: true playbook, and returns its id.
 func (h *appHarness) startTurn(t *testing.T) string {
 	t.Helper()
 	return h.startTurnOn(t, sessionRef())
@@ -530,7 +530,9 @@ func (h *appHarness) startTurn(t *testing.T) string {
 
 func (h *appHarness) startTurnOn(t *testing.T, ref string) string {
 	t.Helper()
-	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.Placeholder, Speaker: conductor.Speaker{Playbook: "linear-work"},
+	})
 	require.NoError(t, err)
 	return id
 }

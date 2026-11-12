@@ -69,6 +69,20 @@ const (
 	pullRequestLinkLabel = "Pull request"
 )
 
+// delegatedLinkLabel names a task an assistant's turn delegated, among the others in the same
+// session: its playbook, and enough of its id to tell two of one playbook apart and to find it
+// in the task list.
+func delegatedLinkLabel(playbook, taskID string) string {
+	short := taskID
+	if r := []rune(short); len(r) > 8 {
+		short = string(r[:8])
+	}
+	if playbook == "" {
+		return taskLinkLabel + " " + short
+	}
+	return taskLinkLabel + ": " + playbook + " (" + short + ")"
+}
+
 // StopReason is what the control plane records as why a task a Stop cancelled was cancelled.
 const StopReason = "stopped from the Linear agent session"
 
@@ -90,8 +104,9 @@ type AppOptions struct {
 	// AppName is the app user's name. A mention of it at the start of a comment is not part
 	// of what was asked. Optional.
 	AppName string
-	// Playbook names the playbook Linear runs — the one with linear: true — exactly as for
-	// the poller. Required, and must return non-empty at NewApp.
+	// Playbook names the linear: true playbook. Required, and must return non-empty at NewApp:
+	// it is what a delegated issue runs when nobody names another, so an app with none could
+	// take no delegation. The source does not route with it; the conductor does.
 	Playbook func() string
 	// TaskURL renders a link to a Podium task page. It is the fallback when an attachment
 	// cannot be uploaded.
@@ -123,10 +138,14 @@ type AppOptions struct {
 // Kind as the poller, and only one of the two ever runs.
 //
 // Each agent session is one conversation, and a chat in Podium (MirrorKey). A delegation or an
-// @mention opens one and starts a turn of the linear: true playbook; what people say in it
-// afterwards is a follow-up. Everything the turn says goes back into the session as an
-// activity. Linear writes the prompts, questions and answers into the issue's comments, which
-// is where the issue and what was said on it outside the session are read from.
+// @mention opens one; what people say in it afterwards is a follow-up. The source says which of
+// the two opened it (InboundEvent.Delegated) and the conductor decides what answers: a
+// delegation runs a playbook as a task, a mention is answered by the assistant where there is
+// one, and a /playbook prefix in a person's words names a playbook for that turn. Everything a
+// turn says goes back into the session as an activity, and so does everything the tasks an
+// assistant's turn delegated say. Linear writes the prompts, questions and answers into the
+// issue's comments, which is where the issue and what was said on it outside the session are
+// read from.
 type AppSource struct {
 	client *Client
 	// comments is the poller's comment machinery, signed in as the app. It reads the
@@ -196,12 +215,21 @@ type speakerAccount struct {
 // runs one turn of a session at a time, so a placeholder is never part of the turn before it.
 // It ends with an answer or a failure, or the reaction after it.
 //
+// A turn the assistant answers is told apart by its placeholder, which no playbook says (the
+// zero conductor.Speaker). Such a turn has no task, and anything said in its session with a task
+// id comes from a task an assistant's turn delegated. Each of those is a piece of work of its
+// own (delegatedTask): it works, asks, answers and fails beside the turn and after it, and the
+// session is kept alive while any of them is working.
+//
 // Every field but send is guarded by AppSource.mu.
 type appSession struct {
 	// send is held across posting an activity, and across the check that it may still be
 	// posted. Without it a keep-alive that checked the turn was running could land just after
 	// the answer, and a thought after a response reopens a session that was complete.
 	send sync.Mutex
+
+	// id is the session's own id, for the timers a change in what is working re-arms.
+	id string
 
 	// lastActivity is when anything was last posted into the session, for the keep-alive,
 	// and lastEphemeral when an ephemeral activity was, for ActivityThrottle.
@@ -244,6 +272,22 @@ type appSession struct {
 	// (a restart) is still recognised in the cancellation by its reason (Post).
 	stopped      bool
 	stoppedTasks map[string]bool
+	// host is the newest turn being one the assistant answers, on the conductor's host.
+	host bool
+	// delegated is every task an assistant's turn in the session delegated, by task id.
+	delegated map[string]*delegatedTask
+}
+
+// delegatedTask is a task an assistant's turn delegated, as the session draws it: a piece of
+// work beside the turn, which outlives it. Guarded by AppSource.mu.
+type delegatedTask struct {
+	// playbook is the playbook it runs, which tells its link from another's.
+	playbook string
+	// running is a task working: not answered, failed, stopped or waiting on a question.
+	running bool
+	// closing is what it ended on, response or error, as appSession.closing is for a turn:
+	// anything it says after its answer is said as the same type.
+	closing string
 }
 
 var (
@@ -558,8 +602,9 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		Mentioned: true,
 		Text:      text,
 		BriefKind: conductor.SourceLinear,
-		// The playbook is named here rather than routed, as the poller names it.
-		Playbook:        s.playbook(),
+		// What happened, and not what should run: the conductor routes a delegation to a
+		// playbook and a mention to the assistant, and reads a /playbook prefix in either.
+		Delegated:       sess.delegated(),
 		SpeakerProvider: conductor.SpeakerLinear,
 	}
 	if act.User != nil && act.User.ID != "" {
@@ -699,7 +744,10 @@ func (s *AppSource) FetchTranscript(ctx context.Context, ref string) ([]conducto
 //
 // The placeholder starts a turn: the keep-alive with it. Progress said after the turn has
 // answered — a file that was not produced, or one too large to relay — belongs to the answer
-// and is said as the same type, because a thought after a response reopens the session.
+// and is said as the same type, because a thought after a response reopens the session. A
+// task an assistant's turn delegated is held to its own answer, not the turn's: its progress
+// after the assistant has answered is a thought, since it is working, and reopening the
+// session is what should happen.
 //
 // A ref with no session is a turn the poller started, and is answered with a comment.
 func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
@@ -715,7 +763,8 @@ func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound
 		// The turn's own "This was cancelled", for a task a Stop in this session cancelled. The
 		// session was closed with "Stopped." by whichever conductor heard the Stop, and Linear
 		// forbids saying anything after it. The control plane recorded why the task ended, so
-		// this is known on every conductor, and on an outbox retry after a restart.
+		// this is known on every conductor, and on an outbox retry after a restart. A task an
+		// assistant's turn delegated is cancelled with the same reason, and refused the same way.
 		s.mu.Lock()
 		if out.TaskID != "" {
 			st.stoppedTasks[out.TaskID] = true
@@ -726,12 +775,12 @@ func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound
 		return "", nil
 	}
 	if out.Type == conductor.OutProgress && out.Text == conductor.Placeholder {
-		s.turnStarted(sessionID, st)
+		s.turnStarted(sessionID, st, out.Speaker == conductor.Speaker{})
 	}
-	s.linkTask(ctx, sessionID, st, out.TaskID)
+	s.linkTask(ctx, sessionID, st, out.TaskID, out.Playbook)
 	content, ephemeral := activityFor(out)
 	s.mu.Lock()
-	if closing := st.closing; out.Type == conductor.OutProgress && closing != "" {
+	if closing := s.closingLocked(st, out.TaskID, out.Playbook); out.Type == conductor.OutProgress && closing != "" {
 		content, ephemeral = ActivityContent{Type: closing, Body: content.Body}, false
 	}
 	s.mu.Unlock()
@@ -757,7 +806,7 @@ func (s *AppSource) Edit(ctx context.Context, ref, msgID string, out conductor.O
 		return s.comments.Edit(ctx, ref, msgID, out)
 	}
 	st := s.session(sessionID)
-	s.linkTask(ctx, sessionID, st, out.TaskID)
+	s.linkTask(ctx, sessionID, st, out.TaskID, out.Playbook)
 	body := thoughtText(out.Text)
 	if body == "" {
 		return nil
@@ -779,7 +828,7 @@ func (s *AppSource) PostActivity(ctx context.Context, ref string, out conductor.
 		return nil
 	}
 	st := s.session(sessionID)
-	s.linkTask(ctx, sessionID, st, out.TaskID)
+	s.linkTask(ctx, sessionID, st, out.TaskID, out.Playbook)
 	return s.throttled(ctx, sessionID, st, content, out.TaskID)
 }
 
@@ -815,6 +864,11 @@ func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reacti
 			s.mu.Unlock()
 			return nil
 		}
+		if st.host && !st.open {
+			// A delegated task answered, and working again. It says so itself, as a task.
+			s.mu.Unlock()
+			return nil
+		}
 		st.running = true
 		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
 		move := delegatedRef(ref) && !st.moveChecked
@@ -827,6 +881,13 @@ func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reacti
 	case conductor.ReactionAwaiting:
 		st := s.session(sessionID)
 		s.mu.Lock()
+		if st.host {
+			// Only a task asks a question and parks; the assistant's turn does not. Its
+			// elicitation already said the task is waiting (send).
+			s.rearmLocked(st)
+			s.mu.Unlock()
+			return nil
+		}
 		st.running = false
 		s.disarmLocked(st)
 		s.mu.Unlock()
@@ -869,7 +930,13 @@ func (s *AppSource) Attach(ctx context.Context, ref string, file conductor.Attac
 		s.mu.Unlock()
 		return nil
 	}
-	taskID, closing := firstNonEmpty(file.TaskID, st.taskID), st.closing
+	taskID, closing := firstNonEmpty(file.TaskID, st.taskID), s.closingLocked(st, file.TaskID, "")
+	// A delegated task's file is said as that task, so it is neither the turn's answer nor
+	// late for it; a turn's own goes on being said as the turn's.
+	speaker := ""
+	if s.delegatedLocked(st, file.TaskID, "") != nil {
+		speaker = file.TaskID
+	}
 	s.mu.Unlock()
 
 	var line string
@@ -882,12 +949,14 @@ func (s *AppSource) Attach(ctx context.Context, ref string, file conductor.Attac
 			"name", file.Name, "error", err)
 		line = s.comments.fallbackLine(file.Name, taskID)
 	}
-	kind := conductor.OutFinal
+	content := ActivityContent{Type: ActivityResponse, Body: line}
 	if closing == ActivityError {
-		kind = conductor.OutFailure
+		content.Type = ActivityError
 	}
-	_, err = s.Post(ctx, ref, conductor.Outbound{Type: kind, Text: line})
-	return err
+	if _, err := s.send(ctx, sessionID, st, content, false, speaker, false); err != nil {
+		return fmt.Errorf("linear: post an attachment in session %s: %w", sessionID, err)
+	}
+	return nil
 }
 
 // LinkPullRequests implements the conductor's optional pull-request half of Source: each
@@ -926,15 +995,16 @@ func (s *AppSource) LinkPullRequests(ctx context.Context, ref string, prs []cond
 //
 // It is an error, which ends the session as Linear draws it: nothing is working in it, and
 // the person should not be left looking at "Starting on this." — unless somebody else's turn
-// is open in the same session, which an error would end under them. The refusal is then a
-// thought that stays, and the session goes on showing that turn.
+// is open in the same session, or a task one delegated is working, which an error would end
+// under them. The refusal is then a thought that stays, and the session goes on showing that
+// work.
 //
 // It is said even in a session somebody stopped: it is the source's own word about a new
 // prompt, not the stopped turn's.
 func (s *AppSource) refuseSpeaker(ctx context.Context, sessionID string) error {
 	st := s.session(sessionID)
 	s.mu.Lock()
-	open := st.open
+	open := st.open || s.workingLocked(st)
 	s.mu.Unlock()
 	content := ActivityContent{Type: ActivityError, Body: refusedText}
 	if open {
@@ -956,18 +1026,24 @@ func (s *AppSource) session(sessionID string) *appSession {
 	defer s.mu.Unlock()
 	st := s.sessions[sessionID]
 	if st == nil {
-		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}, pastTasks: map[string]bool{}}
+		st = &appSession{
+			id: sessionID, linked: map[string]bool{}, stoppedTasks: map[string]bool{}, pastTasks: map[string]bool{},
+			delegated: map[string]*delegatedTask{},
+		}
 		s.sessions[sessionID] = st
 	}
 	return st
 }
 
 // turnStarted is the placeholder of a new turn: whatever the last one ended on, this one has
-// not ended, it has not looked at the issue's state, and the last turn's task is not its own. It is also the end of a stop: the
-// conductor runs a session's turns one at a time, so the stopped turn has finished by now.
-func (s *AppSource) turnStarted(sessionID string, st *appSession) {
+// not ended, it has not looked at the issue's state, and the last turn's task is not its own.
+// It is also the end of a stop: the conductor runs a session's turns one at a time, so the
+// stopped turn has finished by now. host is a turn the assistant answers. The tasks earlier
+// turns delegated are left as they are: they are not the turn, and may still be working.
+func (s *AppSource) turnStarted(sessionID string, st *appSession, host bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	st.host = host
 	// A new turn is a new task (a warm task takes a follow-up without one), and which it is
 	// is not known until it says something.
 	if st.taskID != "" {
@@ -984,11 +1060,75 @@ func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 }
 
 // endTurnLocked is a turn that is not working any more: answered, failed or stopped. Nothing
-// it held back is said, and it is not kept alive. The caller holds s.mu.
+// it held back is said, and it is not kept alive — but a task it delegated that is still
+// working keeps the session alive. The caller holds s.mu.
 func (s *AppSource) endTurnLocked(st *appSession) {
 	st.running = false
 	st.open = false
 	s.disarmLocked(st)
+	if s.workingLocked(st) {
+		s.armKeepAliveLocked(st.id, st, KeepAliveAfter)
+	}
+}
+
+// workingLocked reports whether anything in the session is working: the turn, or a task one of
+// its turns delegated. The caller holds s.mu.
+func (s *AppSource) workingLocked(st *appSession) bool {
+	if st.running {
+		return true
+	}
+	for _, d := range st.delegated {
+		if d.running {
+			return true
+		}
+	}
+	return false
+}
+
+// delegatedLocked is the task taskID as a task an assistant's turn delegated, or nil when it is
+// a turn's own task or no task. A task first heard of in a session whose turn the assistant
+// answers is one, and is remembered as one, with the playbook it said it ran. The caller holds
+// s.mu.
+func (s *AppSource) delegatedLocked(st *appSession, taskID, playbook string) *delegatedTask {
+	if taskID == "" {
+		return nil
+	}
+	if d := st.delegated[taskID]; d != nil {
+		if d.playbook == "" {
+			d.playbook = playbook
+		}
+		return d
+	}
+	if !st.host {
+		return nil
+	}
+	d := &delegatedTask{playbook: playbook}
+	st.delegated[taskID] = d
+	return d
+}
+
+// closingLocked is what the speaker of taskID ended on — the turn, or a task it delegated — and
+// empty while it has not. The caller holds s.mu.
+func (s *AppSource) closingLocked(st *appSession, taskID, playbook string) string {
+	if d := s.delegatedLocked(st, taskID, playbook); d != nil {
+		return d.closing
+	}
+	return st.closing
+}
+
+// rearmLocked keeps the session alive while anything in it is working, and stops when nothing
+// is. Unlike disarmLocked it leaves what the throttle holds: that is somebody else's latest
+// word, and still due. The caller holds s.mu.
+func (s *AppSource) rearmLocked(st *appSession) {
+	if s.workingLocked(st) {
+		s.armKeepAliveLocked(st.id, st, KeepAliveAfter)
+		return
+	}
+	if st.keepAlive != nil {
+		st.keepAlive()
+		st.keepAlive = nil
+	}
+	st.keepAliveGen++
 }
 
 // disarmLocked cancels both of a session's timers and forgets what the throttle held. The
@@ -1037,18 +1177,21 @@ func (s *AppSource) send(
 	defer st.send.Unlock()
 	s.mu.Lock()
 	refused := !closing && s.refusedLocked(st, taskID)
-	late := ephemeral && st.closing != ""
+	// A task an assistant's turn delegated answers, asks and fails on its own account, and
+	// is said whatever the turn has done: it is working after the assistant answered.
+	task := s.delegatedLocked(st, taskID, "")
+	late := ephemeral && s.closingLocked(st, taskID, "") != ""
 	// An earlier turn's answer, question or failure, retried by the delivery outbox after a
 	// newer turn has started. It is still said, since it is owed, but it is not the turn now
 	// running, so it neither ends that turn nor parks it.
-	earlier := taskID != "" && taskID != st.taskID && st.pastTasks[taskID]
+	earlier := task == nil && taskID != "" && taskID != st.taskID && st.pastTasks[taskID]
 	s.mu.Unlock()
 	if refused || late {
 		s.logger.DebugContext(ctx, "not posting into a linear session that was stopped or has answered",
 			"session", sessionID, "type", content.Type, "stopped", refused)
 		return "", nil
 	}
-	if taskID != "" && !earlier {
+	if taskID != "" && !earlier && task == nil {
 		s.mu.Lock()
 		st.taskID = taskID
 		s.mu.Unlock()
@@ -1067,6 +1210,19 @@ func (s *AppSource) send(
 	if earlier {
 		return id, nil
 	}
+	if task != nil {
+		switch content.Type {
+		case ActivityResponse, ActivityError:
+			task.closing, task.running = content.Type, false
+		case ActivityElicitation:
+			// Waiting for a person, who answers through the conductor into the task.
+			task.running = false
+		default:
+			task.running = true
+		}
+		s.rearmLocked(st)
+		return id, nil
+	}
 	switch content.Type {
 	case ActivityResponse, ActivityError:
 		st.closing = content.Type
@@ -1076,6 +1232,7 @@ func (s *AppSource) send(
 		// is not working until somebody answers.
 		st.running = false
 		s.disarmLocked(st)
+		s.rearmLocked(st)
 	}
 	return id, nil
 }
@@ -1087,7 +1244,7 @@ func (s *AppSource) throttled(
 	ctx context.Context, sessionID string, st *appSession, content ActivityContent, taskID string,
 ) error {
 	s.mu.Lock()
-	if s.refusedLocked(st, taskID) || st.closing != "" {
+	if s.refusedLocked(st, taskID) || s.closingLocked(st, taskID, "") != "" {
 		s.mu.Unlock()
 		return nil
 	}
@@ -1168,7 +1325,7 @@ func (s *AppSource) keepAliveFired(sessionID string, st *appSession, gen int) {
 		return
 	}
 	st.keepAlive = nil
-	if s.stopped || !st.running || st.stopped {
+	if s.stopped || !s.workingLocked(st) || st.stopped {
 		s.mu.Unlock()
 		return
 	}
@@ -1177,15 +1334,26 @@ func (s *AppSource) keepAliveFired(sessionID string, st *appSession, gen int) {
 		s.mu.Unlock()
 		return
 	}
+	// Said for whatever is working. When the turn has answered, that is a task it delegated,
+	// and the thought is that task's: the turn's answer does not make it late.
+	speaker := ""
+	if !st.running {
+		for id, d := range st.delegated {
+			if d.running {
+				speaker = id
+				break
+			}
+		}
+	}
 	s.wg.Add(1)
 	s.mu.Unlock()
 	defer s.wg.Done()
 	if _, err := s.send(s.work, sessionID, st,
-		ActivityContent{Type: ActivityThought, Body: keepAliveText}, true, "", false); err != nil {
+		ActivityContent{Type: ActivityThought, Body: keepAliveText}, true, speaker, false); err != nil {
 		s.logger.WarnContext(s.work, "linear: keeping a session alive failed", "session", sessionID, "error", err)
 	}
 	s.mu.Lock()
-	if st.running && !st.stopped {
+	if s.workingLocked(st) && !st.stopped {
 		s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
 	}
 	s.mu.Unlock()
@@ -1193,8 +1361,10 @@ func (s *AppSource) keepAliveFired(sessionID string, st *appSession, gen int) {
 
 // linkTask adds the Podium task to the session's links the first time the session hears of
 // it, which is the first thing the turn says once its task exists: the conductor posts the
-// placeholder before there is one.
-func (s *AppSource) linkTask(ctx context.Context, sessionID string, st *appSession, taskID string) {
+// placeholder before there is one. A turn the assistant answers has no task, and is not
+// linked; each task it delegates is, labelled with its playbook and its id, since a session
+// can have several.
+func (s *AppSource) linkTask(ctx context.Context, sessionID string, st *appSession, taskID, playbook string) {
 	if taskID == "" {
 		return
 	}
@@ -1205,8 +1375,12 @@ func (s *AppSource) linkTask(ctx context.Context, sessionID string, st *appSessi
 		return
 	}
 	st.linked[url] = true
+	label := taskLinkLabel
+	if d := s.delegatedLocked(st, taskID, playbook); d != nil {
+		label = delegatedLinkLabel(d.playbook, taskID)
+	}
 	s.mu.Unlock()
-	if err := s.client.AddSessionLinks(ctx, sessionID, ExternalURL{Label: taskLinkLabel, URL: url}); err != nil {
+	if err := s.client.AddSessionLinks(ctx, sessionID, ExternalURL{Label: label, URL: url}); err != nil {
 		// The answer names the task too, so a link that did not land costs a click.
 		s.logger.WarnContext(ctx, "linear: linking the task to the session failed",
 			"session", sessionID, "task_id", taskID, "error", err)
@@ -1225,10 +1399,7 @@ func (s *AppSource) stopping(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st.stopped = true
-	if st.taskID != "" {
-		st.stoppedTasks[st.taskID] = true
-	}
-	s.endTurnLocked(st)
+	s.stopAllLocked(st)
 	if _, draining := s.queues[sessionID]; draining {
 		s.queues[sessionID] = nil
 	}
@@ -1254,14 +1425,30 @@ func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
 	// Stop arrived may have posted its placeholder since, which ends a stop, and it is that
 	// turn the conductor just cancelled.
 	st.stopped = err != nil || stopped
-	if st.stopped && st.taskID != "" {
-		st.stoppedTasks[st.taskID] = true
+	if st.stopped {
+		s.stopAllLocked(st)
+	} else {
+		s.endTurnLocked(st)
 	}
-	s.endTurnLocked(st)
 	s.mu.Unlock()
 	if _, err := s.send(ctx, sessionID, st, content, false, "", true); err != nil {
 		s.logger.WarnContext(ctx, "linear: closing a stopped session failed", "session", sessionID, "error", err)
 	}
+}
+
+// stopAllLocked refuses, for good, everything a Stop ended in the session: the turn's task, and
+// every task an assistant's turn delegated — the conductor stops those too. Nothing is working
+// afterwards, so nothing is kept alive. The caller holds s.mu.
+func (s *AppSource) stopAllLocked(st *appSession) {
+	if st.taskID != "" {
+		st.stoppedTasks[st.taskID] = true
+	}
+	for id, d := range st.delegated {
+		// One that has answered may still be up, waiting for a follow-up, and is stopped too.
+		st.stoppedTasks[id] = true
+		d.running = false
+	}
+	s.endTurnLocked(st)
 }
 
 // StoppedElsewhere implements conductor.StopHearer: a conductor is cancelling the turn of one
@@ -1269,7 +1456,9 @@ func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
 // the Stop, or this one, which then learns the task it may not have known. The turn may be
 // running here. Its task is refused from now on, as if the Stop had arrived here, so nothing
 // it says as it dies lands after "Stopped." — which would show the session working again. A
-// host turn has no task, and is refused as the session's open turn, when there is one here.
+// host turn has no task, and is refused as the session's open turn, when there is one here. A
+// task an assistant's turn delegated is announced by its own id, one announcement each, and
+// is refused alone: the turn is announced on its own account.
 //
 // Unlike a Stop heard here, it neither closes the session (the source that heard it does) nor
 // drops this conductor's queued prompts: those may have arrived after the Stop.
@@ -1281,7 +1470,13 @@ func (s *AppSource) StoppedElsewhere(sourceKey, taskID string) {
 	st := s.session(sessionID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	switch {
+	switch d := s.delegatedLocked(st, taskID, ""); {
+	case d != nil:
+		// A task an assistant's turn delegated. It is not the turn, which the conductor stops
+		// on its own account, and announces with no task when it runs somewhere else.
+		st.stoppedTasks[taskID] = true
+		d.running = false
+		s.rearmLocked(st)
 	case taskID != "":
 		st.stoppedTasks[taskID] = true
 		if st.taskID == taskID || (st.taskID == "" && st.open) {
