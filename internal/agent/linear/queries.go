@@ -699,3 +699,45 @@ func (c *Client) IssueState(ctx context.Context, id string) (WorkflowState, Team
 	}
 	return out.Issue.State, out.Issue.Team, nil
 }
+
+// userAccountQuery reads what deciding whether a person may be matched to a Podium login needs.
+// `app` is the field AppIdentity reads on the viewer; `active` and `guest` are the User fields
+// Linear's schema declares for a suspended account and for a guest limited to some teams.
+const userAccountQuery = `query PodiumUserAccount($id: String!) {
+  user(id: $id) { id email active guest app }
+}`
+
+// Account is a Linear user as the identity check sees one.
+type Account struct {
+	ID    string
+	Email string
+	// Active is false for a suspended or removed member.
+	Active bool
+	// Guest is a member limited to the teams they were invited to.
+	Guest bool
+	// App is an app user: an agent, or an integration, rather than a person.
+	App bool
+}
+
+// UserAccount reads one user of the app's own workspace. The app's token reads only its own
+// workspace, so a user of any other is an error rather than an account.
+func (c *Client) UserAccount(ctx context.Context, id string) (Account, error) {
+	var out struct {
+		User *struct {
+			ID     string `json:"id"`
+			Email  string `json:"email"`
+			Active bool   `json:"active"`
+			Guest  bool   `json:"guest"`
+			App    bool   `json:"app"`
+		} `json:"user"`
+	}
+	if err := c.do(ctx, "PodiumUserAccount", userAccountQuery, map[string]any{"id": id}, &out); err != nil {
+		return Account{}, err
+	}
+	if out.User == nil || out.User.ID == "" {
+		return Account{}, fmt.Errorf("linear: no user %s", id)
+	}
+	return Account{
+		ID: out.User.ID, Email: out.User.Email, Active: out.User.Active, Guest: out.User.Guest, App: out.User.App,
+	}, nil
+}

@@ -230,6 +230,11 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 		return DeliveryIgnored, "unhandled", slog.LevelInfo
 	}
 	if act.Signal == SignalStop {
+		// A Stop is not checked against Podium the way a prompt is: whoever pressed it need
+		// not be signed in. Stopping is strictly less than starting — it ends work and starts
+		// none, on nobody's credentials — and Linear offers the button to everybody who can
+		// see the session. Refusing it would leave work running that a person in the room
+		// asked to end.
 		if !s.firstSighting("activity:" + act.ID) {
 			return DeliveryDuplicate, "stop already handled", slog.LevelInfo
 		}
@@ -254,10 +259,15 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 	s.enqueue(sess.ID, func(work context.Context) {
 		if created {
 			// Linear marks a session unresponsive when nothing is said within ten seconds of
-			// it opening. Choosing a playbook and starting a container can take longer, so
-			// the source says something itself, before the conductor sees the event.
+			// it opening. Choosing a playbook, checking who asked and starting a container
+			// can take longer, so the source says something itself, before the conductor
+			// sees the event — and before it knows whether it will act on it at all. A
+			// refusal follows it as an error, which ends the session.
 			s.acknowledge(work, sess.ID)
 		}
+		// Who asked is read here, off the request: it can take a call to Linear, and the
+		// webhook has five seconds to answer.
+		ev.Login = s.candidate(work, act.User)
 		s.emit(work, ev)
 	})
 	return DeliveryAccepted, "", slog.LevelInfo

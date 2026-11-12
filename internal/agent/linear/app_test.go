@@ -36,6 +36,9 @@ const (
 	mentionSession    = "1ae62bd3-e89b-462c-8f33-36eb67ec4a2a"
 	fixtureIssue      = "52966e51-9ffc-456c-a1f3-59e477a288d8"
 	fixtureTeam       = "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee"
+	// fixtureUser is Ada, who wrote every prompt in the fixtures.
+	fixtureUser  = "2d06a7a7-5875-4692-9ad6-23434de31c3b"
+	fixtureEmail = "ada@acme.com"
 )
 
 // appHarness is an AppSource against the GraphQL stub, with a clock, a log and metrics a
@@ -57,6 +60,21 @@ type appHarness struct {
 	// answers. Nil answers that something was stopped.
 	stops      []string
 	stopAnswer func(key string) (bool, error)
+	// users is what Linear says about each user the source asks after, by id. A user who is
+	// not here is not found. It starts with Ada, a full member of the workspace.
+	users map[string]map[string]any
+}
+
+// member is a Linear user as `user(id:)` answers for an active, full member.
+func member(id, email string) map[string]any {
+	return map[string]any{"id": id, "email": email, "active": true, "guest": false, "app": false}
+}
+
+// person makes what Linear says about one user.
+func (h *appHarness) person(user map[string]any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.users[user["id"].(string)] = user
 }
 
 type lockedBuffer struct {
@@ -83,6 +101,7 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 		clock: &fakeClock{now: time.UnixMilli(1794516370634).UTC()},
 		reg:   prometheus.NewRegistry(),
 		log:   &lockedBuffer{},
+		users: map[string]map[string]any{fixtureUser: member(fixtureUser, fixtureEmail)},
 	}
 	h.metrics = NewMetrics(h.reg)
 	ts, err := NewTokenSource(TokenSourceOptions{
@@ -133,6 +152,14 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 		return stubReply{Data: map[string]any{"agentActivityCreate": map[string]any{
 			"success": true, "agentActivity": map[string]any{"id": id},
 		}}}
+	})
+	h.stub.on("PodiumUserAccount", func(vars map[string]any) stubReply {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if u, ok := h.users[vars["id"].(string)]; ok {
+			return stubReply{Data: map[string]any{"user": u}}
+		}
+		return stubReply{Message: "Entity not found: User", Code: "INVALID_INPUT"}
 	})
 	return h
 }
@@ -444,9 +471,11 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 		RecordText: "Work on [EME-5](https://linear.app/acme/issue/EME-5/test-issue)",
 		BriefKind:  conductor.SourceLinear,
 		Playbook:   "coder",
+		// A candidate: the conductor keeps it only for a login that has signed in.
+		Login:           fixtureEmail,
+		SpeakerProvider: conductor.SpeakerLinear,
+		SpeakerID:       fixtureOrg + "/" + fixtureUser,
 	}, ev)
-	assert.Empty(t, ev.Login, "nobody is resolved yet")
-	assert.Empty(t, ev.SpeakerProvider)
 	assert.Equal(t, 1.0, h.events(t, EventDelegation))
 	assert.Equal(t, 1.0, h.deliveries(t, TypeAgentSession, DeliveryAccepted))
 	assert.Contains(t, h.log.String(), "session="+delegationSession)
