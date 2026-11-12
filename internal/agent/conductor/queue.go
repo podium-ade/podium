@@ -34,8 +34,12 @@ package conductor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -473,6 +477,134 @@ func (c *Conductor) CancelChatTurn(ctx context.Context, chatID string) (bool, er
 		}
 	}
 	return stopped, nil
+}
+
+// How long CancelSessionTurn waits for a turn that is starting to become one it can stop,
+// and how often it looks. A turn's row is written, and then its task created, within a second
+// or two of the turn starting; a Stop pressed in that gap must still stop it.
+const (
+	stopStartingWait = 15 * time.Second
+	stopStartingPoll = 200 * time.Millisecond
+)
+
+// CancelSessionTurn stops the turn answering one conversation, named by its source key, and
+// drops every turn queued behind it. It reports whether anything was stopped. It is how a
+// source whose surface has a Stop of its own — a Linear agent session — stops the work: the
+// source holds no conductor and is handed this.
+//
+// It differs from CancelChatTurn in the queue. Stopping a web chat's turn lets the next queued
+// message start; a Stop on a Linear session ends the session's work, and Linear forbids an
+// agent to act in a session after it was stopped, so a follow-up queued before the Stop never
+// runs.
+//
+// The turn is stopped as every other turn is: a task through the control plane, which does
+// not care which conductor follows it, and a host turn by cancelling it here or asking the
+// conductor that runs it. The run following the turn then records it cancelled and posts what
+// it posts for any cancelled turn; a source that answers a stop itself refuses those posts.
+// A turn parked on a question is released first, so a reply that arrives as it ends is not
+// injected into a task that is going away.
+func (c *Conductor) CancelSessionTurn(ctx context.Context, sourceKey, reason string) (bool, error) {
+	sess, err := c.store.GetSessionByKey(ctx, sourceKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	dropped := c.dropQueuedTurns(ctx, sess)
+	turn, ok, err := c.stoppableTurn(ctx, sess)
+	if err != nil || !ok {
+		return dropped > 0, err
+	}
+	if turn.TaskID == "" {
+		if c.CancelHostTurn(turn.TriggerRef) {
+			return true, nil
+		}
+		// No task after the wait, and not a host turn here: a host turn on another
+		// conductor, or a turn that is taking far longer than it should to get its task.
+		if !c.leasing() {
+			return dropped > 0, fmt.Errorf("conductor: turn %s has no task to cancel", turn.ID)
+		}
+		if err := c.store.Notify(ctx, store.TurnCancelChannel, turn.TriggerRef); err != nil {
+			return dropped > 0, fmt.Errorf("conductor: asking the other conductors to stop turn %s: %w", turn.ID, err)
+		}
+		return true, nil
+	}
+	c.clearAwaiting(sess.ID, turn.TaskID)
+	c.clearWarm(sess.ID, turn.TaskID)
+	if err := c.podium.CancelTask(ctx, turn.TaskID, reason); err != nil {
+		// FailedPrecondition is a task that is already over: stopped by a Stop before this one,
+		// or finishing as it was pressed. Either way nothing of it is running.
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+			return dropped > 0, fmt.Errorf("conductor: cancelling turn %s: %w", turn.ID, err)
+		}
+	}
+	c.logger.InfoContext(ctx, "stopped a turn at its conversation's request",
+		"session_id", sess.ID, "turn_id", turn.ID, "task_id", turn.TaskID, "dropped_queued", dropped)
+	return true, nil
+}
+
+// stoppableTurn is the session's running turn, once it is one CancelSessionTurn can stop: it
+// has its task, or it is a host turn running here. A turn without either yet is starting, and
+// is waited for, as is a session this conductor is serving whose turn row is not written yet.
+// ok is false when nothing is running. After stopStartingWait the turn is returned as it is.
+func (c *Conductor) stoppableTurn(ctx context.Context, sess store.Session) (store.Turn, bool, error) {
+	deadline := time.Now().Add(stopStartingWait)
+	for {
+		turns, err := c.store.ListTurns(ctx, sess.ID, 1)
+		if err != nil {
+			return store.Turn{}, false, err
+		}
+		var turn store.Turn
+		running := len(turns) > 0 && turns[0].Status == store.TurnRunning
+		if running {
+			turn = turns[0]
+		}
+		c.mu.Lock()
+		serving := c.state(sess.ID).running
+		_, hostHere := c.hostRuns[turn.TriggerRef]
+		c.mu.Unlock()
+		switch {
+		case running && (turn.TaskID != "" || hostHere):
+			return turn, true, nil
+		case !running && !serving:
+			return store.Turn{}, false, nil
+		case time.Now().After(deadline):
+			return turn, running, nil
+		}
+		select {
+		case <-ctx.Done():
+			return store.Turn{}, false, ctx.Err()
+		case <-time.After(stopStartingPoll):
+		}
+	}
+}
+
+// dropQueuedTurns removes every turn waiting in a session, durable and in-process alike, and
+// reports how many there were.
+func (c *Conductor) dropQueuedTurns(ctx context.Context, sess store.Session) int {
+	n := 0
+	for {
+		_, ok, err := c.store.PopQueuedTurn(ctx, sess.ID)
+		if err != nil {
+			c.logger.WarnContext(ctx, "dropping a stopped session's queued turns failed",
+				"session_id", sess.ID, "error", err)
+			break
+		}
+		if !ok {
+			break
+		}
+		n++
+	}
+	c.mu.Lock()
+	st := c.state(sess.ID)
+	n += len(st.local)
+	st.local = nil
+	c.mu.Unlock()
+	if n > 0 {
+		c.queueChanged(ctx, sess)
+	}
+	return n
 }
 
 // listenCancels stops this conductor's host turns that another conductor was asked to stop.
