@@ -98,7 +98,8 @@ type Session struct {
 	// GitHubReviewID is the pull-request review this session submitted. Zero means none.
 	GitHubReviewID int64
 	// Sharing is what a list says about the caller and the chat this session is the record
-	// of (phase 5). Zero for a session read by id, and for one with no chat (Linear, dev).
+	// of (phase 5). Zero for a session read by id, and for one with no chat (a ticket the
+	// Linear poller saw, dev).
 	Sharing ChatSharing
 }
 
@@ -622,11 +623,13 @@ const ChatSourceKeyPrefix = "chat:"
 func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 
 // The origins a chat can have. OriginWeb is a conversation Podium owns and may be written
-// to; OriginSlack is one it mirrors for reading, which lives in Slack and is answered there.
+// to; the others are ones it mirrors, which live on their own surface and are answered there:
+// a Slack thread, a pull request, a Linear agent session.
 const (
 	OriginWeb    = "web"
 	OriginSlack  = "slack"
 	OriginGitHub = "github"
+	OriginLinear = "linear"
 )
 
 // DefaultChatTitle is what a chat created with no title is called.
@@ -755,7 +758,8 @@ type ChatMessage struct {
 	AuthorLogin  string
 	AuthorHandle string
 	AuthorAvatar string
-	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaBot).
+	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaLinear,
+	// ViaBot).
 	// Empty on a write means ViaWeb for a user message and ViaBot for anything else.
 	Via string
 	// ExternalID is the message's identity on its own surface, and empty for a web message.
@@ -791,6 +795,7 @@ const (
 	ViaWeb    = "web"
 	ViaSlack  = "slack"
 	ViaGitHub = "github"
+	ViaLinear = "linear"
 	// ViaBot is what the conductor itself wrote: an answer, a progress line, a failure.
 	ViaBot = "bot"
 )
