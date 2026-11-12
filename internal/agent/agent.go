@@ -117,25 +117,25 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
-	// A saved Slack connection replaces the environment. The GitHub App has no
-	// environment fallback: Settings → Connections is the only source, and a saved row
-	// is what this process uses. A half-set Slack pair is still a startup error.
+	// A saved Slack connection replaces the environment. The GitHub App and the Linear app
+	// have no environment fallback: Settings → Connections is the only source, and a saved
+	// row is what this process uses. A half-set Slack pair is still a startup error.
 	envCfg := cfg
 	pc := podium.New(cfg.Server, cfg.APIToken)
-	savedSlack, savedGitHub, err := connections.Load(ctx, st, pc)
+	savedSlack, savedGitHub, savedLinear, err := connections.Load(ctx, st, pc)
 	if err != nil {
 		st.Close()
 		return nil, fmt.Errorf("agent: the saved connections' credentials are in podium-server's "+
 			"secret store, which could not be read: %w", err)
 	}
-	cfg = connections.Overlay(cfg, savedSlack, savedGitHub)
-	if savedSlack != nil || savedGitHub != nil {
+	cfg = connections.Overlay(cfg, savedSlack, savedGitHub, savedLinear)
+	if savedSlack != nil || savedGitHub != nil || savedLinear != nil {
 		if err := cfg.Validate(); err != nil {
 			st.Close()
 			return nil, fmt.Errorf("agent config: saved connection: %w", err)
 		}
 		logger.Info("connections: using a saved connection",
-			"slack", savedSlack != nil, "github", savedGitHub != nil)
+			"slack", savedSlack != nil, "github", savedGitHub != nil, "linear_app", savedLinear != nil)
 	}
 
 	// Apply stored overrides before anything reads the profile. A failure here is not

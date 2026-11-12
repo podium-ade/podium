@@ -52,7 +52,7 @@ func (s *AgentService) SetSlackConnection(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	next := connections.Overlay(s.runningConfig(), &row, nil)
+	next := connections.Overlay(s.runningConfig(), &row, nil, nil)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -85,7 +85,7 @@ func (s *AgentService) ClearSlackConnection(
 	// The environment's pair is what Slack falls back to, so it is tried like a paste.
 	next := connections.Overlay(s.runningConfig(), &connections.Slack{
 		AppToken: s.env.SlackAppToken, BotToken: s.env.SlackBotToken,
-	}, nil)
+	}, nil, nil)
 	if err := s.checkConnections(ctx, next); err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *AgentService) SetGitHubConnection(
 	}
 	// Validate against the process's listen address and task URL. A saved App does not
 	// get to change how a task reaches this conductor.
-	next := connections.Overlay(s.runningConfig(), nil, &row)
+	next := connections.Overlay(s.runningConfig(), nil, &row, nil)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -253,7 +253,7 @@ func (s *AgentService) loadConnections(ctx context.Context) (*connections.Slack,
 	if err := s.requireConnectionStore(); err != nil {
 		return nil, nil, err
 	}
-	slack, gh, err := connections.Load(ctx, s.store, s.secrets)
+	slack, gh, _, err := connections.Load(ctx, s.store, s.secrets)
 	if err != nil {
 		return nil, nil, connect.NewError(connect.CodeInternal, err)
 	}
