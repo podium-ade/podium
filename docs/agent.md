@@ -14,11 +14,14 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
-A conversation runs **no playbook**. A Linear ticket does, and runs as a task, because it
-really is one piece of work. A GitHub pull request is a conversation, one session per pull
-request: the assistant answers what people write on it, and the review is a task of the
-playbook that names the pull request's repository in `github_repos`, or else of the one marked
-`github: true`.
+A conversation runs **no playbook**. A Linear issue delegated to Podium does, and runs as a
+task, because it really is one piece of work. An @mention of Podium in Linear is a question, so
+its agent session is a conversation like a web chat: the assistant answers it, and delegates what
+needs a machine. A GitHub pull request is a conversation too, one session per pull request: the
+assistant answers what people write on it, and the review is a task of the playbook that names
+the pull request's repository in `github_repos`, or else of the one marked `github: true`. On a
+conductor with no host runtime there is no assistant, and a Linear mention runs the
+`linear: true` playbook as a task, as a delegation does.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -42,11 +45,14 @@ sees the master key, and never touches Docker.
 ## How a turn works
 
 There are two shapes, and which one you get is decided by the SOURCE rather than by anything a
-human picks. A conversation — the web chat — is answered here. A thread runs a playbook.
+human picks. A conversation — the web chat, a Slack thread, a pull request, a Linear mention — is
+answered here. A piece of work — a Linear issue delegated to Podium, or anything on a conductor
+with no host runtime — runs a playbook.
 
 ```
 somebody says something in a CONVERSATION
-  ↓  source (chat)                           normalises it into an InboundEvent
+  ↓  source (chat, Slack, GitHub, Linear)    normalises it into an InboundEvent; a Linear one says
+                                              whether its session was a delegation or a mention
   ↓  Assistant                               the saved definition: the prompt, the model, the skills, the cap
   ↓  UpsertSession                            by source key; sessions.playbook is empty — there is none
   ↓  post "👀 working…"                       before any work starts
@@ -56,10 +62,13 @@ somebody says something in a CONVERSATION
   ↓  relay                                    over a unix socket, exactly as a task's events are
   ↓  FinishTurn                                and turns.task_id stays empty
 
-somebody mentions the bot in a THREAD, or gives a Linear issue to it
+somebody delegates a Linear issue to it, or speaks with no host runtime to answer
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
-  ↓  Select                                  which playbook? /playbook, the channel, or a Linear claim
-  ↓  UpsertSession                            by source key — one thread, one session, one playbook
+  ↓  Select                                  which playbook? the poller's linear: true playbook, then
+                                              /playbook, then the channel, then for a Linear agent
+                                              session the linear: true playbook
+  ↓  UpsertSession                            by source key — one thread, one session, one playbook;
+                                              a Linear session runs a /playbook for that turn alone
   ↓  React ⏳                                 before any work starts. Linear moves an assigned or
                                               delegated issue to started
   ↓  post "👀 working…"                       a polled issue's working comment, or a thought in an
@@ -79,7 +88,10 @@ What differs is the job the turn was given — see `internal/agent/conductor/job
 
 A conductor with no host runtime configured (`PODIUM_AGENT_HOST_RUNTIME` unset) has nothing to
 answer a conversation *with*, so a chat message there is refused rather than turned into a
-container task. A task is only created when the assistant delegates.
+container task. A Linear @mention there is not refused: it runs the `linear: true` playbook as a
+task, as it did before the assistant could answer one. With a host runtime, a task is only
+created when the assistant delegates, or for a Linear issue delegated to Podium, or for a
+`/playbook` a person names in a Linear session.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
@@ -292,8 +304,9 @@ The rules that matter:
   `podium_check_delegation` is polled. Nothing blocks for hours, and the human watches the
   container work in the chat rather than staring at a silent poll loop.
 
-Slack and Linear turns are unaffected: they keep running as tasks. Their playbooks are the ones
-that want a repository and a Docker daemon, and neither surface is somebody watching a cursor.
+A Linear issue delegated to Podium is unaffected: it keeps running as a task. Its playbook is the
+one that wants a repository and a Docker daemon, and nobody is watching a cursor. A Linear
+@mention is a question, and is answered this way, as a Slack thread is.
 
 ### Host turns: isolation and warm windows
 
@@ -412,7 +425,9 @@ polling Linear.
 - A Stop pressed in a Linear session reaches one conductor, and the turn may be running on
   another. The one that heard it announces the stop to the others (`podium_session_stop`)
   before it cancels the task, and the conductor running the turn says nothing more in the
-  session for it.
+  session for it. Every task the session's assistant delegated that is still running is
+  stopped the same way, each announced by its own task id before it is cancelled, so whichever
+  conductor follows it says nothing more for it either.
 
 `PODIUM_AGENT_REPLICA_ID` is what the leases are held under. It defaults to
 `<hostname>/<listen>`, which is stable across a conductor's restarts — a restarted conductor picks
@@ -577,7 +592,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/`. In compose this is the path inside the container; bind your own tree with `PODIUM_AGENT_PROFILE_HOST` |
 | `PODIUM_AGENT_SKILLS_DIR` | no | — (`/etc/podium/skills` in compose) | one directory per Agent Skill, each with a `SKILL.md`. Bind your own tree with `PODIUM_AGENT_SKILLS_HOST` |
-| `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | `/opt/podium-agent/dist/main.js` in the image; none for a bare binary | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js` in a checkout). Set it, with the runner below, and every CONVERSATION — a web chat and a Slack thread alike — is answered by the assistant in this process instead of by a playbook in a container; set it to the EMPTY STRING and every turn is a task again. The `podium-agent` image builds `FROM` the runtime image and ships this and the runner already set, so host turns are on by default there — that is what lets a container deployment infer a playbook rather than refuse the thread. Read [`security.md`](security.md) first: the assistant has no container around it |
+| `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | `/opt/podium-agent/dist/main.js` in the image; none for a bare binary | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js` in a checkout). Set it, with the runner below, and every CONVERSATION — a web chat, a Slack thread, a pull request and a Linear @mention alike — is answered by the assistant in this process instead of by a playbook in a container (a Linear issue delegated to Podium still runs its playbook); set it to the EMPTY STRING and every turn is a task again. The `podium-agent` image builds `FROM` the runtime image and ships this and the runner already set, so host turns are on by default there — that is what lets a container deployment infer a playbook rather than refuse the thread. Read [`security.md`](security.md) first: the assistant has no container around it |
 | `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn — a Slack thread sits on its ⏳ for longer, a web chat on its `👀 working…` — and `podium_agent_host_turns_queued_total` counts how often that happens |
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
@@ -603,7 +618,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_LINEAR_TOKEN_URL` | no | `https://api.linear.app/oauth/token` | the OAuth token endpoint the Linear app saved under Access → Connections signs in through; the same kind of seam. The app itself is never set in the environment |
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
-| `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
+| `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used for the Podium task links a Linear agent session shows, and for the link a Linear comment or activity falls back to when an attachment cannot be uploaded |
 | `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
 | `PODIUM_SLACK_TEAM_IDS` | no | (none) | comma-separated Slack workspace (`T…`) and Enterprise Grid org (`E…`) ids whose full members may also be matched to a Podium login, beside the bot's own workspace from `auth.test`. Guests, Slack Connect users, deactivated users and bots are refused whatever workspace they are in |
 | `PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES` | no | 32768 | how much of a conversation's text a turn is handed before old chatter nobody put to Podium is condensed into one note (see [One record, one transcript](#one-record-one-transcript)) |
@@ -739,8 +754,9 @@ max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS N
                              # is the opposite of a playbook's.
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
                              # and there is no "off".
-# default_playbook is unused. A Slack mention or Linear ticket with no /playbook and no
-# channel claim is refused. Register playbooks for the assistant to delegate to.
+# default_playbook is unused. A Slack mention with no /playbook and no channel claim is
+# refused; a Linear issue runs the playbook marked linear: true. Register playbooks for the
+# assistant to delegate to.
 ```
 
 An owner or an admin sets every one of these on Assistant. The screen stores the whole
@@ -811,7 +827,7 @@ secrets:                                                     # verbatim into the
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
-linear: false                                                # this is the playbook Linear tickets run
+linear: false                                                # the playbook a Linear issue runs when nobody names one
 github: false                                                # this is the default playbook pull-request reviews run
 github_repos: []                                             # [owner/name] whose pull requests this playbook reviews instead
 github_requires: ""                                          # offered on a pull request to commenters with this role or more
@@ -851,9 +867,10 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
   `mcp_servers` is what grants a server to a playbook, and naming its secret directly
   would be a turn holding the credential of a server it was never granted.
-- **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
-  and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
-  most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
+- **At most one playbook may set `linear: true`.** Two is a start-up error: a polled ticket and a
+  delegated issue name no playbook, so there would be nothing to choose between them with. Zero is
+  fine — most bots take no tickets — until a Linear key is set, and then the conductor refuses to
+  start, or a Linear app is saved, which is refused.
 - **At most one playbook may set `github: true`.** That playbook reviews every repository no
   playbook names in `github_repos`. Two is a start-up error. Zero is fine while every reviewed
   repository is named; a pull request in a repository nobody reviews is refused.
@@ -1344,7 +1361,7 @@ public Slack channel routes to is a playbook that channel can spend the token th
 
 **A conversation runs none.** The assistant reaches a playbook by *delegating* to it, one per
 task, chosen by the turn — there is nothing for a human to select and no default to set. The
-numbered rules further down are how a Linear ticket, and a Slack mention on a conductor with
+numbered rules further down are how a Linear issue, and a Slack mention on a conductor with
 no host runtime, becomes a task in a container.
 
 **A Slack thread is a conversation too.** A mention is answered by the assistant on the
@@ -1368,28 +1385,47 @@ It does not pick the first name on the menu.
 So `slack_channels` is **deprecated**. Do not reach for it: say which playbook you want in the
 message, or write the preference in the channel description, and let the turn delegate.
 
-For a Linear ticket — in order:
+For a task — in order:
 
 1. **A playbook the source knows** is right, which no rule below may second-guess: the
-   `linear: true` playbook a ticket runs. A ticket's text is not a command line, so a `/word` in
-   its description is left alone.
+   `linear: true` playbook a ticket the **Linear poller** found runs. A ticket's text is not a
+   command line, so a `/word` in its description is left alone.
 2. The message starts with `/<playbook>` followed by whitespace or the end — that playbook, prefix
    stripped. An **unknown** `/name` is not an error: it is left in the text and falls through, so
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error. **Deprecated** — see above.
-4. Nothing: there is no default playbook. Register one, name it with `/playbook`, or (for
-   Linear) mark one `linear: true`.
+4. **The source's own default**: a Linear agent session runs the `linear: true` playbook.
+5. Nothing: there is no default playbook. Register one, or name it with `/playbook`.
 
-Rule 1 is knowledge, and keeping it first is the whole of the order: Linear names the playbook
-because it genuinely knows it. A Slack mention answered by the assistant does not use this
-list — it infers the playbook, as above. A mention on a conductor with no host runtime starts
+Rule 1 is knowledge, and keeping it first is the whole of the order: the poller names the
+playbook because it genuinely knows it. A Slack mention answered by the assistant does not use
+this list — it infers the playbook, as above. A mention on a conductor with no host runtime starts
 at rule 2, and is refused when nothing matches.
 
+**A Linear agent session** that runs a playbook — an issue delegated to Podium, or an @mention
+on a conductor with no host runtime — starts at rule 2. Linear writes a delegation's opening
+prompt itself ("Work on EME-5"), so a `/playbook` can only come from a person's words: a
+mention's comment, or a reply in the session. Anybody whose prompt is answered at all may name
+any playbook the assistant would be offered for them, which is every playbook (only a pull
+request narrows the menu, by `github_requires`). An unknown name runs the `linear: true`
+playbook with the words left as they are.
+
+**An @mention the assistant answers** does not use this list either, with one exception: a
+prompt that starts with `/<playbook>` naming a playbook on the assistant's menu runs that playbook
+directly, as the conversation's task, without asking the assistant — there is nothing for it to
+decide. The task is the conversation's like any the assistant starts: it is relayed into the
+session, listed to the next turn, and stopped by a Stop. An unknown `/name` is the person's
+words, and the assistant reads them as they are.
+
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
-same thread is refused politely: start a new thread. A conversation's session stores no playbook
-at all — `sessions.playbook` is empty, and the Sessions and Usage screens read that as
-*assistant*.
+same Slack thread is refused politely: start a new thread. A Linear agent session is the
+exception: a `/other` there runs `other` for that turn alone, and the next prompt that names
+nothing runs the session's own playbook again — the `linear: true` playbook for a delegated
+issue. A task that has answered and is waiting takes a follow-up only for its own playbook, and a
+prompt that names a playbook is never put into a task that is already up. A conversation's
+session stores no playbook at all — `sessions.playbook` is empty, and the Sessions and Usage
+screens read that as *assistant*.
 
 A `/word` typed in a **chat** is just text: nothing strips it, because there is no playbook to
 select and eating the first word of somebody's question would only lose it.
@@ -1991,11 +2027,15 @@ Linear reaches Podium one of two ways, and never both:
   conductor asks Linear every 30 seconds for issues assigned to that user.
 
 A saved app turns the poller off even when the key is set, because the two would start every
-ticket twice. Removing the app turns the poller back on. Either way the turn runs the playbook
-marked `linear: true`, as a task. The two differ in **who may ask**: the app answers only a
-person signed in to Podium and runs as them ([Who is who](#who-is-who)); the poller cannot
-tell who asked, so anybody who can assign the bot user a ticket starts a turn, which runs as
-nobody. The poller is the weaker mode; its one advantage is that nothing has to reach the
+ticket twice. Removing the app turns the poller back on. The poller runs the playbook marked
+`linear: true`, as a task, for every ticket. The app tells a delegation from a mention: an issue
+delegated to it runs that playbook as a task, and an @mention is a question the assistant
+answers, on a conductor with a host runtime, or that playbook answers, on one without
+([Deploy](../README.md#deploy) says which an install is). A `/playbook` at the start of what a
+person writes in an agent session names another playbook for that turn. The two also differ in
+**who may ask**: the app answers only a person signed in to Podium and runs as them ([Who is
+who](#who-is-who)); the poller cannot tell who asked, so anybody who can assign the bot user a
+ticket starts a turn, which runs as nobody. The poller is the weaker mode; its one advantage is that nothing has to reach the
 conductor from outside.
 
 ### The agent app
@@ -2011,17 +2051,21 @@ rather than an app, refuses an app with no `linear: true` playbook to run, and s
 is and in which workspace. The listen address may be the GitHub App's: the conductor then serves
 `/webhooks/github` and `/webhooks/linear` on one listener.
 
-**What starts a turn.** Each agent session is one conversation (`linear:session:<id>`):
+**What starts a turn.** Each agent session is one conversation (`linear:session:<id>`). The app
+says whether it was opened by a delegation or a mention, on every prompt in it, and the conductor
+decides what answers:
 
-| in Linear | what happens |
-|---|---|
-| an issue delegated to the app | a turn, with the identifier, the title and the description as the instruction, worded as the poller words an assignment |
-| the app @mentioned in a comment | a turn, with the comment, less the mention, as the instruction |
-| a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question and the reply is from the person whose turn it is, otherwise a turn of its own, run as whoever wrote it |
-| *Stop* on the session | the turn's task is cancelled and anything queued behind it is dropped. Nothing more is said for that turn, on whichever conductor runs it, and the session closes with “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not |
+| in Linear | with a host runtime | with none |
+|---|---|---|
+| an issue delegated to the app | a task of the `linear: true` playbook, with the identifier, the title and the description as the instruction, worded as the poller words an assignment | the same |
+| the app @mentioned in a comment | a turn of the assistant, on the host, with the comment, less the mention, as the question and the issue and its thread as context. It may delegate to any playbook it would be offered in a Slack thread or a chat | a task of the `linear: true` playbook, with the comment as the instruction |
+| a mention that starts `/<playbook>` | that playbook, delegated directly as the conversation's task; the assistant is not asked | a task of that playbook, for that turn |
+| a reply in a delegated session | a task of the session's playbook, or of the one a `/playbook` names for that turn. Injected into the task instead when it asked a question, or answered and waits for more, and the reply is from the person whose turn it is and names no playbook | the same |
+| a reply in a mention's session | the assistant's next turn, or the playbook a `/playbook` names. A reply to a delegated task's question is injected into that task | a task of the session's playbook, or of the one a `/playbook` names, as for a delegated session |
+| *Stop* on the session | the turn — the assistant's or a task's — and every task the session delegated that is still running are cancelled, and anything queued is dropped. Nothing more is said for any of them, on whichever conductor runs them, and the session closes with one “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not | the same |
 
-A new session gets a thought (“Starting on this.”) at once, before the conductor has chosen a
-playbook, because Linear marks a session unresponsive when nothing is said within ten seconds.
+A new session gets a thought (“Starting on this.”) at once, before the conductor has decided what
+answers it, because Linear marks a session unresponsive when nothing is said within ten seconds.
 Every delivery is checked first: the `Linear-Signature` HMAC with the signing secret, a
 `webhookTimestamp` within a minute, the delivery id not seen in the last seven hours (Linear
 retries for six), and the workspace and app user the save found. Anything else is answered 200
@@ -2043,14 +2087,17 @@ Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set, exactly as for Sl
 sees “Starting on this.” replaced by an error — *I can only work for people who are signed in to
 Podium. Sign in to Podium with the same email address you use in Linear, then ask me again.* —
 which ends the session; nothing runs, and a delegated issue is not moved. When somebody else's
-turn is still open in that session, the same words are a thought instead, so their turn is not
-ended under them. *Stop* is not gated: it starts nothing, and anybody Linear shows the button to
+turn is still open in that session, or a task one delegated is still working, the same words are a
+thought instead, so that work is not shown ended under them. *Stop* is not gated: it starts nothing, and anybody Linear shows the button to
 may end work they can see.
 
 **What it says back.** Into the session, as agent activities, never as edited comments:
 progress is an ephemeral *thought* that the next one replaces, the answer a *response*, a
-failure an *error*, and a question an *elicitation*. The answer and a failure end with a line
-naming the Podium task. An answer, a question and a failure are owed through the delivery outbox
+failure an *error*, and a question an *elicitation*. A task's answer and failure end with a line
+naming the Podium task; the assistant's do not, since it has no task. Each task the assistant
+delegates is heard on its own account: its announcement and progress are thoughts even after the
+assistant has answered — which shows the session working again, as it is — its answer a response
+naming its task, and its question an elicitation whose reply is injected into it. An answer, a question and a failure are owed through the delivery outbox
 ([Delivery](#delivery)), so one Linear refused is retried rather than lost. Linear writes the
 prompts, questions and answers into the issue's comments itself. A turn reads the session's chat
 with the issue around it ([One record, one transcript](#one-record-one-transcript)). An
@@ -2063,24 +2110,29 @@ An action names the file, the command's first line or the pattern, cut short, an
 file's contents or the rest of a tool's arguments; a tool Podium does not know is shown by its
 name. They replace each other, so the session shows the latest rather than a trail, and at most
 one ephemeral activity is posted every ten seconds per session, the newest winning: the app has
-5,000 requests an hour for the whole workspace. A turn that says nothing for twenty minutes —
-a long build — posts “Still working.”, because Linear marks a session stale after thirty.
+5,000 requests an hour for the whole workspace. A session in which something is working — the
+turn, or a task the assistant delegated — and says nothing for twenty minutes, a long build,
+posts “Still working.”, because Linear marks a session stale after thirty.
 
-**Links.** The Podium task is added to the session's links the first time the turn says
-anything once its task exists, and each pull request the answer names is added when the turn
-ends.
+**Links.** A turn's Podium task is added to the session's links (`Podium task`) the first time the
+turn says anything once its task exists. The assistant's turn has no task and adds none; each
+task it delegates is added the first time it is heard of, labelled with its playbook and the
+start of its id (`Podium task: fix (task_01j)`) so that several are told apart. Each pull request
+an answer names — a turn's or a delegated task's — is added when that answer ends.
 
 **The issue's state.** When a turn starts in a session opened by *delegating* the issue, the
 issue moves to the team's first state of type *started*, by position, whatever it is called —
 unless it is already started, completed or cancelled. A session opened by an @mention leaves the
-issue where it is: a question in a comment is not a request to move the ticket. Linear sets
+issue where it is, whoever answers it and whatever it delegates: a question in a comment is not a
+request to move the ticket. Linear sets
 the issue's delegate itself.
 
 **The chat.** Each agent session is a chat in Podium (`linear:session:<id>`, origin `linear`),
 named after the issue (`EME-5 Test issue`) and renamed with it on the next prompt — Linear tells
 an app nothing when an issue is retitled. Every prompt is a message by whoever wrote it, linked to
 the issue; the answers, questions, failures, progress and tool calls are the bot's, as in a
-mirrored Slack thread. The chip in the chat's header opens the session in Linear. The people who
+mirrored Slack thread, and so are the tasks the assistant delegated, shown as a Slack thread's
+chat shows them. The chip in the chat's header opens the session in Linear. The people who
 spoke in the session and are in Podium are its participants, and the first of them owns it; it is
 visible to them and to nobody else unless they share it, and sharing a chat of a private team's
 issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused is recorded, as in Slack,
@@ -2088,13 +2140,29 @@ and is never a participant; a session only they spoke in is a chat nobody can op
 itself is the source's word in Linear and is not recorded, as Slack's 🚫 is not. A ticket the
 poller saw has no chat.
 
-**What it does not do yet.** It does not route a mention to the assistant. What a Stop silences
-is remembered in memory, on every conductor that was running when it was announced. A question, an
-answer or a failure the stopped turn had already failed to deliver before the Stop stays owed in
-the outbox, and a conductor that retries it after a restart does not know the turn was stopped,
-and may post it after “Stopped.”. The turn's own cancellation is never posted: it is recognised,
-on any conductor and after a restart, by the cancel reason the control plane recorded. See
-[linear-agent-plan.md](linear-agent-plan.md).
+**What it does not do yet.**
+
+- What a Stop silences is remembered in memory, on every conductor that was running when it was
+  announced. A question, an answer or a failure the stopped turn, or a stopped task, had already
+  failed to deliver before the Stop stays owed in the outbox, and a conductor that retries it after
+  a restart does not know it was stopped, and may post it after “Stopped.”. A cancellation is never
+  posted: it is recognised, on any conductor and after a restart, by the cancel reason the control
+  plane recorded.
+- A task the assistant was starting at the moment of a Stop, recorded but not yet created, is not
+  one the control plane can cancel, and runs. Nothing it says is posted while the session stays
+  stopped.
+- Which tasks a session's assistant delegated is known from what the conductor hands the source,
+  in memory. After a restart, a resumed delegated task is drawn as the session's own turn — linked
+  as `Podium task`, and its answer taken as the turn's — until the next prompt.
+- An answer the outbox retries from an earlier assistant turn, after the next turn has started, is
+  taken as the new turn's answer. A task's retried answer is told apart by its task id; the
+  assistant has none.
+- A follow-up put into a task that has already answered and waits for more is said as responses
+  rather than thoughts until that task answers again: nothing tells the source the task is working
+  again.
+- A playbook on Linear teams (`linear_teams:`, as `slack_channels` is for Slack) is not built.
+
+See [linear-agent-plan.md](linear-agent-plan.md).
 
 **When Linear revokes the app.** An admin de-authorizing it sends an `OAuthApp` webhook. The
 conductor logs it as an error, starts nothing more from Linear, and Access → Connections shows the

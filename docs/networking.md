@@ -500,8 +500,11 @@ Tailscale Funnel or a tunnel points at that address and nowhere else — so expo
 never exposes the API or the UI. A Linear agent app saved on the same screen lands on
 `POST /webhooks/linear`, signed with its own secret, on the listen address saved with it. That
 address may be the GitHub App's: the conductor then binds it once and serves both paths on it,
-and the tunnel needs no second route. Slack is still Socket Mode (zero ingress). Linear without
-a saved app is polled with a personal API key, dialling out.
+and the tunnel needs no second route. What a delivery runs needs no route of its own: an issue
+delegated to the app is a task, which a worker runs as it runs any task, and an @mention is
+answered by the assistant on the conductor's own host, which reaches out to workers only for what
+it delegates. Slack is still Socket Mode (zero ingress). Linear without a saved app is polled
+with a personal API key, dialling out.
 
 ## Architecture: the daemon binary and the task image are different questions
 
