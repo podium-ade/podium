@@ -486,7 +486,8 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 		Text:       "EME-5 — Test issue",
 		RecordText: "Work on [EME-5](https://linear.app/acme/issue/EME-5/test-issue)",
 		BriefKind:  conductor.SourceLinear,
-		Playbook:   "coder",
+		// What happened, and no playbook: the conductor routes it.
+		Delegated: true,
 		// A candidate: the conductor keeps it only for a login that has signed in.
 		Login:           fixtureEmail,
 		SpeakerProvider: conductor.SpeakerLinear,
@@ -518,6 +519,8 @@ func TestAMentionStartsATurnWithTheComment(t *testing.T) {
 	assert.Equal(t, fixtureIssue+"/"+fixtureTeam+"/EME-5/"+mentionSession, ev.Ref)
 	assert.Equal(t, "activity:5e1c605c-1cf6-427c-a132-8ea2f36daef7", ev.ExternalID)
 	assert.True(t, ev.Mentioned)
+	assert.False(t, ev.Delegated, "a mention is a question, not a piece of work")
+	assert.Empty(t, ev.Playbook, "the conductor routes it")
 	assert.NotContains(t, ev.Text, "primary-directive-thread", "Linear's prompt context is not the instruction")
 	assert.Len(t, h.activities(), 1, "a mention opens a session, so it is acknowledged too")
 	assert.Equal(t, 1.0, h.events(t, EventMention))
@@ -545,7 +548,8 @@ func TestAFollowUpIsThePromptsBody(t *testing.T) {
 	assert.Equal(t, "linear:session:"+delegationSession, ev.SourceKey)
 	assert.Equal(t, "activity:663ba1da-7fac-4d15-a5e0-1556d70ccb3b", ev.ExternalID)
 	assert.Equal(t, "Ada Lovelace", ev.Author)
-	assert.Equal(t, "coder", ev.Playbook)
+	assert.Empty(t, ev.Playbook, "the conductor routes it")
+	assert.True(t, ev.Delegated, "a follow-up stays with how its session began")
 	assert.Empty(t, h.activities())
 	assert.Equal(t, 1.0, h.events(t, EventFollowup))
 }
