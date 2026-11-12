@@ -575,11 +575,29 @@ const (
 	ActivityError       = "error"
 )
 
-// ActivityContent is the content of one agent activity. An action's own fields (action,
-// parameter, result) are not here yet: nothing posts one.
+// ActivityContent is the content of one agent activity. Every type but an action says what
+// it says in Body; an action says it in Action, Parameter and Result instead.
 type ActivityContent struct {
-	Type string `json:"type"`
-	Body string `json:"body"`
+	Type string
+	Body string
+	// Action is what the agent is doing, as a verb ("Reading"), Parameter what it is doing it
+	// to (a path, a command), and Result how it went, when there is anything short to say.
+	Action    string
+	Parameter string
+	Result    string
+}
+
+// wire is the content as AgentActivityCreateInput takes it. Linear validates the content
+// against its type, so an action carries no body and anything else carries only a body.
+func (a ActivityContent) wire() map[string]any {
+	if a.Type != ActivityAction {
+		return map[string]any{"type": a.Type, "body": a.Body}
+	}
+	out := map[string]any{"type": a.Type, "action": a.Action, "parameter": a.Parameter}
+	if a.Result != "" {
+		out["result"] = a.Result
+	}
+	return out
 }
 
 const agentActivityCreateMutation = `mutation PodiumAgentActivity($input: AgentActivityCreateInput!) {
@@ -597,7 +615,7 @@ func (c *Client) CreateAgentActivity(
 ) (string, error) {
 	input := map[string]any{
 		"agentSessionId": sessionID,
-		"content":        map[string]any{"type": content.Type, "body": content.Body},
+		"content":        content.wire(),
 	}
 	if ephemeral {
 		input["ephemeral"] = true
@@ -620,4 +638,64 @@ func (c *Client) CreateAgentActivity(
 		return a.ID, nil
 	}
 	return "", nil
+}
+
+// ExternalURL is one link on an agent session, drawn beside it in Linear.
+type ExternalURL struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+const agentSessionUpdateMutation = `mutation PodiumAgentSessionUpdate($id: String!, $input: AgentSessionUpdateInput!) {
+  agentSessionUpdate(id: $id, input: $input) {
+    success
+  }
+}`
+
+// AddSessionLinks adds links to an agent session. addedExternalUrls adds to what the session
+// already has, where externalUrls would replace it, so two links added at different moments
+// of a turn — the task, then its pull request — both stay.
+func (c *Client) AddSessionLinks(ctx context.Context, sessionID string, links ...ExternalURL) error {
+	if len(links) == 0 {
+		return nil
+	}
+	var out struct {
+		AgentSessionUpdate struct {
+			Success bool `json:"success"`
+		} `json:"agentSessionUpdate"`
+	}
+	vars := map[string]any{"id": sessionID, "input": map[string]any{"addedExternalUrls": links}}
+	if err := c.do(ctx, "PodiumAgentSessionUpdate", agentSessionUpdateMutation, vars, &out); err != nil {
+		return err
+	}
+	if !out.AgentSessionUpdate.Success {
+		return fmt.Errorf("linear: agentSessionUpdate on session %s reported no success", sessionID)
+	}
+	return nil
+}
+
+const issueStateQuery = `query PodiumIssueState($id: String!) {
+  issue(id: $id) {
+    id
+    state { id name type }
+    team { id key }
+  }
+}`
+
+// IssueState is the workflow state an issue is in now, and its team. It is the cheap half of
+// Issue: no description and no comments, for deciding whether to move it.
+func (c *Client) IssueState(ctx context.Context, id string) (WorkflowState, Team, error) {
+	var out struct {
+		Issue *struct {
+			State WorkflowState `json:"state"`
+			Team  Team          `json:"team"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, "PodiumIssueState", issueStateQuery, map[string]any{"id": id}, &out); err != nil {
+		return WorkflowState{}, Team{}, err
+	}
+	if out.Issue == nil {
+		return WorkflowState{}, Team{}, fmt.Errorf("linear: no issue %s", id)
+	}
+	return out.Issue.State, out.Issue.Team, nil
 }
