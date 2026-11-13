@@ -1059,7 +1059,7 @@ func turnPlaybook(sel profiles.Selection, session string, linearApp bool) (name 
 // assistant, as Select leaves an unknown one: somebody typing /shrug must not break the bot.
 func (c *Conductor) namedPlaybook(src Source, profile *profiles.Profile, ev *InboundEvent) (job, bool) {
 	sel := profile.Select(profiles.Routing{Text: ev.Text})
-	if !sel.Explicit || !containsString(playbookNames(c.menuFor(src, ev.Role)), sel.Playbook.Name) {
+	if !sel.Explicit || !containsString(playbookNames(c.menuFor(src, ev.SourceKey, ev.Role)), sel.Playbook.Name) {
 		return job{}, false
 	}
 	ev.Text = sel.Instruction
