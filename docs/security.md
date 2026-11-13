@@ -312,6 +312,20 @@ SAML is not implemented.
   Said plainly: an attacker who can write a Linear comment on a ticket the bot is assigned, or
   post in a channel the bot is in, can attempt to make it commit code. Everything above makes
   that attempt visible and slow. None of it makes it impossible.
+- **A routine on Linear events is for admins and owners only.** With resource types ticked on
+  the Linear app's webhook, every issue, comment, project … created, updated or removed in any team
+  the app can see reaches the conductor, and a routine on those events is briefed with them. A
+  member's routine would read teams the member is not in, so only an admin or owner may set or
+  change a routine's trigger to Linear events, in either scope, the same check system routines
+  use; the API refuses anybody else, and `create_routine` sets up schedules only. Limiting a
+  routine to teams narrows what it is given and is not an access control: the admin chooses the
+  teams. What an event carries is **untrusted content written by whoever can edit in that
+  workspace** — a title, a description, a comment — and it reaches a model that may delegate
+  playbooks and, as a personal routine, runs with its owner's credentials. The brief fences each
+  event and tells the model it is data from Linear, not instructions; that is guidance, not a
+  control, exactly as for the ticket text above. A change the app made itself never reaches a
+  routine, and more than 60 event runs in an hour pause one, so a routine that edits what it
+  watches cannot run itself without end.
 - **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium
