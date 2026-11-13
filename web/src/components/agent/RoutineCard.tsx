@@ -11,6 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import {
   type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
@@ -19,6 +20,8 @@ import {
   isSystem,
   money,
   draftOf,
+  perTicket,
+  routineChatPath,
   routineKey,
   routinesKey,
   routineStatus,
@@ -47,6 +50,9 @@ import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 import { RoutineDialog, SystemBadge } from "./RoutineDialog";
 
+/** CardData is what the card reads for its chat: the routine, and the ticket when the chat is one ticket's. */
+type CardData = { routine: Routine; subjectTitle: string } | null;
+
 /**
  * RoutineCard sits at the top of a routine's chat: when it runs, how it has been doing, and the
  * controls. Its details — the instruction, the standing notes and their history — open over the
@@ -59,7 +65,10 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   const toast = useToast();
   const routine = useQuery({
     queryKey: routineKey(chatId),
-    queryFn: async () => (await agent.getRoutine({ chatId })).routine ?? null,
+    queryFn: async (): Promise<CardData> => {
+      const res = await agent.getRoutine({ chatId });
+      return res.routine ? { routine: res.routine, subjectTitle: res.subjectTitle } : null;
+    },
     // The next run and whether one is going move on their own.
     refetchInterval: 20_000,
   });
@@ -69,14 +78,18 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const refresh = (r?: Routine) => {
-    if (r) qc.setQueryData(routineKey(chatId), r);
+    if (r)
+      qc.setQueryData<CardData>(routineKey(chatId), (prev) => ({
+        routine: r,
+        subjectTitle: prev?.subjectTitle ?? "",
+      }));
     void qc.invalidateQueries({ queryKey: routinesKey });
   };
   const act = useMutation({
     mutationFn: async (
       what: "pause" | "resume" | "run" | "stop" | "accept" | "dismiss",
     ) => {
-      const r = routine.data;
+      const r = routine.data?.routine;
       if (!r) return undefined;
       switch (what) {
         case "pause":
@@ -110,7 +123,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   });
   const remove = useMutation({
     mutationFn: async () => {
-      if (routine.data) await agent.deleteRoutine({ id: routine.data.id });
+      if (routine.data) await agent.deleteRoutine({ id: routine.data.routine.id });
     },
     onSuccess: () => {
       setConfirmDelete(false);
@@ -154,7 +167,11 @@ export function RoutineCard({ chatId }: { chatId: string }) {
     setDetailsHeight(Math.max(140, Math.min(256, Math.floor(below))));
   }, [open]);
 
-  const r = routine.data;
+  const r = routine.data?.routine;
+  // A chat per ticket (a routine on Linear events) is one ticket's: the card says which, and
+  // where the routine's own chat is.
+  const ticketChat = r !== undefined && r.chatId !== chatId;
+  const ticket = routine.data?.subjectTitle ?? "";
   const history = useQuery({
     queryKey: ["agent", "routine-revisions", r?.id ?? ""],
     queryFn: async () => (await agent.listRoutineRevisions({ id: r?.id ?? "" })).revisions,
@@ -190,6 +207,9 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                     · {r.timezone}
                   </span>
                 ) : null}
+                {perTicket(r) ? (
+                  <span className="font-normal text-faint"> · a chat per ticket</span>
+                ) : null}
               </span>
               {system ? <SystemBadge className="ml-0.5 shrink-0" /> : null}
             </p>
@@ -205,6 +225,23 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 : ""}
               {` · ${money(r.spendTodayUsd)} in 24h`}
             </p>
+            {ticketChat ? (
+              <p data-testid="routine-ticket" className="pl-6 text-xs text-muted">
+                {ticket ? (
+                  <>
+                    This chat is for <span className="text-fg">{ticket}</span>.{" "}
+                  </>
+                ) : (
+                  "This chat is for one ticket. "
+                )}
+                <Link
+                  to={routineChatPath(r)}
+                  className="underline underline-offset-2 hover:text-fg"
+                >
+                  Open the routine’s chat
+                </Link>
+              </p>
+            ) : null}
           </div>
           <span className="flex items-center gap-1">
             {r.running ? (
