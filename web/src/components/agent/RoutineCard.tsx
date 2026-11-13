@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   History,
@@ -9,43 +9,28 @@ import {
   ShieldCheck,
   Square,
   Trash2,
-  User,
-  Webhook,
-  Wrench,
   Zap,
 } from "lucide-react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type Routine,
-  type RoutineDraft,
 } from "../../gen/podium/agent/v1/agent_pb";
 import {
-  browserZone,
-  CI_FIXER,
-  draftOf,
   isLinear,
   isSystem,
-  LINEAR_ACTIONS,
-  LINEAR_EVENTS,
-  LINEAR_TYPES,
   money,
+  routineEditPath,
   routineKey,
   routinesKey,
   routineStatus,
   runsText,
-  teamKeys,
-  type Scope,
-  type Trigger,
 } from "../../lib/routines";
-import { useViewer } from "../../lib/identity";
-import { canManageInfra } from "../../lib/rbac";
 import { agent, errorMessage } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -59,19 +44,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
-import { Textarea } from "../ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
-import { ScheduleField } from "./ScheduleField";
-import { TimezonePicker } from "./TimezonePicker";
 import { useBrand } from "../../lib/brand";
 
 /**
@@ -82,7 +54,6 @@ import { useBrand } from "../../lib/brand";
  */
 export function RoutineCard({ chatId }: { chatId: string }) {
   const brand = useBrand();
-  const admin = canManageInfra(useViewer());
   const qc = useQueryClient();
   const toast = useToast();
   const routine = useQuery({
@@ -91,7 +62,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
     // The next run and whether one is going move on their own.
     refetchInterval: 20_000,
   });
-  const [editing, setEditing] = useState(false);
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -280,7 +251,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
               size="icon-xs"
               variant="ghost"
               aria-label="Edit routine"
-              onClick={() => setEditing(true)}
+              onClick={() => void navigate(routineEditPath(r.id))}
             >
               <Pencil aria-hidden />
             </Button>
@@ -391,25 +362,6 @@ export function RoutineCard({ chatId }: { chatId: string }) {
             </div>
           </div>
         </CollapsibleContent>
-
-        {editing ? (
-          <RoutineDialog
-            open
-            title="Edit routine"
-            initial={draftOf(r)}
-            lockAssistant
-            scope={system ? "system" : "personal"}
-            canChooseTrigger={admin}
-            onClose={() => setEditing(false)}
-            onSave={async (draft) => {
-              const res = await agent.updateRoutine({ id: r.id, draft });
-              refresh(res.routine);
-              void qc.invalidateQueries({ queryKey: ["agent", "routine-revisions", r.id] });
-              setEditing(false);
-              toast("Routine saved.", "ok");
-            }}
-          />
-        ) : null}
 
         <Dialog
           open={confirmDelete}
@@ -574,9 +526,6 @@ function RevisionList({ revisions, loading }: { revisions?: Revision[]; loading:
   );
 }
 
-/** DEFAULT_ASSISTANT stands for "no personal assistant" in the picker, which cannot hold "". */
-const DEFAULT_ASSISTANT = "podium";
-
 /** SystemBadge marks a routine that runs as nobody, wherever one is listed, so it is never taken for somebody's own. */
 export function SystemBadge({ className }: { className?: string }) {
   return (
@@ -591,468 +540,5 @@ export function SystemBadge({ className }: { className?: string }) {
       <ShieldCheck className="size-3" aria-hidden />
       System
     </span>
-  );
-}
-
-const SCOPES: { scope: Scope; label: string; hint: string }[] = [
-  {
-    scope: "personal",
-    label: "Me",
-    hint: "Runs as you: your model key, your connections, your GitHub account. Only you see it.",
-  },
-  {
-    scope: "system",
-    label: "Podium (system)",
-    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names. Admins see it; nobody writes in its chat.",
-  },
-];
-
-const TRIGGERS: { trigger: Trigger; label: string }[] = [
-  { trigger: "schedule", label: "On a schedule" },
-  { trigger: "linear", label: "On a Linear event" },
-];
-
-/**
- * LinearEventsField is what a routine on Linear events runs on: the events, and optionally the
- * teams. The Linear app's webhook delivers them, so the field says when no app is connected —
- * the routine saves, and runs once one is.
- */
-function LinearEventsField({
-  events,
-  onEvents,
-  teams,
-  onTeams,
-}: {
-  events: string[];
-  onEvents: (events: string[]) => void;
-  teams: string;
-  onTeams: (teams: string) => void;
-}) {
-  const ids = { events: useId(), teams: useId() };
-  const connections = useQuery({
-    queryKey: ["agent", "connections"],
-    queryFn: () => agent.getConnections({}),
-    staleTime: 30_000,
-  });
-  const lin = connections.data?.linear;
-  const connected = Boolean(lin?.configured) && !lin?.revokedAt;
-  const toggle = (event: string, on: boolean) =>
-    onEvents(LINEAR_EVENTS.map((e) => e.event).filter((e) => (e === event ? on : events.includes(e))));
-  return (
-    <>
-      <div className="grid gap-1.5" role="group" aria-labelledby={ids.events}>
-        <span id={ids.events} className="text-sm font-medium">
-          Linear events
-        </span>
-        {/* A grid of what by what happened to it: eighteen labels in a row read as a wall. */}
-        <div
-          data-testid="routine-linear-events"
-          className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] rounded-lg border border-border text-sm"
-        >
-          <span />
-          {LINEAR_ACTIONS.map((a) => (
-            <span key={a.action} className="py-1.5 text-center text-xs text-muted capitalize">
-              {a.label}
-            </span>
-          ))}
-          {LINEAR_TYPES.map((t) => (
-            <Fragment key={t.type}>
-              <span className="flex items-center border-t border-border py-1.5 pl-3 text-fg">{t.label}</span>
-              {LINEAR_ACTIONS.map((a) => {
-                const event = `${t.type}.${a.action}`;
-                return (
-                  <span key={event} className="flex items-center justify-center border-t border-border py-1.5">
-                    <Checkbox
-                      data-testid={`routine-event-${event}`}
-                      aria-label={`${t.label} ${a.label}`}
-                      checked={events.includes(event)}
-                      onCheckedChange={(v) => toggle(event, v === true)}
-                    />
-                  </span>
-                );
-              })}
-            </Fragment>
-          ))}
-        </div>
-        <p data-testid="routine-linear-hint" className={cn("text-xs leading-relaxed", connections.isSuccess && !connected ? "text-warn" : "text-muted")}>
-          {connections.isSuccess && !connected ? (
-            <>
-              The Linear app is not connected, so no events arrive yet. Connect it under{" "}
-              <Link to="/org/settings/connections" className="underline underline-offset-2 hover:text-fg">
-                Connections
-              </Link>
-              .
-            </>
-          ) : (
-            "Each run is given the events that arrived since the last one. A run that is busy leaves them waiting for the next."
-          )}
-        </p>
-      </div>
-      <div className="grid gap-1.5">
-        <label htmlFor={ids.teams} className="text-sm font-medium">
-          Teams{" "}
-          <span className="font-normal text-muted">(optional)</span>
-        </label>
-        <Input
-          id={ids.teams}
-          data-testid="routine-teams"
-          value={teams}
-          onChange={(e) => onTeams(e.target.value)}
-          placeholder="ENG, WEB"
-          aria-describedby={`${ids.teams}-hint`}
-        />
-        <p id={`${ids.teams}-hint`} className="text-xs text-muted">
-          Team keys, separated by commas. Leave empty for every team.
-        </p>
-      </div>
-    </>
-  );
-}
-
-/**
- * RoutineDialog is the one editor, for a new routine and for an existing one. The server checks the schedule — its cron, its timezone and the
- * floor — and its refusal is shown as it says it.
- *
- * An admin making a routine chooses who it runs as: themselves, or Podium (a system routine).
- * The choice is made once; editing shows it and does not offer it again.
- */
-export function RoutineDialog({
-  open,
-  title,
-  description,
-  initial,
-  lockAssistant,
-  scope: fixedScope,
-  canChooseScope,
-  canChooseTrigger,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  title: string;
-  description?: string;
-  initial: Partial<RoutineDraft>;
-  lockAssistant?: boolean;
-  /** scope is the routine's, for one that exists. */
-  scope?: Scope;
-  /** canChooseScope offers "Runs as": an admin making a new routine. */
-  canChooseScope?: boolean;
-  /** canChooseTrigger offers "Runs": on a schedule or on a Linear event, which only admins may set. */
-  canChooseTrigger?: boolean;
-  onClose: () => void;
-  onSave: (draft: RoutineDraft, scope: Scope) => Promise<void>;
-}) {
-  const brand = useBrand();
-  const [scope, setScope] = useState<Scope>(fixedScope ?? "personal");
-  const system = scope === "system";
-  const [name, setName] = useState(initial.name ?? "");
-  const [instruction, setInstruction] = useState(initial.instruction ?? "");
-  const [notes, setNotes] = useState(initial.notes ?? "");
-  const [schedule, setSchedule] = useState(
-    initial.schedule || toCron(DEFAULT_REPEAT),
-  );
-  // Remounted by a template, so the schedule editor reads the schedule it was given afresh.
-  const [scheduleKey, setScheduleKey] = useState(0);
-  const [trigger, setTrigger] = useState<Trigger>(initial.trigger === "linear" ? "linear" : "schedule");
-  const linear = trigger === "linear";
-  const [events, setEvents] = useState<string[]>(initial.events ?? []);
-  const [teams, setTeams] = useState((initial.teams ?? []).join(", "));
-  const [timezone, setTimezone] = useState(initial.timezone || browserZone());
-  const [personalityId, setPersonalityId] = useState(
-    initial.personalityId ?? "",
-  );
-  const [cap, setCap] = useState(
-    initial.dailyCapUsd ? String(initial.dailyCapUsd) : "",
-  );
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId(), trigger: useId() };
-  // The assistant is chosen when the routine is made: its chat is labelled with it for good.
-  const voices = useQuery({
-    queryKey: ["agent", "personalities"],
-    queryFn: () => agent.listPersonalities({}),
-    staleTime: 30_000,
-    enabled: open && !lockAssistant && !system,
-  });
-  const assistants = voices.data?.personalities ?? [];
-  const capValue = cap.trim() === "" ? 0 : Number(cap);
-  const capProblem =
-    cap.trim() !== "" && (!Number.isFinite(capValue) || capValue < 0)
-      ? "A spend cap is an amount in dollars, like 5 or 2.50."
-      : "";
-
-  const useTemplate = () => {
-    setName(CI_FIXER.name);
-    setInstruction(CI_FIXER.instruction);
-    setNotes(CI_FIXER.notes);
-    setSchedule(CI_FIXER.schedule);
-    setScheduleKey((k) => k + 1);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await onSave(
-        {
-          $typeName: "podium.agent.v1.RoutineDraft",
-          name: name.trim(),
-          instruction: instruction.trim(),
-          notes: notes.trim(),
-          // One or the other, never both: the server refuses a draft that names a schedule and events.
-          schedule: linear ? "" : schedule.trim(),
-          trigger,
-          events: linear ? events : [],
-          teams: linear ? teamKeys(teams) : [],
-          timezone: timezone.trim() || "UTC",
-          personalityId: system
-            ? ""
-            : lockAssistant
-              ? (initial.personalityId ?? "")
-              : personalityId,
-          model: initial.model ?? "",
-          effort: initial.effort ?? "",
-          repos: [],
-          dailyCapUsd: capValue,
-        },
-        scope,
-      );
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const scopeHint = SCOPES.find((s) => s.scope === scope)?.hint ?? "";
-  const blank = !name.trim() && !instruction.trim();
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl lg:max-w-5xl">
-        <DialogHeader className="border-b border-border px-6 py-4 pr-14">
-          <DialogTitle className="flex items-center gap-2">
-            {title}
-            {fixedScope === "system" ? <SystemBadge /> : null}
-          </DialogTitle>
-          <DialogDescription>
-            {description ??
-              (fixedScope === "system"
-                ? "Runs as Podium with the company’s credentials. Nobody writes in its chat: what it does is steered from here."
-                : "A job an assistant does on a schedule, in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat.")}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="flex min-h-0 flex-1 flex-col"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save();
-          }}
-        >
-          {/* What it does on the left, how it runs on the right. Below lg the two stack, in that order. */}
-          <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_26rem]">
-            <div className="flex min-w-0 flex-col gap-4 p-6">
-              {system && !fixedScope && blank ? (
-                <button
-                  type="button"
-                  data-testid="routine-template-ci"
-                  onClick={useTemplate}
-                  className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
-                  <span className="grid gap-0.5">
-                    <span className="font-medium text-fg">Start from “Fix failing CI”</span>
-                    <span className="text-xs text-muted">
-                      Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after
-                      3 tries. It only proposes until you edit it to push.
-                    </span>
-                  </span>
-                </button>
-              ) : null}
-              <label className="grid gap-1.5 text-sm font-medium">
-                Name
-                <Input
-                  data-testid="routine-name"
-                  value={name}
-                  maxLength={80}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={system ? "Fix failing CI" : "Morning PR digest"}
-                />
-              </label>
-              <label className="flex flex-1 flex-col gap-1.5 text-sm font-medium">
-                What to do each run
-                <Textarea
-                  data-testid="routine-instruction"
-                  value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
-                  placeholder={
-                    system
-                      ? "Look for failed checks on open pull requests in the API and web repos, and comment on each with the fix you would make. Do not push."
-                      : "Check acme/api for pull requests whose CI failed since the last run, and tell me which ones and why."
-                  }
-                  className="min-h-40 flex-1"
-                />
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium">
-                <span>
-                  Standing notes{" "}
-                  <span className="font-normal text-muted">(optional)</span>
-                </span>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="- skip draft pull requests"
-                  className="min-h-20"
-                />
-              </label>
-            </div>
-            <div className="grid min-w-0 content-start gap-5 border-t border-border p-6 lg:border-t-0 lg:border-l">
-              {canChooseScope && !fixedScope ? (
-                <div className="grid gap-1.5" role="group" aria-labelledby={ids.scope}>
-                  <span id={ids.scope} className="text-sm font-medium">
-                    Runs as
-                  </span>
-                  <ToggleGroup
-                    type="single"
-                    value={scope}
-                    aria-label="Runs as"
-                    onValueChange={(v) => v && setScope(v as Scope)}
-                    className="grid w-full grid-cols-2 border-border bg-raised"
-                  >
-                    {SCOPES.map((s) => (
-                      <ToggleGroupItem
-                        key={s.scope}
-                        value={s.scope}
-                        data-testid={`routine-scope-${s.scope}`}
-                        className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-                      >
-                        {s.scope === "system" ? <ShieldCheck aria-hidden /> : <User aria-hidden />}
-                        {s.scope === "system" ? `${brand} (system)` : s.label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                  <p data-testid="routine-scope-hint" className="text-xs leading-relaxed text-muted">
-                    {scopeHint}
-                  </p>
-                </div>
-              ) : null}
-              {!system && !lockAssistant && assistants.length > 0 ? (
-                <div className="grid gap-1.5">
-                  <label htmlFor={ids.assistant} className="text-sm font-medium">
-                    Assistant
-                  </label>
-                  <Select
-                    value={personalityId || DEFAULT_ASSISTANT}
-                    onValueChange={(v) =>
-                      setPersonalityId(v === DEFAULT_ASSISTANT ? "" : v)
-                    }
-                  >
-                    <SelectTrigger
-                      id={ids.assistant}
-                      data-testid="routine-assistant"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={DEFAULT_ASSISTANT}>{brand}</SelectItem>
-                      {assistants.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.displayName || p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-              {canChooseTrigger ? (
-                <div className="grid gap-1.5" role="group" aria-labelledby={ids.trigger}>
-                  <span id={ids.trigger} className="text-sm font-medium">
-                    Runs
-                  </span>
-                  <ToggleGroup
-                    type="single"
-                    value={trigger}
-                    aria-label="Runs"
-                    onValueChange={(v) => v && setTrigger(v as Trigger)}
-                    className="grid w-full grid-cols-2 border-border bg-raised"
-                  >
-                    {TRIGGERS.map((t) => (
-                      <ToggleGroupItem
-                        key={t.trigger}
-                        value={t.trigger}
-                        data-testid={`routine-trigger-${t.trigger}`}
-                        className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-                      >
-                        {t.trigger === "linear" ? <Webhook aria-hidden /> : <Repeat aria-hidden />}
-                        {t.label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-              ) : null}
-              {linear ? (
-                <LinearEventsField events={events} onEvents={setEvents} teams={teams} onTeams={setTeams} />
-              ) : (
-                <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
-              )}
-              <div className="grid gap-1.5">
-                <label htmlFor={ids.zone} className="text-sm font-medium">
-                  Timezone
-                </label>
-                <TimezonePicker
-                  id={ids.zone}
-                  data-testid="routine-timezone"
-                  value={timezone}
-                  onChange={setTimezone}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <label htmlFor={ids.cap} className="text-sm font-medium">
-                  Daily spend cap <span className="font-normal text-muted">(optional)</span>
-                </label>
-                <div className="flex items-start gap-3">
-                  <div className="relative w-28 shrink-0">
-                    <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-faint">$</span>
-                    <Input
-                      id={ids.cap}
-                      data-testid="routine-cap"
-                      inputMode="decimal"
-                      value={cap}
-                      onChange={(e) => setCap(e.target.value)}
-                      placeholder="No cap"
-                      aria-invalid={capProblem !== ""}
-                      aria-describedby={`${ids.cap}-hint`}
-                      className="pl-6 tabular-nums"
-                    />
-                  </div>
-                  <p id={`${ids.cap}-hint`} className={cn("text-xs leading-relaxed", capProblem ? "text-warn" : "text-muted")}>
-                    {capProblem || "Reaching it pauses the routine until midnight in its timezone."}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="border-t border-border px-6 py-3">
-            {error ? (
-              <p role="alert" data-testid="routine-error" className="mr-auto min-w-0 flex-1 text-sm text-err">
-                {error}
-              </p>
-            ) : null}
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              data-testid="routine-save"
-              disabled={
-                saving || !name.trim() || !instruction.trim() || capProblem !== "" || (linear && events.length === 0)
-              }
-            >
-              {saving ? "Saving…" : system && !fixedScope ? "Save system routine" : "Save routine"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
