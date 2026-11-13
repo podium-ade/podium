@@ -236,6 +236,22 @@ type Routine struct {
 	DailyCapUsd          *float64
 	PausedUntil          *time.Time
 	CreatedBy            string
+	TriggerKind          string
+	Events               []string
+	Teams                []string
+	ChatMode             string
+}
+
+type RoutineEvent struct {
+	ID           int64
+	RoutineID    string
+	DeliveryID   string
+	Event        string
+	Payload      []byte
+	ReceivedAt   time.Time
+	RunID        *string
+	SubjectKey   *string
+	SubjectTitle *string
 }
 
 type RoutineRevision struct {
@@ -261,6 +277,15 @@ type RoutineRun struct {
 	CostUsd      *float64
 	CreatedAt    time.Time
 	FinishedAt   *time.Time
+	ChatID       *string
+}
+
+type RoutineSubjectChat struct {
+	RoutineID    string
+	SubjectKey   string
+	SubjectTitle string
+	ChatID       string
+	CreatedAt    time.Time
 }
 
 type Session struct {

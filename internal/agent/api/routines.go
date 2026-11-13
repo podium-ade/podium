@@ -7,6 +7,10 @@ package api
 // A system routine runs as nobody. Admins and owners (Infra) create, edit and run it with the
 // same handlers; a member never sees one. An admin also sees every person's routines as
 // metadata (ListMemberRoutines) and may pause one, never read it.
+//
+// A routine that runs on Linear events is for admins and owners too, in either scope: the
+// events carry issues from every team the Linear app can see, so a member's routine would read
+// teams the member is not in. Only an admin may set a draft's trigger to Linear.
 
 import (
 	"context"
@@ -75,13 +79,21 @@ func (s *AgentService) GetRoutine(
 		return nil, err
 	}
 	var r store.Routine
+	subject := ""
 	switch {
 	case req.Msg.GetId() != "":
 		r, err = s.ownedRoutine(ctx, req.Msg.GetId(), login)
 	case req.Msg.GetChatId() != "":
+		// A chat per ticket (0047) resolves to its routine as the routine's own chat does, and
+		// says which ticket it is for.
 		r, err = s.store.RoutineByChat(ctx, req.Msg.GetChatId())
 		if err == nil && !s.mayManageRoutine(ctx, r, login) {
 			err = fmt.Errorf("%w: routine of chat %s", store.ErrNotFound, req.Msg.GetChatId())
+		}
+		if err == nil && r.ChatID != req.Msg.GetChatId() {
+			if sc, serr := s.store.RoutineSubjectOfChat(ctx, req.Msg.GetChatId()); serr == nil {
+				subject = cmpOr(sc.SubjectTitle, sc.SubjectKey)
+			}
 		}
 		err = routineError(err)
 	default:
@@ -90,7 +102,7 @@ func (s *AgentService) GetRoutine(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
+	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r), SubjectTitle: subject}), nil
 }
 
 // CreateRoutine opens a routine and its chat for the caller.
@@ -114,7 +126,7 @@ func (s *AgentService) CreateRoutine(
 	if err != nil {
 		return nil, err
 	}
-	s.auditRoutine(ctx, login, AuditRoutineCreate, r, map[string]any{"scope": r.Scope, "schedule": r.Schedule})
+	s.auditRoutine(ctx, login, AuditRoutineCreate, r, triggerDetails(r, map[string]any{"scope": r.Scope}))
 	return connect.NewResponse(&agentv1.CreateRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
 }
 
@@ -135,7 +147,7 @@ func (s *AgentService) createSystemRoutine(ctx context.Context, login string, in
 	if err != nil {
 		return store.Routine{}, routineError(err)
 	}
-	s.logger.InfoContext(ctx, "a system routine was created", "routine_id", r.ID, "login", login, "schedule", r.Schedule)
+	s.logger.InfoContext(ctx, "a system routine was created", "routine_id", r.ID, "login", login, "schedule", r.When())
 	return r, nil
 }
 
@@ -182,7 +194,7 @@ func (s *AgentService) createRoutine(ctx context.Context, login string, in *agen
 	if err != nil {
 		return store.Routine{}, routineError(err)
 	}
-	s.logger.InfoContext(ctx, "a routine was created", "routine_id", r.ID, "login", login, "schedule", r.Schedule)
+	s.logger.InfoContext(ctx, "a routine was created", "routine_id", r.ID, "login", login, "schedule", r.When())
 	return r, nil
 }
 
@@ -212,11 +224,10 @@ func (s *AgentService) UpdateRoutine(
 	if err != nil {
 		return nil, routineError(err)
 	}
-	s.auditRoutine(ctx, login, AuditRoutineUpdate, updated, map[string]any{
+	s.auditRoutine(ctx, login, AuditRoutineUpdate, updated, triggerDetails(updated, map[string]any{
 		"instruction_changed": r.Instruction != updated.Instruction,
 		"notes_changed":       r.Notes != updated.Notes,
-		"schedule":            updated.Schedule,
-	})
+	}))
 	return connect.NewResponse(&agentv1.UpdateRoutineResponse{Routine: s.routineToProto(ctx, updated)}), nil
 }
 
@@ -286,11 +297,17 @@ func (s *AgentService) ResumeRoutine(
 	if err != nil {
 		return nil, err
 	}
-	sched, err := routines.Parse(r.Schedule, r.Timezone)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	// A routine on Linear events has no schedule; the events that waited while it was paused
+	// run on the next tick.
+	next := time.Now()
+	if !r.OnLinear() {
+		sched, err := routines.Parse(r.Schedule, r.Timezone)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		next = sched.NextFor(r.ID, next)
 	}
-	r, err = s.store.SetRoutineEnabled(ctx, r.ID, true, "", sched.NextFor(r.ID, time.Now()))
+	r, err = s.store.SetRoutineEnabled(ctx, r.ID, true, "", next)
 	if err != nil {
 		return nil, routineError(err)
 	}
@@ -433,7 +450,7 @@ func (s *AgentService) CancelRoutineRun(
 	if s.canceller == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel routine run: no conductor is wired in"))
 	}
-	stopped, err := s.canceller.CancelChatTurn(ctx, r.ChatID)
+	stopped, err := s.canceller.CancelChatTurn(ctx, s.runChat(ctx, r))
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -463,9 +480,11 @@ func (s *AgentService) ListMemberRoutines(
 	out := make([]*agentv1.MemberRoutine, 0, len(rows))
 	for _, r := range rows {
 		m := &agentv1.MemberRoutine{
-			Id: r.ID, Name: r.Name, OwnerLogin: r.OwnerLogin, ScheduleText: routines.Describe(r.Schedule),
+			Id: r.ID, Name: r.Name, OwnerLogin: r.OwnerLogin, ScheduleText: scheduleText(r),
 			Timezone: r.Timezone, Enabled: r.Enabled, PausedReason: r.PausedReason,
-			NextRunAt: timestamppb.New(r.NextRunAt),
+		}
+		if !r.OnLinear() {
+			m.NextRunAt = timestamppb.New(r.NextRunAt)
 		}
 		if spend, err := s.store.RoutineSpendSince(ctx, r.ID, since); err == nil {
 			m.SpendTodayUsd = spend
@@ -526,7 +545,8 @@ func memberView(r *agentv1.Routine) *agentv1.Routine {
 	return &agentv1.Routine{
 		Id: r.Id, Name: r.Name, Schedule: r.Schedule, Timezone: r.Timezone, ScheduleText: r.ScheduleText,
 		Enabled: r.Enabled, PausedReason: r.PausedReason, NextRunAt: r.NextRunAt, LastRunAt: r.LastRunAt,
-		OwnerLogin: r.OwnerLogin, SpendTodayUsd: r.SpendTodayUsd, Scope: r.Scope,
+		OwnerLogin: r.OwnerLogin, SpendTodayUsd: r.SpendTodayUsd, Scope: r.Scope, Trigger: r.Trigger,
+		ChatMode: r.ChatMode,
 	}
 }
 
@@ -614,6 +634,8 @@ func (s *AgentService) routineDraft(
 		Name: in.GetName(), Schedule: in.GetSchedule(), Timezone: in.GetTimezone(),
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
 		Model: in.GetModel(), Effort: in.GetEffort(),
+		Kind: strings.TrimSpace(in.GetTrigger()), Events: in.GetEvents(), Teams: in.GetTeams(),
+		ChatMode: in.GetChatMode(),
 	}
 	if c := in.GetDailyCapUsd(); c != 0 {
 		d.DailyCapUSD = &c
@@ -629,17 +651,33 @@ func (s *AgentService) routineDraft(
 	if strings.TrimSpace(d.Timezone) == "" {
 		d.Timezone = "UTC"
 	}
-	sched, err := routines.Parse(d.Schedule, d.Timezone)
-	if err != nil {
-		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
+	if d.Kind == store.RoutineKindLinear {
+		// Linear events carry issues from every team the app can see, so a routine on them is
+		// an admin's to set, whoever it runs as. It has no schedule to parse or floor to hold:
+		// how often it runs is what Linear sends, bounded by the scheduler's guards.
+		if !Infra(ctx) {
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodePermissionDenied,
+				errors.New("only admins and owners can set a routine to run on Linear events: they carry issues "+
+					"from every team the Linear app can see"))
+		}
+		if _, err := time.LoadLocation(strings.TrimSpace(d.Timezone)); err != nil {
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("%w: %q is not a timezone (use an IANA name such as America/Toronto)", routines.ErrInvalidSchedule, d.Timezone))
+		}
+		d.NextRunAt = time.Now()
+	} else {
+		sched, err := routines.Parse(d.Schedule, d.Timezone)
+		if err != nil {
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		now := time.Now()
+		if err := sched.CheckFloor(floor, now); err != nil {
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		// A new routine's jitter is worked out from a placeholder id; the routine's own takes
+		// over from its first run.
+		d.NextRunAt = sched.NextFor(cmpOr(id, d.Name), now)
 	}
-	now := time.Now()
-	if err := sched.CheckFloor(floor, now); err != nil {
-		return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	// A new routine's jitter is worked out from a placeholder id; the routine's own takes
-	// over from its first run.
-	d.NextRunAt = sched.NextFor(cmpOr(id, d.Name), now)
 	if choice := (profiles.Override{Model: d.Model, Effort: d.Effort}); !choice.Empty() {
 		if err := s.checkOverride(choice); err != nil {
 			return store.RoutineDraft{}, "", err
@@ -657,6 +695,25 @@ func (s *AgentService) routineDraft(
 		return store.RoutineDraft{}, "", routineError(err)
 	}
 	return d, display, nil
+}
+
+// scheduleText is what starts a routine's runs, in words.
+func scheduleText(r store.Routine) string {
+	if r.OnLinear() {
+		return store.DescribeLinearTrigger(r.Events, r.Teams)
+	}
+	return routines.Describe(r.Schedule)
+}
+
+// triggerDetails adds what starts a routine's runs to an audit entry's details.
+func triggerDetails(r store.Routine, details map[string]any) map[string]any {
+	if r.OnLinear() {
+		details["trigger"], details["events"], details["teams"] = r.Kind, r.Events, r.Teams
+		details["chat_mode"] = r.ChatMode
+		return details
+	}
+	details["schedule"] = r.Schedule
+	return details
 }
 
 func cmpOr(a, b string) string {
@@ -688,7 +745,11 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		Name:          r.Name,
 		Schedule:      r.Schedule,
 		Timezone:      r.Timezone,
-		ScheduleText:  routines.Describe(r.Schedule),
+		ScheduleText:  scheduleText(r),
+		Trigger:       r.Kind,
+		Events:        r.Events,
+		Teams:         r.Teams,
+		ChatMode:      r.ChatMode,
 		Instruction:   r.Instruction,
 		Notes:         r.Notes,
 		ProposedNote:  r.ProposedNote,
@@ -699,13 +760,20 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		PausedReason:  r.PausedReason,
 		State:         string(r.State),
 		ChatId:        r.ChatID,
-		NextRunAt:     timestamppb.New(r.NextRunAt),
 		IdleCount:     int32(r.IdleCount),
 		OwnerLogin:    r.OwnerLogin,
 		CreatedAt:     timestamppb.New(r.CreatedAt),
 		Scope:         r.Scope,
 		Repos:         r.Repos,
 		CreatedBy:     r.CreatedBy,
+	}
+	if r.OnLinear() {
+		// Its runs come when Linear's events do; there is no next one to name.
+		if pending, err := s.store.PendingRoutineEvents(ctx, []string{r.ID}); err == nil {
+			out.PendingEvents = int32(pending[r.ID])
+		}
+	} else {
+		out.NextRunAt = timestamppb.New(r.NextRunAt)
 	}
 	if r.DailyCapUSD != nil {
 		out.DailyCapUsd = *r.DailyCapUSD
@@ -719,13 +787,24 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 	if spend, err := s.store.RoutineSpendSince(ctx, r.ID, time.Now().Add(-24*time.Hour)); err == nil {
 		out.SpendTodayUsd = spend
 	}
-	if running, err := s.store.ChatTurnRunning(ctx, r.ChatID); err == nil {
+	if running, err := s.store.ChatTurnRunning(ctx, s.runChat(ctx, r)); err == nil {
 		out.Running = running
 	}
 	if last, err := s.store.LastRoutineRuns(ctx, []string{r.ID}); err == nil {
 		out.LastRunStatus = last[r.ID].Status
 	}
 	return out
+}
+
+// runChat is the chat a routine's run is going in: one ticket's chat, for a routine with a chat
+// per ticket whose run is there, and otherwise the routine's own.
+func (s *AgentService) runChat(ctx context.Context, r store.Routine) string {
+	if r.PerSubject() {
+		if run, err := s.store.RunningRoutineRun(ctx, r.ID); err == nil && run.ChatID != "" {
+			return run.ChatID
+		}
+	}
+	return r.ChatID
 }
 
 func routineRunToProto(r store.RoutineRun) *agentv1.RoutineRun {

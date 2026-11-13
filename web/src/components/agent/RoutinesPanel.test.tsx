@@ -67,6 +67,53 @@ beforeEach(() => {
 });
 
 describe("RoutinesPanel", () => {
+  it("shows what waits for a routine on Linear events where a scheduled one shows its next run", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On Linear: issue created, comment created",
+          trigger: "linear",
+          events: ["Issue.create", "Comment.create"],
+          nextRunAt: undefined,
+          pendingEvents: 3,
+          timezone: "Europe/Madrid",
+        }),
+      ],
+    });
+    mount();
+
+    const row = await screen.findByTestId("routine-row");
+    expect(row).toHaveTextContent("Runs on Linear: issue created, comment created");
+    expect(row).not.toHaveTextContent("Europe/Madrid");
+    const status = within(row).getByTestId("routine-row-status");
+    expect(status).toHaveTextContent("Waiting3 events");
+    expect(status).not.toHaveTextContent("Next run");
+  });
+
+  it("says when a routine on Linear events runs in a chat per ticket", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On Linear: issue created",
+          trigger: "linear",
+          events: ["Issue.create"],
+          chatMode: "subject",
+          nextRunAt: undefined,
+        }),
+        routine({ id: "rtn_2", name: "Digest", chatId: "chat_d" }),
+      ],
+    });
+    mount();
+
+    const rows = await screen.findAllByTestId("routine-row");
+    const triage = rows.find((r) => r.textContent?.includes("PR digest"));
+    const digest = rows.find((r) => r.textContent?.includes("Digest") && r !== triage);
+    expect(triage).toHaveTextContent("Runs on Linear: issue created · a chat per ticket");
+    expect(digest).not.toHaveTextContent("a chat per ticket");
+  });
+
   it("lists each routine with when it runs, and pauses one", async () => {
     listRoutines.mockResolvedValue({ routines: [routine()] });
     pauseRoutine.mockResolvedValue({ routine: routine({ enabled: false }) });

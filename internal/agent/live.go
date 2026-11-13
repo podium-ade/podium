@@ -54,6 +54,9 @@ type liveConnections struct {
 	// linearSession and linearCursor are the store, as the poller is allowed to see it.
 	linearSession agentlinear.SessionLookup
 	linearCursor  agentlinear.CursorStore
+	// routinesRun is set by New when this conductor runs routines, after the Linear source is
+	// built: until then, and without them, a Linear data change is stored for no routine.
+	routinesRun bool
 
 	mu      sync.Mutex
 	running config.Config
@@ -525,6 +528,7 @@ func (l *liveConnections) newLinearApp(
 		Revoked:        saved.RevokedAt != nil,
 		OnRevoked:      l.linearRevoked(cfg.LinearClientID),
 		Stop:           l.stopLinearTurn,
+		Events:         l,
 		Metrics:        l.linearMetrics,
 		Logger:         l.logger,
 	})
@@ -538,6 +542,19 @@ func (l *liveConnections) stopLinearTurn(ctx context.Context, sourceKey string) 
 		return false, errors.New("the conductor is not running")
 	}
 	return l.conductor.CancelSessionTurn(ctx, sourceKey, agentlinear.StopReason)
+}
+
+var _ agentlinear.EventSink = (*liveConnections)(nil)
+
+// LinearDataChange keeps a Linear data change for the routines that run on it. The source is
+// built before New knows whether routines run here, so that is asked when a change arrives.
+func (l *liveConnections) LinearDataChange(ctx context.Context, d agentlinear.DataChange) (int, error) {
+	if l.store == nil || !l.routinesRun {
+		return 0, nil
+	}
+	return l.store.StoreRoutineEvents(ctx, store.LinearDelivery{
+		DeliveryID: d.DeliveryID, Event: d.Event(), TeamKey: d.TeamKey, Payload: d.Payload, ReceivedAt: d.ReceivedAt,
+	})
 }
 
 // linearRevoked records on the saved app that Linear revoked it, so Settings → Connections

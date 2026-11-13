@@ -69,6 +69,14 @@ type webhookPayload struct {
 	// PromptContext is Linear's own rendering of the issue and the thread for an agent. It
 	// is kept for reading, not handed to a turn: the transcript carries the issue.
 	PromptContext string `json:"promptContext"`
+
+	// A data change (datachange.go) carries the entity as Data, who changed it as Actor, a
+	// link to it as URL and, on an update, the changed fields' earlier values as UpdatedFrom.
+	// Each is kept as Linear sent it: the run reads it, the app does not.
+	Data        json.RawMessage `json:"data"`
+	Actor       *payloadActor   `json:"actor"`
+	URL         string          `json:"url"`
+	UpdatedFrom json.RawMessage `json:"updatedFrom"`
 }
 
 // agentSession is the session a delivery is about.
@@ -188,14 +196,14 @@ func (s *AppSource) serveWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	outcome, reason, level := s.handleDelivery(&p)
+	outcome, reason, level := s.handleDelivery(&p, d.id, body)
 	s.logDelivery(ctx, level, d, outcome, reason)
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleDelivery decides what one checked delivery means and queues whatever it starts. It
-// returns how the delivery is logged and counted.
-func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, level slog.Level) {
+// returns how the delivery is logged and counted. deliveryID and body name a data change.
+func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []byte) (outcome, reason string, level slog.Level) {
 	if why := s.foreign(p); why != "" {
 		return DeliveryIgnored, why, slog.LevelInfo
 	}
@@ -214,6 +222,9 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 		s.revoke()
 		return DeliveryRevoked, "Linear revoked the app; nothing starts until it is saved again", slog.LevelError
 	default:
+		if dataChange(p) {
+			return s.handleDataChange(p, deliveryID, body)
+		}
 		return DeliveryIgnored, "unhandled", slog.LevelInfo
 	}
 
@@ -337,7 +348,7 @@ func (s *AppSource) logDelivery(ctx context.Context, level slog.Level, d deliver
 		attrs = append(attrs, "delivery", d.id)
 	}
 	if p := d.payload; p != nil {
-		typ = deliveryType(p.Type)
+		typ = deliveryType(p)
 		attrs = append(attrs, "type", p.Type)
 		if p.Action != "" {
 			attrs = append(attrs, "action", p.Action)
@@ -365,12 +376,16 @@ func (s *AppSource) logDelivery(ctx context.Context, level slog.Level, d deliver
 	s.logger.Log(ctx, level, "linear: webhook", attrs...)
 }
 
-// deliveryType is a payload type as a metric label: one of the types this source knows, or
-// "other", so the label's values stay few whatever Linear adds.
-func deliveryType(t string) string {
-	switch t {
+// deliveryType is a payload's type as a metric label: one of the types this source knows,
+// "data" for every data change whatever its entity, or "other", so the label's values stay
+// few whatever Linear adds.
+func deliveryType(p *webhookPayload) string {
+	switch p.Type {
 	case TypeAgentSession, TypeAppNotification, TypePermissionChange, TypeOAuthApp:
-		return t
+		return p.Type
+	}
+	if dataChange(p) {
+		return deliveryTypeData
 	}
 	return "other"
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   History,
@@ -6,28 +6,26 @@ import {
   Pencil,
   Play,
   Repeat,
-  ShieldCheck,
   Square,
   Trash2,
-  User,
-  Wrench,
   Zap,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import {
   type Routine,
-  type RoutineDraft,
 } from "../../gen/podium/agent/v1/agent_pb";
 import {
-  browserZone,
-  CI_FIXER,
-  draftOf,
+  isLinear,
   isSystem,
   money,
+  draftOf,
+  perTicket,
+  routineChatPath,
   routineKey,
   routinesKey,
   routineStatus,
-  type Scope,
+  runsText,
 } from "../../lib/routines";
 import { agent, errorMessage } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
@@ -47,20 +45,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
-import { Textarea } from "../ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
-import { ScheduleField } from "./ScheduleField";
-import { TimezonePicker } from "./TimezonePicker";
 import { useBrand } from "../../lib/brand";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
+import { RoutineDialog, SystemBadge } from "./RoutineDialog";
+
+/** CardData is what the card reads for its chat: the routine, and the ticket when the chat is one ticket's. */
+type CardData = { routine: Routine; subjectTitle: string } | null;
 
 /**
  * RoutineCard sits at the top of a routine's chat: when it runs, how it has been doing, and the
@@ -74,23 +65,31 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   const toast = useToast();
   const routine = useQuery({
     queryKey: routineKey(chatId),
-    queryFn: async () => (await agent.getRoutine({ chatId })).routine ?? null,
+    queryFn: async (): Promise<CardData> => {
+      const res = await agent.getRoutine({ chatId });
+      return res.routine ? { routine: res.routine, subjectTitle: res.subjectTitle } : null;
+    },
     // The next run and whether one is going move on their own.
     refetchInterval: 20_000,
   });
   const [editing, setEditing] = useState(false);
+  const admin = canManageInfra(useViewer());
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const refresh = (r?: Routine) => {
-    if (r) qc.setQueryData(routineKey(chatId), r);
+    if (r)
+      qc.setQueryData<CardData>(routineKey(chatId), (prev) => ({
+        routine: r,
+        subjectTitle: prev?.subjectTitle ?? "",
+      }));
     void qc.invalidateQueries({ queryKey: routinesKey });
   };
   const act = useMutation({
     mutationFn: async (
       what: "pause" | "resume" | "run" | "stop" | "accept" | "dismiss",
     ) => {
-      const r = routine.data;
+      const r = routine.data?.routine;
       if (!r) return undefined;
       switch (what) {
         case "pause":
@@ -124,7 +123,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   });
   const remove = useMutation({
     mutationFn: async () => {
-      if (routine.data) await agent.deleteRoutine({ id: routine.data.id });
+      if (routine.data) await agent.deleteRoutine({ id: routine.data.routine.id });
     },
     onSuccess: () => {
       setConfirmDelete(false);
@@ -168,7 +167,11 @@ export function RoutineCard({ chatId }: { chatId: string }) {
     setDetailsHeight(Math.max(140, Math.min(256, Math.floor(below))));
   }, [open]);
 
-  const r = routine.data;
+  const r = routine.data?.routine;
+  // A chat per ticket (a routine on Linear events) is one ticket's: the card says which, and
+  // where the routine's own chat is.
+  const ticketChat = r !== undefined && r.chatId !== chatId;
+  const ticket = routine.data?.subjectTitle ?? "";
   const history = useQuery({
     queryKey: ["agent", "routine-revisions", r?.id ?? ""],
     queryFn: async () => (await agent.listRoutineRevisions({ id: r?.id ?? "" })).revisions,
@@ -177,6 +180,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   if (!r) return null;
   const busy = act.isPending;
   const system = isSystem(r);
+  const linear = isLinear(r);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} asChild>
@@ -196,12 +200,15 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 aria-hidden
               />
               <span className="min-w-0">
-                Runs {r.scheduleText}
-                {r.timezone && r.timezone !== "UTC" ? (
+                {runsText(r)}
+                {!linear && r.timezone && r.timezone !== "UTC" ? (
                   <span className="font-normal text-faint">
                     {" "}
                     · {r.timezone}
                   </span>
+                ) : null}
+                {perTicket(r) ? (
+                  <span className="font-normal text-faint"> · a chat per ticket</span>
                 ) : null}
               </span>
               {system ? <SystemBadge className="ml-0.5 shrink-0" /> : null}
@@ -218,6 +225,23 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 : ""}
               {` · ${money(r.spendTodayUsd)} in 24h`}
             </p>
+            {ticketChat ? (
+              <p data-testid="routine-ticket" className="pl-6 text-xs text-muted">
+                {ticket ? (
+                  <>
+                    This chat is for <span className="text-fg">{ticket}</span>.{" "}
+                  </>
+                ) : (
+                  "This chat is for one ticket. "
+                )}
+                <Link
+                  to={routineChatPath(r)}
+                  className="underline underline-offset-2 hover:text-fg"
+                >
+                  Open the routine’s chat
+                </Link>
+              </p>
+            ) : null}
           </div>
           <span className="flex items-center gap-1">
             {r.running ? (
@@ -385,6 +409,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
             initial={draftOf(r)}
             lockAssistant
             scope={system ? "system" : "personal"}
+            canChooseTrigger={admin}
             onClose={() => setEditing(false)}
             onSave={async (draft) => {
               const res = await agent.updateRoutine({ id: r.id, draft });
@@ -558,340 +583,3 @@ function RevisionList({ revisions, loading }: { revisions?: Revision[]; loading:
     </div>
   );
 }
-
-/** DEFAULT_ASSISTANT stands for "no personal assistant" in the picker, which cannot hold "". */
-const DEFAULT_ASSISTANT = "podium";
-
-/** SystemBadge marks a routine that runs as nobody, wherever one is listed, so it is never taken for somebody's own. */
-export function SystemBadge({ className }: { className?: string }) {
-  return (
-    <span
-      data-testid="routine-system-badge"
-      title="A system routine: admins set it up, and it runs as Podium"
-      className={cn(
-        "inline-flex w-fit items-center gap-1 rounded-sm border border-line-strong bg-raised px-1.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] text-muted",
-        className,
-      )}
-    >
-      <ShieldCheck className="size-3" aria-hidden />
-      System
-    </span>
-  );
-}
-
-const SCOPES: { scope: Scope; label: string; hint: string }[] = [
-  {
-    scope: "personal",
-    label: "Me",
-    hint: "Runs as you: your model key, your connections, your GitHub account. Only you see it.",
-  },
-  {
-    scope: "system",
-    label: "Podium (system)",
-    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names. Admins see it; nobody writes in its chat.",
-  },
-];
-
-/**
- * RoutineDialog is the one editor, for a new routine and for an existing one. The server checks the schedule — its cron, its timezone and the
- * floor — and its refusal is shown as it says it.
- *
- * An admin making a routine chooses who it runs as: themselves, or Podium (a system routine).
- * The choice is made once; editing shows it and does not offer it again.
- */
-export function RoutineDialog({
-  open,
-  title,
-  description,
-  initial,
-  lockAssistant,
-  scope: fixedScope,
-  canChooseScope,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  title: string;
-  description?: string;
-  initial: Partial<RoutineDraft>;
-  lockAssistant?: boolean;
-  /** scope is the routine's, for one that exists. */
-  scope?: Scope;
-  /** canChooseScope offers "Runs as": an admin making a new routine. */
-  canChooseScope?: boolean;
-  onClose: () => void;
-  onSave: (draft: RoutineDraft, scope: Scope) => Promise<void>;
-}) {
-  const brand = useBrand();
-  const [scope, setScope] = useState<Scope>(fixedScope ?? "personal");
-  const system = scope === "system";
-  const [name, setName] = useState(initial.name ?? "");
-  const [instruction, setInstruction] = useState(initial.instruction ?? "");
-  const [notes, setNotes] = useState(initial.notes ?? "");
-  const [schedule, setSchedule] = useState(
-    initial.schedule || toCron(DEFAULT_REPEAT),
-  );
-  // Remounted by a template, so the schedule editor reads the schedule it was given afresh.
-  const [scheduleKey, setScheduleKey] = useState(0);
-  const [timezone, setTimezone] = useState(initial.timezone || browserZone());
-  const [personalityId, setPersonalityId] = useState(
-    initial.personalityId ?? "",
-  );
-  const [cap, setCap] = useState(
-    initial.dailyCapUsd ? String(initial.dailyCapUsd) : "",
-  );
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId() };
-  // The assistant is chosen when the routine is made: its chat is labelled with it for good.
-  const voices = useQuery({
-    queryKey: ["agent", "personalities"],
-    queryFn: () => agent.listPersonalities({}),
-    staleTime: 30_000,
-    enabled: open && !lockAssistant && !system,
-  });
-  const assistants = voices.data?.personalities ?? [];
-  const capValue = cap.trim() === "" ? 0 : Number(cap);
-  const capProblem =
-    cap.trim() !== "" && (!Number.isFinite(capValue) || capValue < 0)
-      ? "A spend cap is an amount in dollars, like 5 or 2.50."
-      : "";
-
-  const useTemplate = () => {
-    setName(CI_FIXER.name);
-    setInstruction(CI_FIXER.instruction);
-    setNotes(CI_FIXER.notes);
-    setSchedule(CI_FIXER.schedule);
-    setScheduleKey((k) => k + 1);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await onSave(
-        {
-          $typeName: "podium.agent.v1.RoutineDraft",
-          name: name.trim(),
-          instruction: instruction.trim(),
-          notes: notes.trim(),
-          schedule: schedule.trim(),
-          timezone: timezone.trim() || "UTC",
-          personalityId: system
-            ? ""
-            : lockAssistant
-              ? (initial.personalityId ?? "")
-              : personalityId,
-          model: initial.model ?? "",
-          effort: initial.effort ?? "",
-          repos: [],
-          dailyCapUsd: capValue,
-        },
-        scope,
-      );
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const scopeHint = SCOPES.find((s) => s.scope === scope)?.hint ?? "";
-  const blank = !name.trim() && !instruction.trim();
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {title}
-            {fixedScope === "system" ? <SystemBadge /> : null}
-          </DialogTitle>
-          <DialogDescription>
-            {description ??
-              (fixedScope === "system"
-                ? "Runs as Podium with the company’s credentials. Nobody writes in its chat: what it does is steered from here."
-                : "A job an assistant does on a schedule, in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat.")}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save();
-          }}
-        >
-          {canChooseScope && !fixedScope ? (
-            <div className="grid gap-1.5" role="group" aria-labelledby={ids.scope}>
-              <span id={ids.scope} className="text-sm font-medium">
-                Runs as
-              </span>
-              <ToggleGroup
-                type="single"
-                value={scope}
-                aria-label="Runs as"
-                onValueChange={(v) => v && setScope(v as Scope)}
-                className="grid w-full grid-cols-2 border-border bg-raised"
-              >
-                {SCOPES.map((s) => (
-                  <ToggleGroupItem
-                    key={s.scope}
-                    value={s.scope}
-                    data-testid={`routine-scope-${s.scope}`}
-                    className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-                  >
-                    {s.scope === "system" ? <ShieldCheck aria-hidden /> : <User aria-hidden />}
-                    {s.scope === "system" ? `${brand} (system)` : s.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-              <p data-testid="routine-scope-hint" className="text-xs leading-relaxed text-muted">
-                {scopeHint}
-              </p>
-            </div>
-          ) : null}
-          {system && !fixedScope && blank ? (
-            <button
-              type="button"
-              data-testid="routine-template-ci"
-              onClick={useTemplate}
-              className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
-              <span className="grid gap-0.5">
-                <span className="font-medium text-fg">Start from “Fix failing CI”</span>
-                <span className="text-xs text-muted">
-                  Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after
-                  3 tries. It only proposes until you edit it to push.
-                </span>
-              </span>
-            </button>
-          ) : null}
-          <label className="grid gap-1.5 text-sm font-medium">
-            Name
-            <Input
-              data-testid="routine-name"
-              value={name}
-              maxLength={80}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={system ? "Fix failing CI" : "Morning PR digest"}
-            />
-          </label>
-          <label className="grid gap-1.5 text-sm font-medium">
-            What to do each run
-            <Textarea
-              data-testid="routine-instruction"
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              placeholder={
-                system
-                  ? "Look for failed checks on open pull requests in the API and web repos, and comment on each with the fix you would make. Do not push."
-                  : "Check acme/api for pull requests whose CI failed since the last run, and tell me which ones and why."
-              }
-              className="min-h-32"
-            />
-          </label>
-          {!system && !lockAssistant && assistants.length > 0 ? (
-            <div className="grid gap-1.5">
-              <label htmlFor={ids.assistant} className="text-sm font-medium">
-                Assistant
-              </label>
-              <Select
-                value={personalityId || DEFAULT_ASSISTANT}
-                onValueChange={(v) =>
-                  setPersonalityId(v === DEFAULT_ASSISTANT ? "" : v)
-                }
-              >
-                <SelectTrigger
-                  id={ids.assistant}
-                  data-testid="routine-assistant"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={DEFAULT_ASSISTANT}>{brand}</SelectItem>
-                  {assistants.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.displayName || p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-          <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
-            <div className="grid min-w-0 gap-1.5">
-              <label htmlFor={ids.zone} className="text-sm font-medium">
-                Timezone
-              </label>
-              <TimezonePicker
-                id={ids.zone}
-                data-testid="routine-timezone"
-                value={timezone}
-                onChange={setTimezone}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <label htmlFor={ids.cap} className="text-sm font-medium">
-                Daily spend cap
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-faint">$</span>
-                <Input
-                  id={ids.cap}
-                  data-testid="routine-cap"
-                  inputMode="decimal"
-                  value={cap}
-                  onChange={(e) => setCap(e.target.value)}
-                  placeholder="No cap"
-                  aria-invalid={capProblem !== ""}
-                  aria-describedby={`${ids.cap}-hint`}
-                  className="pl-6 tabular-nums"
-                />
-              </div>
-            </div>
-            <p id={`${ids.cap}-hint`} className={cn("-mt-2 text-xs sm:col-span-2", capProblem ? "text-warn" : "text-muted")}>
-              {capProblem ||
-                "Reaching the cap pauses the routine until midnight in its timezone, and it starts again on its own."}
-            </p>
-          </div>
-          <label className="grid gap-1.5 text-sm font-medium">
-            <span>
-              Standing notes{" "}
-              <span className="font-normal text-muted">(optional)</span>
-            </span>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="- skip draft pull requests"
-              className="min-h-20"
-            />
-          </label>
-          {error ? (
-            <p
-              role="alert"
-              data-testid="routine-error"
-              className="text-sm text-err"
-            >
-              {error}
-            </p>
-          ) : null}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              data-testid="routine-save"
-              disabled={saving || !name.trim() || !instruction.trim() || capProblem !== ""}
-            >
-              {saving ? "Saving…" : system && !fixedScope ? "Save system routine" : "Save routine"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-

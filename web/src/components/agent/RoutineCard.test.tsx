@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { MemoryRouter } from "react-router";
 import { RoutineSchema, type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
-import { QuietRuns, RoutineCard, RoutineDialog } from "./RoutineCard";
+import { QuietRuns, RoutineCard } from "./RoutineCard";
+import { RoutineDialog } from "./RoutineDialog";
 
 const getRoutine = vi.fn();
 const pauseRoutine = vi.fn();
@@ -16,6 +18,7 @@ const resolveRoutineNote = vi.fn();
 const cancelRoutineRun = vi.fn();
 const listRoutineRevisions = vi.fn();
 const listRoutineRuns = vi.fn();
+const getConnections = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -29,6 +32,7 @@ vi.mock("../../lib/client", async () => {
       cancelRoutineRun: (...a: unknown[]) => cancelRoutineRun(...a),
       listRoutineRevisions: (...a: unknown[]) => listRoutineRevisions(...a),
       listRoutineRuns: (...a: unknown[]) => listRoutineRuns(...a),
+      getConnections: (...a: unknown[]) => getConnections(...a),
       listPersonalities: async () => ({ personalities: [] }),
     },
   };
@@ -56,7 +60,9 @@ function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ToastHost>{node}</ToastHost>
+      <ToastHost>
+        <MemoryRouter>{node}</MemoryRouter>
+      </ToastHost>
     </QueryClientProvider>,
   );
 }
@@ -67,6 +73,8 @@ beforeEach(() => {
   listRoutineRevisions.mockResolvedValue({ revisions: [] });
   listRoutineRuns.mockReset();
   listRoutineRuns.mockResolvedValue({ runs: [] });
+  getConnections.mockReset();
+  getConnections.mockResolvedValue({ linear: { configured: true } });
 });
 
 describe("RoutineCard", () => {
@@ -85,6 +93,29 @@ describe("RoutineCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Pause" }));
     await waitFor(() => expect(pauseRoutine).toHaveBeenCalledWith({ id: "rtn_1" }));
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
+  it("says a routine on Linear events runs on them, and what is waiting instead of a next run", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({
+        schedule: "",
+        scheduleText: "On Linear: issue created (ENG)",
+        timezone: "America/Toronto",
+        trigger: "linear",
+        events: ["Issue.create"],
+        teams: ["ENG"],
+        nextRunAt: undefined,
+        pendingEvents: 2,
+        idleCount: 0,
+      }),
+    });
+    mount(<RoutineCard chatId="chat_r" />);
+
+    expect(await screen.findByText("Runs on Linear: issue created (ENG)")).toBeInTheDocument();
+    expect(screen.queryByText(/America\/Toronto/)).not.toBeInTheDocument();
+    const status = screen.getByTestId("routine-status");
+    expect(status).toHaveTextContent("2 events waiting");
+    expect(status).not.toHaveTextContent("Next");
   });
 
   it("shows why Podium paused it, and the note the agent proposed", async () => {
@@ -117,6 +148,40 @@ describe("RoutineCard", () => {
     await waitFor(() => expect(screen.getByTestId("routine-card")).toHaveAttribute("data-state", "closed"));
   });
 
+  it("names the ticket in a ticket's chat and links the routine's own chat", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({
+        schedule: "",
+        scheduleText: "On Linear: issue created",
+        trigger: "linear",
+        events: ["Issue.create"],
+        chatMode: "subject",
+        nextRunAt: undefined,
+      }),
+      subjectTitle: "ENG-12 Fix login",
+    });
+    mount(<RoutineCard chatId="chat_ticket" />);
+
+    expect(await screen.findByText("Runs on Linear: issue created")).toBeInTheDocument();
+    expect(screen.getByText("· a chat per ticket", { exact: false })).toBeInTheDocument();
+    const ticket = screen.getByTestId("routine-ticket");
+    expect(ticket).toHaveTextContent("This chat is for ENG-12 Fix login.");
+    expect(within(ticket).getByRole("link", { name: "Open the routine’s chat" })).toHaveAttribute(
+      "href",
+      "/agent/chat/chat_r",
+    );
+  });
+
+  it("says nothing of tickets in the routine's own chat", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({ trigger: "linear", scheduleText: "On Linear: issue created", chatMode: "subject" }),
+      subjectTitle: "",
+    });
+    mount(<RoutineCard chatId="chat_r" />);
+    expect(await screen.findByTestId("routine-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("routine-ticket")).not.toBeInTheDocument();
+  });
+
   it("is nothing for a chat with no routine", async () => {
     getRoutine.mockResolvedValue({ routine: undefined });
     const { container } = mount(<RoutineCard chatId="chat_x" />);
@@ -126,13 +191,152 @@ describe("RoutineCard", () => {
 });
 
 describe("RoutineDialog", () => {
+  it("offers an admin a routine on Linear events, with its events and teams instead of a schedule", async () => {
+    getConnections.mockResolvedValue({ linear: { configured: false } });
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Triage", instruction: "Label each new issue.", timezone: "UTC" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-trigger-linear"));
+    expect(screen.queryByTestId("schedule-summary")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Issue created" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Project update removed" })).toBeInTheDocument();
+    // No event, nothing to run on.
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
+
+    // Not connected: it says so and where, and still saves.
+    expect(await screen.findByText(/The Linear app is not connected/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("href", "/org/settings/connections");
+
+    await userEvent.click(screen.getByTestId("routine-event-Comment.create"));
+    await userEvent.click(screen.getByTestId("routine-event-Issue.create"));
+    await userEvent.type(screen.getByTestId("routine-teams"), "eng, web eng");
+    expect(screen.getByText("Leave empty for every team.", { exact: false })).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-save"));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "linear",
+          schedule: "",
+          events: ["Issue.create", "Comment.create"],
+          teams: ["ENG", "WEB"],
+          chatMode: "routine",
+        }),
+        "personal",
+      ),
+    );
+  });
+
+  it("offers a chat per ticket for a routine on Linear events, and says what each choice means", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Triage", instruction: "Label each new issue.", timezone: "UTC" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    // A schedule has no tickets: the choice is not offered.
+    expect(screen.queryByTestId("routine-chat-mode-subject")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-trigger-linear"));
+    expect(screen.getByText("Runs happen in")).toBeInTheDocument();
+    expect(screen.getByTestId("routine-chat-mode-routine")).toHaveAttribute("data-state", "on");
+    expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent(
+      "Every run is in one chat, with the whole history in view.",
+    );
+    await userEvent.click(screen.getByTestId("routine-chat-mode-subject"));
+    expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent(
+      "Each issue or project gets its own chat, so a run sees what was said about that ticket before.",
+    );
+    await userEvent.click(screen.getByTestId("routine-event-Issue.create"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ trigger: "linear", chatMode: "subject" }),
+        "personal",
+      ),
+    );
+  });
+
+  it("keeps a routine's chat per ticket when editing, and drops it for a schedule", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{
+          name: "Triage",
+          instruction: "Label each new issue.",
+          timezone: "UTC",
+          trigger: "linear",
+          events: ["Issue.create"],
+          chatMode: "subject",
+        }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-chat-mode-subject")).toHaveAttribute("data-state", "on");
+    await userEvent.click(screen.getByTestId("routine-trigger-schedule"));
+    expect(screen.queryByTestId("routine-chat-mode-subject")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ trigger: "schedule", chatMode: "routine" }), "personal"),
+    );
+  });
+
+  it("does not offer Linear events to a person who is not an admin", () => {
+    mount(<RoutineDialog open title="Routine" initial={{}} onClose={() => {}} onSave={async () => {}} />);
+    expect(screen.queryByTestId("routine-trigger-linear")).not.toBeInTheDocument();
+    expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
+  });
+
+  it("saves a schedule with no events, so a routine is never both", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{
+          name: "Triage",
+          instruction: "Label each new issue.",
+          timezone: "UTC",
+          trigger: "linear",
+          events: ["Issue.create"],
+          teams: ["ENG"],
+        }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-teams")).toHaveValue("ENG");
+    await userEvent.click(screen.getByTestId("routine-trigger-schedule"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ trigger: "schedule", events: [], teams: [], schedule: "0 9 * * 1-5" }),
+        "personal",
+      ),
+    );
+  });
+
   it("saves a preset schedule, and shows the server's refusal as it says it", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>();
     onSave.mockRejectedValueOnce(
       new ConnectError("invalid schedule: runs every 5 minutes", Code.InvalidArgument),
     );
     mount(
-      <RoutineDialog open title="New routine" initial={{ timezone: "America/Toronto" }} onClose={() => {}} onSave={onSave} />,
+      <RoutineDialog open title="Routine" initial={{ timezone: "America/Toronto" }} onClose={() => {}} onSave={onSave} />,
     );
     await userEvent.type(screen.getByTestId("routine-name"), "PR digest");
     await userEvent.type(screen.getByTestId("routine-instruction"), "Report failing PRs.");
@@ -158,9 +362,7 @@ describe("RoutineDialog", () => {
   it("builds a schedule the way a calendar does, and says it in words", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineDialog
-        open
-        title="New routine"
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", timezone: "UTC" }}
         onClose={() => {}}
@@ -184,9 +386,7 @@ describe("RoutineDialog", () => {
   it("takes any time typed, not only the listed ones", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineDialog
-        open
-        title="New routine"
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", timezone: "UTC" }}
         onClose={() => {}}
@@ -202,9 +402,7 @@ describe("RoutineDialog", () => {
 
   it("opens a schedule Repeat cannot say on the Cron tab", () => {
     mount(
-      <RoutineDialog
-        open
-        title="Edit routine"
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", schedule: "0 9,17 * * *", timezone: "UTC" }}
         onClose={() => {}}
@@ -218,9 +416,7 @@ describe("RoutineDialog", () => {
   it("picks a timezone by searching for the place it is known by", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineDialog
-        open
-        title="Edit routine"
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "PR digest", instruction: "Report failing PRs.", timezone: "America/Toronto" }}
         onClose={() => {}}
@@ -275,7 +471,7 @@ describe("RoutineDialog for an admin", () => {
   it("makes a system routine: no assistant, no repository list, and a template to start from", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineDialog open title="New routine" canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
+      <RoutineDialog open title="Routine" canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
     );
     expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as you");
 
@@ -300,12 +496,12 @@ describe("RoutineDialog for an admin", () => {
   });
 
   it("offers no choice of who it runs as to a member, nor when editing", () => {
-    mount(<RoutineDialog open title="New routine" initial={{}} onClose={() => {}} onSave={vi.fn()} />);
+    mount(<RoutineDialog open title="Routine" initial={{}} onClose={() => {}} onSave={vi.fn()} />);
     expect(screen.queryByTestId("routine-scope-system")).not.toBeInTheDocument();
   });
 
   it("refuses a spend cap that is not an amount", async () => {
-    mount(<RoutineDialog open title="New routine" initial={{ name: "x", instruction: "y" }} onClose={() => {}} onSave={vi.fn()} />);
+    mount(<RoutineDialog open title="Routine" initial={{ name: "x", instruction: "y" }} onClose={() => {}} onSave={vi.fn()} />);
     await userEvent.type(screen.getByTestId("routine-cap"), "lots");
     expect(screen.getByText(/amount in dollars/)).toBeInTheDocument();
     expect(screen.getByTestId("routine-save")).toBeDisabled();

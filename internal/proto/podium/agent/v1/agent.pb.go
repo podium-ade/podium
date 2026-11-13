@@ -68,6 +68,20 @@ type Routine struct {
 	CreatedBy string `protobuf:"bytes,27,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	// last_run_status is the latest run's status that was not skipped, "" before the first.
 	LastRunStatus string `protobuf:"bytes,28,opt,name=last_run_status,json=lastRunStatus,proto3" json:"last_run_status,omitempty"`
+	// trigger is what starts the routine's runs: "schedule" (schedule and timezone) or
+	// "linear" (Linear events). A linear routine has no schedule and no next_run_at, and its
+	// schedule_text names the events ("On Linear: issue created (ENG)").
+	Trigger string `protobuf:"bytes,29,opt,name=trigger,proto3" json:"trigger,omitempty"`
+	// events are a linear routine's Linear events, "<Type>.<action>" each ("Issue.create").
+	Events []string `protobuf:"bytes,30,rep,name=events,proto3" json:"events,omitempty"`
+	// teams are the Linear team keys a linear routine is limited to; empty is every team.
+	Teams []string `protobuf:"bytes,31,rep,name=teams,proto3" json:"teams,omitempty"`
+	// pending_events is how many Linear events wait for the routine's next run.
+	PendingEvents int32 `protobuf:"varint,32,opt,name=pending_events,json=pendingEvents,proto3" json:"pending_events,omitempty"`
+	// chat_mode is where a linear routine's runs happen: "routine" (every run in chat_id) or
+	// "subject" (a chat per ticket: each issue, project, cycle or label the events are about
+	// has a chat of its own). A routine on a schedule is always "routine".
+	ChatMode      string `protobuf:"bytes,33,opt,name=chat_mode,json=chatMode,proto3" json:"chat_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -298,12 +312,48 @@ func (x *Routine) GetLastRunStatus() string {
 	return ""
 }
 
+func (x *Routine) GetTrigger() string {
+	if x != nil {
+		return x.Trigger
+	}
+	return ""
+}
+
+func (x *Routine) GetEvents() []string {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *Routine) GetTeams() []string {
+	if x != nil {
+		return x.Teams
+	}
+	return nil
+}
+
+func (x *Routine) GetPendingEvents() int32 {
+	if x != nil {
+		return x.PendingEvents
+	}
+	return 0
+}
+
+func (x *Routine) GetChatMode() string {
+	if x != nil {
+		return x.ChatMode
+	}
+	return ""
+}
+
 // RoutineRun is one firing of a routine.
 type RoutineRun struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ScheduledFor *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=scheduled_for,json=scheduledFor,proto3" json:"scheduled_for,omitempty"`
-	// trigger is "schedule" or "manual".
+	// trigger is "schedule", "manual" or "event" (a linear routine's run, started by the
+	// Linear events it was given).
 	Trigger string `protobuf:"bytes,3,opt,name=trigger,proto3" json:"trigger,omitempty"`
 	// status is running, done, idle, failed, skipped_overlap or skipped_paused.
 	Status  string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
@@ -424,7 +474,14 @@ type RoutineDraft struct {
 	// repos: see Routine. Only a system routine has them.
 	Repos []string `protobuf:"bytes,9,rep,name=repos,proto3" json:"repos,omitempty"`
 	// daily_cap_usd: see Routine. 0 is no cap of its own.
-	DailyCapUsd   float64 `protobuf:"fixed64,10,opt,name=daily_cap_usd,json=dailyCapUsd,proto3" json:"daily_cap_usd,omitempty"`
+	DailyCapUsd float64 `protobuf:"fixed64,10,opt,name=daily_cap_usd,json=dailyCapUsd,proto3" json:"daily_cap_usd,omitempty"`
+	// trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear"
+	// draft names at least one event and no schedule, and only admins and owners may save one.
+	Trigger string   `protobuf:"bytes,11,opt,name=trigger,proto3" json:"trigger,omitempty"`
+	Events  []string `protobuf:"bytes,12,rep,name=events,proto3" json:"events,omitempty"`
+	Teams   []string `protobuf:"bytes,13,rep,name=teams,proto3" json:"teams,omitempty"`
+	// chat_mode: see Routine. Empty is "routine"; "subject" is refused on a schedule.
+	ChatMode      string `protobuf:"bytes,14,opt,name=chat_mode,json=chatMode,proto3" json:"chat_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -527,6 +584,34 @@ func (x *RoutineDraft) GetDailyCapUsd() float64 {
 		return x.DailyCapUsd
 	}
 	return 0
+}
+
+func (x *RoutineDraft) GetTrigger() string {
+	if x != nil {
+		return x.Trigger
+	}
+	return ""
+}
+
+func (x *RoutineDraft) GetEvents() []string {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *RoutineDraft) GetTeams() []string {
+	if x != nil {
+		return x.Teams
+	}
+	return nil
+}
+
+func (x *RoutineDraft) GetChatMode() string {
+	if x != nil {
+		return x.ChatMode
+	}
+	return ""
 }
 
 type ListRoutinesRequest struct {
@@ -663,8 +748,11 @@ func (x *GetRoutineRequest) GetChatId() string {
 }
 
 type GetRoutineResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Routine       *Routine               `protobuf:"bytes,1,opt,name=routine,proto3" json:"routine,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Routine *Routine               `protobuf:"bytes,1,opt,name=routine,proto3" json:"routine,omitempty"`
+	// subject_title is, when chat_id is one ticket's chat of a routine with a chat per ticket,
+	// what that chat is about ("ENG-12 Fix login"). It is empty for the routine's own chat.
+	SubjectTitle  string `protobuf:"bytes,2,opt,name=subject_title,json=subjectTitle,proto3" json:"subject_title,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -704,6 +792,13 @@ func (x *GetRoutineResponse) GetRoutine() *Routine {
 		return x.Routine
 	}
 	return nil
+}
+
+func (x *GetRoutineResponse) GetSubjectTitle() string {
+	if x != nil {
+		return x.SubjectTitle
+	}
+	return ""
 }
 
 type CreateRoutineRequest struct {
@@ -15564,7 +15659,7 @@ var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1bpodium/agent/v1/agent.proto\x12\x0fpodium.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb5\a\n" +
+	"\x1bpodium/agent/v1/agent.proto\x12\x0fpodium.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\b\n" +
 	"\aRoutine\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -15598,7 +15693,12 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fpaused_until\x18\x1a \x01(\v2\x1a.google.protobuf.TimestampR\vpausedUntil\x12\x1d\n" +
 	"\n" +
 	"created_by\x18\x1b \x01(\tR\tcreatedBy\x12&\n" +
-	"\x0flast_run_status\x18\x1c \x01(\tR\rlastRunStatus\"\xd5\x02\n" +
+	"\x0flast_run_status\x18\x1c \x01(\tR\rlastRunStatus\x12\x18\n" +
+	"\atrigger\x18\x1d \x01(\tR\atrigger\x12\x16\n" +
+	"\x06events\x18\x1e \x03(\tR\x06events\x12\x14\n" +
+	"\x05teams\x18\x1f \x03(\tR\x05teams\x12%\n" +
+	"\x0epending_events\x18  \x01(\x05R\rpendingEvents\x12\x1b\n" +
+	"\tchat_mode\x18! \x01(\tR\bchatMode\"\xd5\x02\n" +
 	"\n" +
 	"RoutineRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12?\n" +
@@ -15611,7 +15711,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
 	"\vfinished_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"\xa1\x02\n" +
+	"finishedAt\"\x86\x03\n" +
 	"\fRoutineDraft\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bschedule\x18\x02 \x01(\tR\bschedule\x12\x1a\n" +
@@ -15623,15 +15723,20 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06effort\x18\b \x01(\tR\x06effort\x12\x14\n" +
 	"\x05repos\x18\t \x03(\tR\x05repos\x12\"\n" +
 	"\rdaily_cap_usd\x18\n" +
-	" \x01(\x01R\vdailyCapUsd\"\x15\n" +
+	" \x01(\x01R\vdailyCapUsd\x12\x18\n" +
+	"\atrigger\x18\v \x01(\tR\atrigger\x12\x16\n" +
+	"\x06events\x18\f \x03(\tR\x06events\x12\x14\n" +
+	"\x05teams\x18\r \x03(\tR\x05teams\x12\x1b\n" +
+	"\tchat_mode\x18\x0e \x01(\tR\bchatMode\"\x15\n" +
 	"\x13ListRoutinesRequest\"L\n" +
 	"\x14ListRoutinesResponse\x124\n" +
 	"\broutines\x18\x01 \x03(\v2\x18.podium.agent.v1.RoutineR\broutines\"<\n" +
 	"\x11GetRoutineRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\achat_id\x18\x02 \x01(\tR\x06chatId\"H\n" +
+	"\achat_id\x18\x02 \x01(\tR\x06chatId\"m\n" +
 	"\x12GetRoutineResponse\x122\n" +
-	"\aroutine\x18\x01 \x01(\v2\x18.podium.agent.v1.RoutineR\aroutine\"a\n" +
+	"\aroutine\x18\x01 \x01(\v2\x18.podium.agent.v1.RoutineR\aroutine\x12#\n" +
+	"\rsubject_title\x18\x02 \x01(\tR\fsubjectTitle\"a\n" +
 	"\x14CreateRoutineRequest\x123\n" +
 	"\x05draft\x18\x01 \x01(\v2\x1d.podium.agent.v1.RoutineDraftR\x05draft\x12\x14\n" +
 	"\x05scope\x18\x02 \x01(\tR\x05scope\"K\n" +

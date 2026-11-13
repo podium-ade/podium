@@ -26,10 +26,26 @@ const (
 	RoutineScopeSystem   = "system"
 )
 
+// What starts a routine's runs: its schedule, or Linear events (routine_events.go).
+const (
+	RoutineKindSchedule = "schedule"
+	RoutineKindLinear   = "linear"
+)
+
+// Where a routine's runs happen (0047). Every run of a routine on a schedule is in its one
+// chat; a routine on Linear events may instead run in a chat per subject — the issue, project,
+// cycle or label its events are about — each keeping that subject's history.
+const (
+	RoutineChatModeRoutine = "routine"
+	RoutineChatModeSubject = "subject"
+)
+
 // Run triggers.
 const (
 	RoutineTriggerSchedule = "schedule"
 	RoutineTriggerManual   = "manual"
+	// RoutineTriggerEvent is a run of a linear routine, started by the events it was given.
+	RoutineTriggerEvent = "event"
 )
 
 // Run statuses. Running is the only one that is not final.
@@ -59,9 +75,20 @@ type Routine struct {
 	Scope      string
 	OwnerLogin string
 	Name       string
-	// Schedule is a five-field cron expression, read in Timezone.
-	Schedule             string
-	Timezone             string
+	// Kind is RoutineKindSchedule or RoutineKindLinear: what starts its runs.
+	Kind string
+	// Schedule is a five-field cron expression, read in Timezone. Empty for a linear routine,
+	// which keeps Timezone for its daily spend cap.
+	Schedule string
+	Timezone string
+	// Events are the Linear events a linear routine runs on, "Issue.create" each, and Teams
+	// the Linear team keys it is limited to, empty for every team. Both are empty for a
+	// routine on a schedule.
+	Events []string
+	Teams  []string
+	// ChatMode is RoutineChatModeRoutine or RoutineChatModeSubject: whether a linear routine's
+	// runs are all in ChatID or each in the chat of what its events are about.
+	ChatMode             string
 	Instruction          string
 	InstructionUpdatedAt time.Time
 	// Notes are the owner's standing instructions, briefed with every run. ProposedNote is one
@@ -97,11 +124,40 @@ type Routine struct {
 // System reports whether the routine runs as nobody, configured by admins.
 func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
 
+// OnLinear reports whether the routine runs on Linear events rather than a schedule.
+func (r Routine) OnLinear() bool { return r.Kind == RoutineKindLinear }
+
+// PerSubject reports whether the routine's runs on Linear events each happen in the chat of
+// what the events are about, rather than all in its own chat.
+func (r Routine) PerSubject() bool { return r.OnLinear() && r.ChatMode == RoutineChatModeSubject }
+
+// When is what starts the routine's runs as its history records it: the cron expression, or
+// the Linear events in words. Nothing parses it.
+//
+// A chat per ticket is part of it, so that switching it is a change the history records.
+func (r Routine) When() string {
+	if r.PerSubject() {
+		return DescribeLinearTrigger(r.Events, r.Teams) + " · a chat per ticket"
+	}
+	if r.OnLinear() {
+		return DescribeLinearTrigger(r.Events, r.Teams)
+	}
+	return r.Schedule
+}
+
 // RoutineDraft is what a person saves. The schedule has already been checked and NextRunAt
 // worked out by the caller, which owns the cron arithmetic.
 type RoutineDraft struct {
-	Name          string
-	Schedule      string
+	Name string
+	// Kind is RoutineKindSchedule (or empty, which is the same) or RoutineKindLinear. A linear
+	// draft names Events and, optionally, Teams, and no Schedule.
+	Kind     string
+	Schedule string
+	Events   []string
+	Teams    []string
+	// ChatMode is where a linear draft's runs happen: RoutineChatModeRoutine (or empty, which
+	// is the same) or RoutineChatModeSubject. A draft on a schedule is always the first.
+	ChatMode      string
 	Timezone      string
 	Instruction   string
 	Notes         string
@@ -123,7 +179,9 @@ type RoutineRun struct {
 	Status       string
 	Summary      string
 	// Reported is what the run's agent said of itself: RoutineRunIdle, RoutineRunDone or "".
-	Reported   string
+	Reported string
+	// ChatID is the subject's chat the run happened in, "" for the routine's own chat.
+	ChatID     string
 	TurnID     string
 	CostUSD    *float64
 	CreatedAt  time.Time
@@ -146,6 +204,9 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 		return RoutineDraft{}, err
 	}
 	out.Repos = repos
+	if err := prepareTrigger(&out); err != nil {
+		return RoutineDraft{}, err
+	}
 	if in.DailyCapUSD != nil {
 		if *in.DailyCapUSD < 0 {
 			return RoutineDraft{}, fmt.Errorf("%w: a daily spend cap cannot be negative", ErrInvalidRoutine)
@@ -165,7 +226,7 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 		return RoutineDraft{}, fmt.Errorf("%w: the instruction is longer than %d characters", ErrInvalidRoutine, MaxRoutineInstructionRunes)
 	case utf8.RuneCountInString(out.Notes) > MaxRoutineNotesRunes:
 		return RoutineDraft{}, fmt.Errorf("%w: the notes are longer than %d characters", ErrInvalidRoutine, MaxRoutineNotesRunes)
-	case out.Schedule == "":
+	case out.Schedule == "" && out.Kind == RoutineKindSchedule:
 		return RoutineDraft{}, fmt.Errorf("%w: a schedule is required", ErrInvalidRoutine)
 	case out.Timezone == "":
 		return RoutineDraft{}, fmt.Errorf("%w: a timezone is required", ErrInvalidRoutine)
@@ -258,6 +319,10 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		Repos:         []string{},
 		DailyCapUsd:   d.DailyCapUSD,
 		CreatedBy:     owner,
+		TriggerKind:   d.Kind,
+		Events:        d.Events,
+		Teams:         d.Teams,
+		ChatMode:      d.ChatMode,
 	})
 	if err == nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: chat.ID, RoutineID: &row.ID})
@@ -312,6 +377,10 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 		Repos:       repos,
 		DailyCapUsd: d.DailyCapUSD,
 		CreatedBy:   actor,
+		TriggerKind: d.Kind,
+		Events:      d.Events,
+		Teams:       d.Teams,
+		ChatMode:    d.ChatMode,
 	})
 	if err == nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: chatRow.ID, RoutineID: &row.ID})
@@ -330,7 +399,7 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 // whether or not this lands; it is written outside the caller's cancellation for that reason.
 func (s *Store) recordRevision(ctx context.Context, r Routine, actor string) {
 	_ = s.q.InsertRoutineRevision(context.WithoutCancel(ctx), db.InsertRoutineRevisionParams{
-		RoutineID: r.ID, Instruction: r.Instruction, Notes: r.Notes, Schedule: r.Schedule,
+		RoutineID: r.ID, Instruction: r.Instruction, Notes: r.Notes, Schedule: r.When(),
 		Timezone: r.Timezone, ChangedBy: actor, ChangedAt: time.Now().UTC(),
 	})
 }
@@ -495,6 +564,10 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 		Effort:        d.Effort,
 		Repos:         repos,
 		DailyCapUsd:   d.DailyCapUSD,
+		TriggerKind:   d.Kind,
+		Events:        d.Events,
+		Teams:         d.Teams,
+		ChatMode:      d.ChatMode,
 		NextRunAt:     d.NextRunAt.UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
@@ -513,7 +586,7 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 
 // revised reports whether what a routine is told to do, or when, changed.
 func revised(a, b Routine) bool {
-	return a.Instruction != b.Instruction || a.Notes != b.Notes || a.Schedule != b.Schedule || a.Timezone != b.Timezone
+	return a.Instruction != b.Instruction || a.Notes != b.Notes || a.When() != b.When() || a.Timezone != b.Timezone
 }
 
 // DeleteRoutine removes a routine and its runs. Its chat stays, as an ordinary chat.
@@ -855,8 +928,12 @@ func routineFromRow(r db.Routine) Routine {
 		Scope:                r.Scope,
 		OwnerLogin:           deref(r.OwnerLogin),
 		Name:                 r.Name,
+		Kind:                 r.TriggerKind,
 		Schedule:             r.Schedule,
 		Timezone:             r.Timezone,
+		Events:               append([]string{}, r.Events...),
+		Teams:                append([]string{}, r.Teams...),
+		ChatMode:             r.ChatMode,
 		Instruction:          r.Instruction,
 		InstructionUpdatedAt: r.InstructionUpdatedAt.UTC(),
 		Notes:                r.Notes,
@@ -890,6 +967,7 @@ func routineRunFromRow(r db.RoutineRun) RoutineRun {
 		Status:       r.Status,
 		Summary:      r.Summary,
 		Reported:     r.Reported,
+		ChatID:       deref(r.ChatID),
 		TurnID:       deref(r.TurnID),
 		CostUSD:      r.CostUsd,
 		CreatedAt:    r.CreatedAt.UTC(),

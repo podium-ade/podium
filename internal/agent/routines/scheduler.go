@@ -50,6 +50,30 @@ type Store interface {
 	NotifyRoutine(ctx context.Context, login, chatID, actor, detail string) error
 }
 
+// EventStore is what the scheduler needs of the database to run routines on Linear events
+// (events.go). It is apart from Store so that a scheduler given none runs schedules alone.
+type EventStore interface {
+	RoutinesWithPendingEvents(ctx context.Context, limit int) ([]store.Routine, error)
+	CapPendingRoutineEvents(ctx context.Context, routineID string, keep int) (int, error)
+	AttachRoutineEvents(ctx context.Context, runID, routineID string, limit int) (int, error)
+	ReleaseRoutineEvents(ctx context.Context, runID string) (int, error)
+	PruneRoutineEvents(ctx context.Context, pendingBefore, keptBefore time.Time) (int, error)
+	CountRoutineRunsSince(ctx context.Context, routineID, trigger string, since time.Time) (int, error)
+	DeleteUnstartedRoutineRun(ctx context.Context, runID string) error
+}
+
+// SubjectStore is what the scheduler needs of the database to run a routine on Linear events in
+// a chat per ticket (subjects.go). It is apart from EventStore so that a scheduler given none
+// runs every routine in its own chat.
+type SubjectStore interface {
+	PendingRoutineSubjects(ctx context.Context, routineID string) ([]store.RoutineSubject, error)
+	AttachRoutineSubjectEvents(ctx context.Context, runID, routineID, subjectKey string, limit int) (int, error)
+	EnsureRoutineSubjectChat(ctx context.Context, r store.Routine, subjectKey, subjectTitle string) (string, bool, error)
+	CountRoutineSubjectChatsSince(ctx context.Context, routineID string, since time.Time) (int, error)
+	SetRoutineRunChat(ctx context.Context, runID, chatID string) error
+	RunningRoutineRun(ctx context.Context, routineID string) (store.RoutineRun, error)
+}
+
 // Runner starts a run in a routine's chat. The web chat implements it.
 type Runner interface {
 	RunRoutine(ctx context.Context, run chat.RoutineRun) error
@@ -57,18 +81,26 @@ type Runner interface {
 
 // Scheduler fires routines and settles their runs.
 type Scheduler struct {
-	store  Store
-	runner Runner
-	logger *slog.Logger
-	tick   time.Duration
-	now    func() time.Time
+	store    Store
+	events   EventStore
+	subjects SubjectStore
+	runner   Runner
+	logger   *slog.Logger
+	tick     time.Duration
+	now      func() time.Time
 }
 
 // Options configures a Scheduler.
 type Options struct {
-	Store  Store
-	Runner Runner
-	Logger *slog.Logger
+	Store Store
+	// Events is the store's Linear events. Nil runs no routine on Linear events: their events
+	// wait, and are pruned by whichever scheduler has them.
+	Events EventStore
+	// Subjects is the store's chats per ticket. Nil runs a routine set to a chat per ticket in
+	// its own chat, as every other.
+	Subjects SubjectStore
+	Runner   Runner
+	Logger   *slog.Logger
 	// Tick is how often to look; zero is DefaultTick.
 	Tick time.Duration
 	// Now is the clock; nil is time.Now.
@@ -80,7 +112,10 @@ func New(opts Options) (*Scheduler, error) {
 	if opts.Store == nil || opts.Runner == nil {
 		return nil, errors.New("routines: a store and a runner are required")
 	}
-	s := &Scheduler{store: opts.Store, runner: opts.Runner, logger: opts.Logger, tick: opts.Tick, now: opts.Now}
+	s := &Scheduler{
+		store: opts.Store, events: opts.Events, subjects: opts.Subjects, runner: opts.Runner,
+		logger: opts.Logger, tick: opts.Tick, now: opts.Now,
+	}
 	if s.logger == nil {
 		s.logger = slog.Default()
 	}
@@ -109,11 +144,12 @@ func (s *Scheduler) Run(ctx context.Context) error {
 }
 
 // Tick settles what has ended, resumes what was paused for a day that is over, then fires
-// what is due.
+// what is due and what Linear events are waiting for.
 func (s *Scheduler) Tick(ctx context.Context) {
 	s.settle(ctx)
 	s.resumeDue(ctx)
 	s.fireDue(ctx)
+	s.fireEvents(ctx)
 }
 
 // resumeDue starts again every routine Podium paused until a moment that has passed: the day
@@ -126,11 +162,16 @@ func (s *Scheduler) resumeDue(ctx context.Context) {
 		return
 	}
 	for _, r := range due {
-		sched, err := Parse(r.Schedule, r.Timezone)
-		if err != nil {
-			continue
+		// A routine on Linear events has no schedule to resume from; its next run is never read.
+		next := now
+		if !r.OnLinear() {
+			sched, err := Parse(r.Schedule, r.Timezone)
+			if err != nil {
+				continue
+			}
+			next = sched.NextFor(r.ID, now)
 		}
-		if _, err := s.store.SetRoutineEnabled(ctx, r.ID, true, "", sched.NextFor(r.ID, now)); err != nil {
+		if _, err := s.store.SetRoutineEnabled(ctx, r.ID, true, "", next); err != nil {
 			s.logger.WarnContext(ctx, "resuming a routine after its capped day failed", "routine_id", r.ID, "error", err)
 			continue
 		}
@@ -156,6 +197,10 @@ func (s *Scheduler) fireDue(ctx context.Context) {
 // fire runs one due routine, or records why it did not. Its next run is set first, so a
 // routine that cannot be fired is not tried again every tick.
 func (s *Scheduler) fire(ctx context.Context, r store.Routine, now time.Time) {
+	if r.OnLinear() {
+		// DueRoutines never lists one; this is the guard should it ever.
+		return
+	}
 	sched, err := Parse(r.Schedule, r.Timezone)
 	if err != nil {
 		s.pause(ctx, r, "Its schedule can no longer be read: "+err.Error(), now)
@@ -195,10 +240,11 @@ func (s *Scheduler) overCap(ctx context.Context, r store.Routine, now time.Time)
 		if err == nil && spent >= *r.DailyCapUSD {
 			reason := fmt.Sprintf("Reached its daily spend cap of $%.2f. It runs again after midnight (%s).",
 				*r.DailyCapUSD, r.Timezone)
-			sched, perr := Parse(r.Schedule, r.Timezone)
 			after := next
-			if perr == nil {
-				after = sched.NextFor(r.ID, next)
+			if !r.OnLinear() {
+				if sched, perr := Parse(r.Schedule, r.Timezone); perr == nil {
+					after = sched.NextFor(r.ID, next)
+				}
 			}
 			if _, err := s.store.PauseRoutineUntil(ctx, r.ID, reason, next, after); err != nil {
 				s.logger.WarnContext(ctx, "pausing a capped routine failed", "routine_id", r.ID, "error", err)
@@ -243,6 +289,9 @@ func (s *Scheduler) notify(ctx context.Context, r store.Routine, reason string) 
 	}
 }
 
+// neverStartedSummary is a run settled because its turn was never written.
+const neverStartedSummary = "The run never started."
+
 // errClaimed is a firing another conductor already recorded.
 var errClaimed = errors.New("already claimed")
 
@@ -269,15 +318,7 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 	if !ok {
 		return store.RoutineRun{}, errClaimed
 	}
-	err = s.runner.RunRoutine(ctx, chat.RoutineRun{
-		ChatID:      r.ChatID,
-		Login:       r.OwnerLogin,
-		Instruction: r.Instruction,
-		RoutineID:   r.ID,
-		RunID:       run.ID,
-		Override:    profiles.Override{Model: r.Model, Effort: r.Effort},
-		System:      r.System(),
-	})
+	err = s.runner.RunRoutine(ctx, chatRun(r, run))
 	if err != nil {
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
 		if errors.Is(err, chat.ErrChatBusy) {
@@ -292,8 +333,26 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 	return run, nil
 }
 
+// chatRun is the run as the chat is handed it.
+func chatRun(r store.Routine, run store.RoutineRun) chat.RoutineRun {
+	return chat.RoutineRun{
+		ChatID:      r.ChatID,
+		Login:       r.OwnerLogin,
+		Instruction: r.Instruction,
+		RoutineID:   r.ID,
+		RunID:       run.ID,
+		Override:    profiles.Override{Model: r.Model, Effort: r.Effort},
+		System:      r.System(),
+	}
+}
+
 func (s *Scheduler) busy(ctx context.Context, r store.Routine) (bool, error) {
-	sess, err := s.store.GetSessionByKey(ctx, store.ChatSourceKey(r.ChatID))
+	return s.chatBusy(ctx, r.ChatID)
+}
+
+// chatBusy is whether a chat has a turn running or waiting.
+func (s *Scheduler) chatBusy(ctx context.Context, chatID string) (bool, error) {
+	sess, err := s.store.GetSessionByKey(ctx, store.ChatSourceKey(chatID))
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -309,6 +368,15 @@ func (s *Scheduler) RunNow(ctx context.Context, routineID string) (store.Routine
 	r, err := s.store.GetRoutine(ctx, routineID)
 	if err != nil {
 		return store.RoutineRun{}, err
+	}
+	if s.perSubject(r) {
+		// Its run by hand is in its own chat, but it is still one run of the routine at a time:
+		// the runs share its state.
+		if running, err := s.subjects.RunningRoutineRun(ctx, r.ID); err == nil {
+			return store.RoutineRun{}, fmt.Errorf("%w: a run is going in another of its chats (run %s)", ErrBusy, running.ID)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return store.RoutineRun{}, err
+		}
 	}
 	run, err := s.start(ctx, r, s.now().UTC().Truncate(time.Second), store.RoutineTriggerManual)
 	if errors.Is(err, errClaimed) {
@@ -334,6 +402,11 @@ func (s *Scheduler) settle(ctx context.Context) {
 		if !ok {
 			continue
 		}
+		if run.Trigger == store.RoutineTriggerEvent && summary == neverStartedSummary {
+			// The events went to a turn that was never written; they wait for the next run
+			// rather than being lost with this one.
+			s.releaseEvents(ctx, run.ID)
+		}
 		settled, changed, err := s.store.SettleRoutineRun(ctx, run.ID, status, summary, cost)
 		if err != nil || !changed {
 			if err != nil {
@@ -357,7 +430,7 @@ func (s *Scheduler) outcome(ctx context.Context, run store.RoutineRun, now time.
 	turn, err := s.store.TurnForRoutineRun(ctx, run.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		if now.Sub(run.CreatedAt) > neverStarted {
-			return store.RoutineRunFailed, "The run never started.", nil, true
+			return store.RoutineRunFailed, neverStartedSummary, nil, true
 		}
 		return "", "", nil, false
 	}

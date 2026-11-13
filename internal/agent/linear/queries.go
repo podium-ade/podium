@@ -764,3 +764,24 @@ func (c *Client) TeamPrivate(ctx context.Context, id string) (bool, error) {
 	}
 	return out.Team.Private, nil
 }
+
+const teamKeyQuery = `query PodiumTeamKey($id: String!) {
+  team(id: $id) { id key }
+}`
+
+// TeamKey reads the key of one of the workspace's teams ("ENG").
+func (c *Client) TeamKey(ctx context.Context, id string) (string, error) {
+	var out struct {
+		Team *struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+		} `json:"team"`
+	}
+	if err := c.do(ctx, "PodiumTeamKey", teamKeyQuery, map[string]any{"id": id}, &out); err != nil {
+		return "", err
+	}
+	if out.Team == nil || out.Team.ID == "" {
+		return "", fmt.Errorf("linear: no team %s", id)
+	}
+	return out.Team.Key, nil
+}
