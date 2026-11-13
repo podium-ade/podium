@@ -61,9 +61,9 @@ type autoTitler interface {
 }
 
 // pullRequestLinker is the other optional half the web chat implements: a conversation can
-// carry the pull requests its turns produced. Slack and Linear do not — GitHub already
-// unfurls a link in a Slack thread and attaches one to a Linear issue, and neither has a
-// list of them belonging to the conversation for Podium to keep.
+// carry the pull requests its turns produced. A Linear agent session does too, as links on the
+// session. Slack does not — GitHub already unfurls a link in a Slack thread, and a thread has
+// no list of them belonging to the conversation for Podium to keep.
 type pullRequestLinker interface {
 	LinkPullRequests(ctx context.Context, ref string, prs []PullRequest) error
 }

@@ -230,9 +230,16 @@ func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, l
 		return DeliveryIgnored, "unhandled", slog.LevelInfo
 	}
 	if act.Signal == SignalStop {
-		// Stopping a turn is not built yet: a stop starts nothing, and the turn already
-		// running finishes. See docs/linear-agent-plan.md.
-		return DeliveryIgnored, "stop signal", slog.LevelInfo
+		if !s.firstSighting("activity:" + act.ID) {
+			return DeliveryDuplicate, "stop already handled", slog.LevelInfo
+		}
+		// The session is stopped here, at once, so nothing the turn says from now on is
+		// posted. Asking the conductor to cancel it, and closing the session, wait their
+		// turn in the session's queue behind whatever reached it first.
+		s.metrics.Events.WithLabelValues(EventStop).Inc()
+		s.stopping(sess.ID)
+		s.enqueue(sess.ID, func(work context.Context) { s.closeStopped(work, sess.ID) })
+		return DeliveryAccepted, "stop", slog.LevelInfo
 	}
 	if p.Action == ActionPrompted && strings.TrimSpace(act.Content.Body) == "" {
 		return DeliveryIgnored, "empty prompt", slog.LevelInfo

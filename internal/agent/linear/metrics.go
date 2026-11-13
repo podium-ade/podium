@@ -16,6 +16,9 @@ const (
 	EventFollowup   = "followup"
 	EventDelegation = "delegation"
 	EventMention    = "mention"
+	// EventStop is somebody pressing Stop on an agent session. It starts nothing; it ends
+	// what is running.
+	EventStop = "stop"
 )
 
 // Webhook delivery outcomes, as the webhook_deliveries_total metric labels them.
@@ -52,7 +55,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		Events: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_linear_events_total",
 			Help: "Inbound events derived from Linear, by kind: assignment or followup when " +
-				"polled, and delegation, mention or followup from the agent app.",
+				"polled, and delegation, mention, followup or stop from the agent app.",
 		}, []string{"kind"}),
 		Backoff: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "podium_agent_linear_backoff_seconds",
