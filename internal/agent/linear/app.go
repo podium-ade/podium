@@ -243,7 +243,7 @@ func (s *AppSource) Revoked() bool {
 }
 
 // revoke stops the source starting anything, and has the saved connection say why.
-func (s *AppSource) revoke(ctx context.Context) {
+func (s *AppSource) revoke() {
 	s.mu.Lock()
 	s.revoked = true
 	s.mu.Unlock()

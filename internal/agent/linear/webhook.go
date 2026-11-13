@@ -188,14 +188,14 @@ func (s *AppSource) serveWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	outcome, reason, level := s.handleDelivery(ctx, &p)
+	outcome, reason, level := s.handleDelivery(&p)
 	s.logDelivery(ctx, level, d, outcome, reason)
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleDelivery decides what one checked delivery means and queues whatever it starts. It
 // returns how the delivery is logged and counted.
-func (s *AppSource) handleDelivery(ctx context.Context, p *webhookPayload) (outcome, reason string, level slog.Level) {
+func (s *AppSource) handleDelivery(p *webhookPayload) (outcome, reason string, level slog.Level) {
 	if why := s.foreign(p); why != "" {
 		return DeliveryIgnored, why, slog.LevelInfo
 	}
@@ -211,7 +211,7 @@ func (s *AppSource) handleDelivery(ctx context.Context, p *webhookPayload) (outc
 		if p.Action != ActionRevoked {
 			return DeliveryIgnored, "unhandled", slog.LevelInfo
 		}
-		s.revoke(ctx)
+		s.revoke()
 		return DeliveryRevoked, "Linear revoked the app; nothing starts until it is saved again", slog.LevelError
 	default:
 		return DeliveryIgnored, "unhandled", slog.LevelInfo
