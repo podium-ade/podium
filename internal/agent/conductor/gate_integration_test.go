@@ -314,8 +314,6 @@ func linearPrompt(session, text, email, user string) conductor.InboundEvent {
 	ev.Mentioned = true
 	ev.Author = email
 	ev.Login = email
-	// The source names the playbook itself: the one that sets linear: true.
-	ev.Playbook = "coder"
 	ev.SpeakerProvider = conductor.SpeakerLinear
 	ev.SpeakerID = store.LinearExternalID("org-1", user)
 	return ev
