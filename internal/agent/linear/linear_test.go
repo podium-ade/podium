@@ -529,7 +529,7 @@ func TestTheTranscriptIsTheTicketThenEveryComment(t *testing.T) {
 // TestABadRefIsRefusedRatherThanGuessedAt.
 func TestABadRefIsRefusedRatherThanGuessedAt(t *testing.T) {
 	h := newHarness(t)
-	for _, ref := range []string{"", "issue-only", "/team/ENG-1", "a/b/c/d"} {
+	for _, ref := range []string{"", "issue-only", "/team/ENG-1", "a/b/c/d/e"} {
 		_, err := h.src.FetchTranscript(context.Background(), ref)
 		assert.Error(t, err, "ref %q", ref)
 	}

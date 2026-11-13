@@ -174,6 +174,20 @@ func TestMergeLinearDoesNotCarrySecretsToANewApp(t *testing.T) {
 	assert.Empty(t, got.OrganizationName)
 }
 
+// A revoke is cleared by the next save: Merge builds the row afresh and never carries it.
+func TestMergeLinearClearsARevoke(t *testing.T) {
+	revoked := savedLinear()
+	at := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	revoked.RevokedAt = &at
+	got, err := MergeLinear(revoked, "", "", "", "")
+	require.NoError(t, err)
+	assert.Nil(t, got.RevokedAt)
+	assert.Equal(t, "app-user-1", got.AppUserID, "who the app is stays")
+
+	running := Overlay(config.Config{}, nil, nil, savedLinear())
+	assert.False(t, LinearDiffers(config.Config{}, running, revoked), "a revoke is not configuration")
+}
+
 func TestOverlayWritesTheLinearAppAndLeavesThePollerAlone(t *testing.T) {
 	env := config.Config{LinearAPIKey: "lin_api_poller", LinearURL: config.DefaultLinearURL}
 	got := Overlay(env, nil, nil, savedLinear())

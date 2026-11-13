@@ -402,7 +402,9 @@ polling Linear.
   conductor looks for such work about every half a minute and adopts it: a running task is
   followed from where its relay stopped, and the relayed ledger keeps anything from being said
   twice.
-- One conductor polls Linear at a time; another takes over when it stops.
+- One conductor polls Linear at a time; another takes over when it stops. A Linear app's
+  webhooks are not leased: every conductor serves them, and a delivery is handled by the one the
+  tunnel sends it to.
 
 `PODIUM_AGENT_REPLICA_ID` is what the leases are held under. It defaults to
 `<hostname>/<listen>`, which is stable across a conductor's restarts — a restarted conductor picks
@@ -582,7 +584,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_REPLICA_ID` | no | `<hostname>/<listen>` | this conductor's identity among the conductors on its database. Different for each, and the same across one conductor's restarts |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these as soon as it is saved |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
-| `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
+| `PODIUM_AGENT_LINEAR_API_KEY` | for polling Linear | — | the bot user's **personal** API key, for the poller. Empty means no poller; set and broken means the process exits at boot. Not polled while a Linear app is saved under Access → Connections |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_LINEAR_TOKEN_URL` | no | `https://api.linear.app/oauth/token` | the OAuth token endpoint the Linear app saved under Access → Connections signs in through; the same kind of seam. The app itself is never set in the environment |
@@ -617,14 +619,16 @@ conductor at all:
 | `PODIUM_AGENT_URL` | for the web UI | where the conductor listens, `scheme://host:port` with no path. Unset means no conductor: the prefix is not mounted, `WhoAmI.agent_enabled` is false and the UI hides its Agent screen |
 | `PODIUM_AGENT_TOKEN` | with `PODIUM_AGENT_URL` | the **same value** as above. The server refuses to start with a URL and no token |
 
-Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
-and no Linear key, no source is started and the conductor listens to nothing — it says so at
+Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens,
+no Linear key or app and no GitHub App, no source is started and the conductor listens to nothing — it says so at
 startup, which is a fine shape to run it in while you set a provider credential in the UI.
 Slack can be saved under Access → Connections instead of its variables. A saved row replaces
 the environment for Slack. The GitHub App is only that screen. A save, or a removal, takes
 effect at once: the conductor tries the new tokens or App against Slack or GitHub, refuses
 one they do not accept, and then swaps its Slack source, its review source and the App turns
-mint from while turns already running carry on. Linear is still environment only.
+mint from while turns already running carry on. A Linear app is saved only there too. Saving
+one starts its webhooks and stops the poller `PODIUM_AGENT_LINEAR_API_KEY` runs, and removing
+it brings the poller back.
 
 ### Its own database
 
@@ -1961,12 +1965,73 @@ is running a distributed one. **Do not turn distribution on** for the app this m
 
 ## Linear
 
+Linear reaches Podium one of two ways, and never both:
+
+- **The agent app.** A Linear OAuth application saved under Access → Connections. Delegating an
+  issue to it, or @mentioning it in a comment, opens an *agent session*, and Linear sends a
+  webhook. This is the one to use.
+- **The poller.** A personal API key on a bot user's seat, in `PODIUM_AGENT_LINEAR_API_KEY`. The
+  conductor asks Linear every 30 seconds for issues assigned to that user.
+
+A saved app turns the poller off even when the key is set, because the two would start every
+ticket twice. Removing the app turns the poller back on. Either way the turn runs the playbook
+marked `linear: true`, as a task, and has no Podium person behind it: who asked is not resolved
+to a login yet, so the turn gets no one's personal secrets.
+
+### The agent app
+
+**Setting it up.** In Linear, open Settings → API → OAuth applications → New, turn on *Client
+credentials*, and turn on webhooks with *Agent session events* and *Permission changes* ticked
+(*Inbox notifications* repeats every delegation and mention; leave it off). The webhook URL is
+the public address that reaches the listen address you will save, with the path
+`/webhooks/linear`. Then under Access → Connections → Linear paste the client id, the client
+secret, the webhook signing secret (`lin_wh_…`) and that listen address. Saving signs in to
+Linear with the client credentials, refuses credentials Linear refuses or that belong to a person
+rather than an app, refuses an app with no `linear: true` playbook to run, and shows who the app
+is and in which workspace. The listen address may be the GitHub App's: the conductor then serves
+`/webhooks/github` and `/webhooks/linear` on one listener.
+
+**What starts a turn.** Each agent session is one conversation (`linear:session:<id>`):
+
+| in Linear | what happens |
+|---|---|
+| an issue delegated to the app | a turn, with the identifier, the title and the description as the instruction, worded as the poller words an assignment |
+| the app @mentioned in a comment | a turn, with the comment, less the mention, as the instruction |
+| a reply in that agent session | a follow-up in the same conversation: injected into the task when it asked a question, otherwise a turn of its own |
+| *Stop* on the session | nothing yet. The turn runs to its end |
+
+A new session gets a thought (“Starting on this.”) at once, before the conductor has chosen a
+playbook, because Linear marks a session unresponsive when nothing is said within ten seconds.
+Every delivery is checked first: the `Linear-Signature` HMAC with the signing secret, a
+`webhookTimestamp` within a minute, the delivery id and the prompt's id not seen in the last seven
+hours (Linear retries for six), and the workspace and app user the save found. Anything else is
+answered 200 and logged as `linear: webhook` with its outcome, and counted in
+`podium_agent_linear_webhook_deliveries_total`.
+
+**What it says back.** Into the session, as agent activities, never as edited comments:
+progress is an ephemeral *thought* that the next one replaces, the answer a *response*, a
+failure an *error*, and a question an *elicitation*. The answer and a failure end with a line
+naming the Podium task. Linear writes the prompts, questions and answers into the issue's
+comments itself, and the transcript a turn reads is the issue and those comments, as with the
+poller. An attachment is uploaded to Linear and linked in a response of its own; over 50 MB, or
+refused, it is a link to the task.
+
+**What it does not do yet.** It does not move the issue to *In Progress*, link the Podium task on
+the session, honour *Stop*, or show tool calls. See
+[linear-agent-plan.md](linear-agent-plan.md).
+
+**When Linear revokes the app.** An admin de-authorizing it sends an `OAuthApp` webhook. The
+conductor logs it as an error, starts nothing more from Linear, and Access → Connections shows the
+app as revoked. Authorize it again in Linear and save it again here, which tries it against Linear
+and clears the mark.
+
+### Polling with a personal API key
+
 Assign an issue to the bot and it picks the work up. Comment on that issue and it takes another
 turn. Nothing else is a trigger, and nothing about Linear reaches this host inbound: the
-conductor **polls**, on a timer, dialling out. Podium does not accept a connection it did not
-already accept, and a webhook would be one.
+conductor **polls**, on a timer, dialling out.
 
-### Setting it up
+#### Setting it up
 
 1. **Make the bot a user in your workspace.** Invite an address you control —
    `podium-agent@yourcompany.com` — and accept the invitation. It needs a normal seat, not an
@@ -1991,7 +2056,7 @@ Then assign an issue to the bot. Within the poll interval it moves to **In Progr
 `👀 working…` comment appears, and when the turn ends the comment says `✅ Done — see below` and a
 second comment carries the answer.
 
-### What happens per tick
+#### What happens per tick
 
 Every `PODIUM_AGENT_LINEAR_POLL_INTERVAL` (default 30s, floor 10s) the conductor asks for issues
 assigned to the bot and updated since its watermark, 50 per page, following `hasNextPage` inside
@@ -2013,7 +2078,7 @@ the last-turn comparison both absorb; the alternative loses tickets. On the firs
 database it starts 24 hours back, so an assignment made while the conductor was down for a day is
 still picked up and nothing older is.
 
-### What it says back, and where
+#### What it says back, and where
 
 Two comments per turn, at most, however long the turn:
 
@@ -2033,7 +2098,7 @@ Attachments over **50 MB**, or an upload Linear refuses, fall back to a link to
 reading the pull request, not by the bot having opened one. The only state change Podium makes is
 the move to In Progress when a turn starts.
 
-### The `In Progress` convention
+#### The `In Progress` convention
 
 The state a turn moves an issue into is resolved per team, once per process:
 
@@ -2043,16 +2108,15 @@ The state a turn moves an issue into is resolved per team, once per process:
 3. failing that, nothing: the log says so and the turn runs anyway. A board Podium does not
    understand is not a reason to refuse the work.
 
-### Why polling, and what would be better
+#### Why polling, and what would be better
 
 Linear's own documentation discourages polling and points at webhooks, and it is right: an
 `AppUserNotification` webhook carries an **`issueAssignedToYou`** action, which is exactly the
 predicate this code has to reconstruct, and `AgentSessionEvent` fires on assignment to an agent.
-Both require an OAuth `actor=app` application, which this track deliberately does not build, and
-an inbound HTTP endpoint, which this host deliberately does not expose. So: polling, at one query
-per tick against a budget of 2,500 requests an hour — two orders of magnitude inside it. If a
-future step builds the OAuth app, the webhook is the better mechanism and this is the place to say
-so.
+Both require an OAuth `actor=app` application and an inbound HTTP endpoint. The agent app above
+is that, and is the better mechanism; the poller is kept for a workspace that cannot give Podium
+an OAuth app or a public webhook address. It costs one query per tick against a budget of 2,500
+requests an hour — two orders of magnitude inside it.
 
 Two consequences of using a personal API key, both worth knowing:
 
@@ -2768,7 +2832,9 @@ env:
 - **4000 characters per Slack message.** Longer answers arrive as several messages.
 - **25 MB per attachment** out of Podium, and **50 MB** into Linear's asset store; over either,
   the reply carries a link to the task page instead of the file.
-- **Two comments per Linear turn.** Progress edits one of them; it is not a running commentary.
+- **Two comments per polled Linear turn.** Progress edits one of them; it is not a running
+  commentary. The agent app answers in its session instead, where progress is one thought that
+  the next replaces.
 - **The Linear poll interval** is how long an assignment waits before anything happens: up to 30
   seconds by default, and never less than 10.
 - **The bot is not behind RBAC.** Google Workspace sign-in can claim the instance for a domain

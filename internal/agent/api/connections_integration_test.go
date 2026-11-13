@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -367,7 +368,7 @@ const (
 )
 
 // Saving a Linear app stores who Check found it signs in as, returns no secret, logs no
-// secret, and leaves the environment's poller reported as it is.
+// secret, and reports the environment's poller off while the app runs.
 func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	f := newSettingsFixture(t, "https://example.invalid", nil)
 	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL, LinearAPIKey: "lin_api_poller"}
@@ -404,7 +405,7 @@ func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	assert.Equal(t, "Acme", lin.GetOrganizationName())
 	assert.Equal(t, "acme", lin.GetOrganizationUrlKey())
 	assert.Equal(t, "ada", lin.GetSetBy())
-	assert.True(t, lin.GetPolling(), "the poller is untouched by a saved app")
+	assert.False(t, lin.GetPolling(), "a saved app turns the poller off")
 	assert.False(t, lin.GetRestartRequired(), "the app is recorded as running")
 	require.Len(t, applier.checked, 1)
 	assert.Equal(t, fakeLinearClientSecret, applier.checked[0].LinearClientSecret, "the app is checked before it is stored")
@@ -433,6 +434,7 @@ func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
 	assert.False(t, cleared.Msg.GetLinear().GetConfigured())
 	assert.Empty(t, cleared.Msg.GetLinear().GetSource())
 	assert.False(t, cleared.Msg.GetLinear().GetRestartRequired())
+	assert.True(t, cleared.Msg.GetLinear().GetPolling(), "clearing the app brings the poller back")
 	assert.NotContains(t, f.secrets.set, connections.LinearClientSecretSecret)
 	_, err = f.svc.ClearLinearConnection(ctx, connect.NewRequest(&agentv1.ClearLinearConnectionRequest{}))
 	require.NoError(t, err, "clearing twice is not an error")
@@ -458,4 +460,37 @@ func TestARefusedLinearAppIsNotSaved(t *testing.T) {
 		ClientId: "client-1", ClientSecret: fakeLinearClientSecret, WebhookListen: "0.0.0.0:8091",
 	}))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "the first save needs the webhook secret")
+}
+
+// Linear revoking the app is written on its row, shown, and cleared by the next save, which
+// is checked again first. A revoke for an app no longer saved changes nothing.
+func TestALinearRevokeIsShownUntilTheAppIsSavedAgain(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	applier := &fakeApplier{svc: f.svc, linear: &LinearApp{UserID: "app-user-1", OrganizationID: "org-1"}}
+	f.svc.connections = applier
+	ctx := loginCtx("ada")
+	_, err := f.svc.SetLinearConnection(ctx, connect.NewRequest(&agentv1.SetLinearConnectionRequest{
+		ClientId: "client-1", ClientSecret: fakeLinearClientSecret,
+		WebhookSecret: fakeLinearWebhookSecret, WebhookListen: "0.0.0.0:8091",
+	}))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 11, 12, 21, 0, 0, 0, time.UTC)
+	require.NoError(t, connections.MarkLinearRevoked(ctx, f.svc.store, "client-other", at))
+	got, err := f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
+	require.NoError(t, err)
+	assert.Nil(t, got.Msg.GetLinear().GetRevokedAt(), "another app's revoke is not this one's")
+
+	require.NoError(t, connections.MarkLinearRevoked(ctx, f.svc.store, "client-1", at))
+	got, err = f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
+	require.NoError(t, err)
+	assert.True(t, got.Msg.GetLinear().GetRevokedAt().AsTime().Equal(at))
+	_, _, row, err := connections.Load(ctx, f.svc.store, f.secrets)
+	require.NoError(t, err)
+	assert.Equal(t, fakeLinearClientSecret, row.ClientSecret, "marking the row leaves its secrets where they were")
+
+	saved, err := f.svc.SetLinearConnection(ctx, connect.NewRequest(&agentv1.SetLinearConnectionRequest{}))
+	require.NoError(t, err)
+	assert.Nil(t, saved.Msg.GetLinear().GetRevokedAt(), "saving again clears it")
 }

@@ -233,7 +233,8 @@ SAML is not implemented.
 
 - **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
   credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
-  it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
+  it to — anybody who can set the assignee on a Linear issue the poller watches, and anybody
+  who can delegate an issue to the Linear app or @mention it, can start a turn. There is no
   allowlist of users and no roles. A turn gets exactly the secrets its own playbook names, plus the
   reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
   credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
@@ -1036,7 +1037,8 @@ Everything below is a real hole, not a hypothetical:
   taking ordinary work.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
-- **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
+- **Anyone who can tag the bot, or assign, delegate or mention it on a Linear issue, can run
+  code on a worker.** The
   conductor has no allowlist and no roles. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an

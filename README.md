@@ -77,8 +77,8 @@ The jobs are yours to define. Four that the shape is built for:
 
 A playbook's `secrets:` list is what that job receives. The assistant picks the playbook for
 the piece of work in front of it, and may start more than one in a single answer. A thread
-can also name one (`/playbook`), and a Linear assignment runs the playbook that claims
-Linear. [docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
+can also name one (`/playbook`), and an issue delegated to Podium in Linear runs the playbook
+that claims Linear. [docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
 
 ## Where it runs
 
@@ -187,9 +187,11 @@ MagicDNS name with no shared token, is [docs/networking.md](docs/networking.md).
 
 Two credentials the conductor does not invent, and both are how the organization reaches it:
 
-- Slack, Linear, and the GitHub App are off until their tokens are set. Each is one group of
-  variables in [deploy/.env.example](deploy/.env.example). The GitHub App is one you create
-  in your own org. Podium does not ship a Marketplace listing.
+- Slack, Linear, and the GitHub App are off until they are set up. The GitHub App and the
+  Linear agent app are saved under Access → Connections; Slack is saved there or set in
+  [deploy/.env.example](deploy/.env.example), where a Linear personal API key can also poll
+  for assigned issues instead of the app. Both apps are ones you create in your own org.
+  Podium does not ship a Marketplace listing.
 - The assistant, the process that answers a conversation and delegates machine work,
   runs when the conductor is started with its host runtime. The published `podium-agent`
   image is a static binary and runs every turn as a task instead. [docs/agent.md](docs/agent.md)
@@ -248,7 +250,7 @@ mention.
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App under Access → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App and the Linear app under Access → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.

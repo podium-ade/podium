@@ -40,6 +40,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/routines"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/webhooks"
 	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
@@ -73,7 +74,6 @@ type Agent struct {
 	// chatHost is the opencode 2 service conversations are answered on, when there is one.
 	chatHost *chathost.Host
 	live     *liveConnections
-	linear   *agentlinear.Source
 	// routines fires routines on a schedule (internal/agent/routines). Nil when this conductor
 	// has no host runtime: a routine's run is a conversation, which only a host turn answers.
 	routines *routines.Scheduler
@@ -155,8 +155,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		profiles: live,
 	}
 
-	// The registry is built before the sources: the Linear source owns three collectors of
-	// its own and registers them on this one.
+	// The registry is built before the sources: the Linear sources share collectors of their
+	// own and register them on this one, once.
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -164,11 +164,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// Slack, the GitHub review source and the GitHub App are the connections Settings can
 	// change while the conductor runs. See live.go.
 	a.live = &liveConnections{
-		env:     envCfg,
-		store:   st,
-		vault:   pc,
-		logger:  logger,
-		running: cfg,
+		env:      envCfg,
+		store:    st,
+		vault:    pc,
+		logger:   logger,
+		webhooks: webhooks.New(logger),
+		running:  cfg,
 	}
 	slackSrc, ghSrc, gh, err := a.live.build(cfg)
 	if err != nil {
@@ -181,56 +182,47 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if slackSrc != nil {
 		sources = append(sources, slackSrc)
 	}
-	if cfg.LinearEnabled() {
-		a.linear, err = agentlinear.New(agentlinear.Options{
-			APIKey:       cfg.LinearAPIKey,
-			Endpoint:     cfg.LinearURL,
-			PollInterval: cfg.LinearPollInterval,
-			// A ticket has no channel and no /playbook prefix, so the source names the playbook
-			// and the profile's routing rules are bypassed. Zero playbooks claiming Linear is
-			// only a misconfiguration when a key is set, which is exactly here.
-			Playbook: func() string { return live.Current().LinearPlaybook() },
-			Logger:   logger,
-			Metrics:  agentlinear.NewMetrics(registry),
-			// The web UI as a HUMAN reaches it, which is not always how this process
-			// reaches the API. Used only for a fallback attachment link.
-			TaskURL: func(taskID string) string {
-				if taskID == "" {
-					return ""
-				}
-				return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
-			},
-			// The source asks rather than reading the store itself: an issue with no
-			// session is a fresh assignment, and one with a session is a follow-up whose
-			// new comments are the ones after the last turn started.
-			Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
-				sess, err := st.GetSessionByKey(ctx, sourceKey)
-				if err != nil {
-					return time.Time{}, false
-				}
-				if sess.LastTurnAt != nil {
-					return *sess.LastTurnAt, true
-				}
-				return time.Time{}, true
-			},
-			Cursor: agentlinear.CursorStore{
-				Get: func(ctx context.Context) (time.Time, error) {
-					at, err := st.GetLinearCursor(ctx, store.LinearCursorKey)
-					if errors.Is(err, store.ErrNotFound) {
-						return time.Time{}, nil
-					}
-					return at, err
-				},
-				Put: func(ctx context.Context, at time.Time) error {
-					return st.PutLinearCursor(ctx, store.LinearCursorKey, at)
-				},
-			},
-		})
+	// Linear is a saved agent app, which turns the poller off, or the poller on
+	// PODIUM_AGENT_LINEAR_API_KEY, or neither. See buildLinear.
+	a.live.linearPlaybook = func() string { return live.Current().LinearPlaybook() }
+	a.live.linearMetrics = agentlinear.NewMetrics(registry)
+	// The poller asks rather than reading the store itself: an issue with no session is a
+	// fresh assignment, and one with a session is a follow-up whose new comments are the
+	// ones after the last turn started.
+	a.live.linearSession = func(ctx context.Context, sourceKey string) (time.Time, bool) {
+		sess, err := st.GetSessionByKey(ctx, sourceKey)
 		if err != nil {
-			st.Close()
-			return nil, err
+			return time.Time{}, false
 		}
-		sources = append(sources, a.linear)
+		if sess.LastTurnAt != nil {
+			return *sess.LastTurnAt, true
+		}
+		return time.Time{}, true
+	}
+	a.live.linearCursor = agentlinear.CursorStore{
+		Get: func(ctx context.Context) (time.Time, error) {
+			at, err := st.GetLinearCursor(ctx, store.LinearCursorKey)
+			if errors.Is(err, store.ErrNotFound) {
+				return time.Time{}, nil
+			}
+			return at, err
+		},
+		Put: func(ctx context.Context, at time.Time) error {
+			return st.PutLinearCursor(ctx, store.LinearCursorKey, at)
+		},
+	}
+	linApp, linPoll, err := a.live.buildLinear(cfg, savedLinear)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	a.live.linearApp, a.live.linearPoll, a.live.linearRow = linApp, linPoll, savedLinear
+	if src := a.live.linearSource(); src != nil {
+		sources = append(sources, src)
+	}
+	if cfg.LinearAppEnabled() && cfg.LinearEnabled() {
+		logger.Info("linear: the saved agent app is in use, so PODIUM_AGENT_LINEAR_API_KEY is " +
+			"not polled. Remove the app under Settings → Connections to poll again")
 	}
 	if ghSrc != nil {
 		sources = append(sources, ghSrc)
@@ -528,11 +520,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	logger.Info("conductor configured", "config", cfg,
 		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
 		"assistant_skills", profile.Assistant().Skills, "sources", kinds)
-	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.GitHubSourceEnabled() {
+	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.LinearAppEnabled() && !cfg.GitHubSourceEnabled() {
 		logger.Info("no Slack, Linear or GitHub review source: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
-			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or save a GitHub App " +
-			"with a webhook under Settings → Connections.")
+			"PODIUM_AGENT_SLACK_BOT_TOKEN, or save a GitHub App or a Linear app under " +
+			"Settings → Connections.")
 	}
 	return a, nil
 }
@@ -808,10 +800,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// found in the first minute rather than the first day.
 	sourceErr := make(chan error, 3)
 	a.live.start(runCtx, sourceErr)
-	if a.linear != nil {
-		// One conductor polls Linear: every one that did would start the same ticket.
-		go func() { sourceErr <- a.conductor.WhileLeader(runCtx, "source:linear", a.linear.Run) }()
-	}
 	if a.routines != nil {
 		// One conductor fires routines: every one that did would fire each of them twice, and
 		// the run rows' unique key would turn the second into nothing but noise.

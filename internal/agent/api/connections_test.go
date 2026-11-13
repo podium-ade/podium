@@ -23,6 +23,19 @@ func TestLinearViewWithNothingSaved(t *testing.T) {
 	assert.False(t, linearView(config.Config{}, config.Config{}, nil).GetPolling())
 }
 
+// A saved app turns the poller off, so the view stops saying it polls once the app runs.
+func TestLinearViewSaysThePollerStopsForAnApp(t *testing.T) {
+	env := config.Config{LinearAPIKey: "lin_api_poller"}
+	saved := &connections.Linear{
+		ClientID: "client-1", ClientSecret: "lsec-not-real", WebhookSecret: "lin_wh_not-real",
+		WebhookListen: "0.0.0.0:8091",
+	}
+	running := connections.Overlay(env, nil, nil, saved)
+	assert.False(t, linearView(env, running, saved).GetPolling())
+	assert.True(t, linearView(env, env, saved).GetPolling(),
+		"until the app is picked up, the poller is what runs")
+}
+
 func TestLinearViewReturnsNoSecret(t *testing.T) {
 	saved := &connections.Linear{
 		ClientID: "client-1", ClientSecret: "lsec-not-real-1234",
@@ -60,4 +73,19 @@ func TestARedactedLinearRequestLogsNoSecret(t *testing.T) {
 	assert.Contains(t, out, "0.0.0.0:8091")
 	assert.Contains(t, out, "client_secret=[redacted]")
 	assert.Contains(t, out, "webhook_secret=[redacted]")
+}
+
+func TestLinearViewSaysWhenLinearRevokedTheApp(t *testing.T) {
+	at := time.Date(2026, 11, 12, 21, 0, 0, 0, time.UTC)
+	saved := &connections.Linear{
+		ClientID: "client-1", ClientSecret: "lsec-not-real", WebhookSecret: "lin_wh_not-real",
+		WebhookListen: "0.0.0.0:8091", RevokedAt: &at,
+	}
+	running := connections.Overlay(config.Config{}, nil, nil, saved)
+	out := linearView(config.Config{}, running, saved)
+	assert.True(t, out.GetRevokedAt().AsTime().Equal(at))
+	assert.True(t, out.GetConfigured(), "a revoked app is still the saved one")
+
+	saved.RevokedAt = nil
+	assert.Nil(t, linearView(config.Config{}, running, saved).GetRevokedAt())
 }
