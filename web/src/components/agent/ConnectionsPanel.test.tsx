@@ -190,7 +190,8 @@ describe("ConnectionsPanel", () => {
     expect(screen.getByRole("button", { name: "Remove saved Linear" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^Webhooks/ }));
-    expect(screen.getByText("Saved, ending in 8765")).toBeInTheDocument();
+    // A saved secret is shown as saved, and none of it is shown.
+    expect(screen.queryByText(/ending in/)).toBeNull();
     await userEvent.clear(screen.getByLabelText("Webhook listen"));
     await userEvent.type(screen.getByLabelText("Webhook listen"), "0.0.0.0:9000");
     await userEvent.click(screen.getByRole("button", { name: "Save Linear" }));
