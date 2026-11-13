@@ -870,9 +870,8 @@ function LinearDialog({
             Linear
           </DialogTitle>
           <DialogDescription className="text-base text-soft">
-            The OAuth app people delegate issues to and @mention. Either one starts the playbook
-            marked linear: true, and its answer comes back in the agent session. Saving signs in to
-            Linear to check it.
+            The OAuth app people delegate issues to and @mention. Saving signs in to Linear to
+            check it.
           </DialogDescription>
         </DialogHeader>
         {lin?.restartRequired ? (

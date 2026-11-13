@@ -221,13 +221,22 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Playbook is a playbook the source KNOWS is right — Linear's linear: true playbook. It
-	// bypasses every routing rule, a typed /playbook included. Empty means "let the profile's
-	// rules decide", which is what Slack always leaves it as.
+	// Playbook is a playbook the source KNOWS is right — the Linear poller's linear: true
+	// playbook. It bypasses every routing rule, a typed /playbook included. Empty means "let
+	// the profile's rules decide", which is what Slack, the web chat and the Linear agent app
+	// always leave it as: a conversation is answered by the assistant and runs no playbook,
+	// and the app says what happened (Delegated) and lets the conductor route it.
 	//
-	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
-	// by the assistant and runs no playbook at all.
+	// The conductor writes here too, once it has routed an event that waits in the turn
+	// queue: the playbook chosen for it, so the turn runs that playbook when it starts
+	// whatever the turn before it ran.
 	Playbook string
+	// Delegated is a conversation that was handed to Podium as a piece of work rather than
+	// asked a question in: a Linear issue delegated to the agent app. It runs a playbook as a
+	// task, whether or not this conductor has an assistant to answer with. False for an
+	// @mention, which is a question, and for every other source. Set on every prompt of the
+	// session, not only the first: a follow-up stays with how the session began.
+	Delegated bool
 	// Role is the speaker's role on what the conversation is about, when the source knows it:
 	// their access to a pull request's repository — read, triage, write, maintain or admin.
 	// A pull request offers a playbook only to a speaker whose role its github_requires

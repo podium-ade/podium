@@ -60,9 +60,9 @@ every turn is a task. The [Deploy](#deploy) section says which one a given insta
 
 The jobs are yours to define. Four that the shape is built for:
 
-- **Investigate a bug.** A Slack thread or a Linear ticket hands a playbook the repository
-  and a shell. It reads the code, runs what it needs to run, and posts the findings back on
-  the thread that asked.
+- **Investigate a bug.** An issue delegated to Podium in Linear, or a question in a Slack
+  thread or a Linear comment that needs a machine, hands a playbook the repository and a shell.
+  It reads the code, runs what it needs to run, and posts the findings back where it was asked.
 - **Review code.** A GitHub App you create in your own org turns a pull request you tag into
   a turn, and posts the review as that App. The same review can be asked for from Slack. It
   is one conversation either way.
@@ -76,9 +76,11 @@ The jobs are yours to define. Four that the shape is built for:
   That credential is not mounted into any other job.
 
 A playbook's `secrets:` list is what that job receives. The assistant picks the playbook for
-the piece of work in front of it, and may start more than one in a single answer. A thread
-can also name one (`/playbook`), and an issue delegated to Podium in Linear runs the playbook
-that claims Linear. [docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
+the piece of work in front of it, and may start more than one in a single answer. An issue
+delegated to Podium in Linear is a piece of work, and runs the playbook that claims Linear; an
+@mention in Linear is a question, and the assistant answers it as it answers a chat. A person can
+name a playbook in Linear (`/playbook`), and so can a Slack thread without the host runtime.
+[docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
 
 ## Where it runs
 
@@ -190,11 +192,13 @@ Two credentials the conductor does not invent, and both are how the organization
 - Slack, Linear, and the GitHub App are off until they are set up. The GitHub App and the
   Linear agent app are saved under Access → Connections; Slack is saved there or set in
   [deploy/.env.example](deploy/.env.example), where a Linear personal API key can also poll
-  for assigned issues instead of the app. Both apps are ones you create in your own org.
+  for assigned issues instead of the app. A polled issue always runs the playbook that claims
+  Linear, for anybody who can assign it. Both apps are ones you create in your own org.
   Podium does not ship a Marketplace listing.
 - The assistant, the process that answers a conversation and delegates machine work,
   runs when the conductor is started with its host runtime. The published `podium-agent`
-  image is a static binary and runs every turn as a task instead. [docs/agent.md](docs/agent.md)
+  image is a static binary and runs every turn as a task instead: a Linear @mention then runs
+  the playbook that claims Linear, and a web chat is refused. [docs/agent.md](docs/agent.md)
   is which one you have, and what each door (chat, Slack, Linear, GitHub) does with it.
 
 The playbook directory the image ships is a starter that holds nothing. Replace it with your
@@ -250,7 +254,7 @@ mention.
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App and the Linear app under Access → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` (Slack), `PODIUM_AGENT_LINEAR_API_KEY` (Linear's poller, off while a Linear app is saved), the GitHub App and the Linear app under Access → Connections, `PODIUM_AGENT_HOST_RUNTIME` (the assistant; without it every turn is a task), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.

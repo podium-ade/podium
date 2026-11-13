@@ -173,6 +173,12 @@ describe("ConnectionsPanel", () => {
     expect(screen.queryByText("Revoked")).toBeNull();
   });
 
+  it("describes the Linear app in a line, as the other dialogs do", async () => {
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/The OAuth app people delegate issues to and @mention\. Saving signs in to Linear to\s+check it\./)).toBeInTheDocument();
+  });
+
   it("saves a Linear app with setup steps beside it", async () => {
     setLinearConnection.mockResolvedValue({ linear: savedLinear });
     mount();
