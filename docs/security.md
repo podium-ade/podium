@@ -231,12 +231,32 @@ SAML is not implemented.
   with that playbook's credentials. Writing a playbook is the decision about what may run, and a
   chat is one of the things that can run it.
 
-- **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
-  credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
-  it to — anybody who can set the assignee on a Linear issue the poller watches, and anybody
-  who can delegate an issue to the Linear app or @mention it, can start a turn. There is no
-  allowlist of users and no roles. A turn gets exactly the secrets its own playbook names, plus the
-  reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
+- **Whoever may ask the bot for something can run code on a worker with that playbook's
+  credentials.** Who that is depends on where they ask:
+  - **Slack, and Linear's agent app: only a person signed in to Podium.** The Slack source offers
+    the confirmed email of a full member of the bot's own workspace; the Linear app offers the
+    email of whoever wrote the prompt — each prompt, not only the one that opened the session —
+    when Linear says they are an active, full member of the app's workspace (not a guest, not
+    an app). The conductor keeps that email only when it is a login that has signed in to
+    Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Anybody else gets 🚫 in Slack
+    or a plain-words error in the Linear session ("sign in to Podium with the same email"), and
+    nothing runs; the message is the same whichever check they failed. The turn runs **as that
+    person**: their personal secrets, their MCP servers, their GitHub account. Pressing *Stop*
+    in a Linear session is not gated: it ends work and starts none, Linear offers it to
+    everybody who can see the session, and refusing it would leave running what somebody asked
+    to end.
+  - **Linear's poller: anybody who can assign the bot user a ticket.** Polling with a personal
+    API key is the unauthenticated mode. The bot seat is told that an issue was assigned to it
+    or commented on, not who could be proven to have done it, so a polled ticket runs as nobody
+    — the company's credentials only — for anybody who can set the assignee on an issue the bot
+    user can see, or comment on one it holds. It is the weaker mode. The reason to keep it is
+    that it needs no inbound webhook: the conductor only dials out, so nothing on the internet
+    has to reach it. Prefer the agent app wherever a webhook can reach the conductor; a saved
+    app turns the poller off.
+
+  There is no allowlist beyond that and no roles: any Podium person who can reach the bot can
+  run any playbook that surface reaches. A turn gets exactly the secrets its own playbook
+  names, plus the reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
   credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
   for a `grok` one, `podium.agent.openai_api_key` for an `openai` one, or
   `podium.agent.google_api_key` for a `gemini` one, never two. When the person who started the
@@ -254,10 +274,11 @@ SAML is not implemented.
   the caller's own personal names, and never another login's. The conductor's list is
   globals, plus that one MCP name when it asks about a login.
   No API returns a value.
-  `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person for
-  those, so a playbook that names one fails the turn, and a Slack mention does not use the
-  mentioner's personal secrets. MCP servers are separate: when Slack shares an email that
-  matches their login, the mention uses that person's servers. The server does not check
+  `user_secrets:` on a playbook are the secrets of the person who asked, on whatever surface
+  they asked: a Slack mention or a Linear agent session uses that person's, as a web chat
+  does. A turn with no person — a ticket the Linear poller saw, an automatic review — has
+  none, so a playbook that names one fails that turn. MCP servers follow the same person,
+  and such a turn uses the global list. The server does not check
   that a global name appears on a playbook: which globals a playbook grants is still the
   conductor's rule. A stolen conductor
   token can still mount every global secret.
@@ -599,9 +620,10 @@ What it gives you:
 - **Registering is not granting.** The MCP screen has two lists. Yours is the signed-in person's
   servers. Global is the company list, used in full by a turn that has no person. A person's
   turn uses their own row of that name. A global row fills in only when they have none and an
-  admin has allowed it; a row they turned off is not replaced. A Slack mention does this when
-  Slack shares an email that matches their login, and otherwise uses Global. It is not a Linear
-  agent installation. A member sees only Yours. An admin can edit both, and cannot edit another
+  admin has allowed it; a row they turned off is not replaced. A Slack mention and a Linear
+  agent session do this for the person who asked; a ticket the Linear poller saw has no
+  person and uses Global. A `linear` MCP server is not the Linear agent app, and is granted
+  like any other. A member sees only Yours. An admin can edit both, and cannot edit another
   person's row.
   Only a playbook's `mcp_servers:` decides which names a turn asks for. A missing name fails
   the turn and says which server. A token stored and named by no playbook is spent by nothing.
@@ -1037,9 +1059,10 @@ Everything below is a real hole, not a hypothetical:
   taking ordinary work.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
-- **Anyone who can tag the bot, or assign, delegate or mention it on a Linear issue, can run
-  code on a worker.** The
-  conductor has no allowlist and no roles. See *5. The conductor and the bot*.
+- **With Linear's poller, anyone who can assign the bot user a ticket can run code on a worker.**
+  Polling proves nobody, so a polled ticket runs as nobody for whoever assigned it. Slack and
+  Linear's agent app answer only people signed in to Podium, but have no roles beyond that: any
+  of them can run any playbook their surface reaches. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
   environment built from empty — unless `PODIUM_AGENT_HOST_ISOLATION=bwrap` puts each turn in a

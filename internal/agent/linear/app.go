@@ -45,7 +45,16 @@ const (
 	stoppedText   = "Stopped."
 	idleStopText  = "Nothing was running, so there was nothing to stop."
 	cantStopText  = "I couldn't stop the work. An operator should check the logs."
+	// refusedText answers somebody the conductor will not run anything for. It is the same
+	// whichever check they failed — not in Podium, a guest, another domain — as Slack's 🚫
+	// is, so it tells nobody more about who has an account than Slack does.
+	refusedText = "I can only work for people who are signed in to Podium. Sign in to Podium " +
+		"with the same email address you use in Linear, then ask me again."
 )
+
+// accountTTL is how long what Linear said about a speaker's account is trusted, as Slack's is:
+// whether somebody is still an active, full member of the workspace is asked again after it.
+const accountTTL = 10 * time.Minute
 
 // The labels of the links the source adds to a session.
 const (
@@ -150,6 +159,16 @@ type AppSource struct {
 	// sessions is what the source remembers about each agent session between the
 	// conductor's calls, by session id.
 	sessions map[string]*appSession
+	// accounts is the candidate login each speaker's account checks came to, by user id,
+	// for accountTTL.
+	accounts map[string]speakerAccount
+}
+
+// speakerAccount is what the account checks made of one Linear user: the email they may be
+// matched to a Podium login by, or empty, and when it was asked.
+type speakerAccount struct {
+	login string
+	at    time.Time
 }
 
 // appSession is what the source remembers about one agent session between the conductor's
@@ -181,7 +200,10 @@ type appSession struct {
 	flushGen int
 	// running is a turn that is working: started and not yet answered, failed, stopped or
 	// waiting on a question. Only a running turn is kept alive.
-	running      bool
+	running bool
+	// open is a turn that has started and not ended: working, or waiting on a question. A
+	// refusal said while one is open must not end the session under it.
+	open         bool
 	keepAlive    func() bool
 	keepAliveGen int
 	// closing is the activity type the turn ended on, response or error, and empty while it
@@ -296,6 +318,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		seen:           map[string]time.Time{},
 		queues:         map[string][]func(context.Context){},
 		sessions:       map[string]*appSession{},
+		accounts:       map[string]speakerAccount{},
 	}, nil
 }
 
@@ -431,8 +454,11 @@ func (s *AppSource) emit(ctx context.Context, ev conductor.InboundEvent) {
 	}
 }
 
-// inbound is the event for one prompt. Login and the speaker's account are not set: Linear
-// has no accounts in Podium yet, and its turns run unauthenticated, as the poller's do.
+// inbound is the event for one prompt. It names the speaker's account, the person who wrote
+// this prompt — never the session's creator, since anybody who can see the issue may reply —
+// and always names the provider, even with no account, because a Linear event that names none
+// is the poller's and runs as nobody. The candidate Login is not set here: it takes a call to
+// Linear, which is made off the webhook's request (candidate).
 func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 	sess, act, iss := p.AgentSession, p.AgentActivity, p.AgentSession.Issue
 	teamID := iss.TeamID
@@ -487,12 +513,74 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		Text:        text,
 		BriefKind:   conductor.SourceLinear,
 		// The playbook is named here rather than routed, as the poller names it.
-		Playbook: s.playbook(),
+		Playbook:        s.playbook(),
+		SpeakerProvider: conductor.SpeakerLinear,
+	}
+	if act.User != nil && act.User.ID != "" {
+		ev.SpeakerID = p.OrganizationID + "/" + act.User.ID
 	}
 	if text != said {
 		ev.RecordText = said
 	}
 	return ev
+}
+
+// candidate is the email a prompt's speaker may be matched to a Podium login by, or empty. It
+// is Slack's verifiedEmail for Linear, and every check is about who could be pretending: a
+// guest or an app can have an email on the company's domain, and a match would run a turn with
+// a real person's secrets. So the speaker must be:
+//
+//   - a user of the app's own workspace: a delivery for any other was already ignored, and the
+//     app's token reads only its own;
+//   - not a guest, not suspended, not an app user (an agent or an integration), and not this
+//     app itself;
+//   - holding an email. Linear has no "confirmed" flag to match Slack's: an account's email is
+//     what its owner signs in to Linear with.
+//
+// What Linear says is asked with the app's token, because the payload carries only the id, the
+// name and the email, and is remembered for accountTTL. A failure to ask is no candidate, and
+// is not remembered: the speaker is refused this once, as Slack's is when users.info fails.
+// The conductor then checks the domain and that the email is a login that has signed in.
+func (s *AppSource) candidate(ctx context.Context, u *payloadUser) string {
+	if u == nil || u.ID == "" || u.ID == s.appUserID {
+		return ""
+	}
+	now := s.now()
+	s.mu.Lock()
+	acct, ok := s.accounts[u.ID]
+	s.mu.Unlock()
+	if ok && now.Sub(acct.at) < accountTTL {
+		return acct.login
+	}
+	info, err := s.client.UserAccount(ctx, u.ID)
+	if err != nil {
+		s.logger.DebugContext(ctx, "linear: checking a speaker's account failed", "user", u.ID, "error", err)
+		return ""
+	}
+	login := ""
+	if info.Active && !info.Guest && !info.App {
+		login = podiumLogin(info.Email)
+	}
+	s.mu.Lock()
+	for id, a := range s.accounts {
+		if now.Sub(a.at) >= accountTTL {
+			delete(s.accounts, id)
+		}
+	}
+	s.accounts[u.ID] = speakerAccount{login: login, at: now}
+	s.mu.Unlock()
+	return login
+}
+
+// podiumLogin is an email Podium can match to a Google sign-in: one @, something either side
+// of it, lowercased. Anything else is no login.
+func podiumLogin(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	at := strings.IndexByte(email, '@')
+	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
+		return ""
+	}
+	return email
 }
 
 // stripMention takes an @mention of the app off the front of a comment. Linear puts the
@@ -610,6 +698,8 @@ func (s *AppSource) PostActivity(ctx context.Context, ref string, out conductor.
 //   - awaiting is a question waiting for a person, which is not kept alive: a thought would
 //     tell Linear the agent is working when it is waiting.
 //   - done and failed end the turn.
+//   - refused is somebody the conductor will not run anything for, told so in the session
+//     (refuseSpeaker). Nothing ran, so nothing moved and nothing is kept alive.
 //
 // A ref with no session reacts as the poller does.
 func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reaction) error {
@@ -652,7 +742,7 @@ func (s *AppSource) React(ctx context.Context, ref string, kind conductor.Reacti
 		s.mu.Unlock()
 		return nil
 	case conductor.ReactionRefused:
-		return nil
+		return s.refuseSpeaker(ctx, sessionID)
 	default:
 		return fmt.Errorf("linear: %q is not a reaction", kind)
 	}
@@ -734,6 +824,32 @@ func (s *AppSource) LinkPullRequests(ctx context.Context, ref string, prs []cond
 	return nil
 }
 
+// refuseSpeaker tells somebody who is not in Podium, in the session they spoke in, that nothing
+// will run for them. Slack's 🚫 needs no words because a reaction is all Slack has; a session
+// has no reactions, and a refusal with no words reads as a fault.
+//
+// It is an error, which ends the session as Linear draws it: nothing is working in it, and
+// the person should not be left looking at "Starting on this." — unless somebody else's turn
+// is open in the same session, which an error would end under them. The refusal is then a
+// thought that stays, and the session goes on showing that turn.
+//
+// It is said even in a session somebody stopped: it is the source's own word about a new
+// prompt, not the stopped turn's.
+func (s *AppSource) refuseSpeaker(ctx context.Context, sessionID string) error {
+	st := s.session(sessionID)
+	s.mu.Lock()
+	open := st.open
+	s.mu.Unlock()
+	content := ActivityContent{Type: ActivityError, Body: refusedText}
+	if open {
+		content.Type = ActivityThought
+	}
+	if _, err := s.send(ctx, sessionID, st, content, false, "", true); err != nil {
+		return fmt.Errorf("linear: refuse a speaker in session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // one session's bookkeeping
 // ---------------------------------------------------------------------------
@@ -760,6 +876,7 @@ func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 	st.closing = ""
 	st.moveChecked = false
 	st.running = true
+	st.open = true
 	st.lastActivity = s.now()
 	s.armKeepAliveLocked(sessionID, st, KeepAliveAfter)
 }
@@ -768,6 +885,7 @@ func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 // it held back is said, and it is not kept alive. The caller holds s.mu.
 func (s *AppSource) endTurnLocked(st *appSession) {
 	st.running = false
+	st.open = false
 	s.disarmLocked(st)
 }
 

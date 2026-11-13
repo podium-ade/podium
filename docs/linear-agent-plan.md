@@ -195,13 +195,19 @@ A second implementation of `conductor.Source` for session-mode refs.
 ## Phase 4: identity
 
 - **Provider:** add `SpeakerLinear` in `conductor/source.go` and the store's identity
-  providers, with `SpeakerID` as `<organizationId>/<userId>`.
+  providers (migration 0045 widens the provider check), with `SpeakerID` as
+  `<organizationId>/<userId>`.
 - **Resolution:** a `resolveLinear` in `conductor/identity.go` beside `resolveSlack`. The
-  creator's email is a candidate login, kept only if that login has signed in and passes
-  `domainAllowed`. It is cached like Slack's.
-- **Admission:** `admit` refuses an unresolved speaker in session mode. Poll mode stays
-  unauthenticated and the docs say so.
-- **Effect:** turns run with the asker's secrets, MCP servers and GitHub account.
+  email of the prompt's author (`agentActivity.user`, not `agentSession.creator`) is a
+  candidate login, offered only when `user(id:)` says they are `active` and neither a `guest`
+  nor an `app`, and kept only if that login has signed in and passes `domainAllowed`. Both
+  halves are cached like Slack's.
+- **Admission:** `admit` refuses an unresolved speaker in session mode, told by an `error`
+  activity, or a lasting `thought` when somebody else's turn is open in the session. The app
+  names its provider on every prompt, so a Linear event with no provider is the poller's. Poll
+  mode stays unauthenticated and the docs say so. A Stop is not gated.
+- **Effect:** turns run with the asker's secrets, MCP servers and GitHub account, and the
+  company's model key: a Linear issue is a shared conversation, like a Slack thread.
 - **Docs:** rewrite the Linear paragraphs in `docs/security.md` and `SECURITY.md`. The
   "anyone who can assign runs code" warning then applies only to poll mode.
 
