@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Repeat, ShieldCheck, User, Webhook, Wrench, type LucideIcon } from "lucide-react";
+import { MessageSquare, MessagesSquare, Repeat, ShieldCheck, User, Webhook, Wrench, type LucideIcon } from "lucide-react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
@@ -10,6 +10,7 @@ import {
   LINEAR_EVENTS,
   LINEAR_TYPES,
   teamKeys,
+  type ChatMode,
   type Scope,
   type Trigger,
 } from "../../lib/routines";
@@ -66,23 +67,43 @@ const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: LucideIco
   { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: Webhook },
 ];
 
+/** CHAT_MODES are where a routine on Linear events runs: all in its own chat, or each ticket in a chat of its own. */
+const CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[] = [
+  {
+    mode: "routine",
+    label: "The routine’s chat",
+    hint: "Every run is in one chat, with the whole history in view.",
+    icon: MessageSquare,
+  },
+  {
+    mode: "subject",
+    label: "A chat per ticket",
+    hint: "Each issue or project gets its own chat, so a run sees what was said about that ticket before.",
+    icon: MessagesSquare,
+  },
+];
+
 /**
  * LinearEventsField is what a routine on Linear events runs on: the events, and optionally the
  * teams. The Linear app's webhook delivers them, so the field says when no app is connected —
- * the routine saves, and runs once one is.
+ * the routine saves, and runs once one is. Under them is where its runs happen.
  */
 function LinearEventsField({
   events,
   onEvents,
   teams,
   onTeams,
+  chatMode,
+  onChatMode,
 }: {
   events: string[];
   onEvents: (events: string[]) => void;
   teams: string;
   onTeams: (teams: string) => void;
+  chatMode: ChatMode;
+  onChatMode: (mode: ChatMode) => void;
 }) {
-  const ids = { events: useId(), teams: useId() };
+  const ids = { events: useId(), teams: useId(), chatMode: useId() };
   const connections = useQuery({
     queryKey: ["agent", "connections"],
     queryFn: () => agent.getConnections({}),
@@ -157,6 +178,33 @@ function LinearEventsField({
         />
         <p id={`${ids.teams}-hint`} className="text-xs text-muted">
           Team keys, separated by commas. Leave empty for every team.
+        </p>
+      </div>
+      <div className="grid gap-1.5" role="group" aria-labelledby={ids.chatMode}>
+        <span id={ids.chatMode} className="text-sm font-medium">
+          Runs happen in
+        </span>
+        <ToggleGroup
+          type="single"
+          value={chatMode}
+          aria-label="Runs happen in"
+          onValueChange={(v) => v && onChatMode(v as ChatMode)}
+          className="grid w-full grid-cols-2 border-border bg-raised"
+        >
+          {CHAT_MODES.map((m) => (
+            <ToggleGroupItem
+              key={m.mode}
+              value={m.mode}
+              data-testid={`routine-chat-mode-${m.mode}`}
+              className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+            >
+              <m.icon aria-hidden />
+              {m.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <p data-testid="routine-chat-mode-hint" className="text-xs leading-relaxed text-muted">
+          {CHAT_MODES.find((m) => m.mode === chatMode)?.hint}
         </p>
       </div>
     </>
@@ -244,6 +292,7 @@ export function RoutineDialog({
   const linear = trigger === "linear";
   const [events, setEvents] = useState<string[]>(initial.events ?? []);
   const [teams, setTeams] = useState((initial.teams ?? []).join(", "));
+  const [chatMode, setChatMode] = useState<ChatMode>(initial.chatMode === "subject" ? "subject" : "routine");
   const [timezone, setTimezone] = useState(initial.timezone || browserZone());
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
@@ -291,6 +340,8 @@ export function RoutineDialog({
           trigger,
           events: linear ? events : [],
           teams: linear ? teamKeys(teams) : [],
+          // A run on a schedule is about no ticket: the server refuses a chat per ticket there.
+          chatMode: linear ? chatMode : "routine",
           timezone: timezone.trim() || "UTC",
           personalityId: system
             ? ""
@@ -556,7 +607,14 @@ export function RoutineDialog({
               </ToggleGroup>
             ) : null}
             {linear ? (
-              <LinearEventsField events={events} onEvents={setEvents} teams={teams} onTeams={setTeams} />
+              <LinearEventsField
+                events={events}
+                onEvents={setEvents}
+                teams={teams}
+                onTeams={setTeams}
+                chatMode={chatMode}
+                onChatMode={setChatMode}
+              />
             ) : (
               <>
                 <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
