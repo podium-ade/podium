@@ -823,6 +823,9 @@ func TestRunServesTheWebhookAndStopsCleanly(t *testing.T) {
 		m.h.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
+	// The work is queued behind the session, so wait for it to fill the channel before stopping.
+	require.Eventually(t, func() bool { return len(h.src.events) == cap(h.src.events) },
+		5*time.Second, time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
 	n := 0
