@@ -8,6 +8,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { RoutineSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { RoutinesPanel } from "./RoutinesPanel";
+import { RoutinePage } from "./RoutineEditor";
 
 const listRoutines = vi.fn();
 const createRoutine = vi.fn();
@@ -53,6 +54,8 @@ function mount() {
         <MemoryRouter initialEntries={["/agent/routines"]}>
           <Routes>
             <Route path="/agent/routines" element={<RoutinesPanel />} />
+            <Route path="/agent/routines/new" element={<RoutinePage />} />
+            <Route path="/agent/routines/:id" element={<RoutinePage />} />
             <Route path="/agent/chat/*" element={<p>chat open</p>} />
           </Routes>
         </MemoryRouter>
