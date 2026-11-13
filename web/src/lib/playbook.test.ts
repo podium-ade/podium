@@ -29,6 +29,7 @@ const draft: PlaybookDraft = {
   slackChannels: [],
   linear: false,
   github: false,
+  githubRepos: [],
   githubRequires: "",
   interactive: true,
   skills: ["pr-review"],
@@ -87,6 +88,15 @@ env:
     expect(docToDraft("reporter", doc!).githubRequires).toBe("write");
     const bad = parsePlaybookYaml(text.replace("github_requires: write", "github_requires: owner"));
     expect(bad.problems.join("\n")).toContain("is not one of read, triage, write, maintain, admin");
+  });
+
+  it("round-trips github_repos and refuses an entry that is not owner/name", () => {
+    const text = draftToYaml({ ...draft, githubRepos: ["acme/api", "acme/billing"] });
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).githubRepos).toEqual(["acme/api", "acme/billing"]);
+    const bad = parsePlaybookYaml("system_prompt: hi\ngithub_repos: [api]\n");
+    expect(bad.problems.join("\n")).toContain('"api" is not owner/name');
   });
 
   it("round-trips github: true", () => {
