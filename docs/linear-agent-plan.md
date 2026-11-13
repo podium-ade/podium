@@ -318,5 +318,11 @@ Across the whole stack, what is still open:
 - **Conductors on one database must agree on the host runtime.** What answers a mention is
   decided by the conductor the webhook reaches.
 - **`linear_teams:` routing is not built.**
+- **Routines on Linear events are built, against invented payloads.** Linear's documentation gives
+  the data change envelope but no exact `Issue` or `Comment` body, so the team is read leniently
+  (`teamId`, `team.key`, `team.id`, and a comment's `issue.teamId` or `issue.team`), and a team
+  named only by id is looked up. No data change was captured from a real workspace, and the
+  routine's integration tests have not run against Postgres. See [agent.md, On a Linear
+  event](agent.md#on-a-linear-event).
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.
