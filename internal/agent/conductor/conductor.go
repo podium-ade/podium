@@ -566,17 +566,18 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	profile := c.profiles.Current()
 
 	// A pull request is a conversation: what people say on it is answered by the assistant,
-	// which delegates the review to the playbook marked github: true. What nobody said — a
+	// which delegates the review to the playbook that reviews the pull request's repository
+	// (github_repos, else github: true). What nobody said — a
 	// pull request opened, or marked ready — runs that playbook directly. So does every
 	// GitHub event on a conductor with no host runtime, which has no assistant to ask.
 	if src.Kind() == SourceGitHub && (ev.Automatic || c.host == nil) {
-		name := profile.GitHubPlaybook()
+		name := profile.GitHubPlaybookFor(pullRequestRepo(ev.SourceKey))
 		if name == "" {
 			c.logger.ErrorContext(ctx, "no playbook reviews pull requests",
 				"source_key", ev.SourceKey)
 			c.post(ctx, src, ev.Ref, Outbound{
 				Type: OutFailure,
-				Text: "No playbook reviews pull requests. Mark one with github: true.",
+				Text: "No playbook reviews pull requests in this repository. Name it in a playbook's github_repos, or mark one with github: true.",
 			})
 			c.finish(ctx, src, ev.Ref, ReactionFailed)
 			return
@@ -1088,7 +1089,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
-		menu = c.routineMenu(c.menuFor(src, ev.Role), ev)
+		menu = c.routineMenu(c.menuFor(src, ev.SourceKey, ev.Role), ev)
 		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
@@ -1247,7 +1248,13 @@ func (c *Conductor) speakerFor(src Source, playbook string) Speaker {
 	if playbook == "" {
 		return Speaker{}
 	}
-	own := src != nil && src.Kind() == SourceGitHub && playbook == c.profiles.Current().GitHubPlaybook()
+	// A pull request's menu offers only the review playbook for its own repository, so any
+	// review playbook speaking on one is that one.
+	own := false
+	if src != nil && src.Kind() == SourceGitHub {
+		p, ok := c.profiles.Current().Playbooks[playbook]
+		own = ok && p.Reviews()
+	}
 	return Speaker{Playbook: playbook, SourcePlaybook: own}
 }
 
@@ -1319,7 +1326,7 @@ func (c *Conductor) brief(
 			AllowedTools: append([]string{}, j.allowedTools...),
 			MaxTurns:     j.maxTurns,
 			Interactive:  j.playbook.Interactive,
-			GitHub:       j.playbook.GitHub,
+			GitHub:       j.playbook.Reviews(),
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,

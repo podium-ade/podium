@@ -101,3 +101,18 @@ func pullRequestFrom(m []string) (PullRequest, bool) {
 		Number: number,
 	}, true
 }
+
+// pullRequestRepo is the owner/name of the pull request a GitHub session is about, read from
+// its source key (github:owner/repo#N), or "" for any other session. It picks the playbook
+// that reviews it, see profiles.GitHubPlaybookFor.
+func pullRequestRepo(sourceKey string) string {
+	rest, ok := strings.CutPrefix(sourceKey, SourceGitHub+":")
+	if !ok {
+		return ""
+	}
+	repo, _, ok := strings.Cut(rest, "#")
+	if !ok || !strings.Contains(repo, "/") {
+		return ""
+	}
+	return repo
+}
