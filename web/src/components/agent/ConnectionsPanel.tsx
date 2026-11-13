@@ -5,9 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   GitHubConnection,
   GitHubWebhookFilters,
+  LinearConnection,
   SlackConnection,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { relative } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { Badge } from "../Badge";
 import { Empty } from "../Empty";
@@ -30,10 +32,10 @@ import { BrandTile } from "./BrandIcon";
 import { ConductorDown } from "./ConductorDown";
 
 /**
- * ConnectionsPanel is where this conductor's GitHub App and Slack app are saved.
- * Linear is shown so the section has a place for it, and it cannot be saved yet.
- * Slack can still come from the environment until a pair is saved. The GitHub App
- * cannot: those environment variables are ignored. A saved value is what the
+ * ConnectionsPanel is where this conductor's GitHub App, Slack app and Linear app are
+ * saved. Slack can still come from the environment until a pair is saved. The GitHub App
+ * and the Linear app cannot: they are saved here or not at all. Nothing runs on the
+ * Linear app yet; the environment's Linear API key still polls. A saved value is what the
  * conductor uses the next time it starts.
  */
 export function ConnectionsPanel() {
@@ -41,7 +43,7 @@ export function ConnectionsPanel() {
     queryKey: ["agent", "connections"],
     queryFn: () => agent.getConnections({}),
   });
-  const [editing, setEditing] = useState<"github" | "slack" | null>(null);
+  const [editing, setEditing] = useState<"github" | "slack" | "linear" | null>(null);
 
   if (query.isError && !isAgentUnreachable(query.error)) {
     return <Empty title="Could not read connections" hint={errorMessage(query.error)} />;
@@ -97,12 +99,9 @@ export function ConnectionsPanel() {
             <ConnectionRow
               name="Linear"
               mark="linear"
-              badge={{ label: "Coming soon", tone: "idle" }}
-              detail={`Issue assignments will be configured here.${
-                data.linear?.configured === true
-                  ? " This conductor is still using the Linear key from its environment."
-                  : ""
-              }`}
+              badge={status(savedSource(data.linear?.source), data.linear?.configured === true, data.linear?.restartRequired === true)}
+              detail={linearDetail(data.linear)}
+              onEdit={() => setEditing("linear")}
             />
           </TableBody>
         </Table>
@@ -113,8 +112,23 @@ export function ConnectionsPanel() {
       {data && editing === "slack" ? (
         <SlackDialog connection={data.slack} onClose={() => setEditing(null)} />
       ) : null}
+      {data && editing === "linear" ? (
+        <LinearDialog connection={data.linear} onClose={() => setEditing(null)} />
+      ) : null}
     </div>
   );
+}
+
+function linearDetail(lin?: LinearConnection): string {
+  if (lin?.configured) return `Connected as ${connectedAs(lin)}`;
+  if (lin?.polling) return "No app saved. Polling with the environment's API key";
+  return "No app saved";
+}
+
+/** "Podium in Acme": the app user and its workspace, as far as the save learned them. */
+function connectedAs(lin: LinearConnection): string {
+  const who = lin.appUserName || lin.clientId;
+  return lin.organizationName ? `${who} in ${lin.organizationName}` : who;
 }
 
 function savedSource(source: string | undefined): string {
@@ -770,6 +784,243 @@ function SlackDialog({
           </Button>
           <Button type="button" onClick={() => save.mutate()} disabled={busy}>
             Save Slack
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LinearDialog({
+  connection,
+  onClose,
+}: {
+  connection?: LinearConnection;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const lin = connection;
+  const saved = lin?.source === "saved";
+  const [clientId, setClientId] = useState(lin?.clientId ?? "");
+  const [clientSecret, setClientSecret] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [listen, setListen] = useState(lin?.webhookListen ?? "");
+  const [error, setError] = useState("");
+  const [replaceClient, setReplaceClient] = useState(false);
+  const [replaceWebhook, setReplaceWebhook] = useState(false);
+  const [groups, setGroups] = useState({
+    setup: !saved,
+    app: !(lin?.clientId && lin?.clientSecretSet),
+    webhook: !(lin?.webhookSecretSet && lin?.webhookListen),
+  });
+  // A different client id is a different app, and the saved secrets are the old app's.
+  const newApp = saved && clientId.trim() !== "" && clientId.trim() !== lin?.clientId;
+  const keepClient = lin?.clientSecretSet === true && !newApp && !replaceClient;
+  const keepWebhook = lin?.webhookSecretSet === true && !newApp && !replaceWebhook;
+
+  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "connections"] });
+  const save = useMutation({
+    mutationFn: () =>
+      agent.setLinearConnection({
+        clientId: clientId.trim(),
+        // A field the dialog is showing as saved sends nothing, which keeps the saved one.
+        clientSecret: keepClient ? "" : clientSecret,
+        webhookSecret: keepWebhook ? "" : webhookSecret,
+        webhookListen: listen.trim(),
+      }),
+    onSuccess: async (res) => {
+      toast(
+        res.linear?.restartRequired
+          ? "Linear saved, but the conductor could not switch to it. Restart the conductor to use it."
+          : res.linear
+            ? `Linear saved. It signs in as ${connectedAs(res.linear)}.`
+            : "Linear saved.",
+        res.linear?.restartRequired ? "err" : "ok",
+      );
+      onClose();
+      await reload();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  const clear = useMutation({
+    mutationFn: () => agent.clearLinearConnection({}),
+    onSuccess: async () => {
+      toast("Removed the saved Linear app.", "ok");
+      onClose();
+      await reload();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  const busy = save.isPending || clear.isPending;
+
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[640px] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3 text-2xl leading-tight font-bold tracking-normal">
+            <BrandTile name="linear" size="dialog" />
+            Linear
+          </DialogTitle>
+          <DialogDescription className="text-base text-soft">
+            The OAuth app people will delegate issues to and @mention. Saving signs in to Linear to
+            check it. Nothing runs on it yet: that comes with its webhooks.
+          </DialogDescription>
+        </DialogHeader>
+        {lin?.restartRequired ? (
+          <Alert variant="warn">Restart the conductor. It is still running with the previous Linear app.</Alert>
+        ) : null}
+        {lin?.configured ? (
+          <p className="text-sm text-muted">
+            Connected as <strong className="text-fg">{lin.appUserName || lin.clientId}</strong>
+            {lin.organizationName ? (
+              <>
+                {" "}in <strong className="text-fg">{lin.organizationName}</strong>
+              </>
+            ) : null}
+            {lin.setBy ? ` · saved by ${lin.setBy}` : ""}
+            {lin.setAt ? ` · ${relative(lin.setAt)}` : ""}
+          </p>
+        ) : null}
+        {lin?.polling ? (
+          <p className="text-xs leading-relaxed text-muted">
+            Polling is on: PODIUM_AGENT_LINEAR_API_KEY is set, so this conductor picks up issues
+            assigned to that key's user. The app will replace it once its webhooks ship. Saving
+            here does not change that yet.
+          </p>
+        ) : null}
+        <div className="grid gap-3">
+          <Group
+            title="Set up in Linear"
+            summary="OAuth application, client credentials, webhooks."
+            open={groups.setup}
+            onToggle={() => setGroups((g) => ({ ...g, setup: !g.setup }))}
+          >
+            <ol className="grid list-decimal gap-1.5 pl-5 text-sm leading-relaxed text-soft">
+              <li>In Linear, open Settings → API → OAuth applications → New.</li>
+              <li>Turn on Client credentials.</li>
+              <li>
+                Turn on Webhooks and tick Agent session events and Permission changes. Leave Inbox
+                notifications off: it repeats every delegation and mention.
+              </li>
+              <li>
+                Set the webhook URL to the public address that reaches the listen address below,
+                with the path <code className="font-mono text-xs">/webhooks/linear</code>.
+              </li>
+            </ol>
+          </Group>
+          <Group
+            title="OAuth application"
+            summary={lin?.clientId && lin?.clientSecretSet ? "Client ID and secret." : "Not set"}
+            open={groups.app}
+            onToggle={() => setGroups((g) => ({ ...g, app: !g.app }))}
+          >
+            <Field label="Client ID" htmlFor="linear-client-id" hint="On the application's page in Linear.">
+              <Input
+                id="linear-client-id"
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </Field>
+            <SecretSlot
+              label="Client secret"
+              set={lin?.clientSecretSet === true && !newApp}
+              replacing={replaceClient}
+              status="Saved"
+              onReplace={() => setReplaceClient(true)}
+              onKeep={() => {
+                setClientSecret("");
+                setReplaceClient(false);
+              }}
+              keepLabel="Keep saved secret"
+              hint={
+                newApp
+                  ? "A new client ID is a new app. Paste its client secret."
+                  : lin?.clientSecretSet
+                    ? "Paste a new secret, or keep the saved one."
+                    : "On the application's page in Linear, beside the client ID."
+              }
+            >
+              <Input
+                id="linear-client-secret"
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                autoComplete="off"
+              />
+            </SecretSlot>
+          </Group>
+          <Group
+            title="Webhooks"
+            summary={lin?.webhookSecretSet && lin?.webhookListen ? `Signing secret, listening on ${lin.webhookListen}.` : "Not set"}
+            open={groups.webhook}
+            onToggle={() => setGroups((g) => ({ ...g, webhook: !g.webhook }))}
+          >
+            <SecretSlot
+              label="Webhook signing secret"
+              set={lin?.webhookSecretSet === true && !newApp}
+              replacing={replaceWebhook}
+              status="Saved"
+              onReplace={() => setReplaceWebhook(true)}
+              onKeep={() => {
+                setWebhookSecret("");
+                setReplaceWebhook(false);
+              }}
+              keepLabel="Keep saved secret"
+              hint={
+                newApp
+                  ? "A new client ID is a new app. Paste its signing secret."
+                  : lin?.webhookSecretSet
+                    ? "Paste a new secret, or keep the saved one."
+                    : "Starts with lin_wh_. On the application's page in Linear, under Webhooks."
+              }
+            >
+              <Input
+                id="linear-webhook-secret"
+                type="password"
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+                autoComplete="off"
+                placeholder="lin_wh_"
+              />
+            </SecretSlot>
+            <Field
+              label="Webhook listen"
+              htmlFor="linear-webhook-listen"
+              hint="host:port this process will bind for Linear. It can be the GitHub App's address; the two then share one listener."
+            >
+              <Input
+                id="linear-webhook-listen"
+                value={listen}
+                onChange={(e) => setListen(e.target.value)}
+                autoComplete="off"
+                placeholder="0.0.0.0:8091"
+                className="font-mono"
+              />
+            </Field>
+          </Group>
+        </div>
+        {error ? <Alert variant="destructive">{error}</Alert> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {saved ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="mr-auto text-err hover:bg-err-bg"
+              onClick={() => clear.mutate()}
+              disabled={busy}
+            >
+              Remove saved Linear
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => save.mutate()} disabled={busy}>
+            Save Linear
           </Button>
         </div>
       </DialogContent>

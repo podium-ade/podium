@@ -139,7 +139,7 @@ func TestAConnectionSavedInClearIsMovedIntoTheSecretStore(t *testing.T) {
 		"app_token": "xapp-old", "bot_token": "xoxb-old",
 	}))
 
-	slack, gh, err := connections.Load(ctx, f.svc.store, f.secrets)
+	slack, gh, _, err := connections.Load(ctx, f.svc.store, f.secrets)
 	require.NoError(t, err)
 	assert.Equal(t, "pem", gh.PrivateKey)
 	assert.Equal(t, "csec", gh.ClientSecret)
@@ -156,11 +156,69 @@ func TestAConnectionSavedInClearIsMovedIntoTheSecretStore(t *testing.T) {
 	assert.Equal(t, "whsec", string(f.secrets.set[connections.GitHubWebhookSecretSecret]))
 	assert.Equal(t, "xapp-old", string(f.secrets.set[connections.SlackAppTokenSecret]))
 
-	slack, gh, err = connections.Load(ctx, f.svc.store, f.secrets)
+	slack, gh, _, err = connections.Load(ctx, f.svc.store, f.secrets)
 	require.NoError(t, err)
 	assert.Equal(t, "pem", gh.PrivateKey)
 	assert.Equal(t, "whsec", gh.WebhookSecret)
 	assert.Equal(t, "xapp-old", slack.AppToken)
+}
+
+// The Linear app's row holds what is not a credential, and its secrets and access token
+// are in the secret store. A save that keeps a secret does not rewrite it, a new app drops
+// the token minted for the old one, and clearing takes all of it.
+func TestASavedLinearAppKeepsItsSecretsInTheSecretStore(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	ctx := t.Context()
+	row := connections.Linear{
+		ClientID: "client-1", ClientSecret: "lsec-not-real",
+		WebhookSecret: "lin_wh_not-real", WebhookListen: "0.0.0.0:8091",
+		AppUserID: "app-user-1", AppUserName: "Podium", OrganizationName: "Acme",
+	}
+	require.NoError(t, connections.SaveLinear(ctx, f.svc.store, f.secrets, row, nil))
+
+	var raw map[string]any
+	require.NoError(t, f.svc.store.GetSetting(ctx, connections.LinearKey, &raw))
+	assert.Equal(t, true, raw["vaulted"])
+	assert.NotContains(t, raw, "client_secret")
+	assert.NotContains(t, raw, "webhook_secret")
+	assert.Equal(t, "app-user-1", raw["app_user_id"])
+	assert.Equal(t, "lsec-not-real", string(f.secrets.set[connections.LinearClientSecretSecret]))
+	assert.Equal(t, "lin_wh_not-real", string(f.secrets.set[connections.LinearWebhookSecretSecret]))
+
+	_, _, got, err := connections.Load(ctx, f.svc.store, f.secrets)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "lsec-not-real", got.ClientSecret)
+	assert.Equal(t, "lin_wh_not-real", got.WebhookSecret)
+	assert.Equal(t, "Acme", got.OrganizationName)
+
+	require.NoError(t, connections.StoreLinearToken(ctx, f.secrets, connections.LinearToken{
+		ClientID: "client-1", AccessToken: "lin_oauth_not-real",
+	}))
+	version := f.secrets.versions[connections.LinearClientSecretSecret]
+	moved := *got
+	moved.WebhookListen = "0.0.0.0:9000"
+	require.NoError(t, connections.SaveLinear(ctx, f.svc.store, f.secrets, moved, got))
+	assert.Equal(t, version, f.secrets.versions[connections.LinearClientSecretSecret],
+		"a save that kept the secret must not rewrite it")
+	assert.Contains(t, f.secrets.set, connections.LinearAccessTokenSecret, "the same app keeps its token")
+
+	other := moved
+	other.ClientID, other.ClientSecret = "client-2", "lsec-two"
+	require.NoError(t, connections.SaveLinear(ctx, f.svc.store, f.secrets, other, &moved))
+	assert.NotContains(t, f.secrets.set, connections.LinearAccessTokenSecret, "a new app drops the old one's token")
+
+	require.NoError(t, connections.StoreLinearToken(ctx, f.secrets, connections.LinearToken{ClientID: "client-2", AccessToken: "x"}))
+	require.NoError(t, connections.ClearLinear(ctx, f.svc.store, f.secrets))
+	require.NoError(t, connections.ClearLinear(ctx, f.svc.store, f.secrets), "clearing twice is not an error")
+	for _, name := range []string{
+		connections.LinearClientSecretSecret, connections.LinearWebhookSecretSecret, connections.LinearAccessTokenSecret,
+	} {
+		assert.NotContains(t, f.secrets.set, name)
+	}
+	_, _, got, err = connections.Load(ctx, f.svc.store, f.secrets)
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 // fakeApplier stands in for the running conductor's connections. Apply does what the real
@@ -169,13 +227,22 @@ type fakeApplier struct {
 	svc      *AgentService
 	checkErr error
 	applyErr error
-	checked  []config.Config
-	applied  int
+	// linear is what Check says the Linear app signs in as, when it tries one.
+	linear  *LinearApp
+	checked []config.Config
+	applied int
 }
 
-func (f *fakeApplier) Check(_ context.Context, cfg config.Config) error {
+func (f *fakeApplier) Check(_ context.Context, cfg config.Config) (Checked, error) {
 	f.checked = append(f.checked, cfg)
-	return f.checkErr
+	if f.checkErr != nil {
+		return Checked{}, f.checkErr
+	}
+	var out Checked
+	if cfg.LinearAppEnabled() && connections.LinearDiffers(cfg, f.svc.runningConfig(), nil) {
+		out.Linear = f.linear
+	}
+	return out, nil
 }
 
 func (f *fakeApplier) Apply(ctx context.Context) error {
@@ -183,11 +250,11 @@ func (f *fakeApplier) Apply(ctx context.Context) error {
 	if f.applyErr != nil {
 		return f.applyErr
 	}
-	slack, gh, err := connections.Load(ctx, f.svc.store, f.svc.secrets)
+	slack, gh, lin, err := connections.Load(ctx, f.svc.store, f.svc.secrets)
 	if err != nil {
 		return err
 	}
-	f.svc.SetRunning(connections.Overlay(f.svc.env, slack, gh), nil)
+	f.svc.SetRunning(connections.Overlay(f.svc.env, slack, gh, lin), nil)
 	return nil
 }
 
@@ -292,4 +359,103 @@ func TestGitHubWebhookFiltersRoundTrip(t *testing.T) {
 		Filters: &agentv1.GitHubWebhookFilters{AllowedActors: []string{"not a login"}},
 	}))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+const (
+	fakeLinearClientSecret  = "lsec-not-a-real-secret-4321"
+	fakeLinearWebhookSecret = "lin_wh_not-a-real-secret-8765"
+)
+
+// Saving a Linear app stores who Check found it signs in as, returns no secret, logs no
+// secret, and leaves the environment's poller reported as it is.
+func TestALinearAppRoundTripNeverReturnsASecret(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL, LinearAPIKey: "lin_api_poller"}
+	f.svc.env = f.svc.running
+	applier := &fakeApplier{svc: f.svc, linear: &LinearApp{
+		UserID: "app-user-1", UserName: "Podium", OrganizationID: "org-1",
+		OrganizationName: "Acme", OrganizationURLKey: "acme",
+	}}
+	f.svc.connections = applier
+	ctx := loginCtx("ada")
+
+	got, err := f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
+	require.NoError(t, err)
+	assert.True(t, got.Msg.GetLinear().GetAvailable())
+	assert.False(t, got.Msg.GetLinear().GetConfigured())
+	assert.True(t, got.Msg.GetLinear().GetPolling())
+
+	saved, err := f.svc.SetLinearConnection(ctx, connect.NewRequest(&agentv1.SetLinearConnectionRequest{
+		ClientId:      "client-1",
+		ClientSecret:  fakeLinearClientSecret,
+		WebhookSecret: fakeLinearWebhookSecret,
+		WebhookListen: "0.0.0.0:8091",
+	}))
+	require.NoError(t, err)
+	lin := saved.Msg.GetLinear()
+	assert.True(t, lin.GetConfigured())
+	assert.Equal(t, connections.SourceSaved, lin.GetSource())
+	assert.Equal(t, "client-1", lin.GetClientId())
+	assert.True(t, lin.GetClientSecretSet())
+	assert.True(t, lin.GetWebhookSecretSet())
+	assert.Equal(t, "8765", lin.GetWebhookSecretHint())
+	assert.Equal(t, "app-user-1", lin.GetAppUserId())
+	assert.Equal(t, "Podium", lin.GetAppUserName())
+	assert.Equal(t, "Acme", lin.GetOrganizationName())
+	assert.Equal(t, "acme", lin.GetOrganizationUrlKey())
+	assert.Equal(t, "ada", lin.GetSetBy())
+	assert.True(t, lin.GetPolling(), "the poller is untouched by a saved app")
+	assert.False(t, lin.GetRestartRequired(), "the app is recorded as running")
+	require.Len(t, applier.checked, 1)
+	assert.Equal(t, fakeLinearClientSecret, applier.checked[0].LinearClientSecret, "the app is checked before it is stored")
+	for _, secret := range []string{fakeLinearClientSecret, fakeLinearWebhookSecret} {
+		assert.NotContains(t, saved.Msg.String(), secret)
+		assert.NotContains(t, f.log.String(), secret)
+	}
+	assert.Equal(t, fakeLinearClientSecret, string(f.secrets.set[connections.LinearClientSecretSecret]))
+
+	// Moving the listen address keeps the secrets and what was learned about the app.
+	moved, err := f.svc.SetLinearConnection(ctx, connect.NewRequest(&agentv1.SetLinearConnectionRequest{
+		WebhookListen: "0.0.0.0:9000",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "0.0.0.0:9000", moved.Msg.GetLinear().GetWebhookListen())
+	assert.Equal(t, "Podium", moved.Msg.GetLinear().GetAppUserName())
+	assert.True(t, moved.Msg.GetLinear().GetClientSecretSet())
+
+	got, err = f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, "Acme", got.Msg.GetLinear().GetOrganizationName())
+	assert.NotContains(t, got.Msg.String(), fakeLinearClientSecret)
+
+	cleared, err := f.svc.ClearLinearConnection(ctx, connect.NewRequest(&agentv1.ClearLinearConnectionRequest{}))
+	require.NoError(t, err)
+	assert.False(t, cleared.Msg.GetLinear().GetConfigured())
+	assert.Empty(t, cleared.Msg.GetLinear().GetSource())
+	assert.False(t, cleared.Msg.GetLinear().GetRestartRequired())
+	assert.NotContains(t, f.secrets.set, connections.LinearClientSecretSecret)
+	_, err = f.svc.ClearLinearConnection(ctx, connect.NewRequest(&agentv1.ClearLinearConnectionRequest{}))
+	require.NoError(t, err, "clearing twice is not an error")
+}
+
+func TestARefusedLinearAppIsNotSaved(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	applier := &fakeApplier{svc: f.svc, checkErr: errors.New("linear did not accept the client id and secret")}
+	f.svc.connections = applier
+
+	_, err := f.svc.SetLinearConnection(loginCtx("ada"), connect.NewRequest(&agentv1.SetLinearConnectionRequest{
+		ClientId: "client-1", ClientSecret: fakeLinearClientSecret,
+		WebhookSecret: fakeLinearWebhookSecret, WebhookListen: "0.0.0.0:8091",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "did not accept")
+	assert.Zero(t, applier.applied)
+	assert.NotContains(t, f.secrets.set, connections.LinearClientSecretSecret, "nothing reached the secret store")
+
+	_, err = f.svc.SetLinearConnection(loginCtx("ada"), connect.NewRequest(&agentv1.SetLinearConnectionRequest{
+		ClientId: "client-1", ClientSecret: fakeLinearClientSecret, WebhookListen: "0.0.0.0:8091",
+	}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "the first save needs the webhook secret")
 }

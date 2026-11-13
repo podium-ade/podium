@@ -847,7 +847,7 @@ is a Podium secret, encrypted under the master key:
 | A bot MCP server's token | `podium.agent.mcp.<name>_token` |
 | A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
 | A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
-| The GitHub App's key and secrets, and the Slack tokens | `podium.agent.connection.*` |
+| The GitHub App's key and secrets, the Slack tokens, and the Linear app's client secret, webhook signing secret and access token | `podium.agent.connection.*` |
 | A person's connected GitHub account: an access token that lives eight hours, and a refresh token that lives six months and works once | `github.token`, on that person's list |
 | The scoped GitHub tokens issued to a running turn | `podium.agent.git_user_token.<turn>` |
 

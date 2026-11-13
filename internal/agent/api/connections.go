@@ -18,7 +18,7 @@ import (
 func (s *AgentService) GetConnections(
 	ctx context.Context, _ *connect.Request[agentv1.GetConnectionsRequest],
 ) (*connect.Response[agentv1.GetConnectionsResponse], error) {
-	slack, gh, err := s.loadConnections(ctx)
+	slack, gh, lin, err := s.loadConnections(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (s *AgentService) GetConnections(
 	return connect.NewResponse(&agentv1.GetConnectionsResponse{
 		Slack:  slackView(s.env, s.runningConfig(), slack),
 		Github: githubView(s.runningConfig(), gh, filters),
-		Linear: &agentv1.LinearConnection{Configured: s.env.LinearEnabled()},
+		Linear: linearView(s.env, s.runningConfig(), lin),
 	}), nil
 }
 
@@ -52,11 +52,11 @@ func (s *AgentService) SetSlackConnection(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	next := connections.Overlay(s.runningConfig(), &row, nil)
+	next := connections.Overlay(s.runningConfig(), &row, nil, nil)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if err := s.checkConnections(ctx, next); err != nil {
+	if _, err := s.checkConnections(ctx, next); err != nil {
 		return nil, err
 	}
 	row.SetBy = Login(ctx)
@@ -85,8 +85,8 @@ func (s *AgentService) ClearSlackConnection(
 	// The environment's pair is what Slack falls back to, so it is tried like a paste.
 	next := connections.Overlay(s.runningConfig(), &connections.Slack{
 		AppToken: s.env.SlackAppToken, BotToken: s.env.SlackBotToken,
-	}, nil)
-	if err := s.checkConnections(ctx, next); err != nil {
+	}, nil, nil)
+	if _, err := s.checkConnections(ctx, next); err != nil {
 		return nil, err
 	}
 	if err := connections.ClearSlack(ctx, s.store, s.secrets); err != nil {
@@ -122,11 +122,11 @@ func (s *AgentService) SetGitHubConnection(
 	}
 	// Validate against the process's listen address and task URL. A saved App does not
 	// get to change how a task reaches this conductor.
-	next := connections.Overlay(s.runningConfig(), nil, &row)
+	next := connections.Overlay(s.runningConfig(), nil, &row, nil)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if err := s.checkConnections(ctx, next); err != nil {
+	if _, err := s.checkConnections(ctx, next); err != nil {
 		return nil, err
 	}
 	row.SetBy = Login(ctx)
@@ -167,6 +167,77 @@ func (s *AgentService) ClearGitHubConnection(
 	}
 	return connect.NewResponse(&agentv1.ClearGitHubConnectionResponse{
 		Github: githubView(s.runningConfig(), nil, filters),
+	}), nil
+}
+
+// SetLinearConnection validates the app the way start-up does, signs in to Linear with it,
+// stores it with who it signed in as, and records it as running. Nothing is started on it
+// yet: the webhook source comes next.
+func (s *AgentService) SetLinearConnection(
+	ctx context.Context, req *connect.Request[agentv1.SetLinearConnectionRequest],
+) (*connect.Response[agentv1.SetLinearConnectionResponse], error) {
+	if err := s.requireConnectionStore(); err != nil {
+		return nil, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	existing, err := connections.LoadLinear(ctx, s.store, s.secrets)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	row, err := connections.MergeLinear(existing, req.Msg.GetClientId(), req.Msg.GetClientSecret(),
+		req.Msg.GetWebhookSecret(), req.Msg.GetWebhookListen())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	next := connections.Overlay(s.runningConfig(), nil, nil, &row)
+	if err := next.ValidateConnectionFields(); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	checked, err := s.checkConnections(ctx, next)
+	if err != nil {
+		return nil, err
+	}
+	// The check runs when the app differs from the one running. When it did not run, the
+	// app is the running one and MergeLinear kept what was learned about it.
+	if app := checked.Linear; app != nil {
+		row.AppUserID = app.UserID
+		row.AppUserName = app.UserName
+		row.OrganizationID = app.OrganizationID
+		row.OrganizationName = app.OrganizationName
+		row.OrganizationURLKey = app.OrganizationURLKey
+	}
+	row.SetBy = Login(ctx)
+	row.SetAt = time.Now().UTC()
+	s.logger.InfoContext(ctx, "saving a linear connection", "login", row.SetBy,
+		"app_user_id", row.AppUserID, "organization", row.OrganizationURLKey,
+		"request", redactedLinearRequest{clientID: row.ClientID, listen: row.WebhookListen})
+	if err := connections.SaveLinear(ctx, s.store, s.secrets, row, existing); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.applyConnections(ctx)
+	return connect.NewResponse(&agentv1.SetLinearConnectionResponse{
+		Linear: linearView(s.env, s.runningConfig(), &row),
+	}), nil
+}
+
+// ClearLinearConnection drops the saved app and its access token.
+func (s *AgentService) ClearLinearConnection(
+	ctx context.Context, _ *connect.Request[agentv1.ClearLinearConnectionRequest],
+) (*connect.Response[agentv1.ClearLinearConnectionResponse], error) {
+	if err := s.requireConnectionStore(); err != nil {
+		return nil, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := connections.ClearLinear(ctx, s.store, s.secrets); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.logger.InfoContext(ctx, "cleared the saved linear connection", "login", Login(ctx))
+	s.applyConnections(ctx)
+	return connect.NewResponse(&agentv1.ClearLinearConnectionResponse{
+		Linear: linearView(s.env, s.runningConfig(), nil),
 	}), nil
 }
 
@@ -215,17 +286,18 @@ func (s *AgentService) SetGitHubWebhookFilters(
 	}), nil
 }
 
-// checkConnections refuses a Slack pair or GitHub App that Slack or GitHub does not accept,
-// before it is stored. Without it a bad token would be saved, applied and then fail to
-// connect, and the next start would fail the same way.
-func (s *AgentService) checkConnections(ctx context.Context, next config.Config) error {
+// checkConnections refuses a Slack pair, GitHub App or Linear app that Slack, GitHub or
+// Linear does not accept, before it is stored. Without it a bad token would be saved,
+// applied and then fail to connect, and the next start would fail the same way.
+func (s *AgentService) checkConnections(ctx context.Context, next config.Config) (Checked, error) {
 	if s.connections == nil {
-		return nil
+		return Checked{}, nil
 	}
-	if err := s.connections.Check(ctx, next); err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, err)
+	checked, err := s.connections.Check(ctx, next)
+	if err != nil {
+		return Checked{}, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return nil
+	return checked, nil
 }
 
 // applyConnections switches the running conductor to what was just saved. A failure is
@@ -249,15 +321,17 @@ func (s *AgentService) requireConnectionStore() error {
 	return nil
 }
 
-func (s *AgentService) loadConnections(ctx context.Context) (*connections.Slack, *connections.GitHub, error) {
+func (s *AgentService) loadConnections(
+	ctx context.Context,
+) (*connections.Slack, *connections.GitHub, *connections.Linear, error) {
 	if err := s.requireConnectionStore(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	slack, gh, err := connections.Load(ctx, s.store, s.secrets)
+	slack, gh, lin, err := connections.Load(ctx, s.store, s.secrets)
 	if err != nil {
-		return nil, nil, connect.NewError(connect.CodeInternal, err)
+		return nil, nil, nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return slack, gh, nil
+	return slack, gh, lin, nil
 }
 
 func slackView(env, running config.Config, saved *connections.Slack) *agentv1.SlackConnection {
@@ -312,6 +386,31 @@ func githubView(running config.Config, saved *connections.GitHub, filters connec
 	return out
 }
 
+func linearView(env, running config.Config, saved *connections.Linear) *agentv1.LinearConnection {
+	// The Linear app is not read from the environment. The environment's key is the
+	// poller's, and polling says whether it is set.
+	out := &agentv1.LinearConnection{Available: true, Polling: env.LinearEnabled()}
+	if saved != nil {
+		out.Source = connections.SourceSaved
+		out.ClientId = saved.ClientID
+		out.ClientSecretSet = saved.ClientSecret != ""
+		out.WebhookSecretSet = saved.WebhookSecret != ""
+		out.WebhookSecretHint = connections.Hint(saved.WebhookSecret)
+		out.WebhookListen = saved.WebhookListen
+		out.AppUserId = saved.AppUserID
+		out.AppUserName = saved.AppUserName
+		out.OrganizationName = saved.OrganizationName
+		out.OrganizationUrlKey = saved.OrganizationURLKey
+		out.SetBy = saved.SetBy
+		if !saved.SetAt.IsZero() {
+			out.SetAt = timestamppb.New(saved.SetAt)
+		}
+		out.Configured = saved.ClientID != "" && saved.ClientSecret != ""
+	}
+	out.RestartRequired = connections.LinearDiffers(config.Config{}, running, saved)
+	return out
+}
+
 func filtersView(f connections.GitHubFilters) *agentv1.GitHubWebhookFilters {
 	mode := f.ReplyMode
 	if mode == "" {
@@ -360,5 +459,21 @@ func (r redactedGitHubRequest) LogValue() slog.Value {
 		slog.String("webhook_secret", "[redacted]"),
 		slog.String("webhook_listen", r.listen),
 		slog.String("client_secret", "[redacted]"),
+	)
+}
+
+// redactedLinearRequest logs the client id and the listen address, which are not secrets,
+// and names the client secret and the webhook secret without their values.
+type redactedLinearRequest struct {
+	clientID string
+	listen   string
+}
+
+func (r redactedLinearRequest) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("client_id", r.clientID),
+		slog.String("client_secret", "[redacted]"),
+		slog.String("webhook_secret", "[redacted]"),
+		slog.String("webhook_listen", r.listen),
 	)
 }

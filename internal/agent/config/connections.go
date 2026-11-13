@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// ValidateConnectionFields checks the Slack pair and the GitHub App, and nothing else.
+// ValidateConnectionFields checks the Slack pair, the GitHub App and the Linear app, and
+// nothing else.
 // Settings → Connections saves through this so a value the conductor would refuse at
 // start is refused at the button instead. Profile directories, the server URL and the
 // rest of Validate stay out of it: those are the process, not the connection.
@@ -22,7 +23,10 @@ func (c Config) ValidateConnectionFields() error {
 	if err := c.validateGitHubApp(); err != nil {
 		return err
 	}
-	return c.validateGitHubSource()
+	if err := c.validateGitHubSource(); err != nil {
+		return err
+	}
+	return c.validateLinearApp()
 }
 
 // deprecatedGitHubEnv are the variables that used to configure the GitHub App. Settings →

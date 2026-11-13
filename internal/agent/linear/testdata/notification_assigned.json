@@ -1,0 +1,39 @@
+{
+  "type": "AppUserNotification",
+  "action": "issueAssignedToYou",
+  "createdAt": "2026-11-12T20:46:10.730Z",
+  "organizationId": "08ae6d87-5ac4-40ac-93d0-540733439b25",
+  "oauthClientId": "00000000000000000000000000000000",
+  "appUserId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+  "notification": {
+    "id": "b47f9824-32a3-4a8d-902e-303a245f9128",
+    "createdAt": "2026-11-12T20:46:10.652Z",
+    "updatedAt": "2026-11-12T20:46:10.652Z",
+    "archivedAt": null,
+    "type": "issueAssignedToYou",
+    "actorId": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+    "externalUserActorId": null,
+    "userId": "41609a0d-3393-47b0-b78c-c4fc06cafa1c",
+    "issueId": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+    "issue": {
+      "id": "52966e51-9ffc-456c-a1f3-59e477a288d8",
+      "title": "Test issue",
+      "teamId": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+      "team": {
+        "id": "336c8e32-1c03-45fd-aecd-c5ca28f2b4ee",
+        "key": "EME",
+        "name": "Acme"
+      },
+      "identifier": "EME-5",
+      "url": "https://linear.app/acme/issue/EME-5/test-issue"
+    },
+    "actor": {
+      "id": "2d06a7a7-5875-4692-9ad6-23434de31c3b",
+      "name": "Ada Lovelace",
+      "email": "ada@acme.com",
+      "url": "https://linear.app/acme/profiles/ada"
+    }
+  },
+  "webhookTimestamp": 1794516370750,
+  "webhookId": "b16038f6-14cd-4c06-b6ae-7aec35ea53db"
+}

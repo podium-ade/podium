@@ -15,12 +15,14 @@ import (
 	"github.com/podium-ade/podium/internal/agent/connections"
 	"github.com/podium-ade/podium/internal/agent/ghreview"
 	"github.com/podium-ade/podium/internal/agent/github"
+	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/netlisten"
 )
 
-// checkTimeout bounds the calls that try a pasted connection against Slack and GitHub.
+// checkTimeout bounds the calls that try a pasted connection against Slack, GitHub and
+// Linear.
 const checkTimeout = 15 * time.Second
 
 // liveConnections is the half of the conductor Settings → Connections changes: the Slack
@@ -135,50 +137,141 @@ func (l *liveConnections) startLocked(fatal chan<- error) {
 }
 
 // Check implements api.ConnectionApplier.
-func (l *liveConnections) Check(ctx context.Context, next config.Config) error {
+func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Checked, error) {
 	l.mu.Lock()
 	running := l.running
 	l.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 
+	var checked api.Checked
 	if next.SlackEnabled() && connections.SlackDiffers(next, running, nil) {
 		if err := agentslack.Check(ctx, next.SlackAppToken, next.SlackBotToken); err != nil {
-			return err
+			return api.Checked{}, err
 		}
 	}
 	if next.GitHubAppEnabled() && connections.GitHubDiffers(next, running, nil) {
 		pem, err := next.GitHubAppPrivateKey()
 		if err != nil {
-			return err
+			return api.Checked{}, err
 		}
 		app, err := github.New(github.Options{AppID: next.GitHubAppID, PrivateKeyPEM: pem})
 		if err != nil {
-			return err
+			return api.Checked{}, err
 		}
 		if _, err := app.Identity(ctx); err != nil {
-			return fmt.Errorf("github did not accept the app id and private key: %w", err)
+			return api.Checked{}, fmt.Errorf("github did not accept the app id and private key: %w", err)
 		}
 	}
 	// A new webhook address has to be one this host can listen on. The running one is
 	// already held by this process, which lets go of it when the source is swapped.
 	if next.GitHubSourceEnabled() && next.GitHubWebhookListen != running.GitHubWebhookListen {
-		ln, err := netlisten.Listen("tcp", next.GitHubWebhookListen)
-		if err != nil {
-			return fmt.Errorf("the webhook address cannot be listened on: %w", err)
+		if err := canListen(next.GitHubWebhookListen); err != nil {
+			return api.Checked{}, err
 		}
-		_ = ln.Close()
 	}
+	if next.LinearAppEnabled() && connections.LinearDiffers(next, running, nil) {
+		app, err := checkLinearApp(ctx, next)
+		if err != nil {
+			return api.Checked{}, err
+		}
+		checked.Linear = app
+	}
+	// The same for the Linear app's address, unless this process holds it already: the
+	// GitHub App's listener, which the Linear app may share.
+	heldByGitHub := running.GitHubSourceEnabled() && next.LinearWebhookListen == running.GitHubWebhookListen
+	if next.LinearAppEnabled() && next.LinearWebhookListen != running.LinearWebhookListen && !heldByGitHub {
+		if err := canListen(next.LinearWebhookListen); err != nil {
+			return api.Checked{}, err
+		}
+	}
+	return checked, nil
+}
+
+// canListen proves addr can be bound now, and lets go of it.
+func canListen(addr string) error {
+	ln, err := netlisten.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("the webhook address cannot be listened on: %w", err)
+	}
+	_ = ln.Close()
 	return nil
+}
+
+// checkLinearApp signs in with the app's client credentials and asks Linear who that is.
+// The token it mints is not kept: the credentials may yet be refused here, and the source
+// that will use them mints its own. The errors say what to change in Linear, because
+// that is where every one of them is fixed.
+func checkLinearApp(ctx context.Context, cfg config.Config) (*api.LinearApp, error) {
+	tokens, err := agentlinear.NewTokenSource(agentlinear.TokenSourceOptions{
+		TokenURL:     cfg.LinearTokenURL,
+		ClientID:     cfg.LinearClientID,
+		ClientSecret: cfg.LinearClientSecret,
+	})
+	if err != nil {
+		return nil, err
+	}
+	client, err := agentlinear.NewClient(agentlinear.ClientOptions{Endpoint: cfg.LinearURL, Tokens: tokens})
+	if err != nil {
+		return nil, err
+	}
+	id, err := client.AppIdentity(ctx)
+	var tokErr *agentlinear.TokenError
+	var gqlErr *agentlinear.GraphQLError
+	switch {
+	case errors.As(err, &tokErr):
+		return nil, fmt.Errorf("linear did not accept the client id and secret (%s). Check both on the "+
+			"application's page under Settings → API → OAuth applications, and that \"Client "+
+			"credentials\" is turned on there", linearReason(tokErr))
+	case errors.As(err, &gqlErr) && gqlErr.Unauthorized():
+		return nil, fmt.Errorf("linear issued a token for the client id and secret, then refused it: %s",
+			gqlErr.Message)
+	case err != nil:
+		return nil, fmt.Errorf("could not ask Linear who the app is: %w", err)
+	}
+	if !id.App {
+		return nil, fmt.Errorf("the client id and secret sign in to Linear as %q, which is a person, "+
+			"not an app. Use the client id and secret of an OAuth application, with \"Client "+
+			"credentials\" turned on", firstNonEmpty(id.Name, id.DisplayName, id.UserID))
+	}
+	// An app user's name is the application's name, and its display name is the handle
+	// an @mention uses. The name is what an operator recognises.
+	return &api.LinearApp{
+		UserID:             id.UserID,
+		UserName:           firstNonEmpty(id.Name, id.DisplayName),
+		OrganizationID:     id.OrganizationID,
+		OrganizationName:   id.OrganizationName,
+		OrganizationURLKey: id.OrganizationURLKey,
+	}, nil
+}
+
+// linearReason is Linear's own words for a refused grant, or its status when it gave none.
+func linearReason(e *agentlinear.TokenError) string {
+	switch {
+	case e.Description != "":
+		return e.Description
+	case e.Code != "":
+		return e.Code
+	}
+	return fmt.Sprintf("HTTP %d", e.Status)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Apply implements api.ConnectionApplier.
 func (l *liveConnections) Apply(ctx context.Context) error {
-	savedSlack, savedGitHub, err := connections.Load(ctx, l.store, l.vault)
+	savedSlack, savedGitHub, savedLinear, err := connections.Load(ctx, l.store, l.vault)
 	if err != nil {
 		return err
 	}
-	next := connections.Overlay(l.env, savedSlack, savedGitHub)
+	next := connections.Overlay(l.env, savedSlack, savedGitHub, savedLinear)
 	if err := next.Validate(); err != nil {
 		return err
 	}
@@ -187,45 +280,54 @@ func (l *liveConnections) Apply(ctx context.Context) error {
 	defer l.mu.Unlock()
 	slackChanged := connections.SlackDiffers(next, l.running, nil)
 	githubChanged := connections.GitHubDiffers(next, l.running, nil)
-	if !slackChanged && !githubChanged {
+	linearChanged := connections.LinearDiffers(next, l.running, nil)
+	if !slackChanged && !githubChanged && !linearChanged {
 		return nil
 	}
 	if l.ctx == nil || l.ctx.Err() != nil {
 		return errors.New("the conductor is not running")
 	}
-	slack, gh, app, err := l.build(next)
-	if err != nil {
-		return err
+	if slackChanged || githubChanged {
+		slack, gh, app, err := l.build(next)
+		if err != nil {
+			return err
+		}
+		if err := l.conductor.SetGitHub(app); err != nil {
+			return err
+		}
+		// Both sources are rebuilt whichever changed: each holds the other, Slack to hand a
+		// mention of a pull request to the review and the review to post into a bound thread.
+		l.stop()
+		l.slack, l.gh = slack, gh
+		// A nil pointer is passed as a nil interface, so ReplaceSource removes the kind
+		// rather than adding a source that is not there.
+		var slackSrc, ghSrc conductor.Source
+		if slack != nil {
+			slackSrc = slack
+		}
+		if gh != nil {
+			ghSrc = gh
+		}
+		l.conductor.ReplaceSource(agentslack.Kind, slackSrc)
+		l.conductor.ReplaceSource(ghreview.Kind, ghSrc)
+		l.startLocked(nil)
 	}
-	if err := l.conductor.SetGitHub(app); err != nil {
-		return err
-	}
-	// Both sources are rebuilt whichever changed: each holds the other, Slack to hand a
-	// mention of a pull request to the review and the review to post into a bound thread.
-	l.stop()
-	l.slack, l.gh = slack, gh
-	// A nil pointer is passed as a nil interface, so ReplaceSource removes the kind
-	// rather than adding a source that is not there.
-	var slackSrc, ghSrc conductor.Source
-	if slack != nil {
-		slackSrc = slack
-	}
-	if gh != nil {
-		ghSrc = gh
-	}
-	l.conductor.ReplaceSource(agentslack.Kind, slackSrc)
-	l.conductor.ReplaceSource(ghreview.Kind, ghSrc)
-	l.startLocked(nil)
+	// The Linear app has nothing to start yet: the webhook source that runs on it is the
+	// next step (docs/linear-agent-plan.md, phase 2). It is recorded as running all the
+	// same, so restart_required does not ask for a restart that would change nothing.
+	// Phase 2 builds the source here when linearChanged, stops the poller when an app is
+	// saved, and swaps it in with ReplaceSource the way Slack and GitHub are swapped above.
 	l.running = next
 
 	var dir api.SlackDirectory
-	if slack != nil {
-		dir = slack
+	if l.slack != nil {
+		dir = l.slack
 	}
 	l.svc.SetRunning(next, dir)
 	l.logger.InfoContext(ctx, "connections: switched to the saved connections",
-		"slack", slack != nil, "github_reviews", gh != nil, "github_app", app != nil,
-		"slack_changed", slackChanged, "github_changed", githubChanged)
+		"slack", l.slack != nil, "github_reviews", l.gh != nil, "github_app", next.GitHubAppEnabled(),
+		"linear_app", next.LinearAppEnabled(),
+		"slack_changed", slackChanged, "github_changed", githubChanged, "linear_changed", linearChanged)
 	return nil
 }
 

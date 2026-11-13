@@ -11,6 +11,8 @@ const clearSlackConnection = vi.fn();
 const setGitHubConnection = vi.fn();
 const clearGitHubConnection = vi.fn();
 const setGitHubWebhookFilters = vi.fn();
+const setLinearConnection = vi.fn();
+const clearLinearConnection = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -23,6 +25,8 @@ vi.mock("../../lib/client", async () => {
       setGitHubConnection: (...a: unknown[]) => setGitHubConnection(...a),
       clearGitHubConnection: (...a: unknown[]) => clearGitHubConnection(...a),
       setGitHubWebhookFilters: (...a: unknown[]) => setGitHubWebhookFilters(...a),
+      setLinearConnection: (...a: unknown[]) => setLinearConnection(...a),
+      clearLinearConnection: (...a: unknown[]) => clearLinearConnection(...a),
     },
   };
 });
@@ -39,7 +43,39 @@ const empty = {
     webhookSecretSet: false,
     restartRequired: false,
   },
-  linear: { available: false, configured: false },
+  linear: {
+    available: true,
+    configured: false,
+    source: "",
+    clientId: "",
+    clientSecretSet: false,
+    webhookSecretSet: false,
+    webhookSecretHint: "",
+    webhookListen: "",
+    appUserId: "",
+    appUserName: "",
+    organizationName: "",
+    organizationUrlKey: "",
+    setBy: "",
+    restartRequired: false,
+    polling: false,
+  },
+};
+
+const savedLinear = {
+  ...empty.linear,
+  configured: true,
+  source: "saved",
+  clientId: "client-1",
+  clientSecretSet: true,
+  webhookSecretSet: true,
+  webhookSecretHint: "8765",
+  webhookListen: "0.0.0.0:8091",
+  appUserId: "app-user-1",
+  appUserName: "Podium",
+  organizationName: "Acme",
+  organizationUrlKey: "acme",
+  setBy: "ada",
 };
 
 function mount() {
@@ -61,15 +97,17 @@ describe("ConnectionsPanel", () => {
     setGitHubConnection.mockReset();
     clearGitHubConnection.mockReset();
     setGitHubWebhookFilters.mockReset();
+    setLinearConnection.mockReset();
+    clearLinearConnection.mockReset();
     getConnections.mockResolvedValue(empty);
   });
 
-  it("shows GitHub and Slack forms and Linear as coming soon", async () => {
+  it("shows GitHub, Slack and Linear forms", async () => {
     mount();
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
     expect(screen.getByText("Slack")).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove saved Slack" })).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit GitHub" }));
@@ -108,11 +146,81 @@ describe("ConnectionsPanel", () => {
     expect(setSlackConnection).toHaveBeenCalledWith({ appToken: "", botToken: "xoxb-new" });
   });
 
-  it("says when Linear is still coming from the environment", async () => {
-    getConnections.mockResolvedValue({ ...empty, linear: { available: false, configured: true } });
+  it("says when Linear is still polling with the environment's key", async () => {
+    getConnections.mockResolvedValue({ ...empty, linear: { ...empty.linear, polling: true } });
     mount();
-    expect(await screen.findByText(/still using the Linear key/)).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(await screen.findByText(/Polling with the environment's API key/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/Polling is on/)).toBeInTheDocument();
+    expect(screen.getByText(/Saving here does not change that yet/)).toBeInTheDocument();
+  });
+
+  it("saves a Linear app with setup steps beside it", async () => {
+    setLinearConnection.mockResolvedValue({ linear: savedLinear });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/Settings → API → OAuth applications → New/)).toBeInTheDocument();
+    expect(screen.getByText(/Turn on Client credentials/)).toBeInTheDocument();
+    expect(screen.getByText(/Agent session events and Permission changes/)).toBeInTheDocument();
+    expect(screen.getByText(/Leave Inbox notifications off/)).toBeInTheDocument();
+    expect(screen.getByText("/webhooks/linear")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove saved Linear" })).toBeNull();
+
+    await userEvent.type(screen.getByLabelText("Client ID"), "client-1");
+    await userEvent.type(screen.getByLabelText("Client secret"), "lsec");
+    await userEvent.type(screen.getByLabelText("Webhook signing secret"), "lin_wh_x");
+    await userEvent.type(screen.getByLabelText("Webhook listen"), "0.0.0.0:8091");
+    await userEvent.click(screen.getByRole("button", { name: "Save Linear" }));
+    expect(setLinearConnection).toHaveBeenCalledWith({
+      clientId: "client-1",
+      clientSecret: "lsec",
+      webhookSecret: "lin_wh_x",
+      webhookListen: "0.0.0.0:8091",
+    });
+    expect(await screen.findByText("Linear saved. It signs in as Podium in Acme.")).toBeInTheDocument();
+  });
+
+  it("shows who a saved Linear app is and keeps its secrets on a save", async () => {
+    getConnections.mockResolvedValue({ ...empty, linear: savedLinear });
+    setLinearConnection.mockResolvedValue({ linear: savedLinear });
+    mount();
+    expect(await screen.findByText("Connected as Podium in Acme")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Linear" }));
+    expect(screen.getByText(/saved by ada/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove saved Linear" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Webhooks/ }));
+    // A saved secret is shown as saved, and none of it is shown.
+    expect(screen.queryByText(/ending in/)).toBeNull();
+    await userEvent.clear(screen.getByLabelText("Webhook listen"));
+    await userEvent.type(screen.getByLabelText("Webhook listen"), "0.0.0.0:9000");
+    await userEvent.click(screen.getByRole("button", { name: "Save Linear" }));
+    expect(setLinearConnection).toHaveBeenCalledWith({
+      clientId: "client-1",
+      clientSecret: "",
+      webhookSecret: "",
+      webhookListen: "0.0.0.0:9000",
+    });
+  });
+
+  it("asks for new secrets when the Linear client id changes", async () => {
+    getConnections.mockResolvedValue({ ...empty, linear: savedLinear });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Linear" }));
+    await userEvent.click(screen.getByRole("button", { name: /^OAuth application/ }));
+    await userEvent.clear(screen.getByLabelText("Client ID"));
+    await userEvent.type(screen.getByLabelText("Client ID"), "client-2");
+    expect(screen.getByText(/A new client ID is a new app. Paste its client secret/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Client secret")).toBeInTheDocument();
+  });
+
+  it("removes a saved Linear app", async () => {
+    getConnections.mockResolvedValue({ ...empty, linear: savedLinear });
+    clearLinearConnection.mockResolvedValue({ linear: empty.linear });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Linear" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove saved Linear" }));
+    expect(clearLinearConnection).toHaveBeenCalledWith({});
   });
 
   it("saves the triggers on their own", async () => {

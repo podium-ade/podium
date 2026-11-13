@@ -73,6 +73,12 @@ const (
 	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// ClearGitHubConnection RPC.
 	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
+	// AgentServiceSetLinearConnectionProcedure is the fully-qualified name of the AgentService's
+	// SetLinearConnection RPC.
+	AgentServiceSetLinearConnectionProcedure = "/podium.agent.v1.AgentService/SetLinearConnection"
+	// AgentServiceClearLinearConnectionProcedure is the fully-qualified name of the AgentService's
+	// ClearLinearConnection RPC.
+	AgentServiceClearLinearConnectionProcedure = "/podium.agent.v1.AgentService/ClearLinearConnection"
 	// AgentServiceGetGitHubAccountProcedure is the fully-qualified name of the AgentService's
 	// GetGitHubAccount RPC.
 	AgentServiceGetGitHubAccountProcedure = "/podium.agent.v1.AgentService/GetGitHubAccount"
@@ -332,6 +338,15 @@ type AgentServiceClient interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// SetLinearConnection stores the Linear agent app: its OAuth client id and secret, its
+	// webhook signing secret and the address its webhooks reach. The credentials are tried
+	// against Linear first, and refused unless they sign in as an app user. A blank secret
+	// keeps the saved one while the client id is the same. Nothing runs on the app yet, and
+	// PODIUM_AGENT_LINEAR_API_KEY keeps polling beside it.
+	SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error)
+	// ClearLinearConnection removes the saved app and its access token. Calling it twice is
+	// not an error.
+	ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error)
 	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
 	// connect one at all.
 	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
@@ -658,6 +673,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceClearGitHubConnectionProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		setLinearConnection: connect.NewClient[v1.SetLinearConnectionRequest, v1.SetLinearConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceSetLinearConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetLinearConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		clearLinearConnection: connect.NewClient[v1.ClearLinearConnectionRequest, v1.ClearLinearConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceClearLinearConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearLinearConnection")),
 			connect.WithClientOptions(opts...),
 		),
 		getGitHubAccount: connect.NewClient[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse](
@@ -1118,6 +1145,8 @@ type agentServiceClient struct {
 	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
 	setGitHubWebhookFilters    *connect.Client[v1.SetGitHubWebhookFiltersRequest, v1.SetGitHubWebhookFiltersResponse]
 	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
+	setLinearConnection        *connect.Client[v1.SetLinearConnectionRequest, v1.SetLinearConnectionResponse]
+	clearLinearConnection      *connect.Client[v1.ClearLinearConnectionRequest, v1.ClearLinearConnectionResponse]
 	getGitHubAccount           *connect.Client[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse]
 	startGitHubOAuth           *connect.Client[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse]
 	completeGitHubOAuth        *connect.Client[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse]
@@ -1266,6 +1295,16 @@ func (c *agentServiceClient) SetGitHubWebhookFilters(ctx context.Context, req *c
 // ClearGitHubConnection calls podium.agent.v1.AgentService.ClearGitHubConnection.
 func (c *agentServiceClient) ClearGitHubConnection(ctx context.Context, req *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return c.clearGitHubConnection.CallUnary(ctx, req)
+}
+
+// SetLinearConnection calls podium.agent.v1.AgentService.SetLinearConnection.
+func (c *agentServiceClient) SetLinearConnection(ctx context.Context, req *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error) {
+	return c.setLinearConnection.CallUnary(ctx, req)
+}
+
+// ClearLinearConnection calls podium.agent.v1.AgentService.ClearLinearConnection.
+func (c *agentServiceClient) ClearLinearConnection(ctx context.Context, req *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error) {
+	return c.clearLinearConnection.CallUnary(ctx, req)
 }
 
 // GetGitHubAccount calls podium.agent.v1.AgentService.GetGitHubAccount.
@@ -1682,6 +1721,15 @@ type AgentServiceHandler interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// SetLinearConnection stores the Linear agent app: its OAuth client id and secret, its
+	// webhook signing secret and the address its webhooks reach. The credentials are tried
+	// against Linear first, and refused unless they sign in as an app user. A blank secret
+	// keeps the saved one while the client id is the same. Nothing runs on the app yet, and
+	// PODIUM_AGENT_LINEAR_API_KEY keeps polling beside it.
+	SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error)
+	// ClearLinearConnection removes the saved app and its access token. Calling it twice is
+	// not an error.
+	ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error)
 	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
 	// connect one at all.
 	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
@@ -2004,6 +2052,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceClearGitHubConnectionProcedure,
 		svc.ClearGitHubConnection,
 		connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetLinearConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceSetLinearConnectionProcedure,
+		svc.SetLinearConnection,
+		connect.WithSchema(agentServiceMethods.ByName("SetLinearConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearLinearConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceClearLinearConnectionProcedure,
+		svc.ClearLinearConnection,
+		connect.WithSchema(agentServiceMethods.ByName("ClearLinearConnection")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetGitHubAccountHandler := connect.NewUnaryHandler(
@@ -2476,6 +2536,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetGitHubWebhookFiltersHandler.ServeHTTP(w, r)
 		case AgentServiceClearGitHubConnectionProcedure:
 			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceSetLinearConnectionProcedure:
+			agentServiceSetLinearConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceClearLinearConnectionProcedure:
+			agentServiceClearLinearConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceGetGitHubAccountProcedure:
 			agentServiceGetGitHubAccountHandler.ServeHTTP(w, r)
 		case AgentServiceStartGitHubOAuthProcedure:
@@ -2689,6 +2753,14 @@ func (UnimplementedAgentServiceHandler) SetGitHubWebhookFilters(context.Context,
 
 func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearGitHubConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetLinearConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearLinearConnection is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
