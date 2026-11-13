@@ -348,6 +348,10 @@ message Routine {
   repeated string teams = 31;
   // pending_events is how many Linear events wait for the routine's next run.
   int32 pending_events = 32;
+  // chat_mode is where a linear routine's runs happen: "routine" (every run in chat_id) or
+  // "subject" (a chat per ticket: each issue, project, cycle or label the events are about
+  // has a chat of its own). A routine on a schedule is always "routine".
+  string chat_mode = 33;
 }
 
 // RoutineRun is one firing of a routine.
@@ -386,6 +390,8 @@ message RoutineDraft {
   string trigger = 11;
   repeated string events = 12;
   repeated string teams = 13;
+  // chat_mode: see Routine. Empty is "routine"; "subject" is refused on a schedule.
+  string chat_mode = 14;
 }
 
 message ListRoutinesRequest {}
@@ -396,7 +402,12 @@ message GetRoutineRequest {
   string id = 1;
   string chat_id = 2;
 }
-message GetRoutineResponse { Routine routine = 1; }
+message GetRoutineResponse {
+  Routine routine = 1;
+  // subject_title is, when chat_id is one ticket's chat of a routine with a chat per ticket,
+  // what that chat is about ("ENG-12 Fix login"). It is empty for the routine's own chat.
+  string subject_title = 2;
+}
 
 message CreateRoutineRequest {
   RoutineDraft draft = 1;

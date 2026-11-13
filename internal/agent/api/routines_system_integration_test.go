@@ -280,3 +280,58 @@ func TestARoutineOnLinearEventsIsAnAdminsToSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), got.Msg.GetRoutine().GetPendingEvents())
 }
+
+// A routine on Linear events may run in a chat per ticket. A ticket's chat is the routine's in
+// every way a person meets it: its card names the ticket, and it is never shared.
+func TestARoutineMayRunInAChatPerTicket(t *testing.T) {
+	ctx := context.Background()
+	f := newSharingFixture(t)
+
+	sched := &agentv1.RoutineDraft{Name: "Digest", Schedule: "0 9 * * *", Instruction: "Summarise.", ChatMode: "subject"}
+	_, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: sched}))
+	assert.Equal(t, "invalid_argument", codeOf(err), "a routine on a schedule always runs in its own chat")
+
+	d := triageDraft()
+	d.ChatMode = store.RoutineChatModeSubject
+	created, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: d}))
+	require.NoError(t, err)
+	r := created.Msg.GetRoutine()
+	assert.Equal(t, store.RoutineChatModeSubject, r.GetChatMode())
+	plain, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: triageDraft()}))
+	require.NoError(t, err)
+	assert.Equal(t, store.RoutineChatModeRoutine, plain.Msg.GetRoutine().GetChatMode(), "its own chat unless asked")
+
+	routine, err := f.store.GetRoutine(ctx, r.GetId())
+	require.NoError(t, err)
+	chatID, _, err := f.store.EnsureRoutineSubjectChat(ctx, routine, "Issue:iss-12", "ENG-12 Fix login")
+	require.NoError(t, err)
+
+	got, err := f.clientAs("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{ChatId: chatID}))
+	require.NoError(t, err)
+	assert.Equal(t, r.GetId(), got.Msg.GetRoutine().GetId())
+	assert.Equal(t, r.GetChatId(), got.Msg.GetRoutine().GetChatId(), "the card links the routine's own chat")
+	assert.Equal(t, "ENG-12 Fix login", got.Msg.GetSubjectTitle())
+	own, err := f.clientAs("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{ChatId: r.GetChatId()}))
+	require.NoError(t, err)
+	assert.Empty(t, own.Msg.GetSubjectTitle())
+
+	_, err = f.clientAs("alice").ShareChat(ctx, connect.NewRequest(&agentv1.ShareChatRequest{
+		ChatId: chatID, Login: "bob", Role: store.RoleViewer,
+	}))
+	assert.Equal(t, "failed_precondition", codeOf(err))
+	_, err = f.clientAs("alice").UpdateChatSharing(ctx, connect.NewRequest(&agentv1.UpdateChatSharingRequest{
+		ChatId: chatID, GeneralAccess: store.AccessMembers, GeneralRole: store.RoleViewer,
+	}))
+	assert.Equal(t, "failed_precondition", codeOf(err))
+
+	// Switched back, its later runs are in its own chat; the ticket's chat stays where it is.
+	back := triageDraft()
+	updated, err := f.adminClient("alice").UpdateRoutine(ctx, connect.NewRequest(&agentv1.UpdateRoutineRequest{
+		Id: r.GetId(), Draft: back,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, store.RoutineChatModeRoutine, updated.Msg.GetRoutine().GetChatMode())
+	still, err := f.clientAs("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{ChatId: chatID}))
+	require.NoError(t, err)
+	assert.Equal(t, r.GetId(), still.Msg.GetRoutine().GetId())
+}
