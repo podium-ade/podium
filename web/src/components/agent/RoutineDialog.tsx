@@ -1,44 +1,48 @@
-import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Repeat, ShieldCheck, User, Webhook, Wrench, type LucideIcon } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import {
   browserZone,
   CI_FIXER,
-  draftOf,
-  isSystem,
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
   LINEAR_TYPES,
-  routinesKey,
-  runsText,
   teamKeys,
   type Scope,
   type Trigger,
 } from "../../lib/routines";
-import { useViewer } from "../../lib/identity";
-import { canManageInfra } from "../../lib/rbac";
-import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { agent, errorMessage } from "../../lib/client";
 import { cn } from "../../lib/utils";
 import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
 import { useBrand } from "../../lib/brand";
-import { Empty } from "../Empty";
-import { PageFrame } from "../PageHeader";
-import { TableSkeleton } from "../Skeleton";
-import { useToast } from "../Toast";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { ConductorDown } from "./ConductorDown";
-import { SystemBadge } from "./RoutineCard";
 import { ScheduleField } from "./ScheduleField";
 import { TimezonePicker } from "./TimezonePicker";
 
-const LIST = "/agent/routines";
+/** SystemBadge marks a routine that runs as nobody, wherever one is listed, so it is never taken for somebody's own. */
+export function SystemBadge({ className }: { className?: string }) {
+  return (
+    <span
+      data-testid="routine-system-badge"
+      title="A system routine: admins set it up, and it runs as Podium"
+      className={cn(
+        "inline-flex w-fit items-center gap-1 rounded-sm border border-line-strong bg-raised px-1.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] text-muted",
+        className,
+      )}
+    >
+      <ShieldCheck className="size-3" aria-hidden />
+      System
+    </span>
+  );
+}
 
 /** DEFAULT_ASSISTANT stands for "no personal assistant" in the picker, which cannot hold "". */
 const DEFAULT_ASSISTANT = "podium";
@@ -180,7 +184,7 @@ function Section({
     <section
       id={id}
       aria-labelledby={`${id}-title`}
-      className={cn("scroll-mt-4 py-7", first ? "" : "border-t border-hairline")}
+      className={cn("py-7", first ? "pt-6" : "border-t border-hairline")}
     >
       <div className="grid gap-1 pb-5">
         <h2 id={`${id}-title`} className="m-0 text-base font-bold text-fg">
@@ -194,14 +198,16 @@ function Section({
 }
 
 /**
- * RoutineEditor is the one editor, for a new routine and for an existing one: a page of sections
- * with a menu beside them, as a sandbox provider's settings are. The server checks the schedule
+ * RoutineDialog is the one editor, for a new routine and for an existing one: a dialog of
+ * sections with a menu beside them, as a sandbox provider's settings are. The server checks the schedule
  * — its cron, its timezone and the floor — and its refusal is shown as it says it.
  *
  * An admin making a routine chooses who it runs as: themselves, or Podium (a system routine).
  * The choice is made once; editing shows it and does not offer it again.
  */
-export function RoutineEditor({
+export function RoutineDialog({
+  open,
+  title,
   initial,
   lockAssistant,
   scope: fixedScope,
@@ -210,6 +216,8 @@ export function RoutineEditor({
   onClose,
   onSave,
 }: {
+  open: boolean;
+  title: string;
   initial: Partial<RoutineDraft>;
   lockAssistant?: boolean;
   /** scope is the routine's, for one that exists. */
@@ -251,7 +259,7 @@ export function RoutineEditor({
     queryKey: ["agent", "personalities"],
     queryFn: () => agent.listPersonalities({}),
     staleTime: 30_000,
-    enabled: !lockAssistant && !system,
+    enabled: open && !lockAssistant && !system,
   });
   const assistants = voices.data?.personalities ?? [];
   const capValue = cap.trim() === "" ? 0 : Number(cap);
@@ -318,32 +326,54 @@ export function RoutineEditor({
   ];
   const keys = sections.map((s) => s.key).join(" ");
 
-  // The menu follows the reader: the lit section is the first one in view. Whatever scrolls the
-  // page, the observer watches the viewport, so the editor does not need to know.
+  // The menu follows the reader: the lit section is the first one in view in the form pane.
+  // The pane mounts a render after this component, once the dialog's portal is in the page, so
+  // the observer waits on the element itself.
+  const [pane, setPane] = useState<HTMLDivElement | null>(null);
   const [active, setActive] = useState<SectionKey>("instruction");
+  // While a click on the menu scrolls the form, the menu keeps the section clicked.
+  const jumping = useRef(false);
   useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
+    if (!pane || typeof IntersectionObserver === "undefined") return;
     const seen = new Set<string>();
     const io = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) seen.add(e.target.id);
-          else seen.delete(e.target.id);
+        for (const en of entries) {
+          if (en.isIntersecting) seen.add(en.target.id);
+          else seen.delete(en.target.id);
         }
+        if (jumping.current) return;
         const first = keys.split(" ").find((k) => seen.has(`${ids.form}-${k}`));
         if (first) setActive(first as SectionKey);
       },
-      { rootMargin: "-15% 0px -55% 0px" },
+      { root: pane, rootMargin: "0px 0px -55% 0px" },
     );
     for (const k of keys.split(" ")) {
       const el = document.getElementById(`${ids.form}-${k}`);
       if (el) io.observe(el);
     }
-    return () => io.disconnect();
-  }, [keys, ids.form]);
+    let still: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      if (!jumping.current) return;
+      clearTimeout(still);
+      still = setTimeout(() => (jumping.current = false), 150);
+    };
+    pane.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      io.disconnect();
+      pane.removeEventListener("scroll", onScroll);
+      clearTimeout(still);
+    };
+  }, [pane, keys, ids.form]);
   const jump = (key: SectionKey) => {
     setActive(key);
-    document.getElementById(sid(key))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Scroll the form pane only: scrollIntoView would also move the dialog around it.
+    const el = document.getElementById(sid(key));
+    if (!el || !pane) return;
+    const top = Math.min(el.offsetTop, pane.scrollHeight - pane.clientHeight);
+    if (Math.abs(pane.scrollTop - top) < 1) return;
+    jumping.current = true;
+    pane.scrollTo?.({ top, behavior: "smooth" });
   };
 
   // Why Save is off, beside it: a disabled button explains nothing on its own.
@@ -373,40 +403,61 @@ export function RoutineEditor({
   );
 
   return (
-    <form
-      className="grid gap-4"
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!blocker) void save();
-      }}
-    >
-      <div className="grid rounded-lg border border-border bg-panel md:grid-cols-[11rem_minmax(0,1fr)]">
-        <nav aria-label="Routine sections" className="hidden rounded-l-lg border-r border-hairline bg-bg/60 p-3 md:block">
-          <ul className="sticky top-3 m-0 grid list-none gap-0.5 p-0">
-            {sections.map((s) => (
-              <li key={s.key}>
-                <button
-                  type="button"
-                  onClick={() => jump(s.key)}
-                  aria-current={active === s.key ? "true" : undefined}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                    "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                    active === s.key ? "bg-raised font-bold text-fg" : "text-soft hover:bg-raised hover:text-fg",
-                  )}
-                >
-                  {s.title}
-                  {troubled.has(s.key) ? (
-                    <span className="size-1.5 shrink-0 rounded-full bg-warn" aria-label="needs a value" />
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="flex h-[min(780px,calc(100dvh-2rem))] max-w-[920px] flex-col gap-0 overflow-hidden p-0"
+        // The name, not the menu: the first thing in the dialog is the menu, and nobody opens a
+        // routine to press "Instruction".
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          document.getElementById(`${ids.form}-name`)?.focus();
+        }}
+      >
+        <DialogHeader className="border-b border-hairline px-6 pt-6 pb-5">
+          <DialogTitle className="flex items-center gap-2 text-xl leading-tight font-bold tracking-normal">
+            {title}
+            {fixedScope === "system" ? <SystemBadge /> : null}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-soft">
+            {fixedScope === "system"
+              ? "Runs as Podium with the company’s credentials. Nobody writes in its chat: what it does is steered from here."
+              : "A job an assistant does in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!blocker) void save();
+          }}
+        >
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)]">
+            <nav aria-label="Routine sections" className="hidden border-r border-hairline bg-bg/60 p-3 sm:block">
+              <ul className="m-0 grid list-none gap-0.5 p-0">
+                {sections.map((s) => (
+                  <li key={s.key}>
+                    <button
+                      type="button"
+                      onClick={() => jump(s.key)}
+                      aria-current={active === s.key ? "true" : undefined}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                        "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                        active === s.key ? "bg-raised font-bold text-fg" : "text-soft hover:bg-raised hover:text-fg",
+                      )}
+                    >
+                      {s.title}
+                      {troubled.has(s.key) ? (
+                        <span className="size-1.5 shrink-0 rounded-full bg-warn" aria-label="needs a value" />
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
 
-        <div className="min-w-0 px-6">
+            <div ref={setPane} className="relative min-h-0 overflow-y-auto overscroll-contain px-6 pb-6">
           <Section
             id={sid("instruction")}
             first
@@ -433,6 +484,7 @@ export function RoutineEditor({
             <label className="grid gap-1.5 text-sm font-medium">
               Name
               <Input
+                id={`${ids.form}-name`}
                 data-testid="routine-name"
                 value={name}
                 maxLength={80}
@@ -600,138 +652,26 @@ export function RoutineEditor({
             </div>
             {linear ? timezoneField("The day the spend cap counts ends at midnight here.") : null}
           </Section>
-        </div>
-      </div>
+            </div>
+          </div>
 
-      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel px-4 py-3 shadow-md">
-        <Button type="submit" size="sm" data-testid="routine-save" disabled={saving || blocker !== ""}>
-          {saving ? "Saving…" : system && !fixedScope ? "Save system routine" : "Save routine"}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-        {error ? (
-          <p role="alert" data-testid="routine-error" className="min-w-0 flex-1 text-sm text-err">
-            {error}
-          </p>
-        ) : blocker ? (
-          <p className="text-xs text-muted">{blocker}</p>
-        ) : null}
-      </div>
-    </form>
-  );
-}
-
-/**
- * RoutinePage is the editor as a page of its own: a new routine at /agent/routines/new, and an
- * existing one at /agent/routines/<id>. Saving or cancelling goes back to where the person came
- * from — the list, or the routine's chat.
- */
-export function RoutinePage() {
-  const { id } = useParams();
-  const creating = id === undefined;
-  const admin = canManageInfra(useViewer());
-  const qc = useQueryClient();
-  const toast = useToast();
-  const navigate = useNavigate();
-  const one = useQuery({
-    queryKey: ["agent", "routine", "id", id],
-    queryFn: async () => (await agent.getRoutine({ id: id ?? "" })).routine ?? null,
-    enabled: !creating,
-  });
-  const r = one.data ?? undefined;
-
-  const refresh = async () => {
-    await qc.invalidateQueries({ queryKey: routinesKey });
-    void qc.invalidateQueries({ queryKey: ["agent", "routine"] });
-    void qc.invalidateQueries({ queryKey: ["agent", "routine-revisions"] });
-    void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-  };
-  // Back to where the person was: a routine is edited from the list and from its chat.
-  const back = () => {
-    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-    if (idx > 0) void navigate(-1);
-    else void navigate(LIST);
-  };
-
-  const frame = {
-    title: creating ? "New routine" : (r?.name ?? "Routine"),
-    back: { to: LIST, label: "Routines" },
-    meta: r && isSystem(r) ? <SystemBadge /> : undefined,
-  };
-
-  if (creating) {
-    return (
-      <PageFrame {...frame}>
-        <RoutineEditor
-          initial={{}}
-          canChooseScope={admin}
-          canChooseTrigger={admin}
-          onClose={back}
-          onSave={async (draft, scope) => {
-            const res = await agent.createRoutine({ draft, scope });
-            await refresh();
-            const made = res.routine;
-            toast(`${made?.name ?? "Routine"} ${made ? runsText(made).replace(/^Runs/, "runs") : "runs"}.`, "ok");
-            void navigate(LIST);
-          }}
-        />
-      </PageFrame>
-    );
-  }
-  if (one.isError) {
-    return (
-      <PageFrame {...frame}>
-        {isAgentUnreachable(one.error) ? (
-          <ConductorDown
-            what="The routine could not be read"
-            onRetry={() => void one.refetch()}
-            retrying={one.isFetching}
-          />
-        ) : (
-          <Empty title="Could not read the routine" hint={errorMessage(one.error)} />
-        )}
-      </PageFrame>
-    );
-  }
-  if (one.isPending) {
-    return (
-      <PageFrame {...frame}>
-        <TableSkeleton rows={6} cols={2} />
-      </PageFrame>
-    );
-  }
-  if (!r) {
-    return (
-      <PageFrame {...frame}>
-        <Empty
-          title="No such routine"
-          hint="It may have been deleted."
-          action={
-            <Button asChild size="sm" variant="outline">
-              <Link to={LIST}>Back to routines</Link>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-hairline px-6 py-3">
+            {error ? (
+              <p role="alert" data-testid="routine-error" className="mr-auto min-w-0 flex-1 text-sm text-err">
+                {error}
+              </p>
+            ) : blocker ? (
+              <p className="mr-auto text-xs text-muted">{blocker}</p>
+            ) : null}
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
             </Button>
-          }
-        />
-      </PageFrame>
-    );
-  }
-  return (
-    <PageFrame {...frame}>
-      <RoutineEditor
-        key={r.id}
-        initial={draftOf(r)}
-        lockAssistant
-        scope={isSystem(r) ? "system" : "personal"}
-        canChooseTrigger={admin}
-        onClose={back}
-        onSave={async (draft) => {
-          await agent.updateRoutine({ id: r.id, draft });
-          await refresh();
-          toast("Routine saved.", "ok");
-          back();
-        }}
-      />
-    </PageFrame>
+            <Button type="submit" data-testid="routine-save" disabled={saving || blocker !== ""}>
+              {saving ? "Saving…" : system && !fixedScope ? "Save system routine" : "Save routine"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

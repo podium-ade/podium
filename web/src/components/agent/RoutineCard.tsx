@@ -6,12 +6,10 @@ import {
   Pencil,
   Play,
   Repeat,
-  ShieldCheck,
   Square,
   Trash2,
   Zap,
 } from "lucide-react";
-import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type Routine,
@@ -20,7 +18,7 @@ import {
   isLinear,
   isSystem,
   money,
-  routineEditPath,
+  draftOf,
   routineKey,
   routinesKey,
   routineStatus,
@@ -45,6 +43,9 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useBrand } from "../../lib/brand";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
+import { RoutineDialog, SystemBadge } from "./RoutineDialog";
 
 /**
  * RoutineCard sits at the top of a routine's chat: when it runs, how it has been doing, and the
@@ -62,7 +63,8 @@ export function RoutineCard({ chatId }: { chatId: string }) {
     // The next run and whether one is going move on their own.
     refetchInterval: 20_000,
   });
-  const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const admin = canManageInfra(useViewer());
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -251,7 +253,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
               size="icon-xs"
               variant="ghost"
               aria-label="Edit routine"
-              onClick={() => void navigate(routineEditPath(r.id))}
+              onClick={() => setEditing(true)}
             >
               <Pencil aria-hidden />
             </Button>
@@ -362,6 +364,25 @@ export function RoutineCard({ chatId }: { chatId: string }) {
             </div>
           </div>
         </CollapsibleContent>
+
+        {editing ? (
+          <RoutineDialog
+            open
+            title="Edit routine"
+            initial={draftOf(r)}
+            lockAssistant
+            scope={system ? "system" : "personal"}
+            canChooseTrigger={admin}
+            onClose={() => setEditing(false)}
+            onSave={async (draft) => {
+              const res = await agent.updateRoutine({ id: r.id, draft });
+              refresh(res.routine);
+              void qc.invalidateQueries({ queryKey: ["agent", "routine-revisions", r.id] });
+              setEditing(false);
+              toast("Routine saved.", "ok");
+            }}
+          />
+        ) : null}
 
         <Dialog
           open={confirmDelete}
@@ -523,22 +544,5 @@ function RevisionList({ revisions, loading }: { revisions?: Revision[]; loading:
         </ol>
       )}
     </div>
-  );
-}
-
-/** SystemBadge marks a routine that runs as nobody, wherever one is listed, so it is never taken for somebody's own. */
-export function SystemBadge({ className }: { className?: string }) {
-  return (
-    <span
-      data-testid="routine-system-badge"
-      title="A system routine: admins set it up, and it runs as Podium"
-      className={cn(
-        "inline-flex w-fit items-center gap-1 rounded-sm border border-line-strong bg-raised px-1.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] text-muted",
-        className,
-      )}
-    >
-      <ShieldCheck className="size-3" aria-hidden />
-      System
-    </span>
   );
 }
