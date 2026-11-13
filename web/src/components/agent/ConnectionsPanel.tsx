@@ -963,7 +963,7 @@ function LinearDialog({
               label="Webhook signing secret"
               set={lin?.webhookSecretSet === true && !newApp}
               replacing={replaceWebhook}
-              status={`Saved, ending in ${lin?.webhookSecretHint || "••••"}`}
+              status="Saved"
               onReplace={() => setReplaceWebhook(true)}
               onKeep={() => {
                 setWebhookSecret("");
