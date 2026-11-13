@@ -73,6 +73,15 @@ type BriefRoutine struct {
 	// System is a system routine: nobody owns it, and it reads GitHub as the App, in any
 	// repository the App is installed on. Which ones it works on, its instruction says.
 	System bool `json:"system,omitempty"`
+	// Linear is a routine that runs on Linear events instead of a schedule. Schedule then says
+	// which events, in words ("On Linear: issue created (ENG)").
+	Linear bool `json:"linear,omitempty"`
+	// ByHand is a run of a Linear routine somebody started from its card: it was given no
+	// events.
+	ByHand bool `json:"by_hand,omitempty"`
+	// Events are the Linear events this run was given, oldest first. Everything in them was
+	// written by people in Linear; the runtime marks them as data, not instructions.
+	Events []BriefRoutineEvent `json:"events,omitempty"`
 }
 
 // Outcomes routine_finish takes.
@@ -201,6 +210,9 @@ func (c *Conductor) releaseRoutine(ctx context.Context, src Source, ref, answer 
 	}
 	idle = c.routineIdle(ref)
 	divider := "Routine run · " + time.Now().UTC().Format("Mon 2 Jan 15:04 MST")
+	if what := c.routineRunEvents(ctx, ref); what != "" {
+		divider += " · " + what
+	}
 	if idle {
 		divider += " · nothing to do"
 		h.ReleaseRun(ctx, ref, true, divider, answer)
@@ -208,6 +220,30 @@ func (c *Conductor) releaseRoutine(ctx context.Context, src Source, ref, answer 
 	}
 	h.ReleaseRun(ctx, ref, false, divider, "")
 	return false
+}
+
+// routineRunEvents is what started the run answering ref, when Linear events did: "Linear:
+// ENG-12 created". It is "" for any other run.
+func (c *Conductor) routineRunEvents(ctx context.Context, ref string) string {
+	if c.store == nil {
+		return ""
+	}
+	runID := ""
+	c.mu.Lock()
+	for _, rt := range c.routineTurns {
+		if rt.chatID == ref {
+			runID = rt.ref.RunID
+		}
+	}
+	c.mu.Unlock()
+	if runID == "" {
+		return ""
+	}
+	events, err := c.store.RoutineEventsForRun(ctx, runID)
+	if err != nil {
+		return ""
+	}
+	return eventDivider(events)
 }
 
 // briefRoutine is the routine block for a turn in a routine's chat, or nil for any other turn.
@@ -238,6 +274,19 @@ func (c *Conductor) briefRoutine(ctx context.Context, src Source, ev InboundEven
 	}
 	if r.LastRunAt != nil && r.InstructionUpdatedAt.After(*r.LastRunAt) {
 		b.InstructionChangedAt = BriefTimestamp(r.InstructionUpdatedAt)
+	}
+	if r.OnLinear() {
+		b.Linear = true
+		b.Schedule = store.DescribeLinearTrigger(r.Events, r.Teams)
+		if ev.Routine != nil && ev.Routine.RunID != "" {
+			// The events are read by the run's id, here, so they reach the turn on whichever
+			// conductor runs it.
+			if run, err := c.store.GetRoutineRun(ctx, ev.Routine.RunID); err == nil && run.Trigger != store.RoutineTriggerEvent {
+				b.ByHand = true
+			} else {
+				b.Events = c.briefRoutineEvents(ctx, ev.Routine.RunID)
+			}
+		}
 	}
 	return b
 }

@@ -313,6 +313,33 @@ describe("decodeBrief", () => {
     expect(brief.delegation?.playbooks).toEqual([]);
   });
 
+  it("reads a run on Linear events with the events it was given", () => {
+    const routine = {
+      id: "rtn_1",
+      name: "Triage",
+      schedule: "On Linear: issue created",
+      scheduled: true,
+      state: {},
+      linear: true,
+      events: [
+        {
+          event: "Issue.create",
+          label: "issue created",
+          at: "2026-01-02T03:04:05Z",
+          actor: "Robin",
+          url: "https://linear.example/acme/issue/ENG-12",
+          data: { identifier: "ENG-12" },
+        },
+      ],
+    };
+    const brief = decodeBrief(encode({ ...minimal, routine }));
+    expect(brief.routine?.linear).toBe(true);
+    expect(brief.routine?.events?.[0]?.event).toBe("Issue.create");
+    expect(() =>
+      decodeBrief(encode({ ...minimal, routine: { ...routine, events: [{ ...routine.events[0], secret: "x" }] } })),
+    ).toThrow(BriefError);
+  });
+
   it("accepts an empty menu on a turn that may create a routine, which has a token for create_routine", () => {
     const brief = decodeBrief(
       encode({ ...minimal, delegation: { url: "http://h", token_env: "T", playbooks: [], routines: true } }),

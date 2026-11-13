@@ -1,15 +1,18 @@
 -- Routines (0043). A personal routine is its owner's alone: every read and write a person
 -- makes is filtered by owner_login, so knowing an id is not access to somebody else's.
+--
+-- A routine that runs on Linear events (0046) is handed each data change it asks for as a row
+-- of routine_events, and the tick runs it with the rows still waiting.
 
 -- name: InsertRoutine :one
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
   notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
-  repos, daily_cap_usd, created_by
+  repos, daily_cap_usd, created_by, trigger_kind, events, teams
 ) values (
   @id, @scope, sqlc.narg('owner_login'), @name, @schedule, @timezone, @instruction, @created_at,
   @notes, sqlc.narg('personality_id'), @model, @effort, true, @chat_id, @next_run_at, @created_at, @created_at,
-  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by
+  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[]
 )
 returning *;
 
@@ -54,6 +57,9 @@ set name = @name,
     effort = @effort,
     repos = @repos::text[],
     daily_cap_usd = sqlc.narg('daily_cap_usd'),
+    trigger_kind = @trigger_kind,
+    events = @events::text[],
+    teams = @teams::text[],
     next_run_at = @next_run_at,
     updated_at = @updated_at
 where id = @id
@@ -90,10 +96,11 @@ returning *;
 update routines set proposed_note = @proposed_note where id = @id;
 
 -- DueRoutines is every enabled routine whose time has come. FOR UPDATE SKIP LOCKED keeps two
--- ticks from taking the same row, though only the leading conductor ticks.
+-- ticks from taking the same row, though only the leading conductor ticks. A routine that runs
+-- on Linear events has no schedule, so it is never due.
 -- name: DueRoutines :many
 select * from routines
-where enabled and next_run_at <= @now
+where enabled and trigger_kind = 'schedule' and next_run_at <= @now
 order by next_run_at
 limit @page_limit::int
 for update skip locked;
@@ -214,3 +221,73 @@ where o.owner_login = @owner_login and t.started_at >= @since;
 -- RunningRoutineRunOf is a routine's run still going, if any.
 -- name: RunningRoutineRunOf :one
 select * from routine_runs where routine_id = @routine_id and status = 'running' order by created_at desc limit 1;
+
+-- InsertRoutineEvents stores one Linear delivery for every enabled routine that asks for its
+-- event, in its team when the routine names teams. It is one statement, so the webhook that
+-- calls it does one round trip whatever the number of routines. A delivery stored before is
+-- not stored again.
+-- name: InsertRoutineEvents :execrows
+insert into routine_events (routine_id, delivery_id, event, payload, received_at)
+select r.id, @delivery_id::text, @event::text, @payload::jsonb, @received_at
+  from routines r
+ where r.enabled and r.trigger_kind = 'linear' and @event::text = any(r.events)
+   and (cardinality(r.teams) = 0 or @team_key::text = any(r.teams))
+on conflict (routine_id, delivery_id) do nothing;
+
+-- RoutinesWithPendingEvents is every enabled linear routine with an event waiting.
+-- name: RoutinesWithPendingEvents :many
+select r.* from routines r
+where r.enabled and r.trigger_kind = 'linear'
+  and exists (select 1 from routine_events e where e.routine_id = r.id and e.run_id is null)
+order by r.id
+limit @page_limit::int;
+
+-- CapPendingRoutineEvents drops a routine's waiting events beyond the newest @keep.
+-- name: CapPendingRoutineEvents :execrows
+delete from routine_events d
+where d.routine_id = @routine_id::text and d.run_id is null
+  and d.id not in (
+    select k.id from routine_events k
+    where k.routine_id = @routine_id::text and k.run_id is null
+    order by k.received_at desc, k.id desc
+    limit @keep::int
+  );
+
+-- AttachRoutineEvents gives a run the oldest of its routine's waiting events, at most @max.
+-- name: AttachRoutineEvents :execrows
+update routine_events set run_id = @run_id::text
+where id in (
+  select p.id from routine_events p
+  where p.routine_id = @routine_id::text and p.run_id is null
+  order by p.received_at, p.id
+  limit @max::int
+  for update skip locked
+);
+
+-- ReleaseRoutineEvents puts a run's events back to waiting: the run never started.
+-- name: ReleaseRoutineEvents :execrows
+update routine_events set run_id = null where run_id = @run_id;
+
+-- name: RoutineEventsForRun :many
+select * from routine_events where run_id = @run_id order by received_at, id;
+
+-- PruneRoutineEvents deletes the events nobody will run: waiting since before
+-- @pending_before, and given to a run since before @kept_before.
+-- name: PruneRoutineEvents :execrows
+delete from routine_events
+where received_at < @pending_before and (run_id is null or received_at < @kept_before);
+
+-- PendingRoutineEventCounts is how many events wait for each named routine.
+-- name: PendingRoutineEventCounts :many
+select routine_id, count(*)::int as pending from routine_events
+where routine_id = any(@routine_ids::text[]) and run_id is null
+group by routine_id;
+
+-- CountRoutineRunsSince counts a routine's runs of one trigger in a window, for the flood guard.
+-- name: CountRoutineRunsSince :one
+select count(*)::int from routine_runs
+where routine_id = @routine_id and trigger = @trigger and created_at >= @since;
+
+-- DeleteUnstartedRoutineRun removes a run that was claimed and then had nothing to do.
+-- name: DeleteUnstartedRoutineRun :exec
+delete from routine_runs where id = @id and status = 'running' and turn_id is null;

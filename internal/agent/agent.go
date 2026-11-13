@@ -484,11 +484,13 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// Routines run in their chats, so they need the web chat and a host runtime to answer it.
 	conductor.DescribeSchedule = routines.Describe
 	if a.chat != nil && host != nil {
-		a.routines, err = routines.New(routines.Options{Store: st, Runner: a.chat, Logger: logger})
+		a.routines, err = routines.New(routines.Options{Store: st, Events: st, Runner: a.chat, Logger: logger})
 		if err != nil {
 			st.Close()
 			return nil, err
 		}
+		// Linear data changes are kept only where something runs them.
+		a.live.routinesRun = true
 		a.svc.SetRoutines(a.routines)
 		// Only where routines run may an assistant set one up for the person it talks to.
 		a.conductor.SetRoutineCreator(a.svc)
