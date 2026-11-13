@@ -10,9 +10,11 @@ import {
   Square,
   Trash2,
   User,
+  Webhook,
   Wrench,
   Zap,
 } from "lucide-react";
+import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type Routine,
@@ -22,18 +24,26 @@ import {
   browserZone,
   CI_FIXER,
   draftOf,
+  isLinear,
   isSystem,
+  LINEAR_EVENTS,
   money,
   routineKey,
   routinesKey,
   routineStatus,
+  runsText,
+  teamKeys,
   type Scope,
+  type Trigger,
 } from "../../lib/routines";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 import { agent, errorMessage } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -70,6 +80,7 @@ import { useBrand } from "../../lib/brand";
  */
 export function RoutineCard({ chatId }: { chatId: string }) {
   const brand = useBrand();
+  const admin = canManageInfra(useViewer());
   const qc = useQueryClient();
   const toast = useToast();
   const routine = useQuery({
@@ -177,6 +188,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   if (!r) return null;
   const busy = act.isPending;
   const system = isSystem(r);
+  const linear = isLinear(r);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} asChild>
@@ -196,8 +208,8 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 aria-hidden
               />
               <span className="min-w-0">
-                Runs {r.scheduleText}
-                {r.timezone && r.timezone !== "UTC" ? (
+                {runsText(r)}
+                {!linear && r.timezone && r.timezone !== "UTC" ? (
                   <span className="font-normal text-faint">
                     {" "}
                     · {r.timezone}
@@ -385,6 +397,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
             initial={draftOf(r)}
             lockAssistant
             scope={system ? "system" : "personal"}
+            canChooseTrigger={admin}
             onClose={() => setEditing(false)}
             onSave={async (draft) => {
               const res = await agent.updateRoutine({ id: r.id, draft });
@@ -592,6 +605,94 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   },
 ];
 
+const TRIGGERS: { trigger: Trigger; label: string }[] = [
+  { trigger: "schedule", label: "On a schedule" },
+  { trigger: "linear", label: "On a Linear event" },
+];
+
+/**
+ * LinearEventsField is what a routine on Linear events runs on: the events, and optionally the
+ * teams. The Linear app's webhook delivers them, so the field says when no app is connected —
+ * the routine saves, and runs once one is.
+ */
+function LinearEventsField({
+  events,
+  onEvents,
+  teams,
+  onTeams,
+}: {
+  events: string[];
+  onEvents: (events: string[]) => void;
+  teams: string;
+  onTeams: (teams: string) => void;
+}) {
+  const ids = { events: useId(), teams: useId() };
+  const connections = useQuery({
+    queryKey: ["agent", "connections"],
+    queryFn: () => agent.getConnections({}),
+    staleTime: 30_000,
+  });
+  const lin = connections.data?.linear;
+  const connected = Boolean(lin?.configured) && !lin?.revokedAt;
+  const toggle = (event: string, on: boolean) =>
+    onEvents(LINEAR_EVENTS.map((e) => e.event).filter((e) => (e === event ? on : events.includes(e))));
+  return (
+    <>
+      <div className="grid gap-1.5" role="group" aria-labelledby={ids.events}>
+        <span id={ids.events} className="text-sm font-medium">
+          Linear events
+        </span>
+        <div data-testid="routine-linear-events" className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+          {LINEAR_EVENTS.map((e) => {
+            const id = `${ids.events}-${e.event}`;
+            return (
+              <label key={e.event} htmlFor={id} className="flex items-center gap-2 text-sm text-fg">
+                <Checkbox
+                  id={id}
+                  data-testid={`routine-event-${e.event}`}
+                  checked={events.includes(e.event)}
+                  onCheckedChange={(v) => toggle(e.event, v === true)}
+                />
+                {e.label}
+              </label>
+            );
+          })}
+        </div>
+        <p data-testid="routine-linear-hint" className={cn("text-xs leading-relaxed", connections.isSuccess && !connected ? "text-warn" : "text-muted")}>
+          {connections.isSuccess && !connected ? (
+            <>
+              The Linear app is not connected, so no events arrive yet. Connect it under{" "}
+              <Link to="/org/settings/connections" className="underline underline-offset-2 hover:text-fg">
+                Connections
+              </Link>
+              .
+            </>
+          ) : (
+            "Each run is given the events that arrived since the last one. A run that is busy leaves them waiting for the next."
+          )}
+        </p>
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.teams} className="text-sm font-medium">
+          Teams{" "}
+          <span className="font-normal text-muted">(optional)</span>
+        </label>
+        <Input
+          id={ids.teams}
+          data-testid="routine-teams"
+          value={teams}
+          onChange={(e) => onTeams(e.target.value)}
+          placeholder="ENG, WEB"
+          aria-describedby={`${ids.teams}-hint`}
+        />
+        <p id={`${ids.teams}-hint`} className="text-xs text-muted">
+          Team keys, separated by commas. Leave empty for every team.
+        </p>
+      </div>
+    </>
+  );
+}
+
 /**
  * RoutineDialog is the one editor, for a new routine and for an existing one. The server checks the schedule — its cron, its timezone and the
  * floor — and its refusal is shown as it says it.
@@ -607,6 +708,7 @@ export function RoutineDialog({
   lockAssistant,
   scope: fixedScope,
   canChooseScope,
+  canChooseTrigger,
   onClose,
   onSave,
 }: {
@@ -619,6 +721,8 @@ export function RoutineDialog({
   scope?: Scope;
   /** canChooseScope offers "Runs as": an admin making a new routine. */
   canChooseScope?: boolean;
+  /** canChooseTrigger offers "Runs": on a schedule or on a Linear event, which only admins may set. */
+  canChooseTrigger?: boolean;
   onClose: () => void;
   onSave: (draft: RoutineDraft, scope: Scope) => Promise<void>;
 }) {
@@ -633,6 +737,10 @@ export function RoutineDialog({
   );
   // Remounted by a template, so the schedule editor reads the schedule it was given afresh.
   const [scheduleKey, setScheduleKey] = useState(0);
+  const [trigger, setTrigger] = useState<Trigger>(initial.trigger === "linear" ? "linear" : "schedule");
+  const linear = trigger === "linear";
+  const [events, setEvents] = useState<string[]>(initial.events ?? []);
+  const [teams, setTeams] = useState((initial.teams ?? []).join(", "));
   const [timezone, setTimezone] = useState(initial.timezone || browserZone());
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
@@ -642,7 +750,7 @@ export function RoutineDialog({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId() };
+  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId(), trigger: useId() };
   // The assistant is chosen when the routine is made: its chat is labelled with it for good.
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -675,7 +783,11 @@ export function RoutineDialog({
           name: name.trim(),
           instruction: instruction.trim(),
           notes: notes.trim(),
-          schedule: schedule.trim(),
+          // One or the other, never both: the server refuses a draft that names a schedule and events.
+          schedule: linear ? "" : schedule.trim(),
+          trigger,
+          events: linear ? events : [],
+          teams: linear ? teamKeys(teams) : [],
           timezone: timezone.trim() || "UTC",
           personalityId: system
             ? ""
@@ -819,7 +931,37 @@ export function RoutineDialog({
               </Select>
             </div>
           ) : null}
-          <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
+          {canChooseTrigger ? (
+            <div className="grid gap-1.5" role="group" aria-labelledby={ids.trigger}>
+              <span id={ids.trigger} className="text-sm font-medium">
+                Runs
+              </span>
+              <ToggleGroup
+                type="single"
+                value={trigger}
+                aria-label="Runs"
+                onValueChange={(v) => v && setTrigger(v as Trigger)}
+                className="grid w-full grid-cols-2 border-border bg-raised"
+              >
+                {TRIGGERS.map((t) => (
+                  <ToggleGroupItem
+                    key={t.trigger}
+                    value={t.trigger}
+                    data-testid={`routine-trigger-${t.trigger}`}
+                    className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+                  >
+                    {t.trigger === "linear" ? <Webhook aria-hidden /> : <Repeat aria-hidden />}
+                    {t.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          ) : null}
+          {linear ? (
+            <LinearEventsField events={events} onEvents={setEvents} teams={teams} onTeams={setTeams} />
+          ) : (
+            <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
+          )}
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
             <div className="grid min-w-0 gap-1.5">
               <label htmlFor={ids.zone} className="text-sm font-medium">
@@ -884,7 +1026,9 @@ export function RoutineDialog({
             <Button
               type="submit"
               data-testid="routine-save"
-              disabled={saving || !name.trim() || !instruction.trim() || capProblem !== ""}
+              disabled={
+                saving || !name.trim() || !instruction.trim() || capProblem !== "" || (linear && events.length === 0)
+              }
             >
               {saving ? "Saving…" : system && !fixedScope ? "Save system routine" : "Save routine"}
             </Button>

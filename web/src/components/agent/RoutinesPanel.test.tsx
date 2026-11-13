@@ -67,6 +67,30 @@ beforeEach(() => {
 });
 
 describe("RoutinesPanel", () => {
+  it("shows what waits for a routine on Linear events where a scheduled one shows its next run", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On Linear: issue created, comment created",
+          trigger: "linear",
+          events: ["Issue.create", "Comment.create"],
+          nextRunAt: undefined,
+          pendingEvents: 3,
+          timezone: "Europe/Madrid",
+        }),
+      ],
+    });
+    mount();
+
+    const row = await screen.findByTestId("routine-row");
+    expect(row).toHaveTextContent("Runs on Linear: issue created, comment created");
+    expect(row).not.toHaveTextContent("Europe/Madrid");
+    const status = within(row).getByTestId("routine-row-status");
+    expect(status).toHaveTextContent("Waiting3 events");
+    expect(status).not.toHaveTextContent("Next run");
+  });
+
   it("lists each routine with when it runs, and pauses one", async () => {
     listRoutines.mockResolvedValue({ routines: [routine()] });
     pauseRoutine.mockResolvedValue({ routine: routine({ enabled: false }) });

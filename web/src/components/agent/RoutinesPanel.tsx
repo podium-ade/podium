@@ -7,7 +7,17 @@ import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
-import { draftOf, isSystem, money, routineChatPath, routinesKey, upcoming } from "../../lib/routines";
+import {
+  draftOf,
+  isLinear,
+  isSystem,
+  money,
+  routineChatPath,
+  routinesKey,
+  runsText,
+  upcoming,
+  waitingText,
+} from "../../lib/routines";
 import { Badge } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
@@ -159,12 +169,14 @@ export function RoutinesPanel() {
           title="New routine"
           initial={{}}
           canChooseScope={admin}
+          canChooseTrigger={admin}
           onClose={() => setCreating(false)}
           onSave={async (draft, scope) => {
             const res = await agent.createRoutine({ draft, scope });
             setCreating(false);
             await refresh();
-            toast(`${res.routine?.name ?? "Routine"} runs ${res.routine?.scheduleText ?? ""}.`, "ok");
+            const r = res.routine;
+            toast(`${r?.name ?? "Routine"} ${r ? runsText(r).replace(/^Runs/, "runs") : "runs"}.`, "ok");
           }}
         />
       ) : null}
@@ -176,6 +188,7 @@ export function RoutinesPanel() {
           initial={draftOf(editing)}
           lockAssistant
           scope={isSystem(editing) ? "system" : "personal"}
+          canChooseTrigger={admin}
           onClose={() => setEditing(null)}
           onSave={async (draft) => {
             await agent.updateRoutine({ id: editing.id, draft });
@@ -237,6 +250,7 @@ function RoutineRow({
   const brand = useBrand();
   const flagged = !r.enabled && r.pausedReason !== "";
   const system = isSystem(r);
+  const linear = isLinear(r);
   // An admin's pause says so itself; Podium's own say what Podium saw.
   const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by ${brand}. ${r.pausedReason}`;
   return (
@@ -263,8 +277,8 @@ function RoutineRow({
           {owner && !system ? <span className="text-xs text-faint">{owner}</span> : null}
         </div>
         <p className="text-sm text-muted">
-          Runs {r.scheduleText}
-          {r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {runsText(r)}
+          {!linear && r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
           {system ? <span className="text-faint"> · as {brand}</span> : null}
         </p>
         {flagged ? (
@@ -280,12 +294,15 @@ function RoutineRow({
         className="m-0 grid grid-cols-3 gap-x-6 text-xs tabular-nums sm:w-max lg:grid-cols-[7.5rem_6.5rem_4rem]"
       >
         <div className="min-w-0">
-          <dt className="text-faint">Next run</dt>
+          {/* A routine on Linear events has no next run: what it has is the events waiting for one. */}
+          <dt className="text-faint">{linear ? "Waiting" : "Next run"}</dt>
           <dd className="m-0 truncate text-fg">
             {r.running
               ? "running now"
               : r.enabled
-                ? upcoming(r.nextRunAt)
+                ? linear
+                  ? waitingText(r.pendingEvents)
+                  : upcoming(r.nextRunAt)
                 : r.pausedUntil
                   ? upcoming(r.pausedUntil)
                   : "paused"}

@@ -19,7 +19,63 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
     model: r.model,
     effort: r.effort,
     dailyCapUsd: r.dailyCapUsd,
+    trigger: r.trigger,
+    events: r.events,
+    teams: r.teams,
   };
+}
+
+/** Trigger is what starts a routine's runs: its schedule, or Linear events. */
+export type Trigger = "schedule" | "linear";
+
+/** isLinear is a routine that runs on Linear events instead of a schedule. */
+export function isLinear(r: Pick<Routine, "trigger">): boolean {
+  return r.trigger === "linear";
+}
+
+/** LINEAR_TYPES are the Linear entities a routine can run on, as the server lists them, with their names in words. */
+export const LINEAR_TYPES: { type: string; label: string }[] = [
+  { type: "Issue", label: "Issue" },
+  { type: "Comment", label: "Comment" },
+  { type: "Project", label: "Project" },
+  { type: "ProjectUpdate", label: "Project update" },
+  { type: "Cycle", label: "Cycle" },
+  { type: "IssueLabel", label: "Issue label" },
+];
+
+/** LINEAR_ACTIONS are what can happen to one, as Linear names it, with the word a label uses. */
+export const LINEAR_ACTIONS: { action: string; label: string }[] = [
+  { action: "create", label: "created" },
+  { action: "update", label: "updated" },
+  { action: "remove", label: "removed" },
+];
+
+/** LINEAR_EVENTS is every event a routine can run on, "Issue.create" each, with a plain label: "Issue created". */
+export const LINEAR_EVENTS: { event: string; label: string }[] = LINEAR_TYPES.flatMap((t) =>
+  LINEAR_ACTIONS.map((a) => ({ event: `${t.type}.${a.action}`, label: `${t.label} ${a.label}` })),
+);
+
+/** teamKeys reads the Teams field: comma- or space-separated keys, upper case, each once. */
+export function teamKeys(text: string): string[] {
+  const keys = text
+    .split(/[\s,]+/)
+    .map((k) => k.trim().toUpperCase())
+    .filter((k) => k !== "");
+  return [...new Set(keys)];
+}
+
+/** runsText says when a routine runs: "Runs every day at 09:00", "Runs on Linear: issue created (ENG)". */
+export function runsText(r: Pick<Routine, "trigger" | "scheduleText">): string {
+  if (isLinear(r)) {
+    return `Runs ${r.scheduleText.charAt(0).toLowerCase()}${r.scheduleText.slice(1)}`;
+  }
+  return `Runs ${r.scheduleText}`;
+}
+
+/** waitingText is how many Linear events wait for a routine's next run, in words. */
+export function waitingText(n: number): string {
+  if (n <= 0) return "none";
+  return n === 1 ? "1 event" : `${n} events`;
 }
 
 /** Scope is who a routine runs as: a person, or nobody (a system routine admins set up). */
@@ -79,6 +135,9 @@ export function money(usd: number): string {
 /** routineStatus is a routine's state in a few words: running, its next run, or why it is paused. */
 export function routineStatus(r: Routine): string {
   if (r.running) return "Running now";
+  if (r.enabled && isLinear(r)) {
+    return r.pendingEvents > 0 ? `${waitingText(r.pendingEvents)} waiting` : "Waiting for Linear events";
+  }
   if (r.enabled) return `Next ${upcoming(r.nextRunAt)}`;
   if (r.pausedUntil) return `Paused until ${upcoming(r.pausedUntil)}`;
   return r.pausedReason ? "Paused by Podium" : "Paused";
