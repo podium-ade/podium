@@ -3414,11 +3414,13 @@ its schedule the conductor starts a turn with the routine's instruction, and the
 decides and acts the way it would if the person had asked — delegating playbooks when the work
 needs a machine. Nothing about any one job is written into Podium.
 
-**Every routine has one chat.** It is created with the routine, listed under **Routines** in the
+**Every routine has a chat of its own.** It is created with the routine, listed under **Routines** in the
 chat rail (as well as on the Routines page), and is where the routine's history lives. It is an ordinary web chat of its owner's in
 every other way — they can write in it, ask "why did you skip #42?", and delete it — except that a
 routine's chat is **never shared**: a run uses its owner's credentials, and nobody else may steer
-what runs as them. Share, general access and links are refused for it.
+what runs as them. Share, general access and links are refused for it. A routine on Linear events
+may also have a **chat per ticket** ([below](#a-chat-per-ticket)); each of those is the routine's
+chat in all these ways, for one ticket.
 
 **Two scopes.** A routine runs as a person or as nobody:
 
@@ -3610,6 +3612,54 @@ same one. Until the app is connected under Connections, the dialog says so, and 
 is given nothing. Only a conductor that runs routines keeps events; a delivery that reaches one
 that does not is dropped. A delivery the conductor failed to store is logged as lost and is not
 retried: Linear was already answered.
+
+#### A chat per ticket
+
+Under the teams, **Runs happen in** says where a routine on Linear events runs: **The routine's
+chat** (the default, and every routine made before the choice existed) or **A chat per ticket**
+(`chat_mode` `subject`). It is offered only for Linear events; a routine on a schedule always runs
+in its own chat, and the API refuses the other on one. Changing it affects later runs only: the
+chats already opened stay where they are, and history records the change.
+
+- **What an event is about.** Each event is given a subject when it is stored. An issue is
+  `Issue:<id>`, named by its identifier and title ("ENG-12 Fix login"); a comment is its issue's
+  subject (`data.issueId`, or `data.issue.id`), so a ticket and the talk on it are one subject. A
+  project is `Project:<id>` and a project update its project's (`data.projectId` or
+  `data.project.id`), named by the project's name. A cycle is `Cycle:<id>`, named by its name or
+  number, and a label `IssueLabel:<id>`, named by its name. Linear documents no exact payloads, so
+  they are read leniently: a field that is missing means no subject, never an error. An event with
+  no subject — a comment on no issue, a payload of another shape — runs in the routine's own chat.
+  The subject is read from the delivery as Linear sent it, before one too large to keep is cut to
+  a stub, and is kept whatever the routine's mode, so a routine switched to a chat per ticket runs
+  the events already waiting in theirs.
+- **Each subject has its own chat**, opened when its first run is about to start (in
+  `routine_subject_chats`, one per routine and subject). It is opened as the routine's own chat
+  was — the same owner, or none for a system routine, the same assistant — belongs to the routine,
+  and is titled "<routine> · ENG-12 Fix login" (the subject's key when Linear sent no name). It is
+  the routine's chat in every way: never shared, read by admins and written by nobody for a system
+  routine, briefed with the routine block, offered `routine_finish`, its runs held and kept quietly
+  when idle. A person's message there is the same as one in the routine's own chat. Its card names
+  the ticket and links to the routine's own chat. The rail lists these chats under **Routines**,
+  most recently active first.
+- **One run at a time.** A tick gives the subject that has waited longest a run with that
+  subject's waiting events (still at most twenty), in that subject's chat. The routine's state is
+  one object every run rewrites, so two runs in two chats would overwrite each other: while a run
+  of the routine is going, in any of its chats or started by hand, the rest wait for the ticks
+  after it. A subject whose chat is busy — somebody is talking in it, or a turn is running there —
+  is passed over for the next one that is not. **Run now** runs in the routine's own chat with no
+  events, and is refused while a run is going in another of its chats. **Stop run** on the card
+  stops the run wherever it is going.
+- **At most 50 new chats a day.** A routine that has opened 50 chats per ticket within 24 hours
+  and would open another is paused instead, with that reason on its card and in its owner's
+  inbox, through the same path as the other guards. An event about a ticket that already has a
+  chat runs there whatever the count. The other guards apply as before: a day's wait, 200 waiting, 60 event runs an hour, the spend caps, the owner
+  still a member.
+- **Idle runs.** A run that reports idle is kept quietly in the ticket's chat, as in any routine
+  chat. A ticket's chat that holds only such runs is left out of the chat list and marks nothing
+  unread; it is listed once a run there says something, or somebody writes in it.
+- **Deleting.** Deleting a ticket's chat forgets it for that ticket, and the next event about the
+  ticket opens a fresh chat. Deleting the routine keeps every chat it had, its own and each
+  ticket's, as ordinary chats.
 
 ### Admins: Settings → Routines
 
