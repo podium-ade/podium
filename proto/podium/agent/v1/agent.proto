@@ -338,13 +338,24 @@ message Routine {
   string created_by = 27;
   // last_run_status is the latest run's status that was not skipped, "" before the first.
   string last_run_status = 28;
+  // trigger is what starts the routine's runs: "schedule" (schedule and timezone) or
+  // "linear" (Linear events). A linear routine has no schedule and no next_run_at, and its
+  // schedule_text names the events ("On Linear: issue created (ENG)").
+  string trigger = 29;
+  // events are a linear routine's Linear events, "<Type>.<action>" each ("Issue.create").
+  repeated string events = 30;
+  // teams are the Linear team keys a linear routine is limited to; empty is every team.
+  repeated string teams = 31;
+  // pending_events is how many Linear events wait for the routine's next run.
+  int32 pending_events = 32;
 }
 
 // RoutineRun is one firing of a routine.
 message RoutineRun {
   string id = 1;
   google.protobuf.Timestamp scheduled_for = 2;
-  // trigger is "schedule" or "manual".
+  // trigger is "schedule", "manual" or "event" (a linear routine's run, started by the
+  // Linear events it was given).
   string trigger = 3;
   // status is running, done, idle, failed, skipped_overlap or skipped_paused.
   string status = 4;
@@ -370,6 +381,11 @@ message RoutineDraft {
   repeated string repos = 9;
   // daily_cap_usd: see Routine. 0 is no cap of its own.
   double daily_cap_usd = 10;
+  // trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear"
+  // draft names at least one event and no schedule, and only admins and owners may save one.
+  string trigger = 11;
+  repeated string events = 12;
+  repeated string teams = 13;
 }
 
 message ListRoutinesRequest {}

@@ -236,6 +236,19 @@ type Routine struct {
 	DailyCapUsd          *float64
 	PausedUntil          *time.Time
 	CreatedBy            string
+	TriggerKind          string
+	Events               []string
+	Teams                []string
+}
+
+type RoutineEvent struct {
+	ID         int64
+	RoutineID  string
+	DeliveryID string
+	Event      string
+	Payload    []byte
+	ReceivedAt time.Time
+	RunID      *string
 }
 
 type RoutineRevision struct {

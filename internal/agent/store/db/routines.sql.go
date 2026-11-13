@@ -27,6 +27,57 @@ func (q *Queries) AdvanceRoutine(ctx context.Context, arg AdvanceRoutineParams) 
 	return err
 }
 
+const attachRoutineEvents = `-- name: AttachRoutineEvents :execrows
+update routine_events set run_id = $1::text
+where id in (
+  select p.id from routine_events p
+  where p.routine_id = $2::text and p.run_id is null
+  order by p.received_at, p.id
+  limit $3::int
+  for update skip locked
+)
+`
+
+type AttachRoutineEventsParams struct {
+	RunID     string
+	RoutineID string
+	Max       int32
+}
+
+// AttachRoutineEvents gives a run the oldest of its routine's waiting events, at most @max.
+func (q *Queries) AttachRoutineEvents(ctx context.Context, arg AttachRoutineEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, attachRoutineEvents, arg.RunID, arg.RoutineID, arg.Max)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const capPendingRoutineEvents = `-- name: CapPendingRoutineEvents :execrows
+delete from routine_events d
+where d.routine_id = $1::text and d.run_id is null
+  and d.id not in (
+    select k.id from routine_events k
+    where k.routine_id = $1::text and k.run_id is null
+    order by k.received_at desc, k.id desc
+    limit $2::int
+  )
+`
+
+type CapPendingRoutineEventsParams struct {
+	RoutineID string
+	Keep      int32
+}
+
+// CapPendingRoutineEvents drops a routine's waiting events beyond the newest @keep.
+func (q *Queries) CapPendingRoutineEvents(ctx context.Context, arg CapPendingRoutineEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, capPendingRoutineEvents, arg.RoutineID, arg.Keep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countChatsStartedByRoutineSince = `-- name: CountChatsStartedByRoutineSince :one
 select count(*)::int from chats c
   join turns t on t.id = c.started_by_turn
@@ -42,6 +93,25 @@ type CountChatsStartedByRoutineSinceParams struct {
 // CountChatsStartedByRoutineSince is how many chats a routine's turns opened in a window.
 func (q *Queries) CountChatsStartedByRoutineSince(ctx context.Context, arg CountChatsStartedByRoutineSinceParams) (int32, error) {
 	row := q.db.QueryRow(ctx, countChatsStartedByRoutineSince, arg.RoutineID, arg.Since)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRoutineRunsSince = `-- name: CountRoutineRunsSince :one
+select count(*)::int from routine_runs
+where routine_id = $1 and trigger = $2 and created_at >= $3
+`
+
+type CountRoutineRunsSinceParams struct {
+	RoutineID string
+	Trigger   string
+	Since     time.Time
+}
+
+// CountRoutineRunsSince counts a routine's runs of one trigger in a window, for the flood guard.
+func (q *Queries) CountRoutineRunsSince(ctx context.Context, arg CountRoutineRunsSinceParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countRoutineRunsSince, arg.RoutineID, arg.Trigger, arg.Since)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -71,9 +141,19 @@ func (q *Queries) DeleteRoutine(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const deleteUnstartedRoutineRun = `-- name: DeleteUnstartedRoutineRun :exec
+delete from routine_runs where id = $1 and status = 'running' and turn_id is null
+`
+
+// DeleteUnstartedRoutineRun removes a run that was claimed and then had nothing to do.
+func (q *Queries) DeleteUnstartedRoutineRun(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteUnstartedRoutineRun, id)
+	return err
+}
+
 const dueRoutines = `-- name: DueRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines
-where enabled and next_run_at <= $1
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines
+where enabled and trigger_kind = 'schedule' and next_run_at <= $1
 order by next_run_at
 limit $2::int
 for update skip locked
@@ -85,7 +165,8 @@ type DueRoutinesParams struct {
 }
 
 // DueRoutines is every enabled routine whose time has come. FOR UPDATE SKIP LOCKED keeps two
-// ticks from taking the same row, though only the leading conductor ticks.
+// ticks from taking the same row, though only the leading conductor ticks. A routine that runs
+// on Linear events has no schedule, so it is never due.
 func (q *Queries) DueRoutines(ctx context.Context, arg DueRoutinesParams) ([]Routine, error) {
 	rows, err := q.db.Query(ctx, dueRoutines, arg.Now, arg.PageLimit)
 	if err != nil {
@@ -123,6 +204,9 @@ func (q *Queries) DueRoutines(ctx context.Context, arg DueRoutinesParams) ([]Rou
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +219,7 @@ func (q *Queries) DueRoutines(ctx context.Context, arg DueRoutinesParams) ([]Rou
 }
 
 const dueToResume = `-- name: DueToResume :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines
 where not enabled and paused_until is not null and paused_until <= $1
 order by paused_until
 limit $2::int
@@ -185,6 +269,9 @@ func (q *Queries) DueToResume(ctx context.Context, arg DueToResumeParams) ([]Rou
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -197,7 +284,7 @@ func (q *Queries) DueToResume(ctx context.Context, arg DueToResumeParams) ([]Rou
 }
 
 const getRoutine = `-- name: GetRoutine :one
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines where id = $1
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines where id = $1
 `
 
 func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
@@ -231,12 +318,15 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
 
 const getRoutineByChat = `-- name: GetRoutineByChat :one
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines where chat_id = $1
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines where chat_id = $1
 `
 
 func (q *Queries) GetRoutineByChat(ctx context.Context, chatID string) (Routine, error) {
@@ -270,6 +360,9 @@ func (q *Queries) GetRoutineByChat(ctx context.Context, chatID string) (Routine,
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
@@ -302,13 +395,13 @@ const insertRoutine = `-- name: InsertRoutine :one
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
   notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
-  repos, daily_cap_usd, created_by
+  repos, daily_cap_usd, created_by, trigger_kind, events, teams
 ) values (
   $1, $2, $3, $4, $5, $6, $7, $8,
   $9, $10, $11, $12, true, $13, $14, $8, $8,
-  $15::text[], $16, $17
+  $15::text[], $16, $17, $18, $19::text[], $20::text[]
 )
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams
 `
 
 type InsertRoutineParams struct {
@@ -329,10 +422,16 @@ type InsertRoutineParams struct {
 	Repos         []string
 	DailyCapUsd   *float64
 	CreatedBy     string
+	TriggerKind   string
+	Events        []string
+	Teams         []string
 }
 
 // Routines (0043). A personal routine is its owner's alone: every read and write a person
 // makes is filtered by owner_login, so knowing an id is not access to somebody else's.
+//
+// A routine that runs on Linear events (0046) is handed each data change it asks for as a row
+// of routine_events, and the tick runs it with the rows still waiting.
 func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (Routine, error) {
 	row := q.db.QueryRow(ctx, insertRoutine,
 		arg.ID,
@@ -352,6 +451,9 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (R
 		arg.Repos,
 		arg.DailyCapUsd,
 		arg.CreatedBy,
+		arg.TriggerKind,
+		arg.Events,
+		arg.Teams,
 	)
 	var i Routine
 	err := row.Scan(
@@ -382,8 +484,46 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (R
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
+}
+
+const insertRoutineEvents = `-- name: InsertRoutineEvents :execrows
+insert into routine_events (routine_id, delivery_id, event, payload, received_at)
+select r.id, $1::text, $2::text, $3::jsonb, $4
+  from routines r
+ where r.enabled and r.trigger_kind = 'linear' and $2::text = any(r.events)
+   and (cardinality(r.teams) = 0 or $5::text = any(r.teams))
+on conflict (routine_id, delivery_id) do nothing
+`
+
+type InsertRoutineEventsParams struct {
+	DeliveryID string
+	Event      string
+	Payload    []byte
+	ReceivedAt time.Time
+	TeamKey    string
+}
+
+// InsertRoutineEvents stores one Linear delivery for every enabled routine that asks for its
+// event, in its team when the routine names teams. It is one statement, so the webhook that
+// calls it does one round trip whatever the number of routines. A delivery stored before is
+// not stored again.
+func (q *Queries) InsertRoutineEvents(ctx context.Context, arg InsertRoutineEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertRoutineEvents,
+		arg.DeliveryID,
+		arg.Event,
+		arg.Payload,
+		arg.ReceivedAt,
+		arg.TeamKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertRoutineRevision = `-- name: InsertRoutineRevision :exec
@@ -500,7 +640,7 @@ func (q *Queries) LastRoutineRuns(ctx context.Context, routineIds []string) ([]L
 }
 
 const listAllRoutines = `-- name: ListAllRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines order by scope desc, owner_login, name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines order by scope desc, owner_login, name, id
 `
 
 func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
@@ -540,6 +680,9 @@ func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -552,7 +695,7 @@ func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
 }
 
 const listPersonalRoutines = `-- name: ListPersonalRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines where scope = 'personal' order by owner_login, name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines where scope = 'personal' order by owner_login, name, id
 `
 
 // ListPersonalRoutines is every person's routines, for the admin's metadata view.
@@ -593,6 +736,9 @@ func (q *Queries) ListPersonalRoutines(ctx context.Context) ([]Routine, error) {
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -696,7 +842,7 @@ func (q *Queries) ListRoutineRuns(ctx context.Context, arg ListRoutineRunsParams
 }
 
 const listRoutinesByOwner = `-- name: ListRoutinesByOwner :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines where owner_login = $1 order by name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines where owner_login = $1 order by name, id
 `
 
 func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) ([]Routine, error) {
@@ -736,6 +882,9 @@ func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) (
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -748,7 +897,7 @@ func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) (
 }
 
 const listVisibleRoutines = `-- name: ListVisibleRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by from routines
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams from routines
 where owner_login = $1 or ($2::bool and scope = 'system')
 order by scope desc, name, id
 `
@@ -796,7 +945,42 @@ func (q *Queries) ListVisibleRoutines(ctx context.Context, arg ListVisibleRoutin
 			&i.DailyCapUsd,
 			&i.PausedUntil,
 			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendingRoutineEventCounts = `-- name: PendingRoutineEventCounts :many
+select routine_id, count(*)::int as pending from routine_events
+where routine_id = any($1::text[]) and run_id is null
+group by routine_id
+`
+
+type PendingRoutineEventCountsRow struct {
+	RoutineID string
+	Pending   int32
+}
+
+// PendingRoutineEventCounts is how many events wait for each named routine.
+func (q *Queries) PendingRoutineEventCounts(ctx context.Context, routineIds []string) ([]PendingRoutineEventCountsRow, error) {
+	rows, err := q.db.Query(ctx, pendingRoutineEventCounts, routineIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingRoutineEventCountsRow{}
+	for rows.Next() {
+		var i PendingRoutineEventCountsRow
+		if err := rows.Scan(&i.RoutineID, &i.Pending); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -827,6 +1011,39 @@ func (q *Queries) PersonSpendSince(ctx context.Context, arg PersonSpendSincePara
 	return column_1, err
 }
 
+const pruneRoutineEvents = `-- name: PruneRoutineEvents :execrows
+delete from routine_events
+where received_at < $1 and (run_id is null or received_at < $2)
+`
+
+type PruneRoutineEventsParams struct {
+	PendingBefore time.Time
+	KeptBefore    time.Time
+}
+
+// PruneRoutineEvents deletes the events nobody will run: waiting since before
+// @pending_before, and given to a run since before @kept_before.
+func (q *Queries) PruneRoutineEvents(ctx context.Context, arg PruneRoutineEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneRoutineEvents, arg.PendingBefore, arg.KeptBefore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const releaseRoutineEvents = `-- name: ReleaseRoutineEvents :execrows
+update routine_events set run_id = null where run_id = $1
+`
+
+// ReleaseRoutineEvents puts a run's events back to waiting: the run never started.
+func (q *Queries) ReleaseRoutineEvents(ctx context.Context, runID *string) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseRoutineEvents, runID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const reportRoutineRun = `-- name: ReportRoutineRun :exec
 update routine_runs set reported = $1, summary = $2 where id = $3
 `
@@ -840,6 +1057,38 @@ type ReportRoutineRunParams struct {
 func (q *Queries) ReportRoutineRun(ctx context.Context, arg ReportRoutineRunParams) error {
 	_, err := q.db.Exec(ctx, reportRoutineRun, arg.Reported, arg.Summary, arg.ID)
 	return err
+}
+
+const routineEventsForRun = `-- name: RoutineEventsForRun :many
+select id, routine_id, delivery_id, event, payload, received_at, run_id from routine_events where run_id = $1 order by received_at, id
+`
+
+func (q *Queries) RoutineEventsForRun(ctx context.Context, runID *string) ([]RoutineEvent, error) {
+	rows, err := q.db.Query(ctx, routineEventsForRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RoutineEvent{}
+	for rows.Next() {
+		var i RoutineEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.RoutineID,
+			&i.DeliveryID,
+			&i.Event,
+			&i.Payload,
+			&i.ReceivedAt,
+			&i.RunID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const routineFailuresSince = `-- name: RoutineFailuresSince :one
@@ -878,6 +1127,66 @@ func (q *Queries) RoutineSpendSince(ctx context.Context, arg RoutineSpendSincePa
 	var column_1 float64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const routinesWithPendingEvents = `-- name: RoutinesWithPendingEvents :many
+select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams from routines r
+where r.enabled and r.trigger_kind = 'linear'
+  and exists (select 1 from routine_events e where e.routine_id = r.id and e.run_id is null)
+order by r.id
+limit $1::int
+`
+
+// RoutinesWithPendingEvents is every enabled linear routine with an event waiting.
+func (q *Queries) RoutinesWithPendingEvents(ctx context.Context, pageLimit int32) ([]Routine, error) {
+	rows, err := q.db.Query(ctx, routinesWithPendingEvents, pageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Routine{}
+	for rows.Next() {
+		var i Routine
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.OwnerLogin,
+			&i.Name,
+			&i.Schedule,
+			&i.Timezone,
+			&i.Instruction,
+			&i.InstructionUpdatedAt,
+			&i.Notes,
+			&i.ProposedNote,
+			&i.PersonalityID,
+			&i.Model,
+			&i.Effort,
+			&i.Enabled,
+			&i.PausedReason,
+			&i.State,
+			&i.StateUpdatedAt,
+			&i.ChatID,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.IdleCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Repos,
+			&i.DailyCapUsd,
+			&i.PausedUntil,
+			&i.CreatedBy,
+			&i.TriggerKind,
+			&i.Events,
+			&i.Teams,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const runningRoutineRunOf = `-- name: RunningRoutineRunOf :one
@@ -978,7 +1287,7 @@ set enabled = $1,
     next_run_at = $4,
     updated_at = $5
 where id = $6
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams
 `
 
 type SetRoutineEnabledParams struct {
@@ -1030,6 +1339,9 @@ func (q *Queries) SetRoutineEnabled(ctx context.Context, arg SetRoutineEnabledPa
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
@@ -1054,7 +1366,7 @@ const setRoutineNotes = `-- name: SetRoutineNotes :one
 update routines
 set notes = $1, proposed_note = $2, updated_at = $3
 where id = $4
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams
 `
 
 type SetRoutineNotesParams struct {
@@ -1100,6 +1412,9 @@ func (q *Queries) SetRoutineNotes(ctx context.Context, arg SetRoutineNotesParams
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
@@ -1136,7 +1451,7 @@ const setRoutineState = `-- name: SetRoutineState :one
 update routines
 set state = $1, state_updated_at = $2
 where id = $3
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams
 `
 
 type SetRoutineStateParams struct {
@@ -1176,6 +1491,9 @@ func (q *Queries) SetRoutineState(ctx context.Context, arg SetRoutineStateParams
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
@@ -1280,10 +1598,13 @@ set name = $1,
     effort = $9,
     repos = $10::text[],
     daily_cap_usd = $11,
-    next_run_at = $12,
+    trigger_kind = $12,
+    events = $13::text[],
+    teams = $14::text[],
+    next_run_at = $15,
     updated_at = $5
-where id = $13
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by
+where id = $16
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams
 `
 
 type UpdateRoutineParams struct {
@@ -1298,6 +1619,9 @@ type UpdateRoutineParams struct {
 	Effort        string
 	Repos         []string
 	DailyCapUsd   *float64
+	TriggerKind   string
+	Events        []string
+	Teams         []string
 	NextRunAt     time.Time
 	ID            string
 }
@@ -1317,6 +1641,9 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 		arg.Effort,
 		arg.Repos,
 		arg.DailyCapUsd,
+		arg.TriggerKind,
+		arg.Events,
+		arg.Teams,
 		arg.NextRunAt,
 		arg.ID,
 	)
@@ -1349,6 +1676,9 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 		&i.DailyCapUsd,
 		&i.PausedUntil,
 		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
 	)
 	return i, err
 }
