@@ -265,6 +265,8 @@ func joinedSurface(joinedVia string) string {
 		return ViaSlack
 	case JoinedGitHub:
 		return ViaGitHub
+	case JoinedLinear:
+		return ViaLinear
 	}
 	return ViaWeb
 }
