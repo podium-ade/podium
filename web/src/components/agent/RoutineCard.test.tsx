@@ -173,8 +173,8 @@ describe("RoutineDialog", () => {
     expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("routine-trigger-linear"));
     expect(screen.queryByTestId("schedule-summary")).not.toBeInTheDocument();
-    expect(screen.getByText("Issue created")).toBeInTheDocument();
-    expect(screen.getByText("Project update removed")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Issue created" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Project update removed" })).toBeInTheDocument();
     // No event, nothing to run on.
     expect(screen.getByTestId("routine-save")).toBeDisabled();
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   History,
@@ -26,7 +26,9 @@ import {
   draftOf,
   isLinear,
   isSystem,
+  LINEAR_ACTIONS,
   LINEAR_EVENTS,
+  LINEAR_TYPES,
   money,
   routineKey,
   routinesKey,
@@ -642,21 +644,35 @@ function LinearEventsField({
         <span id={ids.events} className="text-sm font-medium">
           Linear events
         </span>
-        <div data-testid="routine-linear-events" className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-          {LINEAR_EVENTS.map((e) => {
-            const id = `${ids.events}-${e.event}`;
-            return (
-              <label key={e.event} htmlFor={id} className="flex items-center gap-2 text-sm text-fg">
-                <Checkbox
-                  id={id}
-                  data-testid={`routine-event-${e.event}`}
-                  checked={events.includes(e.event)}
-                  onCheckedChange={(v) => toggle(e.event, v === true)}
-                />
-                {e.label}
-              </label>
-            );
-          })}
+        {/* A grid of what by what happened to it: eighteen labels in a row read as a wall. */}
+        <div
+          data-testid="routine-linear-events"
+          className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] rounded-lg border border-border text-sm"
+        >
+          <span />
+          {LINEAR_ACTIONS.map((a) => (
+            <span key={a.action} className="py-1.5 text-center text-xs text-muted capitalize">
+              {a.label}
+            </span>
+          ))}
+          {LINEAR_TYPES.map((t) => (
+            <Fragment key={t.type}>
+              <span className="flex items-center border-t border-border py-1.5 pl-3 text-fg">{t.label}</span>
+              {LINEAR_ACTIONS.map((a) => {
+                const event = `${t.type}.${a.action}`;
+                return (
+                  <span key={event} className="flex items-center justify-center border-t border-border py-1.5">
+                    <Checkbox
+                      data-testid={`routine-event-${event}`}
+                      aria-label={`${t.label} ${a.label}`}
+                      checked={events.includes(event)}
+                      onCheckedChange={(v) => toggle(event, v === true)}
+                    />
+                  </span>
+                );
+              })}
+            </Fragment>
+          ))}
         </div>
         <p data-testid="routine-linear-hint" className={cn("text-xs leading-relaxed", connections.isSuccess && !connected ? "text-warn" : "text-muted")}>
           {connections.isSuccess && !connected ? (
@@ -813,8 +829,8 @@ export function RoutineDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl lg:max-w-5xl">
+        <DialogHeader className="border-b border-border px-6 py-4 pr-14">
           <DialogTitle className="flex items-center gap-2">
             {title}
             {fixedScope === "system" ? <SystemBadge /> : null}
@@ -827,199 +843,201 @@ export function RoutineDialog({
           </DialogDescription>
         </DialogHeader>
         <form
-          className="grid gap-4"
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          {canChooseScope && !fixedScope ? (
-            <div className="grid gap-1.5" role="group" aria-labelledby={ids.scope}>
-              <span id={ids.scope} className="text-sm font-medium">
-                Runs as
-              </span>
-              <ToggleGroup
-                type="single"
-                value={scope}
-                aria-label="Runs as"
-                onValueChange={(v) => v && setScope(v as Scope)}
-                className="grid w-full grid-cols-2 border-border bg-raised"
-              >
-                {SCOPES.map((s) => (
-                  <ToggleGroupItem
-                    key={s.scope}
-                    value={s.scope}
-                    data-testid={`routine-scope-${s.scope}`}
-                    className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-                  >
-                    {s.scope === "system" ? <ShieldCheck aria-hidden /> : <User aria-hidden />}
-                    {s.scope === "system" ? `${brand} (system)` : s.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-              <p data-testid="routine-scope-hint" className="text-xs leading-relaxed text-muted">
-                {scopeHint}
-              </p>
-            </div>
-          ) : null}
-          {system && !fixedScope && blank ? (
-            <button
-              type="button"
-              data-testid="routine-template-ci"
-              onClick={useTemplate}
-              className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
-              <span className="grid gap-0.5">
-                <span className="font-medium text-fg">Start from “Fix failing CI”</span>
-                <span className="text-xs text-muted">
-                  Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after
-                  3 tries. It only proposes until you edit it to push.
-                </span>
-              </span>
-            </button>
-          ) : null}
-          <label className="grid gap-1.5 text-sm font-medium">
-            Name
-            <Input
-              data-testid="routine-name"
-              value={name}
-              maxLength={80}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={system ? "Fix failing CI" : "Morning PR digest"}
-            />
-          </label>
-          <label className="grid gap-1.5 text-sm font-medium">
-            What to do each run
-            <Textarea
-              data-testid="routine-instruction"
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              placeholder={
-                system
-                  ? "Look for failed checks on open pull requests in the API and web repos, and comment on each with the fix you would make. Do not push."
-                  : "Check acme/api for pull requests whose CI failed since the last run, and tell me which ones and why."
-              }
-              className="min-h-32"
-            />
-          </label>
-          {!system && !lockAssistant && assistants.length > 0 ? (
-            <div className="grid gap-1.5">
-              <label htmlFor={ids.assistant} className="text-sm font-medium">
-                Assistant
-              </label>
-              <Select
-                value={personalityId || DEFAULT_ASSISTANT}
-                onValueChange={(v) =>
-                  setPersonalityId(v === DEFAULT_ASSISTANT ? "" : v)
-                }
-              >
-                <SelectTrigger
-                  id={ids.assistant}
-                  data-testid="routine-assistant"
+          {/* What it does on the left, how it runs on the right. Below lg the two stack, in that order. */}
+          <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_26rem]">
+            <div className="flex min-w-0 flex-col gap-4 p-6">
+              {system && !fixedScope && blank ? (
+                <button
+                  type="button"
+                  data-testid="routine-template-ci"
+                  onClick={useTemplate}
+                  className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={DEFAULT_ASSISTANT}>{brand}</SelectItem>
-                  {assistants.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.displayName || p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-          {canChooseTrigger ? (
-            <div className="grid gap-1.5" role="group" aria-labelledby={ids.trigger}>
-              <span id={ids.trigger} className="text-sm font-medium">
-                Runs
-              </span>
-              <ToggleGroup
-                type="single"
-                value={trigger}
-                aria-label="Runs"
-                onValueChange={(v) => v && setTrigger(v as Trigger)}
-                className="grid w-full grid-cols-2 border-border bg-raised"
-              >
-                {TRIGGERS.map((t) => (
-                  <ToggleGroupItem
-                    key={t.trigger}
-                    value={t.trigger}
-                    data-testid={`routine-trigger-${t.trigger}`}
-                    className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-                  >
-                    {t.trigger === "linear" ? <Webhook aria-hidden /> : <Repeat aria-hidden />}
-                    {t.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-          ) : null}
-          {linear ? (
-            <LinearEventsField events={events} onEvents={setEvents} teams={teams} onTeams={setTeams} />
-          ) : (
-            <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
-          )}
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
-            <div className="grid min-w-0 gap-1.5">
-              <label htmlFor={ids.zone} className="text-sm font-medium">
-                Timezone
-              </label>
-              <TimezonePicker
-                id={ids.zone}
-                data-testid="routine-timezone"
-                value={timezone}
-                onChange={setTimezone}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <label htmlFor={ids.cap} className="text-sm font-medium">
-                Daily spend cap
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-faint">$</span>
+                  <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
+                  <span className="grid gap-0.5">
+                    <span className="font-medium text-fg">Start from “Fix failing CI”</span>
+                    <span className="text-xs text-muted">
+                      Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after
+                      3 tries. It only proposes until you edit it to push.
+                    </span>
+                  </span>
+                </button>
+              ) : null}
+              <label className="grid gap-1.5 text-sm font-medium">
+                Name
                 <Input
-                  id={ids.cap}
-                  data-testid="routine-cap"
-                  inputMode="decimal"
-                  value={cap}
-                  onChange={(e) => setCap(e.target.value)}
-                  placeholder="No cap"
-                  aria-invalid={capProblem !== ""}
-                  aria-describedby={`${ids.cap}-hint`}
-                  className="pl-6 tabular-nums"
+                  data-testid="routine-name"
+                  value={name}
+                  maxLength={80}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={system ? "Fix failing CI" : "Morning PR digest"}
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1.5 text-sm font-medium">
+                What to do each run
+                <Textarea
+                  data-testid="routine-instruction"
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder={
+                    system
+                      ? "Look for failed checks on open pull requests in the API and web repos, and comment on each with the fix you would make. Do not push."
+                      : "Check acme/api for pull requests whose CI failed since the last run, and tell me which ones and why."
+                  }
+                  className="min-h-40 flex-1"
+                />
+              </label>
+              <label className="grid gap-1.5 text-sm font-medium">
+                <span>
+                  Standing notes{" "}
+                  <span className="font-normal text-muted">(optional)</span>
+                </span>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="- skip draft pull requests"
+                  className="min-h-20"
+                />
+              </label>
+            </div>
+            <div className="grid min-w-0 content-start gap-5 border-t border-border p-6 lg:border-t-0 lg:border-l">
+              {canChooseScope && !fixedScope ? (
+                <div className="grid gap-1.5" role="group" aria-labelledby={ids.scope}>
+                  <span id={ids.scope} className="text-sm font-medium">
+                    Runs as
+                  </span>
+                  <ToggleGroup
+                    type="single"
+                    value={scope}
+                    aria-label="Runs as"
+                    onValueChange={(v) => v && setScope(v as Scope)}
+                    className="grid w-full grid-cols-2 border-border bg-raised"
+                  >
+                    {SCOPES.map((s) => (
+                      <ToggleGroupItem
+                        key={s.scope}
+                        value={s.scope}
+                        data-testid={`routine-scope-${s.scope}`}
+                        className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+                      >
+                        {s.scope === "system" ? <ShieldCheck aria-hidden /> : <User aria-hidden />}
+                        {s.scope === "system" ? `${brand} (system)` : s.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                  <p data-testid="routine-scope-hint" className="text-xs leading-relaxed text-muted">
+                    {scopeHint}
+                  </p>
+                </div>
+              ) : null}
+              {!system && !lockAssistant && assistants.length > 0 ? (
+                <div className="grid gap-1.5">
+                  <label htmlFor={ids.assistant} className="text-sm font-medium">
+                    Assistant
+                  </label>
+                  <Select
+                    value={personalityId || DEFAULT_ASSISTANT}
+                    onValueChange={(v) =>
+                      setPersonalityId(v === DEFAULT_ASSISTANT ? "" : v)
+                    }
+                  >
+                    <SelectTrigger
+                      id={ids.assistant}
+                      data-testid="routine-assistant"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={DEFAULT_ASSISTANT}>{brand}</SelectItem>
+                      {assistants.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.displayName || p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              {canChooseTrigger ? (
+                <div className="grid gap-1.5" role="group" aria-labelledby={ids.trigger}>
+                  <span id={ids.trigger} className="text-sm font-medium">
+                    Runs
+                  </span>
+                  <ToggleGroup
+                    type="single"
+                    value={trigger}
+                    aria-label="Runs"
+                    onValueChange={(v) => v && setTrigger(v as Trigger)}
+                    className="grid w-full grid-cols-2 border-border bg-raised"
+                  >
+                    {TRIGGERS.map((t) => (
+                      <ToggleGroupItem
+                        key={t.trigger}
+                        value={t.trigger}
+                        data-testid={`routine-trigger-${t.trigger}`}
+                        className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+                      >
+                        {t.trigger === "linear" ? <Webhook aria-hidden /> : <Repeat aria-hidden />}
+                        {t.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+              ) : null}
+              {linear ? (
+                <LinearEventsField events={events} onEvents={setEvents} teams={teams} onTeams={setTeams} />
+              ) : (
+                <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
+              )}
+              <div className="grid gap-1.5">
+                <label htmlFor={ids.zone} className="text-sm font-medium">
+                  Timezone
+                </label>
+                <TimezonePicker
+                  id={ids.zone}
+                  data-testid="routine-timezone"
+                  value={timezone}
+                  onChange={setTimezone}
                 />
               </div>
+              <div className="grid gap-1.5">
+                <label htmlFor={ids.cap} className="text-sm font-medium">
+                  Daily spend cap <span className="font-normal text-muted">(optional)</span>
+                </label>
+                <div className="flex items-start gap-3">
+                  <div className="relative w-28 shrink-0">
+                    <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-faint">$</span>
+                    <Input
+                      id={ids.cap}
+                      data-testid="routine-cap"
+                      inputMode="decimal"
+                      value={cap}
+                      onChange={(e) => setCap(e.target.value)}
+                      placeholder="No cap"
+                      aria-invalid={capProblem !== ""}
+                      aria-describedby={`${ids.cap}-hint`}
+                      className="pl-6 tabular-nums"
+                    />
+                  </div>
+                  <p id={`${ids.cap}-hint`} className={cn("text-xs leading-relaxed", capProblem ? "text-warn" : "text-muted")}>
+                    {capProblem || "Reaching it pauses the routine until midnight in its timezone."}
+                  </p>
+                </div>
+              </div>
             </div>
-            <p id={`${ids.cap}-hint`} className={cn("-mt-2 text-xs sm:col-span-2", capProblem ? "text-warn" : "text-muted")}>
-              {capProblem ||
-                "Reaching the cap pauses the routine until midnight in its timezone, and it starts again on its own."}
-            </p>
           </div>
-          <label className="grid gap-1.5 text-sm font-medium">
-            <span>
-              Standing notes{" "}
-              <span className="font-normal text-muted">(optional)</span>
-            </span>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="- skip draft pull requests"
-              className="min-h-20"
-            />
-          </label>
-          {error ? (
-            <p
-              role="alert"
-              data-testid="routine-error"
-              className="text-sm text-err"
-            >
-              {error}
-            </p>
-          ) : null}
-          <DialogFooter>
+          <DialogFooter className="border-t border-border px-6 py-3">
+            {error ? (
+              <p role="alert" data-testid="routine-error" className="mr-auto min-w-0 flex-1 text-sm text-err">
+                {error}
+              </p>
+            ) : null}
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
@@ -1038,4 +1056,3 @@ export function RoutineDialog({
     </Dialog>
   );
 }
-
