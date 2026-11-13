@@ -90,6 +90,10 @@ func (s *Scheduler) fireEvent(ctx context.Context, r store.Routine, now time.Tim
 		s.logger.InfoContext(ctx, "a routine's Linear events wait: over its spend cap", "routine_id", r.ID, "reason", reason)
 		return
 	}
+	if s.perSubject(r) {
+		s.fireSubjects(ctx, r, now)
+		return
+	}
 	busy, err := s.busy(ctx, r)
 	if err != nil {
 		s.logger.WarnContext(ctx, "asking whether a routine's chat is busy failed", "routine_id", r.ID, "error", err)
@@ -107,6 +111,13 @@ func (s *Scheduler) fireEvent(ctx context.Context, r store.Routine, now time.Tim
 // event is given to one run only, and a run that does not start gives its events back, so a
 // start that fails loses nothing and one that succeeds is the only run to see them.
 func (s *Scheduler) startEvents(ctx context.Context, r store.Routine, now time.Time) (store.RoutineRun, error) {
+	return s.startEventRun(ctx, r, now, nil)
+}
+
+// startEventRun is startEvents for the events about one subject alone when sub is set, in that
+// subject's chat, which is opened here when it has none. Nil is every waiting event, in the
+// routine's own chat.
+func (s *Scheduler) startEventRun(ctx context.Context, r store.Routine, now time.Time, sub *store.RoutineSubject) (store.RoutineRun, error) {
 	run, ok, err := s.store.ClaimRoutineRun(ctx, r.ID, now, store.RoutineTriggerEvent, store.RoutineRunRunning)
 	if err != nil {
 		return store.RoutineRun{}, err
@@ -114,7 +125,12 @@ func (s *Scheduler) startEvents(ctx context.Context, r store.Routine, now time.T
 	if !ok {
 		return store.RoutineRun{}, errClaimed
 	}
-	n, err := s.events.AttachRoutineEvents(ctx, run.ID, r.ID, MaxEventsPerRun)
+	var n int
+	if sub == nil {
+		n, err = s.events.AttachRoutineEvents(ctx, run.ID, r.ID, MaxEventsPerRun)
+	} else {
+		n, err = s.subjects.AttachRoutineSubjectEvents(ctx, run.ID, r.ID, sub.Key, MaxEventsPerRun)
+	}
 	if err != nil || n == 0 {
 		// Another tick took them, or none could be given: the run has nothing to do.
 		if derr := s.events.DeleteUnstartedRoutineRun(context.WithoutCancel(ctx), run.ID); derr != nil {
@@ -125,7 +141,21 @@ func (s *Scheduler) startEvents(ctx context.Context, r store.Routine, now time.T
 		}
 		return store.RoutineRun{}, err
 	}
-	if err := s.runner.RunRoutine(ctx, chatRun(r, run)); err != nil {
+	target := r
+	if sub != nil && sub.Key != "" {
+		chatID, err := s.subjectChat(ctx, r, run, *sub)
+		if err != nil {
+			s.releaseEvents(ctx, run.ID)
+			if _, _, serr := s.store.SettleRoutineRun(ctx, run.ID, store.RoutineRunFailed,
+				"The run could not start: "+err.Error(), nil); serr != nil {
+				s.logger.WarnContext(ctx, "settling a run that did not start failed", "run_id", run.ID, "error", serr)
+			}
+			s.checkFailures(ctx, r.ID, now)
+			return run, err
+		}
+		target.ChatID = chatID
+	}
+	if err := s.runner.RunRoutine(ctx, chatRun(target, run)); err != nil {
 		s.releaseEvents(ctx, run.ID)
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
 		if errors.Is(err, chat.ErrChatBusy) {

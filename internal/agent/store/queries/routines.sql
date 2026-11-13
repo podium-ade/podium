@@ -8,19 +8,24 @@
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
   notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
-  repos, daily_cap_usd, created_by, trigger_kind, events, teams
+  repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode
 ) values (
   @id, @scope, sqlc.narg('owner_login'), @name, @schedule, @timezone, @instruction, @created_at,
   @notes, sqlc.narg('personality_id'), @model, @effort, true, @chat_id, @next_run_at, @created_at, @created_at,
-  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[]
+  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[], @chat_mode
 )
 returning *;
 
 -- name: GetRoutine :one
 select * from routines where id = @id;
 
+-- GetRoutineByChat is the routine a chat belongs to: its own chat, or one of its chats per
+-- ticket (0047), which carry chats.routine_id as its own chat does.
 -- name: GetRoutineByChat :one
-select * from routines where chat_id = @chat_id;
+select r.* from routines r
+where r.chat_id = @chat_id
+   or r.id = (select c.routine_id from chats c where c.id = @chat_id)
+limit 1;
 
 -- name: ListRoutinesByOwner :many
 select * from routines where owner_login = @owner_login order by name, id;
@@ -60,6 +65,7 @@ set name = @name,
     trigger_kind = @trigger_kind,
     events = @events::text[],
     teams = @teams::text[],
+    chat_mode = @chat_mode,
     next_run_at = @next_run_at,
     updated_at = @updated_at
 where id = @id
@@ -227,8 +233,9 @@ select * from routine_runs where routine_id = @routine_id and status = 'running'
 -- calls it does one round trip whatever the number of routines. A delivery stored before is
 -- not stored again.
 -- name: InsertRoutineEvents :execrows
-insert into routine_events (routine_id, delivery_id, event, payload, received_at)
-select r.id, @delivery_id::text, @event::text, @payload::jsonb, @received_at
+insert into routine_events (routine_id, delivery_id, event, payload, received_at, subject_key, subject_title)
+select r.id, @delivery_id::text, @event::text, @payload::jsonb, @received_at,
+       sqlc.narg('subject_key')::text, sqlc.narg('subject_title')::text
   from routines r
  where r.enabled and r.trigger_kind = 'linear' and @event::text = any(r.events)
    and (cardinality(r.teams) = 0 or @team_key::text = any(r.teams))
@@ -291,3 +298,54 @@ where routine_id = @routine_id and trigger = @trigger and created_at >= @since;
 -- DeleteUnstartedRoutineRun removes a run that was claimed and then had nothing to do.
 -- name: DeleteUnstartedRoutineRun :exec
 delete from routine_runs where id = @id and status = 'running' and turn_id is null;
+
+-- SetRoutineRunChat records that a run happened in one subject's chat rather than the
+-- routine's own (0047).
+-- name: SetRoutineRunChat :exec
+update routine_runs set chat_id = @chat_id where id = @id;
+
+-- PendingRoutineSubjects is what a routine's waiting events are about, the subject waiting
+-- longest first, with the chat each already has. An event about nothing in particular is the
+-- subject ''.
+-- name: PendingRoutineSubjects :many
+select coalesce(e.subject_key, '')::text as subject_key,
+       coalesce(max(e.subject_title), '')::text as subject_title,
+       min(e.received_at)::timestamptz as oldest,
+       count(*)::int as pending,
+       coalesce(max(sc.chat_id), '')::text as chat_id
+  from routine_events e
+  left join routine_subject_chats sc on sc.routine_id = e.routine_id and sc.subject_key = e.subject_key
+ where e.routine_id = @routine_id::text and e.run_id is null
+ group by coalesce(e.subject_key, '')
+ order by min(e.received_at), coalesce(e.subject_key, '')
+ limit @page_limit::int;
+
+-- AttachRoutineSubjectEvents is AttachRoutineEvents for one subject's waiting events alone.
+-- name: AttachRoutineSubjectEvents :execrows
+update routine_events set run_id = @run_id::text
+where id in (
+  select p.id from routine_events p
+  where p.routine_id = @routine_id::text and p.run_id is null
+    and coalesce(p.subject_key, '') = @subject_key::text
+  order by p.received_at, p.id
+  limit @max::int
+  for update skip locked
+);
+
+-- name: GetRoutineSubjectChat :one
+select * from routine_subject_chats where routine_id = @routine_id and subject_key = @subject_key;
+
+-- name: GetRoutineSubjectChatByChat :one
+select * from routine_subject_chats where chat_id = @chat_id;
+
+-- InsertRoutineSubjectChat gives a subject its chat. No row back means another tick gave it
+-- one first.
+-- name: InsertRoutineSubjectChat :one
+insert into routine_subject_chats (routine_id, subject_key, subject_title, chat_id, created_at)
+values (@routine_id, @subject_key, @subject_title, @chat_id, @created_at)
+on conflict do nothing
+returning *;
+
+-- CountRoutineSubjectChatsSince is how many chats per ticket a routine opened in a window.
+-- name: CountRoutineSubjectChatsSince :one
+select count(*)::int from routine_subject_chats where routine_id = @routine_id and created_at >= @since;

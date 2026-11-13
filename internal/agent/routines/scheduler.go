@@ -62,6 +62,18 @@ type EventStore interface {
 	DeleteUnstartedRoutineRun(ctx context.Context, runID string) error
 }
 
+// SubjectStore is what the scheduler needs of the database to run a routine on Linear events in
+// a chat per ticket (subjects.go). It is apart from EventStore so that a scheduler given none
+// runs every routine in its own chat.
+type SubjectStore interface {
+	PendingRoutineSubjects(ctx context.Context, routineID string) ([]store.RoutineSubject, error)
+	AttachRoutineSubjectEvents(ctx context.Context, runID, routineID, subjectKey string, limit int) (int, error)
+	EnsureRoutineSubjectChat(ctx context.Context, r store.Routine, subjectKey, subjectTitle string) (string, bool, error)
+	CountRoutineSubjectChatsSince(ctx context.Context, routineID string, since time.Time) (int, error)
+	SetRoutineRunChat(ctx context.Context, runID, chatID string) error
+	RunningRoutineRun(ctx context.Context, routineID string) (store.RoutineRun, error)
+}
+
 // Runner starts a run in a routine's chat. The web chat implements it.
 type Runner interface {
 	RunRoutine(ctx context.Context, run chat.RoutineRun) error
@@ -69,12 +81,13 @@ type Runner interface {
 
 // Scheduler fires routines and settles their runs.
 type Scheduler struct {
-	store  Store
-	events EventStore
-	runner Runner
-	logger *slog.Logger
-	tick   time.Duration
-	now    func() time.Time
+	store    Store
+	events   EventStore
+	subjects SubjectStore
+	runner   Runner
+	logger   *slog.Logger
+	tick     time.Duration
+	now      func() time.Time
 }
 
 // Options configures a Scheduler.
@@ -83,8 +96,11 @@ type Options struct {
 	// Events is the store's Linear events. Nil runs no routine on Linear events: their events
 	// wait, and are pruned by whichever scheduler has them.
 	Events EventStore
-	Runner Runner
-	Logger *slog.Logger
+	// Subjects is the store's chats per ticket. Nil runs a routine set to a chat per ticket in
+	// its own chat, as every other.
+	Subjects SubjectStore
+	Runner   Runner
+	Logger   *slog.Logger
 	// Tick is how often to look; zero is DefaultTick.
 	Tick time.Duration
 	// Now is the clock; nil is time.Now.
@@ -96,7 +112,10 @@ func New(opts Options) (*Scheduler, error) {
 	if opts.Store == nil || opts.Runner == nil {
 		return nil, errors.New("routines: a store and a runner are required")
 	}
-	s := &Scheduler{store: opts.Store, events: opts.Events, runner: opts.Runner, logger: opts.Logger, tick: opts.Tick, now: opts.Now}
+	s := &Scheduler{
+		store: opts.Store, events: opts.Events, subjects: opts.Subjects, runner: opts.Runner,
+		logger: opts.Logger, tick: opts.Tick, now: opts.Now,
+	}
 	if s.logger == nil {
 		s.logger = slog.Default()
 	}
@@ -328,7 +347,12 @@ func chatRun(r store.Routine, run store.RoutineRun) chat.RoutineRun {
 }
 
 func (s *Scheduler) busy(ctx context.Context, r store.Routine) (bool, error) {
-	sess, err := s.store.GetSessionByKey(ctx, store.ChatSourceKey(r.ChatID))
+	return s.chatBusy(ctx, r.ChatID)
+}
+
+// chatBusy is whether a chat has a turn running or waiting.
+func (s *Scheduler) chatBusy(ctx context.Context, chatID string) (bool, error) {
+	sess, err := s.store.GetSessionByKey(ctx, store.ChatSourceKey(chatID))
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -344,6 +368,15 @@ func (s *Scheduler) RunNow(ctx context.Context, routineID string) (store.Routine
 	r, err := s.store.GetRoutine(ctx, routineID)
 	if err != nil {
 		return store.RoutineRun{}, err
+	}
+	if s.perSubject(r) {
+		// Its run by hand is in its own chat, but it is still one run of the routine at a time:
+		// the runs share its state.
+		if running, err := s.subjects.RunningRoutineRun(ctx, r.ID); err == nil {
+			return store.RoutineRun{}, fmt.Errorf("%w: a run is going in another of its chats (run %s)", ErrBusy, running.ID)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return store.RoutineRun{}, err
+		}
 	}
 	run, err := s.start(ctx, r, s.now().UTC().Truncate(time.Second), store.RoutineTriggerManual)
 	if errors.Is(err, errClaimed) {
