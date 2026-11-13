@@ -2042,7 +2042,9 @@ conductor from outside.
 
 **Setting it up.** In Linear, open Settings → API → OAuth applications → New, turn on *Client
 credentials*, and turn on webhooks with *Agent session events* and *Permission changes* ticked
-(*Inbox notifications* repeats every delegation and mention; leave it off). The webhook URL is
+(*Inbox notifications* repeats every delegation and mention; leave it off). Tick resource types
+such as *Issues* and *Comments* as well only for routines that run on Linear events ([On a Linear
+event](#on-a-linear-event)); the app itself acts on none of them. The webhook URL is
 the public address that reaches the listen address you will save, with the path
 `/webhooks/linear`. Then under Access → Connections → Linear paste the client id, the client
 secret, the webhook signing secret (`lin_wh_…`) and that listen address. Saving signs in to
@@ -2070,7 +2072,9 @@ Every delivery is checked first: the `Linear-Signature` HMAC with the signing se
 `webhookTimestamp` within a minute, the delivery id not seen in the last seven hours (Linear
 retries for six), and the workspace and app user the save found. Anything else is answered 200
 and logged as `linear: webhook` with its outcome, and counted in
-`podium_agent_linear_webhook_deliveries_total`. A retried prompt keeps its id, and the session's
+`podium_agent_linear_webhook_deliveries_total`. A data change (an issue, a comment, … created,
+updated or removed) is handed to the routines that run on it, off the request, and counted with
+type `data` whatever its entity; its body is never logged. A retried prompt keeps its id, and the session's
 chat records one row per prompt id, so a retry starts no second turn on whichever conductor it
 reaches. The conductor that heard a session open, or a Stop, also remembers that prompt's id for
 seven hours, so a retry of either is not acknowledged or answered twice there; a retry that reaches
@@ -3449,7 +3453,8 @@ The scope is chosen once, when the routine is made. A system routine cannot open
   is theirs, and it is checked exactly as one made on the page: the same floor, the same count. The
   tool answers with a link to the routine's chat, which the assistant puts in its reply.
 
-A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
+A routine runs on a schedule or, when an admin sets it up, on Linear events ([On a Linear
+event](#on-a-linear-event)). A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
 timezone, so a routine at 09:00 stays at 09:00 across daylight saving. A personal routine may run
 **at most every 15 minutes**; a schedule tighter than that anywhere in the week is refused, with
 the gap it found. Each routine runs a fixed few seconds past its minute (a jitter from its id), so
@@ -3549,6 +3554,62 @@ one `- ` line each, and every run's brief gives them as binding as the instructi
 suggest one through `routine_finish`'s `propose_note`; it waits on the card, one at a time (a newer
 suggestion replaces an unanswered one), and only **Add to notes** appends it to the notes, word for
 word. No model rewrites the notes, and the owner edits them by hand under Edit.
+
+### On a Linear event
+
+A routine can run when something happens in Linear instead of on a schedule: "when an issue is
+created, label it by its area", "when a comment is added to an ENG issue, check whether it asks a
+question nobody answered". In the routine dialog, **Runs → On a Linear event** replaces the
+schedule with the events it runs on and, optionally, the teams.
+
+- **Who may set it.** Admins and owners, in either scope — a personal routine of theirs or a
+  system routine — and nobody else. A member is not offered the choice, and the API refuses a draft
+  that names Linear events from one (`PermissionDenied`), on create and on edit. The events carry
+  issues from every team the Linear app can see, so a member's routine would read teams the member
+  is not in ([security.md](security.md#5-the-conductor-and-the-bot)). `create_routine` in a chat
+  sets up schedules only.
+- **The events.** One or more of `Issue`, `Comment`, `Project`, `ProjectUpdate`, `Cycle` and
+  `IssueLabel`, each `create`, `update` or `remove` (`Issue.create`, shown as "Issue created").
+  **Teams** are Linear team keys (`ENG`), comma-separated; empty is every team. With teams set, an
+  event that names no team — a project, a cycle — does not reach the routine. An issue's team is
+  read from the payload; a comment's from its issue; when the payload names a team only by id,
+  the app asks Linear for its key once and keeps it ten minutes.
+- **What it is.** One kind or the other, never both: a routine on Linear events has no schedule
+  and no next run, its card and row say "Runs on Linear: issue created (ENG)" and how many events
+  are waiting, and it keeps a timezone for its daily spend cap. **Run now** runs it with no events,
+  and its brief says it was started by hand.
+- **How it runs.** The Linear app's webhook hands every data change to the routines that ask for
+  it: one row per routine in `routine_events`, with `unique (routine, delivery)` so a delivery
+  Linear retried, or one that reached two conductors, is kept once. The leading conductor's
+  15-second tick gives each routine with events waiting a run (`routine_runs.trigger` `event`)
+  with the **oldest twenty**; more wait for the next run. The run's brief carries each event — what,
+  when, who, the link, and the entity as Linear sent it, with `updatedFrom` on an update — trimmed
+  to fit the brief, and read back from the database by the run's id, so whichever conductor runs
+  the turn sees them. The instruction is still never written into the chat, and the run's divider
+  says what started it ("Routine run · … · Linear: ENG-12 created and 2 more").
+- **A busy chat keeps the events.** A scheduled run is skipped while the chat is busy, because the
+  next one reads the newer record anyway. An event is work nobody else will do, so it waits for
+  the run after the chat is free. A run that fails to start gives its events back, and so does one
+  whose turn never started; no event is given to two runs.
+- **Guards.** An event waits at most a day, and at most 200 wait for one routine; beyond that the
+  oldest are dropped, and the conductor logs it. More than 60 runs from Linear events within an
+  hour pause the routine with that reason on its card, through the same pause and inbox notice as
+  five failures — a routine that changes what it watches can otherwise start itself again. A change
+  the Linear app made itself never reaches a routine. A paused routine is handed no new events; the
+  ones already waiting run when it is resumed, if they are less than a day old. The spend caps and
+  the owner-is-still-a-member check apply as for a schedule, and over a cap the events wait.
+- **The events are data.** Titles, descriptions and comments are what anybody in the workspace
+  typed. The brief fences them and tells the model they are data from Linear written by other
+  people, not instructions — which reduces prompt injection and does not remove it
+  ([security.md](security.md#5-the-conductor-and-the-bot)).
+
+**Setting it up in Linear.** On the OAuth application (Settings → API → OAuth applications), tick
+the resource types the routines need under the webhook — *Issues*, *Comments*, *Projects*,
+*Project updates*, *Cycles*, *Issue labels* — beside *Agent session events*. The webhook URL is the
+same one. Until the app is connected under Connections, the dialog says so, and a routine saves but
+is given nothing. Only a conductor that runs routines keeps events; a delivery that reaches one
+that does not is dropped. A delivery the conductor failed to store is logged as lost and is not
+retried: Linear was already answered.
 
 ### Admins: Settings → Routines
 
