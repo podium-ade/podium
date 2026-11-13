@@ -22,11 +22,20 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
     trigger: r.trigger,
     events: r.events,
     teams: r.teams,
+    chatMode: r.chatMode,
   };
 }
 
 /** Trigger is what starts a routine's runs: its schedule, or Linear events. */
 export type Trigger = "schedule" | "linear";
+
+/** ChatMode is where a routine on Linear events runs: all in its own chat, or a chat per ticket. */
+export type ChatMode = "routine" | "subject";
+
+/** perTicket is a routine on Linear events whose runs each happen in the chat of the ticket they are about. */
+export function perTicket(r: Pick<Routine, "trigger" | "chatMode">): boolean {
+  return isLinear(r) && r.chatMode === "subject";
+}
 
 /** isLinear is a routine that runs on Linear events instead of a schedule. */
 export function isLinear(r: Pick<Routine, "trigger">): boolean {

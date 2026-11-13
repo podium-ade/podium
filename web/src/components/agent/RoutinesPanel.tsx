@@ -10,6 +10,7 @@ import { canManageInfra } from "../../lib/rbac";
 import {
   draftOf,
   isLinear,
+  perTicket,
   isSystem,
   money,
   routineChatPath,
@@ -279,6 +280,7 @@ function RoutineRow({
         <p className="text-sm text-muted">
           {runsText(r)}
           {!linear && r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {perTicket(r) ? <span className="text-faint"> · a chat per ticket</span> : null}
           {system ? <span className="text-faint"> · as {brand}</span> : null}
         </p>
         {flagged ? (
