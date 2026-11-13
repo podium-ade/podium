@@ -202,7 +202,20 @@ func (s *AgentService) ownedChat(ctx context.Context, chatID, login string) (sto
 // is warned about as possibly private. A pull request is as visible as its repository, which
 // Podium does not know — GitHub's own access is the boundary, and nobody reaches a PR's chat
 // here without having been in the PR.
+//
+// A Linear agent session is as private as its issue's team. The Linear source asks Linear
+// whether that team is private and the mirror records it in the same column; a team it could
+// not ask about is warned about as possibly private, never assumed public.
 func sourcePrivacy(c store.Chat) (private, unknown bool) {
+	if c.Origin == store.OriginLinear {
+		switch c.ChannelPrivacy {
+		case store.ChannelPublic:
+			return false, false
+		case store.ChannelPrivate:
+			return true, false
+		}
+		return false, true
+	}
 	if c.Origin != store.OriginSlack {
 		return false, false
 	}

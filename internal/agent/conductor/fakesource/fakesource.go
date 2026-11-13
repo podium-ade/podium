@@ -33,6 +33,8 @@ type Record struct {
 	// Playbook and SourcePlaybook are the Outbound's speaker.
 	Playbook       string `json:"playbook,omitempty"`
 	SourcePlaybook bool   `json:"source_playbook,omitempty"`
+	// CancelReason is the Outbound's: why the control plane says a cancelled task was.
+	CancelReason string `json:"cancel_reason,omitempty"`
 }
 
 // The actions a Record can carry.
@@ -45,6 +47,9 @@ const (
 	ActionLinkPullRequest = "link_pull_request"
 	// ActionAutoTitle is the name a turn gave the conversation. Text is the title.
 	ActionAutoTitle = "auto_title"
+	// ActionStoppedElsewhere is another conductor saying it stopped a turn of one of this
+	// source's conversations. Ref is the source key and Text the task.
+	ActionStoppedElsewhere = "stopped_elsewhere"
 )
 
 // Source is the in-memory source.
@@ -63,6 +68,9 @@ type Source struct {
 	// keeps a readable copy of it. Off by default: the web chat must NOT be mirrored,
 	// because it already stores its own messages and a second writer would double them.
 	mirror bool
+	// mirrorKey, when set, is the mirror's key for a ref instead of the Slack-shaped default:
+	// a Linear agent session's ref names its session fourth, not second.
+	mirrorKey func(ref string) (string, bool)
 	// failPosts is how many more answers, failures or questions Post refuses, which is how a
 	// test drives the delivery outbox's retries.
 	failPosts int
@@ -77,7 +85,10 @@ type Source struct {
 	closed      bool
 }
 
-var _ conductor.Source = (*Source)(nil)
+var (
+	_ conductor.Source     = (*Source)(nil)
+	_ conductor.StopHearer = (*Source)(nil)
+)
 
 // New returns a source announcing itself as kind.
 func New(kind string) *Source {
@@ -167,7 +178,7 @@ func (s *Source) Post(_ context.Context, ref string, out conductor.Outbound) (st
 	id := "msg-" + strconv.FormatInt(s.nextMsg, 10)
 	s.record(Record{
 		Action: ActionPost, Ref: ref, Type: out.Type, Text: out.Text, MessageID: id,
-		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
+		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook, CancelReason: out.CancelReason,
 	})
 	if out.Type == conductor.OutFinal {
 		s.transcript[ref] = append(s.transcript[ref], conductor.BriefEntry{
@@ -307,6 +318,23 @@ func (s *Source) Mirrors() {
 	s.mirror = true
 }
 
+// MirrorsAs is Mirrors with the key a ref is mirrored under worked out by key, which is how a
+// test mirrors a source whose refs are not Slack-shaped. A false from key is a ref that is not
+// mirrored, as the Linear app's answer for a ref the poller wrote.
+func (s *Source) MirrorsAs(key func(ref string) (string, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mirror = true
+	s.mirrorKey = key
+}
+
+// StoppedElsewhere implements conductor.StopHearer, by recording what it heard.
+func (s *Source) StoppedElsewhere(sourceKey, taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.record(Record{Action: ActionStoppedElsewhere, Ref: sourceKey, Text: taskID})
+}
+
 // MirrorKey implements the conductor's mirrored-source half: the session key a ref belongs
 // to. False unless Mirrors was called, which is the same "this source is not mirrored"
 // answer the web chat gives by not implementing the method at all.
@@ -315,6 +343,9 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 	defer s.mu.Unlock()
 	if !s.mirror {
 		return "", false
+	}
+	if s.mirrorKey != nil {
+		return s.mirrorKey(ref)
 	}
 	// The same shape a session key has, because that is what the real thing returns: the
 	// channel and the thread, never the triggering message.

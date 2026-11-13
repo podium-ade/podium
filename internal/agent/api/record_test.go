@@ -61,4 +61,10 @@ func TestSurfacesComeFromTheSessionKey(t *testing.T) {
 	linked := surfacesOf(store.Chat{SourceKey: "slack:C1:1.1", SourceURL: "https://acme.slack.com/archives/C1/p11"})
 	assert.Equal(t, "https://acme.slack.com/archives/C1/p11", linked[0].GetUrl())
 	assert.Empty(t, surfacesOf(store.Chat{SourceKey: "chat:chat_1"}), "a web chat lives nowhere else")
+
+	lin := surfacesOf(store.Chat{SourceKey: "linear:session:s-1", SourceURL: "https://linear.app/acme/agent-session/s-1"})
+	require.Len(t, lin, 1)
+	assert.Equal(t, store.ViaLinear, lin[0].GetKind())
+	assert.Equal(t, "Linear session", lin[0].GetLabel())
+	assert.Equal(t, "https://linear.app/acme/agent-session/s-1", lin[0].GetUrl(), "the chip opens the session")
 }

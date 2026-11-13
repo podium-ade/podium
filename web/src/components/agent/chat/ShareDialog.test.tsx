@@ -36,6 +36,7 @@ type Over = {
   myRole?: string;
   origin?: string;
   privateSource?: boolean;
+  sourcePrivacyUnknown?: boolean;
 };
 
 function sharing(over: Over = {}): ChatSharing {
@@ -49,6 +50,7 @@ function sharing(over: Over = {}): ChatSharing {
     myRole: over.myRole ?? "owner",
     origin: over.origin ?? "web",
     privateSource: over.privateSource ?? false,
+    sourcePrivacyUnknown: over.sourcePrivacyUnknown ?? false,
   });
 }
 
@@ -174,5 +176,19 @@ describe("ShareDialog", () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "slack", privateSource: true }) });
     mount();
     expect(await screen.findByTestId("share-private-warning")).toHaveTextContent("private Slack conversation");
+  });
+
+  it("warns in Linear's words before a private team's issue is shared", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "linear", privateSource: true }) });
+    mount();
+    const warning = await screen.findByTestId("share-private-warning");
+    expect(warning).toHaveTextContent("an issue in a private Linear team");
+    expect(warning).not.toHaveTextContent("Slack");
+  });
+
+  it("warns about a Linear issue whose team may be private", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "linear", sourcePrivacyUnknown: true }) });
+    mount();
+    expect(await screen.findByTestId("share-private-warning")).toHaveTextContent("whose team may be private");
   });
 });

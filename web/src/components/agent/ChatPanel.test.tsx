@@ -1163,6 +1163,68 @@ describe("ChatPanel", () => {
     expect(people[1]).toHaveAttribute("aria-label", "octocat (not in Podium) · GitHub");
   });
 
+  it("links a Linear session's chat back to the session and says who spoke from Linear", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, origin: "linear", title: "EME-5 Test issue" }], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(
+      chatRow({
+        origin: "linear",
+        title: "EME-5 Test issue",
+        people: [create(ChatPersonSchema, { login: "ada@acme.com", name: "Ada", via: "linear" })],
+        surfaces: [
+          create(ChatSurfaceSchema, {
+            kind: "linear",
+            label: "Linear session",
+            url: "https://linear.app/acme/agent-session/1c306b38",
+          }),
+        ],
+      }),
+    );
+    stream.push(pullRequests());
+    const frame = said(1, "user", "@podium what is the time?", "Ada");
+    if (frame.frame.case === "message") {
+      Object.assign(frame.frame.value, {
+        authorLogin: "ada@acme.com",
+        via: "linear",
+        addressed: true,
+        externalUrl: "https://linear.app/acme/issue/EME-5/test-issue",
+      });
+    }
+    stream.push(frame);
+
+    const surface = await screen.findByTestId("chat-surface");
+    expect(surface).toHaveAttribute("href", "https://linear.app/acme/agent-session/1c306b38");
+    expect(surface).toHaveTextContent("Linear session");
+    await waitFor(() => expect(screen.getAllByTestId("chat-author")).toHaveLength(1));
+    // The surface chip draws the same mark, unlinked: the message's own is the link.
+    const linked = screen.getAllByTestId("chat-origin").filter((o) => o.tagName === "A");
+    expect(linked.map((o) => [o.dataset.via, o.getAttribute("href")])).toEqual([
+      ["linear", "https://linear.app/acme/issue/EME-5/test-issue"],
+    ]);
+    expect(screen.getByTestId("chat-person")).toHaveAttribute("aria-label", "Ada · Linear");
+  });
+
+  it("lists Linear sessions apart, after the threads and pull requests", async () => {
+    listChats.mockResolvedValue({
+      chats: [
+        { ...chat, id: "chat_linear", title: "EME-5 Test issue", origin: "linear", startedBy: "Ada" },
+        { ...chat, id: "chat_slack", title: "in the channel", origin: "slack", startedBy: "carol" },
+        chat,
+      ],
+      nextCursor: "",
+    });
+    mount();
+
+    const linear = await screen.findByTestId("chat-origin-linear");
+    expect(linear).toHaveTextContent("Linear");
+    const list = screen.getByTestId("chat-list");
+    expect(list).toHaveTextContent("EME-5 Test issue");
+    expect(list.textContent?.indexOf("Slack")).toBeLessThan(list.textContent?.indexOf("Linear") ?? -1);
+  });
+
   it("lets a participant write a conversation that lives somewhere else, one way", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();

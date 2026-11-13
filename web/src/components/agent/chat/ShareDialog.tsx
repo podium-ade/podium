@@ -74,6 +74,21 @@ function Picker({
   );
 }
 
+/**
+ * privateSourceWarning is what the share dialog says about a mirrored conversation that is, or
+ * may be, private where it lives: a Slack channel or DM, or an issue in a private Linear team.
+ */
+function privateSourceWarning(origin: string, certain: boolean): string {
+  if (origin === "linear") {
+    return certain
+      ? "This chat mirrors an issue in a private Linear team. Sharing it shows what was said there to people who may not be able to see it."
+      : "This chat mirrors a Linear issue whose team may be private. Sharing it shows what was said there to people who may not be able to see it.";
+  }
+  return certain
+    ? "This chat mirrors a private Slack conversation. Sharing it shows what was said there to people who are not in it."
+    : "This chat mirrors a Slack channel that may be private. Sharing it shows what was said there to people who may not be in it.";
+}
+
 const ROLE_OPTIONS = (["editor", "viewer"] as const).map((r) => ({ value: r, label: roleLabel(r) }));
 const ACCESS_OPTIONS = ["restricted", "members", "link"].map((a) => ({ value: a, label: generalAccessLabel(a) }));
 
@@ -192,9 +207,7 @@ export function ShareDialog({
 
         {s?.privateSource || s?.sourcePrivacyUnknown ? (
           <Alert variant="warn" role="note" data-testid="share-private-warning">
-            {s.privateSource
-              ? "This chat mirrors a private Slack conversation. Sharing it shows what was said there to people who are not in it."
-              : "This chat mirrors a Slack channel that may be private. Sharing it shows what was said there to people who may not be in it."}
+            {privateSourceWarning(s.origin, s.privateSource)}
           </Alert>
         ) : null}
 

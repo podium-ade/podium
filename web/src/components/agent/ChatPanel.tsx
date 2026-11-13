@@ -465,10 +465,11 @@ function originLabel(key: string): string {
   if (key === "workspace") return "Workspace";
   if (key === "slack") return "Slack";
   if (key === "github") return "GitHub";
+  if (key === "linear") return "Linear";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "workspace"];
+const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "linear", "workspace"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {

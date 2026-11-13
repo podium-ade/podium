@@ -3,7 +3,8 @@ package conductor
 // Delivery: how an answer reaches the surface a turn started on.
 //
 // The web chat is the record (Phase 3 of docs/agent.md), so an answer
-// is written there first, and the copy on Slack or GitHub is a delivery the conductor owes.
+// is written there first, and the copy on Slack, GitHub or Linear is a delivery the conductor
+// owes.
 // Before this, a post that failed was a log line and an answer nobody in the thread saw. Now
 // it is a row in chat_outbox: attempted at once, retried with backoff by whichever conductor
 // gets to it, given up on after outboxMaxAttempts, and visible in the web chat as "not
@@ -14,6 +15,8 @@ package conductor
 //	web-started    → the web chat only (the chat source is not mirrored; nothing is owed)
 //	Slack-started  → that thread, plus the web record
 //	GitHub-started → that pull request, plus every Slack thread bound to it, plus the record
+//	Linear-started → that agent session, plus the record (a ticket the poller saw has no
+//	                 record, and is posted to once, as before)
 //
 // Only what a person has to see goes through here: an answer, a failure, a question. Progress
 // is edited in place and superseded by the answer; an activity line is for the web chat. A
@@ -129,12 +132,13 @@ func payloadOf(out Outbound) store.OutboxPayload {
 	return store.OutboxPayload{
 		Type: out.Type, Text: out.Text, TaskID: out.TaskID,
 		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
+		CancelReason: out.CancelReason,
 	}
 }
 
 func outboundOf(p store.OutboxPayload) Outbound {
 	return Outbound{
-		Type: p.Type, Text: p.Text, TaskID: p.TaskID,
+		Type: p.Type, Text: p.Text, TaskID: p.TaskID, CancelReason: p.CancelReason,
 		Speaker: Speaker{Playbook: p.Playbook, SourcePlaybook: p.SourcePlaybook},
 	}
 }

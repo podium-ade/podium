@@ -486,6 +486,11 @@ func (c *Conductor) Run(ctx context.Context) error {
 		defer c.wg.Done()
 		c.listenCancels(ctx)
 	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.listenStops(ctx)
+	}()
 	if c.chatHost != nil {
 		c.wg.Add(1)
 		go func() {
@@ -1725,8 +1730,8 @@ func (c *Conductor) turnCredentialOwner(ctx context.Context, sess store.Session,
 	return c.credentialOwner(ctx, login, agent, onChatHost)
 }
 
-// sharedConversation is whether a conversation is shared: a Slack thread, a Linear issue or
-// a pull request always is, and a web chat is once it is multiplayer (shared, or a second
+// sharedConversation is whether a conversation is shared: a Slack thread, a Linear session or
+// issue, or a pull request always is, and a web chat is once it is multiplayer (shared, or a second
 // person spoke in it; store.Chat.Multiplayer, which never goes back). A Linear agent session
 // is a thread anybody in the workspace who can see the issue may reply in, exactly as a Slack
 // thread is, and a polled ticket has nobody's key to spend in the first place. A chat whose

@@ -63,6 +63,9 @@ type appHarness struct {
 	// users is what Linear says about each user the source asks after, by id. A user who is
 	// not here is not found. It starts with Ada, a full member of the workspace.
 	users map[string]map[string]any
+	// private is what Linear says about each team's privacy, by id. A team that is not here
+	// is not found. It starts with the fixtures' team, which is not private.
+	private map[string]bool
 }
 
 // member is a Linear user as `user(id:)` answers for an active, full member.
@@ -97,11 +100,12 @@ func (b *lockedBuffer) String() string {
 func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 	t.Helper()
 	h := &appHarness{
-		stub:  newStub(t),
-		clock: &fakeClock{now: time.UnixMilli(1794516370634).UTC()},
-		reg:   prometheus.NewRegistry(),
-		log:   &lockedBuffer{},
-		users: map[string]map[string]any{fixtureUser: member(fixtureUser, fixtureEmail)},
+		stub:    newStub(t),
+		clock:   &fakeClock{now: time.UnixMilli(1794516370634).UTC()},
+		reg:     prometheus.NewRegistry(),
+		log:     &lockedBuffer{},
+		users:   map[string]map[string]any{fixtureUser: member(fixtureUser, fixtureEmail)},
+		private: map[string]bool{fixtureTeam: false},
 	}
 	h.metrics = NewMetrics(h.reg)
 	ts, err := NewTokenSource(TokenSourceOptions{
@@ -160,6 +164,15 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 			return stubReply{Data: map[string]any{"user": u}}
 		}
 		return stubReply{Message: "Entity not found: User", Code: "INVALID_INPUT"}
+	})
+	h.stub.on("PodiumTeamPrivacy", func(vars map[string]any) stubReply {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		id := vars["id"].(string)
+		if private, ok := h.private[id]; ok {
+			return stubReply{Data: map[string]any{"team": map[string]any{"id": id, "private": private}}}
+		}
+		return stubReply{Message: "Entity not found: Team", Code: "INVALID_INPUT"}
 	})
 	return h
 }
@@ -456,16 +469,19 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 	h.mu.Unlock()
 
 	assert.Equal(t, conductor.InboundEvent{
-		SourceKind:  Kind,
-		SourceKey:   "linear:session:" + delegationSession,
-		Ref:         fixtureIssue + "/" + fixtureTeam + "/EME-5/" + delegationSession + "/delegated",
-		Author:      "Ada Lovelace",
-		ExternalID:  "activity:4f5f35e1-86e4-4dc7-9239-414bacd832a5",
-		ExternalURL: "https://linear.app/acme/agent-session/" + delegationSession,
-		URL:         "https://linear.app/acme/issue/EME-5/test-issue",
-		Title:       "EME-5 Test issue",
-		TS:          time.Date(2026, 11, 12, 20, 46, 10, 167000000, time.UTC),
-		Mentioned:   true,
+		SourceKind: Kind,
+		SourceKey:  "linear:session:" + delegationSession,
+		Ref:        fixtureIssue + "/" + fixtureTeam + "/EME-5/" + delegationSession + "/delegated",
+		Author:     "Ada Lovelace",
+		ExternalID: "activity:4f5f35e1-86e4-4dc7-9239-414bacd832a5",
+		// The prompt's link is the issue, where Linear writes it; the chat's is the session.
+		ExternalURL:    "https://linear.app/acme/issue/EME-5/test-issue",
+		ThreadURL:      "https://linear.app/acme/agent-session/" + delegationSession,
+		URL:            "https://linear.app/acme/issue/EME-5/test-issue",
+		Title:          "EME-5 Test issue",
+		ChannelPrivacy: conductor.ChannelPublic,
+		TS:             time.Date(2026, 11, 12, 20, 46, 10, 167000000, time.UTC),
+		Mentioned:      true,
 		// Worded as the poller words an assignment: the ticket.
 		Text:       "EME-5 — Test issue",
 		RecordText: "Work on [EME-5](https://linear.app/acme/issue/EME-5/test-issue)",

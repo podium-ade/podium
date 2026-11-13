@@ -13,13 +13,19 @@ import (
 	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
-// dedupeTTL is how long a delivery id and a prompt's id are remembered. Linear retries a
-// delivery it got no 200 for after a minute, an hour and six hours, so an id is kept past
-// the last of those.
+// dedupeTTL is how long a delivery id, and the id of a prompt that opened a session or
+// stopped one, are remembered. Linear retries a delivery it got no 200 for after a minute, an
+// hour and six hours, so an id is kept past the last of those.
+//
+// The conductor's record is what keeps a prompt from starting a turn twice — on this conductor
+// or on another, since a retry may reach either — because every prompt is a row of the
+// session's chat keyed by its activity id. What is remembered here is only what the record
+// cannot cover: the source answers a new session itself, before the conductor sees it, and it
+// handles a Stop itself, which never reaches the conductor as a prompt.
 const dedupeTTL = 7 * time.Hour
 
-// maxRemembered bounds what dedupeTTL keeps. Two ids per delivery, so this is thousands of
-// deliveries within seven hours before the oldest is forgotten early.
+// maxRemembered bounds what dedupeTTL keeps. At most two ids per delivery, so this is
+// thousands of deliveries within seven hours before the oldest is forgotten early.
 const maxRemembered = 10000
 
 // acknowledgement is the thought posted the moment a session opens, before the conductor has
@@ -54,6 +60,7 @@ const (
 
 // accountTTL is how long what Linear said about a speaker's account is trusted, as Slack's is:
 // whether somebody is still an active, full member of the workspace is asked again after it.
+// What it said about a team's privacy is kept as long, for the same reason.
 const accountTTL = 10 * time.Minute
 
 // The labels of the links the source adds to a session.
@@ -115,11 +122,11 @@ type AppOptions struct {
 // AppSource is Linear as an agent app: webhooks in, agent activities out. It is the same
 // Kind as the poller, and only one of the two ever runs.
 //
-// Each agent session is one conversation. A delegation or an @mention opens one and starts
-// a turn of the linear: true playbook; what people say in it afterwards is a follow-up.
-// Everything the turn says goes back into the session as an activity, and Linear writes the
-// prompts, questions and answers into the issue's comments, which is where the transcript is
-// read from.
+// Each agent session is one conversation, and a chat in Podium (MirrorKey). A delegation or an
+// @mention opens one and starts a turn of the linear: true playbook; what people say in it
+// afterwards is a follow-up. Everything the turn says goes back into the session as an
+// activity. Linear writes the prompts, questions and answers into the issue's comments, which
+// is where the issue and what was said on it outside the session are read from.
 type AppSource struct {
 	client *Client
 	// comments is the poller's comment machinery, signed in as the app. It reads the
@@ -162,6 +169,15 @@ type AppSource struct {
 	// accounts is the candidate login each speaker's account checks came to, by user id,
 	// for accountTTL.
 	accounts map[string]speakerAccount
+	// teams is whether each team is private, as a conductor.Channel* privacy, by team id, for
+	// accountTTL.
+	teams map[string]teamPrivacy
+}
+
+// teamPrivacy is what Linear said about one team's privacy, and when it was asked.
+type teamPrivacy struct {
+	privacy string
+	at      time.Time
 }
 
 // speakerAccount is what the account checks made of one Linear user: the email they may be
@@ -211,8 +227,10 @@ type appSession struct {
 	// type, so Linear's view of how the session ended does not change.
 	closing string
 	// taskID is the newest task the session's turns ran, for the fallback attachment link and
-	// to know which task a stop is about.
-	taskID string
+	// to know which task a stop is about. pastTasks are the tasks of turns that have been
+	// followed by another, so an outbox retry of one of their posts is known for what it is.
+	taskID    string
+	pastTasks map[string]bool
 	// linked is every URL already added to the session's links.
 	linked map[string]bool
 	// moveChecked is set once the turn has looked at the issue's state, so a turn that parks
@@ -221,7 +239,9 @@ type appSession struct {
 	// stopped is a session somebody pressed Stop in. Nothing more is said for the turn that
 	// was stopped, whatever the conductor still hands over as it unwinds, until the next turn
 	// starts. stoppedTasks are the tasks of stopped turns, refused for good: a stopped
-	// task's last words can arrive after a new turn has started.
+	// task's last words can arrive after a new turn has started. A Stop heard by another
+	// conductor reaches these through StoppedElsewhere, and a stop this source has forgotten
+	// (a restart) is still recognised in the cancellation by its reason (Post).
 	stopped      bool
 	stoppedTasks map[string]bool
 }
@@ -229,6 +249,7 @@ type appSession struct {
 var (
 	_ conductor.Source         = (*AppSource)(nil)
 	_ conductor.ActivityPoster = (*AppSource)(nil)
+	_ conductor.StopHearer     = (*AppSource)(nil)
 )
 
 // NewApp builds the agent app's source. Nothing is served until Run.
@@ -319,6 +340,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		queues:         map[string][]func(context.Context){},
 		sessions:       map[string]*appSession{},
 		accounts:       map[string]speakerAccount{},
+		teams:          map[string]teamPrivacy{},
 	}, nil
 }
 
@@ -327,6 +349,22 @@ func (s *AppSource) Kind() string { return Kind }
 
 // Events implements conductor.Source. The channel closes when Run returns.
 func (s *AppSource) Events() <-chan conductor.InboundEvent { return s.events }
+
+// MirrorKey makes the agent app a mirrored source: each agent session is a chat in Podium, as
+// a Slack thread and a pull request are, with the people who spoke in it as its participants.
+// The key is the session's, out of the ref's fourth part, never the issue's: a second session
+// on the same issue is a conversation of its own.
+//
+// A ref the poller wrote names no session, and is not mirrored. A polled ticket has no person
+// behind it to own the chat or to be its participant, so a chat of it would be one nobody but
+// the dev token could ever open.
+func (s *AppSource) MirrorKey(ref string) (string, bool) {
+	_, _, _, sessionID, err := ParseSessionRef(ref)
+	if err != nil || sessionID == "" {
+		return "", false
+	}
+	return SessionKey(sessionID), true
+}
 
 // Run serves the webhook until ctx is cancelled. It runs on every conductor, with no leader:
 // a delivery reaches whichever one the tunnel sends it to, and only that one hears it.
@@ -500,18 +538,26 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		ref = DelegatedSessionRef(iss.ID, teamID, iss.Identifier, sess.ID)
 	}
 	ev := conductor.InboundEvent{
-		SourceKind:  Kind,
-		SourceKey:   SessionKey(sess.ID),
-		Ref:         ref,
-		Author:      author,
-		ExternalID:  "activity:" + act.ID,
-		ExternalURL: sess.URL,
+		SourceKind: Kind,
+		SourceKey:  SessionKey(sess.ID),
+		Ref:        ref,
+		Author:     author,
+		// The prompt's own id, which a retried delivery keeps: the session's chat records one
+		// row per id, and only the arrival that wrote it starts a turn.
+		ExternalID: "activity:" + act.ID,
+		// A prompt has no page of its own. Linear writes it into the issue's comments, so its
+		// link is the issue, and the session — the conversation the chat is a record of — is
+		// the chat's own link.
+		ExternalURL: iss.URL,
+		ThreadURL:   sess.URL,
 		URL:         iss.URL,
-		Title:       title,
-		TS:          ts,
-		Mentioned:   true,
-		Text:        text,
-		BriefKind:   conductor.SourceLinear,
+		// The chat is named after the issue, and renamed with it on the next prompt: Linear
+		// tells an agent app nothing when an issue is retitled.
+		Title:     title,
+		TS:        ts,
+		Mentioned: true,
+		Text:      text,
+		BriefKind: conductor.SourceLinear,
 		// The playbook is named here rather than routed, as the poller names it.
 		Playbook:        s.playbook(),
 		SpeakerProvider: conductor.SpeakerLinear,
@@ -572,6 +618,42 @@ func (s *AppSource) candidate(ctx context.Context, u *payloadUser) string {
 	return login
 }
 
+// privacy is whether a team is private, as the mirror records it (conductor.ChannelPrivate or
+// conductor.ChannelPublic), or empty when it could not be asked. The payload does not say, and
+// a private team's issue is one the share dialog must warn about, so it is asked once per
+// team for accountTTL. Unknown is left unknown rather than guessed: the dialog warns about it
+// as possibly private.
+func (s *AppSource) privacy(ctx context.Context, teamID string) string {
+	if teamID == "" {
+		return ""
+	}
+	now := s.now()
+	s.mu.Lock()
+	known, ok := s.teams[teamID]
+	s.mu.Unlock()
+	if ok && now.Sub(known.at) < accountTTL {
+		return known.privacy
+	}
+	private, err := s.client.TeamPrivate(ctx, teamID)
+	if err != nil {
+		s.logger.DebugContext(ctx, "linear: reading whether a team is private failed", "team", teamID, "error", err)
+		return ""
+	}
+	privacy := conductor.ChannelPublic
+	if private {
+		privacy = conductor.ChannelPrivate
+	}
+	s.mu.Lock()
+	for id, t := range s.teams {
+		if now.Sub(t.at) >= accountTTL {
+			delete(s.teams, id)
+		}
+	}
+	s.teams[teamID] = teamPrivacy{privacy: privacy, at: now}
+	s.mu.Unlock()
+	return privacy
+}
+
 // podiumLogin is an email Podium can match to a Google sign-in: one @, something either side
 // of it, lowercased. Anything else is no login.
 func podiumLogin(email string) string {
@@ -629,6 +711,20 @@ func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound
 		return s.comments.Post(ctx, ref, out)
 	}
 	st := s.session(sessionID)
+	if out.CancelReason == StopReason {
+		// The turn's own "This was cancelled", for a task a Stop in this session cancelled. The
+		// session was closed with "Stopped." by whichever conductor heard the Stop, and Linear
+		// forbids saying anything after it. The control plane recorded why the task ended, so
+		// this is known on every conductor, and on an outbox retry after a restart.
+		s.mu.Lock()
+		if out.TaskID != "" {
+			st.stoppedTasks[out.TaskID] = true
+		}
+		s.mu.Unlock()
+		s.logger.DebugContext(ctx, "not posting a stopped turn's cancellation into its linear session",
+			"session", sessionID, "task_id", out.TaskID)
+		return "", nil
+	}
 	if out.Type == conductor.OutProgress && out.Text == conductor.Placeholder {
 		s.turnStarted(sessionID, st)
 	}
@@ -860,18 +956,24 @@ func (s *AppSource) session(sessionID string) *appSession {
 	defer s.mu.Unlock()
 	st := s.sessions[sessionID]
 	if st == nil {
-		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}}
+		st = &appSession{linked: map[string]bool{}, stoppedTasks: map[string]bool{}, pastTasks: map[string]bool{}}
 		s.sessions[sessionID] = st
 	}
 	return st
 }
 
 // turnStarted is the placeholder of a new turn: whatever the last one ended on, this one has
-// not ended, and it has not looked at the issue's state. It is also the end of a stop: the
+// not ended, it has not looked at the issue's state, and the last turn's task is not its own. It is also the end of a stop: the
 // conductor runs a session's turns one at a time, so the stopped turn has finished by now.
 func (s *AppSource) turnStarted(sessionID string, st *appSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A new turn is a new task (a warm task takes a follow-up without one), and which it is
+	// is not known until it says something.
+	if st.taskID != "" {
+		st.pastTasks[st.taskID] = true
+	}
+	st.taskID = ""
 	st.stopped = false
 	st.closing = ""
 	st.moveChecked = false
@@ -936,13 +1038,17 @@ func (s *AppSource) send(
 	s.mu.Lock()
 	refused := !closing && s.refusedLocked(st, taskID)
 	late := ephemeral && st.closing != ""
+	// An earlier turn's answer, question or failure, retried by the delivery outbox after a
+	// newer turn has started. It is still said, since it is owed, but it is not the turn now
+	// running, so it neither ends that turn nor parks it.
+	earlier := taskID != "" && taskID != st.taskID && st.pastTasks[taskID]
 	s.mu.Unlock()
 	if refused || late {
 		s.logger.DebugContext(ctx, "not posting into a linear session that was stopped or has answered",
 			"session", sessionID, "type", content.Type, "stopped", refused)
 		return "", nil
 	}
-	if taskID != "" {
+	if taskID != "" && !earlier {
 		s.mu.Lock()
 		st.taskID = taskID
 		s.mu.Unlock()
@@ -957,6 +1063,9 @@ func (s *AppSource) send(
 	st.lastActivity = now
 	if ephemeral {
 		st.lastEphemeral = now
+	}
+	if earlier {
+		return id, nil
 	}
 	switch content.Type {
 	case ActivityResponse, ActivityError:
@@ -1152,6 +1261,38 @@ func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
 	s.mu.Unlock()
 	if _, err := s.send(ctx, sessionID, st, content, false, "", true); err != nil {
 		s.logger.WarnContext(ctx, "linear: closing a stopped session failed", "session", sessionID, "error", err)
+	}
+}
+
+// StoppedElsewhere implements conductor.StopHearer: a conductor is cancelling the turn of one
+// of this app's sessions because somebody pressed Stop — another conductor, whose source heard
+// the Stop, or this one, which then learns the task it may not have known. The turn may be
+// running here. Its task is refused from now on, as if the Stop had arrived here, so nothing
+// it says as it dies lands after "Stopped." — which would show the session working again. A
+// host turn has no task, and is refused as the session's open turn, when there is one here.
+//
+// Unlike a Stop heard here, it neither closes the session (the source that heard it does) nor
+// drops this conductor's queued prompts: those may have arrived after the Stop.
+func (s *AppSource) StoppedElsewhere(sourceKey, taskID string) {
+	sessionID, ok := strings.CutPrefix(sourceKey, SessionKey(""))
+	if !ok || sessionID == "" {
+		return
+	}
+	st := s.session(sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case taskID != "":
+		st.stoppedTasks[taskID] = true
+		if st.taskID == taskID || (st.taskID == "" && st.open) {
+			s.endTurnLocked(st)
+		}
+	case st.open:
+		st.stopped = true
+		if st.taskID != "" {
+			st.stoppedTasks[st.taskID] = true
+		}
+		s.endTurnLocked(st)
 	}
 }
 
