@@ -154,6 +154,7 @@ func TestAPolledLinearTicketHasNoChat(t *testing.T) {
 	ev.SourceKind = conductor.SourceLinear
 	ev.SourceKey = "linear:issue-9"
 	ev.BriefKind = conductor.SourceLinear
+	ev.Playbook = "coder"
 	ev.Channel = ""
 	ev.Env = nil
 	require.NoError(t, src.Send(context.Background(), ev))
