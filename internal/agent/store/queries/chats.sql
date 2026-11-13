@@ -137,6 +137,16 @@ where (
           and (@include_all::bool or c.login = @viewer::text))
     )
   )
+  -- One ticket's chat of a routine (0047) is listed once a run in it has said something. Until
+  -- then it holds only runs that found nothing to do, kept as rows that are not history, and a
+  -- routine on a busy Linear workspace would otherwise fill the list with them.
+  and (
+    not exists (select 1 from routine_subject_chats rs where rs.chat_id = c.id)
+    or exists (
+      select 1 from chat_messages h
+       where h.chat_id = c.id and h.role in ('user', 'assistant') and h.deleted_at is null
+    )
+  )
 order by c.id desc
 limit @page_limit::int;
 

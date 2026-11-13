@@ -79,13 +79,21 @@ func (s *AgentService) GetRoutine(
 		return nil, err
 	}
 	var r store.Routine
+	subject := ""
 	switch {
 	case req.Msg.GetId() != "":
 		r, err = s.ownedRoutine(ctx, req.Msg.GetId(), login)
 	case req.Msg.GetChatId() != "":
+		// A chat per ticket (0047) resolves to its routine as the routine's own chat does, and
+		// says which ticket it is for.
 		r, err = s.store.RoutineByChat(ctx, req.Msg.GetChatId())
 		if err == nil && !s.mayManageRoutine(ctx, r, login) {
 			err = fmt.Errorf("%w: routine of chat %s", store.ErrNotFound, req.Msg.GetChatId())
+		}
+		if err == nil && r.ChatID != req.Msg.GetChatId() {
+			if sc, serr := s.store.RoutineSubjectOfChat(ctx, req.Msg.GetChatId()); serr == nil {
+				subject = cmpOr(sc.SubjectTitle, sc.SubjectKey)
+			}
 		}
 		err = routineError(err)
 	default:
@@ -94,7 +102,7 @@ func (s *AgentService) GetRoutine(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
+	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r), SubjectTitle: subject}), nil
 }
 
 // CreateRoutine opens a routine and its chat for the caller.
@@ -442,7 +450,7 @@ func (s *AgentService) CancelRoutineRun(
 	if s.canceller == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel routine run: no conductor is wired in"))
 	}
-	stopped, err := s.canceller.CancelChatTurn(ctx, r.ChatID)
+	stopped, err := s.canceller.CancelChatTurn(ctx, s.runChat(ctx, r))
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -538,6 +546,7 @@ func memberView(r *agentv1.Routine) *agentv1.Routine {
 		Id: r.Id, Name: r.Name, Schedule: r.Schedule, Timezone: r.Timezone, ScheduleText: r.ScheduleText,
 		Enabled: r.Enabled, PausedReason: r.PausedReason, NextRunAt: r.NextRunAt, LastRunAt: r.LastRunAt,
 		OwnerLogin: r.OwnerLogin, SpendTodayUsd: r.SpendTodayUsd, Scope: r.Scope, Trigger: r.Trigger,
+		ChatMode: r.ChatMode,
 	}
 }
 
@@ -626,6 +635,7 @@ func (s *AgentService) routineDraft(
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
 		Model: in.GetModel(), Effort: in.GetEffort(),
 		Kind: strings.TrimSpace(in.GetTrigger()), Events: in.GetEvents(), Teams: in.GetTeams(),
+		ChatMode: in.GetChatMode(),
 	}
 	if c := in.GetDailyCapUsd(); c != 0 {
 		d.DailyCapUSD = &c
@@ -699,6 +709,7 @@ func scheduleText(r store.Routine) string {
 func triggerDetails(r store.Routine, details map[string]any) map[string]any {
 	if r.OnLinear() {
 		details["trigger"], details["events"], details["teams"] = r.Kind, r.Events, r.Teams
+		details["chat_mode"] = r.ChatMode
 		return details
 	}
 	details["schedule"] = r.Schedule
@@ -738,6 +749,7 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		Trigger:       r.Kind,
 		Events:        r.Events,
 		Teams:         r.Teams,
+		ChatMode:      r.ChatMode,
 		Instruction:   r.Instruction,
 		Notes:         r.Notes,
 		ProposedNote:  r.ProposedNote,
@@ -775,13 +787,24 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 	if spend, err := s.store.RoutineSpendSince(ctx, r.ID, time.Now().Add(-24*time.Hour)); err == nil {
 		out.SpendTodayUsd = spend
 	}
-	if running, err := s.store.ChatTurnRunning(ctx, r.ChatID); err == nil {
+	if running, err := s.store.ChatTurnRunning(ctx, s.runChat(ctx, r)); err == nil {
 		out.Running = running
 	}
 	if last, err := s.store.LastRoutineRuns(ctx, []string{r.ID}); err == nil {
 		out.LastRunStatus = last[r.ID].Status
 	}
 	return out
+}
+
+// runChat is the chat a routine's run is going in: one ticket's chat, for a routine with a chat
+// per ticket whose run is there, and otherwise the routine's own.
+func (s *AgentService) runChat(ctx context.Context, r store.Routine) string {
+	if r.PerSubject() {
+		if run, err := s.store.RunningRoutineRun(ctx, r.ID); err == nil && run.ChatID != "" {
+			return run.ChatID
+		}
+	}
+	return r.ChatID
 }
 
 func routineRunToProto(r store.RoutineRun) *agentv1.RoutineRun {
