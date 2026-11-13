@@ -122,6 +122,9 @@ type AppOptions struct {
 	// CancelSessionTurn. A source never holds the conductor, so it is handed this. Nil stops
 	// nothing, and a Stop pressed in Linear is answered with an error saying so.
 	Stop func(ctx context.Context, sourceKey string) (bool, error)
+	// Events takes the data changes Linear sends when the app's webhook has resource types
+	// ticked: the routines that run on Linear events. Nil ignores them.
+	Events EventSink
 	// Metrics is optional; nil registers nothing.
 	Metrics *Metrics
 	Logger  *slog.Logger
@@ -165,6 +168,7 @@ type AppSource struct {
 	playbook       func() string
 	onRevoked      func(ctx context.Context)
 	stopTurn       func(ctx context.Context, sourceKey string) (bool, error)
+	changes        EventSink
 	now            func() time.Time
 	afterFunc      func(d time.Duration, f func()) func() bool
 
@@ -191,6 +195,9 @@ type AppSource struct {
 	// teams is whether each team is private, as a conductor.Channel* privacy, by team id, for
 	// accountTTL.
 	teams map[string]teamPrivacy
+	// teamKeys is each team's key, by team id, for accountTTL: a data change names its team by
+	// id, and a routine names teams by key.
+	teamKeys map[string]teamKeyAt
 }
 
 // teamPrivacy is what Linear said about one team's privacy, and when it was asked.
@@ -375,6 +382,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		playbook:       opts.Playbook,
 		onRevoked:      onRevoked,
 		stopTurn:       stopTurn,
+		changes:        opts.Events,
 		now:            now,
 		afterFunc:      afterFunc,
 		work:           work,
@@ -385,6 +393,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		sessions:       map[string]*appSession{},
 		accounts:       map[string]speakerAccount{},
 		teams:          map[string]teamPrivacy{},
+		teamKeys:       map[string]teamKeyAt{},
 	}, nil
 }
 

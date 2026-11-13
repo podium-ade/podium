@@ -207,3 +207,76 @@ func TestAdminsSetHowManyRoutinesAPersonMayHave(t *testing.T) {
 	assert.Equal(t, "resource_exhausted", codeOf(err))
 	assert.Contains(t, strings.Join(f.audit.seen(), "\n"), "alice routine.limits routines")
 }
+
+func triageDraft() *agentv1.RoutineDraft {
+	return &agentv1.RoutineDraft{
+		Name: "Triage new issues", Timezone: "UTC", Trigger: store.RoutineKindLinear,
+		Events: []string{"Issue.create", "Comment.create"}, Teams: []string{"eng"},
+		Instruction: "Label each new issue by its area, and say which you could not place.",
+	}
+}
+
+// A routine on Linear events is an admin's to set, in either scope: the events carry issues
+// from every team the app can see. It has no schedule and no next run.
+func TestARoutineOnLinearEventsIsAnAdminsToSet(t *testing.T) {
+	ctx := context.Background()
+	f := newSharingFixture(t)
+
+	for _, scope := range []string{store.RoutineScopePersonal, store.RoutineScopeSystem} {
+		_, err := f.clientAs("bob").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+			Draft: triageDraft(), Scope: scope,
+		}))
+		assert.Equal(t, "permission_denied", codeOf(err), scope)
+	}
+
+	created, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+		Draft: triageDraft(),
+	}))
+	require.NoError(t, err)
+	r := created.Msg.GetRoutine()
+	assert.Equal(t, store.RoutineKindLinear, r.GetTrigger())
+	assert.Equal(t, []string{"Issue.create", "Comment.create"}, r.GetEvents())
+	assert.Equal(t, []string{"ENG"}, r.GetTeams())
+	assert.Empty(t, r.GetSchedule())
+	assert.Equal(t, "On Linear: issue created, comment created (ENG)", r.GetScheduleText())
+	assert.Nil(t, r.GetNextRunAt(), "a routine on Linear events has no next run to name")
+	assert.Zero(t, r.GetPendingEvents())
+
+	// Both is neither: a schedule beside the events is refused.
+	both := triageDraft()
+	both.Schedule = "0 9 * * *"
+	_, err = f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: both}))
+	assert.Equal(t, "invalid_argument", codeOf(err))
+	none := triageDraft()
+	none.Events = nil
+	_, err = f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: none}))
+	assert.Equal(t, "invalid_argument", codeOf(err))
+
+	// A member's own scheduled routine cannot be moved onto Linear events.
+	mine, err := f.clientAs("bob").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+		Draft: &agentv1.RoutineDraft{Name: "Digest", Schedule: "0 9 * * *", Instruction: "Summarise."},
+	}))
+	require.NoError(t, err)
+	_, err = f.clientAs("bob").UpdateRoutine(ctx, connect.NewRequest(&agentv1.UpdateRoutineRequest{
+		Id: mine.Msg.GetRoutine().GetId(), Draft: triageDraft(),
+	}))
+	assert.Equal(t, "permission_denied", codeOf(err))
+
+	// Paused and resumed, it has no schedule to read.
+	_, err = f.adminClient("alice").PauseRoutine(ctx, connect.NewRequest(&agentv1.PauseRoutineRequest{Id: r.GetId()}))
+	require.NoError(t, err)
+	resumed, err := f.adminClient("alice").ResumeRoutine(ctx, connect.NewRequest(&agentv1.ResumeRoutineRequest{Id: r.GetId()}))
+	require.NoError(t, err)
+	assert.True(t, resumed.Msg.GetRoutine().GetEnabled())
+
+	// Events waiting for it are counted on it.
+	n, err := f.store.StoreRoutineEvents(ctx, store.LinearDelivery{
+		DeliveryID: "delivery-1", Event: "Issue.create", TeamKey: "ENG",
+		Payload: []byte(`{"type":"Issue","action":"create","data":{"identifier":"ENG-1"}}`),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	got, err := f.adminClient("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{Id: r.GetId()}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), got.Msg.GetRoutine().GetPendingEvents())
+}
