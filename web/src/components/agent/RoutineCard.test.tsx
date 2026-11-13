@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { MemoryRouter } from "react-router";
 import { RoutineSchema, type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { QuietRuns, RoutineCard, RoutineDialog } from "./RoutineCard";
@@ -16,6 +17,7 @@ const resolveRoutineNote = vi.fn();
 const cancelRoutineRun = vi.fn();
 const listRoutineRevisions = vi.fn();
 const listRoutineRuns = vi.fn();
+const getConnections = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -29,6 +31,7 @@ vi.mock("../../lib/client", async () => {
       cancelRoutineRun: (...a: unknown[]) => cancelRoutineRun(...a),
       listRoutineRevisions: (...a: unknown[]) => listRoutineRevisions(...a),
       listRoutineRuns: (...a: unknown[]) => listRoutineRuns(...a),
+      getConnections: (...a: unknown[]) => getConnections(...a),
       listPersonalities: async () => ({ personalities: [] }),
     },
   };
@@ -56,7 +59,9 @@ function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ToastHost>{node}</ToastHost>
+      <ToastHost>
+        <MemoryRouter>{node}</MemoryRouter>
+      </ToastHost>
     </QueryClientProvider>,
   );
 }
@@ -67,6 +72,8 @@ beforeEach(() => {
   listRoutineRevisions.mockResolvedValue({ revisions: [] });
   listRoutineRuns.mockReset();
   listRoutineRuns.mockResolvedValue({ runs: [] });
+  getConnections.mockReset();
+  getConnections.mockResolvedValue({ linear: { configured: true } });
 });
 
 describe("RoutineCard", () => {
@@ -85,6 +92,29 @@ describe("RoutineCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Pause" }));
     await waitFor(() => expect(pauseRoutine).toHaveBeenCalledWith({ id: "rtn_1" }));
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
+  it("says a routine on Linear events runs on them, and what is waiting instead of a next run", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({
+        schedule: "",
+        scheduleText: "On Linear: issue created (ENG)",
+        timezone: "America/Toronto",
+        trigger: "linear",
+        events: ["Issue.create"],
+        teams: ["ENG"],
+        nextRunAt: undefined,
+        pendingEvents: 2,
+        idleCount: 0,
+      }),
+    });
+    mount(<RoutineCard chatId="chat_r" />);
+
+    expect(await screen.findByText("Runs on Linear: issue created (ENG)")).toBeInTheDocument();
+    expect(screen.queryByText(/America\/Toronto/)).not.toBeInTheDocument();
+    const status = screen.getByTestId("routine-status");
+    expect(status).toHaveTextContent("2 events waiting");
+    expect(status).not.toHaveTextContent("Next");
   });
 
   it("shows why Podium paused it, and the note the agent proposed", async () => {
@@ -126,6 +156,88 @@ describe("RoutineCard", () => {
 });
 
 describe("RoutineDialog", () => {
+  it("offers an admin a routine on Linear events, with its events and teams instead of a schedule", async () => {
+    getConnections.mockResolvedValue({ linear: { configured: false } });
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="New routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Triage", instruction: "Label each new issue.", timezone: "UTC" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-trigger-linear"));
+    expect(screen.queryByTestId("schedule-summary")).not.toBeInTheDocument();
+    expect(screen.getByText("Issue created")).toBeInTheDocument();
+    expect(screen.getByText("Project update removed")).toBeInTheDocument();
+    // No event, nothing to run on.
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
+
+    // Not connected: it says so and where, and still saves.
+    expect(await screen.findByText(/The Linear app is not connected/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("href", "/org/settings/connections");
+
+    await userEvent.click(screen.getByTestId("routine-event-Comment.create"));
+    await userEvent.click(screen.getByTestId("routine-event-Issue.create"));
+    await userEvent.type(screen.getByTestId("routine-teams"), "eng, web eng");
+    expect(screen.getByText("Leave empty for every team.", { exact: false })).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-save"));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "linear",
+          schedule: "",
+          events: ["Issue.create", "Comment.create"],
+          teams: ["ENG", "WEB"],
+        }),
+        "personal",
+      ),
+    );
+  });
+
+  it("does not offer Linear events to a person who is not an admin", () => {
+    mount(<RoutineDialog open title="New routine" initial={{}} onClose={() => {}} onSave={async () => {}} />);
+    expect(screen.queryByTestId("routine-trigger-linear")).not.toBeInTheDocument();
+    expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
+  });
+
+  it("saves a schedule with no events, so a routine is never both", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="Edit routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{
+          name: "Triage",
+          instruction: "Label each new issue.",
+          timezone: "UTC",
+          trigger: "linear",
+          events: ["Issue.create"],
+          teams: ["ENG"],
+        }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-teams")).toHaveValue("ENG");
+    await userEvent.click(screen.getByTestId("routine-trigger-schedule"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ trigger: "schedule", events: [], teams: [], schedule: "0 9 * * 1-5" }),
+        "personal",
+      ),
+    );
+  });
+
   it("saves a preset schedule, and shows the server's refusal as it says it", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>();
     onSave.mockRejectedValueOnce(
