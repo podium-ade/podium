@@ -8,7 +8,7 @@ import { absolute, relative } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 import {
-  routineEditPath,
+  draftOf,
   isLinear,
   isSystem,
   money,
@@ -40,7 +40,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { ConductorDown } from "./ConductorDown";
-import { SystemBadge } from "./RoutineCard";
+import { RoutineDialog, SystemBadge } from "./RoutineDialog";
 import { useBrand } from "../../lib/brand";
 
 /**
@@ -51,8 +51,6 @@ import { useBrand } from "../../lib/brand";
  * An admin also sees the system routines here, in the same list, each marked System and
  * "runs as Podium", and may make one: "Runs as" in the new-routine dialog.
  */
-const NEW = "/agent/routines/new";
-
 export function RoutinesPanel() {
   const brand = useBrand();
   const qc = useQueryClient();
@@ -67,6 +65,8 @@ export function RoutinesPanel() {
     // The next run and whether one is going move on their own.
     refetchInterval: 30_000,
   });
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Routine | null>(null);
   const [deleting, setDeleting] = useState<Routine | null>(null);
 
   const refresh = async () => {
@@ -110,7 +110,7 @@ export function RoutinesPanel() {
           : "Jobs an assistant does on a schedule, each in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."
       }
       actions={
-        <Button size="sm" data-testid="routines-new" onClick={() => void navigate(NEW)}>
+        <Button size="sm" data-testid="routines-new" onClick={() => setCreating(true)}>
           <Plus />
           New routine
         </Button>
@@ -136,7 +136,7 @@ export function RoutinesPanel() {
           title="No routines yet"
           hint="Make one here, or ask an assistant in a chat: “every weekday at 9, tell me which of my pull requests failed CI”."
           action={
-            <Button size="sm" data-testid="routines-new-empty" onClick={() => void navigate(NEW)}>
+            <Button size="sm" data-testid="routines-new-empty" onClick={() => setCreating(true)}>
               <Plus />
               New routine
             </Button>
@@ -156,11 +156,47 @@ export function RoutinesPanel() {
               href={routineChatPath(r)}
               onRun={() => act.mutate({ r, what: "run" })}
               onToggle={() => act.mutate({ r, what: r.enabled ? "pause" : "resume" })}
-              onEdit={() => void navigate(routineEditPath(r.id))}
+              onEdit={() => setEditing(r)}
               onDelete={() => setDeleting(r)}
             />
           ))}
         </ul>
+      ) : null}
+
+      {creating ? (
+        <RoutineDialog
+          open
+          title="New routine"
+          initial={{}}
+          canChooseScope={admin}
+          canChooseTrigger={admin}
+          onClose={() => setCreating(false)}
+          onSave={async (draft, scope) => {
+            const res = await agent.createRoutine({ draft, scope });
+            setCreating(false);
+            await refresh();
+            const r = res.routine;
+            toast(`${r?.name ?? "Routine"} ${r ? runsText(r).replace(/^Runs/, "runs") : "runs"}.`, "ok");
+          }}
+        />
+      ) : null}
+
+      {editing ? (
+        <RoutineDialog
+          open
+          title="Edit routine"
+          initial={draftOf(editing)}
+          lockAssistant
+          scope={isSystem(editing) ? "system" : "personal"}
+          canChooseTrigger={admin}
+          onClose={() => setEditing(null)}
+          onSave={async (draft) => {
+            await agent.updateRoutine({ id: editing.id, draft });
+            setEditing(null);
+            await refresh();
+            toast("Routine saved.", "ok");
+          }}
+        />
       ) : null}
 
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

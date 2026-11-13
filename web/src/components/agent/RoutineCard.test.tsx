@@ -9,7 +9,7 @@ import { MemoryRouter } from "react-router";
 import { RoutineSchema, type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { QuietRuns, RoutineCard } from "./RoutineCard";
-import { RoutineEditor } from "./RoutineEditor";
+import { RoutineDialog } from "./RoutineDialog";
 
 const getRoutine = vi.fn();
 const pauseRoutine = vi.fn();
@@ -156,12 +156,12 @@ describe("RoutineCard", () => {
   });
 });
 
-describe("RoutineEditor", () => {
+describe("RoutineDialog", () => {
   it("offers an admin a routine on Linear events, with its events and teams instead of a schedule", async () => {
     getConnections.mockResolvedValue({ linear: { configured: false } });
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         canChooseTrigger
         initial={{ name: "Triage", instruction: "Label each new issue.", timezone: "UTC" }}
@@ -201,7 +201,7 @@ describe("RoutineEditor", () => {
   });
 
   it("does not offer Linear events to a person who is not an admin", () => {
-    mount(<RoutineEditor initial={{}} onClose={() => {}} onSave={async () => {}} />);
+    mount(<RoutineDialog open title="Routine" initial={{}} onClose={() => {}} onSave={async () => {}} />);
     expect(screen.queryByTestId("routine-trigger-linear")).not.toBeInTheDocument();
     expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
   });
@@ -209,7 +209,7 @@ describe("RoutineEditor", () => {
   it("saves a schedule with no events, so a routine is never both", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         canChooseTrigger
         initial={{
@@ -241,7 +241,7 @@ describe("RoutineEditor", () => {
       new ConnectError("invalid schedule: runs every 5 minutes", Code.InvalidArgument),
     );
     mount(
-      <RoutineEditor initial={{ timezone: "America/Toronto" }} onClose={() => {}} onSave={onSave} />,
+      <RoutineDialog open title="Routine" initial={{ timezone: "America/Toronto" }} onClose={() => {}} onSave={onSave} />,
     );
     await userEvent.type(screen.getByTestId("routine-name"), "PR digest");
     await userEvent.type(screen.getByTestId("routine-instruction"), "Report failing PRs.");
@@ -267,7 +267,7 @@ describe("RoutineEditor", () => {
   it("builds a schedule the way a calendar does, and says it in words", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", timezone: "UTC" }}
         onClose={() => {}}
@@ -291,7 +291,7 @@ describe("RoutineEditor", () => {
   it("takes any time typed, not only the listed ones", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", timezone: "UTC" }}
         onClose={() => {}}
@@ -307,7 +307,7 @@ describe("RoutineEditor", () => {
 
   it("opens a schedule Repeat cannot say on the Cron tab", () => {
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "Digest", instruction: "Summarise.", schedule: "0 9,17 * * *", timezone: "UTC" }}
         onClose={() => {}}
@@ -321,7 +321,7 @@ describe("RoutineEditor", () => {
   it("picks a timezone by searching for the place it is known by", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor
+      <RoutineDialog open title="Routine"
         lockAssistant
         initial={{ name: "PR digest", instruction: "Report failing PRs.", timezone: "America/Toronto" }}
         onClose={() => {}}
@@ -372,11 +372,11 @@ describe("system routines", () => {
   });
 });
 
-describe("RoutineEditor for an admin", () => {
+describe("RoutineDialog for an admin", () => {
   it("makes a system routine: no assistant, no repository list, and a template to start from", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
-      <RoutineEditor canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
+      <RoutineDialog open title="Routine" canChooseScope initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
     );
     expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as you");
 
@@ -401,12 +401,12 @@ describe("RoutineEditor for an admin", () => {
   });
 
   it("offers no choice of who it runs as to a member, nor when editing", () => {
-    mount(<RoutineEditor initial={{}} onClose={() => {}} onSave={vi.fn()} />);
+    mount(<RoutineDialog open title="Routine" initial={{}} onClose={() => {}} onSave={vi.fn()} />);
     expect(screen.queryByTestId("routine-scope-system")).not.toBeInTheDocument();
   });
 
   it("refuses a spend cap that is not an amount", async () => {
-    mount(<RoutineEditor initial={{ name: "x", instruction: "y" }} onClose={() => {}} onSave={vi.fn()} />);
+    mount(<RoutineDialog open title="Routine" initial={{ name: "x", instruction: "y" }} onClose={() => {}} onSave={vi.fn()} />);
     await userEvent.type(screen.getByTestId("routine-cap"), "lots");
     expect(screen.getByText(/amount in dollars/)).toBeInTheDocument();
     expect(screen.getByTestId("routine-save")).toBeDisabled();

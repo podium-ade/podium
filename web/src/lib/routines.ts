@@ -4,9 +4,6 @@ import { toDate } from "./format";
 /** routineKey is where one chat's routine is cached. */
 export const routineKey = (chatId: string) => ["agent", "routine", chatId];
 
-/** routineEditPath is the page a routine is edited on. */
-export const routineEditPath = (id: string) => `/agent/routines/${encodeURIComponent(id)}`;
-
 /** routinesKey is where the viewer's list of routines is cached. */
 export const routinesKey = ["agent", "routines"];
 
