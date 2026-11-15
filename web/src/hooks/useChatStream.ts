@@ -125,6 +125,9 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStream {
   const asked = useRef<{ chatId: string; before: bigint } | undefined>(undefined);
 
   useEffect(() => {
+    // A chat opened afresh starts from its tail again, so a page asked for the last time
+    // it was open is not one it has.
+    asked.current = undefined;
     if (chatId === "") return;
     const ctrl = new AbortController();
     let lastSeq = 0n;

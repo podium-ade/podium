@@ -339,6 +339,26 @@ describe("useChatStream", () => {
       expect(listChatMessages).toHaveBeenCalledTimes(1);
     });
 
+    it("asks for the page above again when a chat is opened afresh", async () => {
+      const tail = Array.from({ length: CHAT_PAGE }, (_, i) => message(300 + i));
+      streamChat.mockImplementation(() => feed([...tail, replayed]));
+      listChatMessages.mockResolvedValue({ messages: [], hasMore: true });
+      const { result, rerender } = renderHook(({ id }) => useChatStream(id), {
+        initialProps: { id: "chat_01abc" },
+      });
+      await waitFor(() => expect(result.current.hasOlder).toBe(true));
+      result.current.loadOlder();
+      await waitFor(() => expect(listChatMessages).toHaveBeenCalledTimes(1));
+
+      // Away to another chat and back: the tail is the same, and so is the page above it.
+      rerender({ id: "chat_02def" });
+      await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+      rerender({ id: "chat_01abc" });
+      await waitFor(() => expect(result.current.hasOlder).toBe(true));
+      result.current.loadOlder();
+      await waitFor(() => expect(listChatMessages).toHaveBeenCalledTimes(2));
+    });
+
     it("says when a page failed, and tries again on request", async () => {
       const tail = Array.from({ length: CHAT_PAGE }, (_, i) => message(10 + i));
       streamChat.mockImplementation(() => feed([...tail, replayed]));
