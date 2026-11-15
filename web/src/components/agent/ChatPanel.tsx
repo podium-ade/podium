@@ -1559,8 +1559,11 @@ function Conversation({
   // arrival arrives as navigation state: the chat was created and the message stored
   // before this conversation mounted.
   const seeded = (location.state as { pendingText?: string } | null)?.pendingText;
-  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(
-    seeded ? { text: seeded, before: 0 } : null,
+  // `after` is the newest seq in hand when it was sent: the question is on the stream once a
+  // question with a higher seq is. A count of questions would not do — a page of older
+  // history landing meanwhile adds questions that are not this one.
+  const [pendingUser, setPendingUser] = useState<{ text: string; after: bigint } | null>(
+    seeded ? { text: seeded, after: 0n } : null,
   );
 
   const send = useMutation({
@@ -1580,7 +1583,7 @@ function Conversation({
       if (v.queues) return;
       setPendingUser({
         text: v.text,
-        before: stream.messages.filter((m) => m.role === "user").length,
+        after: stream.messages[stream.messages.length - 1]?.seq ?? 0n,
       });
     },
     onSuccess: (res) => {
@@ -1613,16 +1616,17 @@ function Conversation({
     onError: (err) => toast(errorMessage(err)),
   });
 
-  const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
-  const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  const pendingArrived =
+    pendingUser !== null && stream.messages.some((m) => m.role === "user" && m.seq > pendingUser.after);
+  const pendingVisible = pendingUser !== null && !pendingArrived;
   // The pending question is let go once the stream carries it and a turn has taken it up:
   // running, waiting on a reply, or already answered. Held past that, it kept the chat busy
   // (holdBusy, below) whenever the last row was not an answer, so anybody speaking after the
   // answer brought the waiting row back with nothing running.
   if (
     pendingUser !== null &&
-    userCount > pendingUser.before &&
+    pendingArrived &&
     (stream.running || stream.awaiting || last?.role === "assistant")
   ) {
     setPendingUser(null);
