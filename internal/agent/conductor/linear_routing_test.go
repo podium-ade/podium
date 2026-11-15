@@ -1,6 +1,9 @@
 package conductor
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,10 +12,10 @@ import (
 	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
-// What answers a Linear agent session (conductor.go): a delegated issue runs a playbook as a
-// task, an @mention is the assistant's where there is a host runtime and a playbook's where
-// there is not, and a /playbook in a person's words runs that playbook for the turn. The poller
-// is untouched. These run without a database; the turns themselves are in
+// What answers a Linear agent session (conductor.go): where there is a host runtime, a delegated
+// issue runs the playbook its Linear rules claim and is otherwise the assistant's, as an
+// @mention is; where there is not, both run the linear: true playbook as a task. A /playbook in
+// a person's words runs that playbook for the turn. The poller is untouched. These run without a database; the turns themselves are in
 // linear_routing_integration_test.go.
 
 func routingProfile() *profiles.Profile {
@@ -22,12 +25,18 @@ func routingProfile() *profiles.Profile {
 			"linear-work": {Name: "linear-work", Linear: true},
 			"fix":         {Name: "fix"},
 			"general":     {Name: "general", SlackChannels: []string{"C1"}},
+			"bugs":        {Name: "bugs", LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}},
+			"ops":         {Name: "ops", LinearTeams: []string{"OPS"}},
+			"triage":      {Name: "triage", LinearLabels: []string{"triage"}},
 		},
 	}
 }
 
 func routingConductor(host bool) *Conductor {
-	c := &Conductor{profiles: profiles.NewLive(routingProfile())}
+	c := &Conductor{
+		profiles: profiles.NewLive(routingProfile()),
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
 	if host {
 		c.host = &HostRuntime{}
 	}
@@ -49,15 +58,17 @@ func delegatedPrompt(text string) InboundEvent {
 	return ev
 }
 
-func TestALinearMentionIsAConversationOnlyWhereThereIsAnAssistant(t *testing.T) {
+func TestALinearSessionIsAConversationOnlyWhereThereIsAnAssistant(t *testing.T) {
 	linear := linearSource()
 	withHost, without := routingConductor(true), routingConductor(false)
 
 	assert.True(t, withHost.conversational(linear, mentionPrompt("what is it?")))
 	assert.False(t, without.conversational(linear, mentionPrompt("what is it?")),
 		"with no host runtime a mention runs the linear: true playbook, as it always has")
-	assert.False(t, withHost.conversational(linear, delegatedPrompt("EME-5")),
-		"a delegated issue is a piece of work, whatever this conductor has")
+	assert.True(t, withHost.conversational(linear, delegatedPrompt("EME-5")),
+		"a delegated issue is the assistant's too, unless a playbook's rules claim it")
+	assert.False(t, without.conversational(linear, delegatedPrompt("EME-5")),
+		"with no host runtime a delegation runs the linear: true playbook, as it always has")
 	assert.False(t, withHost.conversational(linear, polledTicket()), "the poller is untouched")
 
 	// Every other source is what it was.
@@ -67,7 +78,8 @@ func TestALinearMentionIsAConversationOnlyWhereThereIsAnAssistant(t *testing.T) 
 	assert.False(t, without.conversational(kindSource{kind: SourceSlack}, InboundEvent{}))
 }
 
-func TestALinearSessionRunsTheLinearPlaybookUnlessSomebodyNamesAnother(t *testing.T) {
+// With no host runtime, a Linear agent session is a task of the linear: true playbook.
+func TestALinearSessionWithNoAssistantRunsTheLinearPlaybookUnlessSomebodyNamesAnother(t *testing.T) {
 	p := routingProfile()
 	linear := linearSource()
 	tests := []struct {
@@ -180,9 +192,18 @@ func TestAQueuedLinearPromptRunsWhatWasChosenForIt(t *testing.T) {
 	assert.True(t, j.direct)
 	assert.Equal(t, "fix", j.playbook.Name)
 
+	claimed := delegatedPrompt("ENG-1 — the build")
+	claimed.Playbook = "bugs"
+	_, j = c.sourceAndJob(claimed, src, assistantJob(c.profiles.Current().Assistant()))
+	assert.True(t, j.direct, "a delegation its rules claimed runs as the conversation's task")
+	assert.Equal(t, "bugs", j.playbook.Name)
+	_, j = c.sourceAndJob(delegatedPrompt("and the docs"), src, previous)
+	assert.True(t, j.onHost, "a delegation's follow-up is the assistant's")
+
+	// With no host runtime, a delegation runs the playbook accept chose for it as a task.
 	followUp := delegatedPrompt("and the docs")
 	followUp.Playbook = "linear-work"
-	_, j = c.sourceAndJob(followUp, src, previous)
+	_, j = routingConductor(false).sourceAndJob(followUp, src, previous)
 	assert.False(t, j.onHost)
 	assert.False(t, j.direct)
 	assert.Equal(t, "linear-work", j.playbook.Name, "not the playbook the turn before it was named")
@@ -191,4 +212,63 @@ func TestAQueuedLinearPromptRunsWhatWasChosenForIt(t *testing.T) {
 	slack := InboundEvent{SourceKind: SourceSlack, Text: "hi"}
 	_, j = routingConductor(false).sourceAndJob(slack, kindSource{kind: SourceSlack}, previous)
 	assert.Equal(t, "fix", j.playbook.Name)
+}
+
+// delegationOf is a delegation's opening prompt, carrying the issue its rules are matched by.
+func delegationOf(team string, labels ...string) InboundEvent {
+	ev := delegatedPrompt(team + "-1 — the build")
+	ev.DelegatedIssue = &DelegatedIssue{Team: team, Labels: labels}
+	return ev
+}
+
+// A delegated issue that exactly one playbook's Linear rules claim runs that playbook directly.
+// None, several, an issue whose labels could not be read, and anything that is not a
+// delegation's opening prompt are the assistant's.
+func TestADelegatedIssueRunsThePlaybookItsRulesClaim(t *testing.T) {
+	c := routingConductor(true)
+	p := c.profiles.Current()
+	ctx := context.Background()
+
+	claims := []struct {
+		name string
+		ev   InboundEvent
+		want string
+	}{
+		{"a team and one of its labels", delegationOf("ENG", "Bug"), "bugs"},
+		{"a team alone", delegationOf("ops"), "ops"},
+		{"a label, any team", delegationOf("DES", "triage"), "triage"},
+	}
+	for _, tc := range claims {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := tc.ev
+			j, ok := c.claimedPlaybook(ctx, linearSource(), p, &ev)
+			require.True(t, ok)
+			assert.True(t, j.direct, "run as the conversation's task, as a /playbook would be")
+			assert.Equal(t, tc.want, j.playbook.Name)
+			assert.Equal(t, tc.want, ev.Playbook, "a queued delegation still runs it")
+			assert.Equal(t, tc.ev.Text, ev.Text, "the issue is the instruction")
+		})
+	}
+
+	unknown := delegationOf("OPS")
+	unknown.DelegatedIssue.Unknown = true
+	followUp := delegatedPrompt("and the docs")
+	assistants := []struct {
+		name string
+		ev   InboundEvent
+	}{
+		{"nobody claims it", delegationOf("ENG", "ui")},
+		{"several claim it", delegationOf("ENG", "bug", "triage")},
+		{"its labels could not be read", unknown},
+		{"a follow-up carries no issue", followUp},
+		{"a mention carries no issue", mentionPrompt("what is it?")},
+	}
+	for _, tc := range assistants {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := tc.ev
+			_, ok := c.claimedPlaybook(ctx, linearSource(), p, &ev)
+			assert.False(t, ok)
+			assert.Empty(t, ev.Playbook)
+		})
+	}
 }

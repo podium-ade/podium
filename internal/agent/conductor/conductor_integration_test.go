@@ -138,6 +138,7 @@ priority: -3
 system_prompt: look at the page
 allowed_tools: [read, bash]
 browser: true
+linear_teams: [OPS]
 `), 0o600))
 
 	require.NoError(t, os.WriteFile(dir+"/playbooks/desk.yaml", []byte(`system_prompt: work on the desktop

@@ -391,16 +391,16 @@ func TestTheLinearAppAndTheGitHubAppShareOrSplitTheirListener(t *testing.T) {
 	held(shared, ghreview.WebhookPath)
 }
 
-// A Linear app with no linear: true playbook is refused at the button, in the poller's words,
-// rather than saved and then unable to start.
-func TestCheckRefusesALinearAppWithNoPlaybook(t *testing.T) {
+// A Linear app needs no linear: true playbook: a delegated issue goes to the playbook its rules
+// claim, or to the assistant. Only the poller runs that playbook.
+func TestCheckAcceptsALinearAppWithNoLinearPlaybook(t *testing.T) {
 	f := newFakeLinear(t)
 	l := newLive(config.Config{})
 	l.linearPlaybook = func() string { return "" }
-	_, err := l.Check(t.Context(), f.config(t))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no playbook sets `linear: true`")
-	assert.Zero(t, f.grants, "nothing is asked of Linear for an app that could not run")
+	checked, err := l.Check(t.Context(), f.config(t))
+	require.NoError(t, err)
+	require.NotNil(t, checked.Linear)
+	assert.Equal(t, "app-user-1", checked.Linear.UserID)
 }
 
 // Linear revoking the app stops it starting anything. Saving the same app again tries it

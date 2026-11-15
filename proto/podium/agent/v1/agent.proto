@@ -254,6 +254,10 @@ service AgentService {
   // mentioned, or listed from Slack on this call — with the operator-authored description
   // a turn of that channel is briefed with.
   rpc ListSlackChannels(ListSlackChannelsRequest) returns (ListSlackChannelsResponse);
+  // ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
+  // Linear app is installed in, for the playbook editor's linear_teams and linear_labels
+  // pickers. With no Linear app running it is empty and says so.
+  rpc ListLinearCatalog(ListLinearCatalogRequest) returns (ListLinearCatalogResponse);
   // SetSlackChannelDescription stores what the bot should know about a channel. An empty
   // description is valid: the channel still has a name, and the next turn simply gets no
   // extra paragraph. An unknown id is invalid_argument.
@@ -2077,7 +2081,16 @@ message PlaybookDefinition {
   repeated PlaybookSecretRef secrets = 10;
   repeated PlaybookRepo repos = 11;
   repeated string slack_channels = 12;
+  // linear marks the playbook the Linear poller runs on every ticket it finds. The agent app
+  // does not route with it: see linear_teams and linear_labels. At most one playbook may set it.
   bool linear = 13;
+  // linear_teams (team keys, "ENG") and linear_labels (label names) claim an issue delegated to
+  // the Linear agent app, both compared without case. A playbook claims an issue when it sets
+  // either list, the issue's team is in linear_teams (or it is empty), and one of the issue's
+  // labels is in linear_labels (or it is empty). An issue exactly one playbook claims runs that
+  // playbook directly; otherwise the assistant decides.
+  repeated string linear_teams = 36;
+  repeated string linear_labels = 37;
   // github marks the playbook a pull-request review runs in every repository no playbook's
   // github_repos names. At most one playbook may set it. It is always on such a pull
   // request's menu, and only its answer is the review.
@@ -2580,6 +2593,31 @@ message ListSlackChannelsResponse {
   // slack_connected is false when this conductor has no Slack source. The catalogue can
   // still hold rows from an earlier configuration; the UI says so rather than hiding.
   bool slack_connected = 2;
+}
+
+message ListLinearCatalogRequest {}
+
+// LinearTeam is one team of the workspace: its key ("ENG") is what linear_teams names.
+message LinearTeam {
+  string key = 1;
+  string name = 2;
+}
+
+// LinearLabel is one issue label. team_key is the team it belongs to, or empty for a
+// workspace label every team can use. linear_labels names labels by name alone.
+message LinearLabel {
+  string name = 1;
+  string team_key = 2;
+}
+
+message ListLinearCatalogResponse {
+  repeated LinearTeam teams = 1;
+  repeated LinearLabel labels = 2;
+  // linear_connected is false when no Linear app is running here, so there is nothing to
+  // list. The editor still takes typed keys and labels.
+  bool linear_connected = 3;
+  // error is why Linear could not be asked, when an app is running and the call failed.
+  string error = 4;
 }
 
 message SetSlackChannelDescriptionRequest {

@@ -653,3 +653,59 @@ func TestAPlaybooksModelNeverReachesTheAssistant(t *testing.T) {
 	assert.Equal(t, "grok-4.6", p.Resolve(p.Playbooks["general"], Override{}).Model)
 	assert.Equal(t, "claude-opus-5", p.ResolveAssistant(Override{}).Model)
 }
+
+// A playbook's Linear rules load from its file, and an empty entry is refused as an empty
+// slack_channels entry is.
+func TestAPlaybookDeclaresLinearTeamsAndLabels(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "linear_teams: [ENG, OPS]\nlinear_labels: [bug]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ENG", "OPS"}, p.Playbooks["general"].LinearTeams)
+	assert.Equal(t, []string{"bug"}, p.Playbooks["general"].LinearLabels)
+
+	for _, field := range []string{"linear_teams", "linear_labels"} {
+		files := base()
+		files["playbooks/general.yaml"] = goodPlaybook + field + ": [\" \"]\n"
+		_, err := Load(write(t, files))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), field+" holds an empty entry")
+	}
+
+	// Two playbooks may name one team: the assistant resolves the overlap at run time.
+	files = base()
+	files["playbooks/general.yaml"] = goodPlaybook + "linear_teams: [ENG]\n"
+	files["playbooks/coder.yaml"] = goodPlaybook + "linear_teams: [ENG]\n"
+	p, err = Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"coder", "general"}, p.LinearClaims("ENG", nil))
+}
+
+// What a playbook's Linear rules claim: the team when it names teams, AND one label when it
+// names labels, both without case. A playbook naming neither claims nothing.
+func TestClaimsLinear(t *testing.T) {
+	tests := []struct {
+		name   string
+		pb     Playbook
+		team   string
+		labels []string
+		want   bool
+	}{
+		{"no rules claim nothing", Playbook{}, "ENG", []string{"bug"}, false},
+		{"the team", Playbook{LinearTeams: []string{"ENG"}}, "ENG", nil, true},
+		{"the team without case", Playbook{LinearTeams: []string{"eng"}}, "ENG", nil, true},
+		{"another team", Playbook{LinearTeams: []string{"OPS"}}, "ENG", []string{"bug"}, false},
+		{"no team known", Playbook{LinearTeams: []string{"ENG"}}, "", nil, false},
+		{"a label, any team", Playbook{LinearLabels: []string{"Bug"}}, "OPS", []string{"bug", "ui"}, true},
+		{"no label of its", Playbook{LinearLabels: []string{"bug"}}, "OPS", []string{"ui"}, false},
+		{"no labels at all", Playbook{LinearLabels: []string{"bug"}}, "OPS", nil, false},
+		{"team and label", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "ENG", []string{"bug"}, true},
+		{"team but not label", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "ENG", []string{"ui"}, false},
+		{"label but not team", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "OPS", []string{"bug"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.pb.ClaimsLinear(tc.team, tc.labels))
+		})
+	}
+}

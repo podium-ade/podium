@@ -407,14 +407,24 @@ type Playbook struct {
 	// agent-runtime-desktop` builds and nobody publishes. See docs/agent.md#desktop-true.
 	Desktop bool `yaml:"desktop" json:"desktop,omitempty"`
 
-	// Linear marks the one playbook Linear work runs: every ticket the poller finds, every issue
-	// delegated to the agent app, and an @mention of the app on a conductor with no host
-	// runtime (with one, the assistant answers a mention). A person can name another with a
-	// /playbook prefix in an agent session; nothing else picks one, so the flag is the default.
-	// At most one playbook may set it; zero means this bot does not take tickets, which is
-	// only a misconfiguration when Linear is connected — and the conductor says so where the
-	// connection is made.
+	// Linear marks the one playbook the Linear poller runs: every ticket it finds assigned to the
+	// bot's seat. The agent app does not route with it: an issue delegated to the app runs the
+	// playbook whose linear_teams and linear_labels claim it, and otherwise the assistant
+	// decides. Only a conductor with no host runtime still runs it for the app — a delegation,
+	// or an @mention — since there is no assistant there to ask. At most one playbook may set
+	// it; zero means the poller has nothing to run, which it says when it starts.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
+
+	// LinearTeams and LinearLabels claim an issue delegated to the Linear agent app, as
+	// slack_channels claims a Slack channel. LinearTeams are team keys ("ENG") and LinearLabels
+	// label names, both compared without case. A playbook claims a delegated issue when it sets
+	// either list, the issue's team is in LinearTeams (or LinearTeams is empty), and one of the
+	// issue's labels is in LinearLabels (or LinearLabels is empty). An issue exactly one
+	// playbook claims runs that playbook directly; one that several or none claim goes to the
+	// assistant, which delegates or asks. Unlike slack_channels, two playbooks may name the
+	// same team or label: the overlap is resolved by the assistant, not refused.
+	LinearTeams  []string `yaml:"linear_teams" json:"linear_teams,omitempty"`
+	LinearLabels []string `yaml:"linear_labels" json:"linear_labels,omitempty"`
 
 	// GitHub marks the playbook a pull-request review runs when no playbook names the pull
 	// request's repository in github_repos. It is always on that pull request's menu, and
@@ -897,6 +907,16 @@ func (s Playbook) validate(path string) error {
 			errs = append(errs, errors.New("slack_channels holds an empty entry"))
 		}
 	}
+	for _, team := range s.LinearTeams {
+		if strings.TrimSpace(team) == "" {
+			errs = append(errs, errors.New("linear_teams holds an empty entry"))
+		}
+	}
+	for _, label := range s.LinearLabels {
+		if strings.TrimSpace(label) == "" {
+			errs = append(errs, errors.New("linear_labels holds an empty entry"))
+		}
+	}
 	seenRepos := map[string]bool{}
 	for _, r := range s.GitHubRepos {
 		key := gitHubRepoKey(r)
@@ -995,7 +1015,7 @@ func (p *Profile) validate(path string) error {
 	}
 	if len(linear) > 1 {
 		errs = append(errs, fmt.Errorf("playbooks %s all set linear: true; exactly one playbook may, "+
-			"because it is what a Linear issue runs when nobody named a playbook",
+			"because it is what a ticket the Linear poller finds runs",
 			strings.Join(linear, ", ")))
 	}
 	var github []string
@@ -1097,8 +1117,8 @@ func firstRepo(s Playbook) string {
 	return s.Repos[0].URL
 }
 
-// LinearPlaybook is the name of the playbook Linear work runs when nobody named one, or ""
-// when no playbook claims it. validate has already refused more than one.
+// LinearPlaybook is the name of the playbook the Linear poller runs, the one marked
+// linear: true, or "" when no playbook is. validate has already refused more than one.
 func (p *Profile) LinearPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
@@ -1106,6 +1126,53 @@ func (p *Profile) LinearPlaybook() string {
 		}
 	}
 	return ""
+}
+
+// ClaimsLinear reports whether this playbook's linear_teams and linear_labels claim an issue
+// of team (its key) carrying labels. A playbook that sets neither claims nothing.
+func (s Playbook) ClaimsLinear(team string, labels []string) bool {
+	if len(s.LinearTeams) == 0 && len(s.LinearLabels) == 0 {
+		return false
+	}
+	if len(s.LinearTeams) > 0 && !containsFold(s.LinearTeams, team) {
+		return false
+	}
+	if len(s.LinearLabels) == 0 {
+		return true
+	}
+	for _, l := range labels {
+		if containsFold(s.LinearLabels, l) {
+			return true
+		}
+	}
+	return false
+}
+
+// LinearClaims is every playbook whose Linear rules claim an issue of team carrying labels,
+// sorted by name.
+func (p *Profile) LinearClaims(team string, labels []string) []string {
+	var out []string
+	for _, name := range p.PlaybookNames() {
+		if p.Playbooks[name].ClaimsLinear(team, labels) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// containsFold reports whether list holds want, trimmed and compared without case. An empty
+// want is in no list.
+func containsFold(list []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, v := range list {
+		if strings.EqualFold(strings.TrimSpace(v), want) {
+			return true
+		}
+	}
+	return false
 }
 
 // GitHubPlaybook is the name of the playbook marked github: true — the review playbook for
@@ -1186,10 +1253,11 @@ type Selection struct {
 // Routing is what Select decides from.
 //
 // It describes a TASK: a Slack thread on a conductor with no host runtime, a ticket the Linear
-// poller found, or a Linear agent session that runs a playbook — a delegated issue, or a
-// mention where there is no assistant to answer it. A conversation the assistant answers does
-// not appear here at all: the playbooks are what that turn delegates to rather than something
-// a routing rule picks for it.
+// poller found, or a Linear agent session on a conductor with no host runtime, where there is
+// no assistant to answer it. A conversation the assistant answers does not appear here at all:
+// the playbooks are what that turn delegates to rather than something a routing rule picks for
+// it. (A Linear issue delegated to the app is routed by linear_teams and linear_labels before
+// the assistant is asked; see Profile.LinearClaims.)
 type Routing struct {
 	// Playbook is a playbook the source KNOWS is right, and which no routing rule may
 	// second-guess: the Linear poller's linear: true playbook. Empty means the rules decide.
@@ -1200,8 +1268,8 @@ type Routing struct {
 	// Text is what the human said, a /playbook prefix included.
 	Text string
 	// Default is the playbook a source runs when nothing else picked one: the linear: true
-	// playbook, for a Linear agent session. Unlike Playbook it is not explicit, so a
-	// /playbook the human typed comes before it.
+	// playbook, for a Linear agent session on a conductor with no host runtime. Unlike
+	// Playbook it is not explicit, so a /playbook the human typed comes before it.
 	Default string
 }
 

@@ -234,6 +234,9 @@ const (
 	// AgentServiceListSlackChannelsProcedure is the fully-qualified name of the AgentService's
 	// ListSlackChannels RPC.
 	AgentServiceListSlackChannelsProcedure = "/podium.agent.v1.AgentService/ListSlackChannels"
+	// AgentServiceListLinearCatalogProcedure is the fully-qualified name of the AgentService's
+	// ListLinearCatalog RPC.
+	AgentServiceListLinearCatalogProcedure = "/podium.agent.v1.AgentService/ListLinearCatalog"
 	// AgentServiceSetSlackChannelDescriptionProcedure is the fully-qualified name of the AgentService's
 	// SetSlackChannelDescription RPC.
 	AgentServiceSetSlackChannelDescriptionProcedure = "/podium.agent.v1.AgentService/SetSlackChannelDescription"
@@ -545,6 +548,10 @@ type AgentServiceClient interface {
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
+	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
+	// pickers. With no Linear app running it is empty and says so.
+	ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error)
 	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
@@ -1037,6 +1044,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
 			connect.WithClientOptions(opts...),
 		),
+		listLinearCatalog: connect.NewClient[v1.ListLinearCatalogRequest, v1.ListLinearCatalogResponse](
+			httpClient,
+			baseURL+AgentServiceListLinearCatalogProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListLinearCatalog")),
+			connect.WithClientOptions(opts...),
+		),
 		setSlackChannelDescription: connect.NewClient[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse](
 			httpClient,
 			baseURL+AgentServiceSetSlackChannelDescriptionProcedure,
@@ -1240,6 +1253,7 @@ type agentServiceClient struct {
 	listNotifications          *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
 	markNotificationsRead      *connect.Client[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
+	listLinearCatalog          *connect.Client[v1.ListLinearCatalogRequest, v1.ListLinearCatalogResponse]
 	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
 	listPersonalities          *connect.Client[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse]
 	createPersonality          *connect.Client[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse]
@@ -1623,6 +1637,11 @@ func (c *agentServiceClient) ListSlackChannels(ctx context.Context, req *connect
 	return c.listSlackChannels.CallUnary(ctx, req)
 }
 
+// ListLinearCatalog calls podium.agent.v1.AgentService.ListLinearCatalog.
+func (c *agentServiceClient) ListLinearCatalog(ctx context.Context, req *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error) {
+	return c.listLinearCatalog.CallUnary(ctx, req)
+}
+
 // SetSlackChannelDescription calls podium.agent.v1.AgentService.SetSlackChannelDescription.
 func (c *agentServiceClient) SetSlackChannelDescription(ctx context.Context, req *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
 	return c.setSlackChannelDescription.CallUnary(ctx, req)
@@ -1975,6 +1994,10 @@ type AgentServiceHandler interface {
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
+	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
+	// pickers. With no Linear app running it is empty and says so.
+	ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error)
 	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
@@ -2463,6 +2486,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListLinearCatalogHandler := connect.NewUnaryHandler(
+		AgentServiceListLinearCatalogProcedure,
+		svc.ListLinearCatalog,
+		connect.WithSchema(agentServiceMethods.ByName("ListLinearCatalog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceSetSlackChannelDescriptionHandler := connect.NewUnaryHandler(
 		AgentServiceSetSlackChannelDescriptionProcedure,
 		svc.SetSlackChannelDescription,
@@ -2735,6 +2764,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceMarkNotificationsReadHandler.ServeHTTP(w, r)
 		case AgentServiceListSlackChannelsProcedure:
 			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
+		case AgentServiceListLinearCatalogProcedure:
+			agentServiceListLinearCatalogHandler.ServeHTTP(w, r)
 		case AgentServiceSetSlackChannelDescriptionProcedure:
 			agentServiceSetSlackChannelDescriptionHandler.ServeHTTP(w, r)
 		case AgentServiceListPersonalitiesProcedure:
@@ -3072,6 +3103,10 @@ func (UnimplementedAgentServiceHandler) MarkNotificationsRead(context.Context, *
 
 func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSlackChannels is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListLinearCatalog is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {

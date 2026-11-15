@@ -232,11 +232,17 @@ type InboundEvent struct {
 	// whatever the turn before it ran.
 	Playbook string
 	// Delegated is a conversation that was handed to Podium as a piece of work rather than
-	// asked a question in: a Linear issue delegated to the agent app. It runs a playbook as a
-	// task, whether or not this conductor has an assistant to answer with. False for an
-	// @mention, which is a question, and for every other source. Set on every prompt of the
-	// session, not only the first: a follow-up stays with how the session began.
+	// asked a question in: a Linear issue delegated to the agent app. On a conductor with a
+	// host runtime it is a conversation, as a mention is: the playbook its issue's Linear
+	// rules claim runs (DelegatedIssue), or the assistant decides. With no host runtime it
+	// runs the linear: true playbook as a task. False for an @mention, which is a question,
+	// and for every other source. Set on every prompt of the session, not only the first: a
+	// follow-up stays with how the session began.
 	Delegated bool
+	// DelegatedIssue is what a playbook's linear_teams and linear_labels are matched against.
+	// The app sets it on the opening prompt of a delegated session and on no other, so only
+	// the delegation itself is routed by them; its follow-ups go to the assistant.
+	DelegatedIssue *DelegatedIssue `json:",omitempty"`
 	// Role is the speaker's role on what the conversation is about, when the source knows it:
 	// their access to a pull request's repository — read, triage, write, maintain or admin.
 	// A pull request offers a playbook only to a speaker whose role its github_requires
@@ -270,6 +276,18 @@ type InboundEvent struct {
 	// to a copy of Podium's system prompt for this brief only. The stored prompt is
 	// not changed.
 	PersonalityPrompt string
+}
+
+// DelegatedIssue is the issue a Linear delegation hands over, as its playbook rules see it.
+type DelegatedIssue struct {
+	// Team is the issue's team key ("ENG"), or empty when Linear did not say.
+	Team string
+	// Labels are the names of the labels on the issue.
+	Labels []string
+	// Unknown is an issue whose labels could not be read. No rule claims it, whatever its
+	// team, so a lookup that failed sends the delegation to the assistant rather than to a
+	// playbook that would not have claimed it had the labels been known.
+	Unknown bool
 }
 
 // Attachment is one file the conductor wants put into the conversation. Size is part of

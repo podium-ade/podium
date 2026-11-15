@@ -19,9 +19,10 @@ import (
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
-// What answers a Linear agent session (conductor.go, conversational): a delegated issue runs a
-// playbook as a task, an @mention is a question the assistant answers where there is a host
-// runtime, and a /playbook prefix in a person's words runs that playbook for the turn.
+// What answers a Linear agent session (conductor.go, conversational): where there is a host
+// runtime, a delegated issue runs the playbook its Linear rules claim and is otherwise the
+// assistant's, as an @mention is, and a /playbook prefix in a person's words runs that playbook
+// for the turn.
 //
 // The assistant is a chat host here (chathost_cancel_integration_test.go): a fake runtime child
 // is driven by its event's environment, which the conductor honours for the dev source only.
@@ -75,48 +76,84 @@ func delegatedPrompt(session, activity, text string) conductor.InboundEvent {
 	return ev
 }
 
-func briefPlaybooks(t *testing.T, fake *fakePodium) []string {
-	var out []string
-	for _, spec := range fake.Specs() {
-		out = append(out, decodeBrief(t, spec).Playbook.Name)
-	}
-	return out
+// delegationOpening is a delegation's opening prompt, with the issue its rules match.
+func delegationOpening(session, activity, text, team string, labels ...string) conductor.InboundEvent {
+	ev := delegatedPrompt(session, activity, text)
+	ev.DelegatedIssue = &conductor.DelegatedIssue{Team: team, Labels: labels}
+	return ev
 }
 
-// A delegation is a piece of work: it runs the linear: true playbook as a task even on a
-// conductor with an assistant, a follow-up stays with it, and a /playbook in a follow-up runs
-// that playbook for that turn alone.
-func TestALinearDelegationRunsAPlaybookEvenWithAnAssistant(t *testing.T) {
+// A delegation no playbook's rules claim is the assistant's, as a mention is: it is told the
+// issue was delegated, starts no task of its own, and the follow-ups are its too. A /playbook
+// in a follow-up runs that playbook as the conversation's task.
+func TestALinearDelegationNoRuleClaimsIsTheAssistants(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
-	fake.events = func(taskID string) []*podiumv1.TaskEvent {
-		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done in "+taskID)}
-	}
+	release := fake.HoldTasks()
+	t.Cleanup(release)
 	src := linearAppSource()
 	t.Cleanup(src.Close)
-	assistant := &answeringChatHost{answer: "I am the assistant."}
+	assistant := &answeringChatHost{answer: "Which repository?"}
 	startWith(t, st, fake, src, withAssistant(t, assistant))
 
 	ctx := context.Background()
-	first := delegatedPrompt("s-30", "a-30", "ENG-1 — Fix the build")
+	first := delegationOpening("s-30", "a-30", "ENG-1 — Fix the build", "ENG", "bug")
 	require.NoError(t, src.Send(ctx, first))
-	waitFor(t, 30*time.Second, "the delegation's task", func() bool { return len(fake.Specs()) == 1 })
-	waitFor(t, 30*time.Second, "its answer", func() bool { return len(posts(src.Records(), conductor.OutFinal)) == 1 })
+	waitFor(t, 30*time.Second, "the assistant's answer", func() bool { return len(posts(src.Records(), conductor.OutFinal)) == 1 })
+	require.NoError(t, src.Send(ctx, delegatedPrompt("s-30", "a-31", "podium")))
+	waitFor(t, 30*time.Second, "the second answer", func() bool { return len(posts(src.Records(), conductor.OutFinal)) == 2 })
 
-	require.NoError(t, src.Send(ctx, delegatedPrompt("s-30", "a-31", "/dogfood run the e2e suite")))
-	waitFor(t, 30*time.Second, "the named playbook's task", func() bool { return len(fake.Specs()) == 2 })
-	waitFor(t, 30*time.Second, "its answer", func() bool { return len(posts(src.Records(), conductor.OutFinal)) == 2 })
-
-	require.NoError(t, src.Send(ctx, delegatedPrompt("s-30", "a-32", "and the docs")))
-	waitFor(t, 30*time.Second, "the follow-up's task", func() bool { return len(fake.Specs()) == 3 })
-
-	assert.Equal(t, []string{"coder", "dogfood", "coder"}, briefPlaybooks(t, fake),
-		"the linear: true playbook, the one named for a turn, and the session's own again")
-	assert.Equal(t, "run the e2e suite", decodeBrief(t, fake.Specs()[1]).Instruction, "without its prefix")
-	assert.Empty(t, assistant.prompts(), "the assistant is never asked")
+	asked := assistant.prompts()
+	require.Len(t, asked, 2)
+	assert.True(t, strings.HasPrefix(asked[0], "This Linear issue was delegated to you"), asked[0])
+	assert.True(t, strings.HasSuffix(asked[0], "ENG-1 — Fix the build"), "the issue follows")
+	assert.Equal(t, "podium", asked[1], "a follow-up is the person's words")
+	assert.Empty(t, fake.Specs(), "the assistant starts no task of its own")
+	assert.Empty(t, posts(src.Records(), conductor.OutFinal)[0].Playbook, "the assistant is nobody's playbook")
 	sess, err := st.GetSessionByKey(ctx, first.SourceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Playbook, "a playbook named for one turn does not become the session's")
+	assert.Empty(t, sess.Playbook, "a conversation runs no playbook")
+
+	require.NoError(t, src.Send(ctx, delegatedPrompt("s-30", "a-32", "/dogfood run the e2e suite")))
+	waitFor(t, 30*time.Second, "the named playbook's task", func() bool { return len(fake.Specs()) == 1 })
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "dogfood", brief.Playbook.Name)
+	assert.Equal(t, "run the e2e suite", brief.Instruction, "without its prefix")
+	assert.Len(t, assistant.prompts(), 2, "the person named the playbook; there was nothing to ask")
+}
+
+// A delegation exactly one playbook's rules claim runs that playbook directly, as the
+// conversation's task: the assistant is not asked, the task is the session's delegation, and
+// the issue is its instruction.
+func TestALinearDelegationARuleClaimsRunsThatPlaybook(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := linearAppSource()
+	t.Cleanup(src.Close)
+	assistant := &answeringChatHost{answer: "unused"}
+	startWith(t, st, fake, src, withAssistant(t, assistant))
+
+	ctx := context.Background()
+	ev := delegationOpening("s-34", "a-40", "OPS-7 — The page is blank", "OPS")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the task", func() bool { return len(fake.Specs()) == 1 })
+	waitFor(t, 30*time.Second, "the turn", func() bool { return turnStatus(st, ev.SourceKey) == store.TurnSucceeded })
+
+	assert.Empty(t, assistant.prompts(), "the rules chose the playbook; there was nothing to ask")
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "looker", brief.Playbook.Name, "looker claims team OPS")
+	assert.Equal(t, "OPS-7 — The page is blank", brief.Instruction)
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 1)
+	assert.Equal(t, "looker", dlgs[0].Playbook)
+	assert.Equal(t, store.TurnRunning, dlgs[0].Status, "the conversation owns it after the turn")
+
+	// Its follow-up is the assistant's, which sees the task running.
+	require.NoError(t, src.Send(ctx, delegatedPrompt("s-34", "a-41", "how is it going?")))
+	waitFor(t, 30*time.Second, "the assistant", func() bool { return len(assistant.prompts()) == 1 })
+	assert.Len(t, fake.Specs(), 1, "the follow-up started nothing by itself")
 }
 
 // A mention is a question: on a conductor with an assistant it is answered on the host, with no

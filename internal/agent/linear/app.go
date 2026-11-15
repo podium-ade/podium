@@ -104,9 +104,9 @@ type AppOptions struct {
 	// AppName is the app user's name. A mention of it at the start of a comment is not part
 	// of what was asked. Optional.
 	AppName string
-	// Playbook names the linear: true playbook. Required, and must return non-empty at NewApp:
-	// it is what a delegated issue runs when nobody names another, so an app with none could
-	// take no delegation. The source does not route with it; the conductor does.
+	// Playbook names the linear: true playbook, for the log. Optional: the source does not
+	// route with it, and a delegated issue goes to the playbook its rules claim or to the
+	// assistant (conductor.go, claimedPlaybook).
 	Playbook func() string
 	// TaskURL renders a link to a Podium task page. It is the fallback when an attachment
 	// cannot be uploaded.
@@ -142,9 +142,11 @@ type AppOptions struct {
 //
 // Each agent session is one conversation, and a chat in Podium (MirrorKey). A delegation or an
 // @mention opens one; what people say in it afterwards is a follow-up. The source says which of
-// the two opened it (InboundEvent.Delegated) and the conductor decides what answers: a
-// delegation runs a playbook as a task, a mention is answered by the assistant where there is
-// one, and a /playbook prefix in a person's words names a playbook for that turn. Everything a
+// the two opened it (InboundEvent.Delegated), and on a delegation's opening prompt what its
+// issue is routed by (InboundEvent.DelegatedIssue), and the conductor decides what answers: a
+// delegation runs the playbook whose Linear rules claim its issue, and otherwise both are
+// answered by the assistant where there is one; a /playbook prefix in a person's words names a
+// playbook for that turn. Everything a
 // turn says goes back into the session as an activity, and so does everything the tasks an
 // assistant's turn delegated say. Linear writes the prompts, questions and answers into the
 // issue's comments, which is where the issue and what was said on it outside the session are
@@ -306,8 +308,6 @@ var (
 // NewApp builds the agent app's source. Nothing is served until Run.
 func NewApp(opts AppOptions) (*AppSource, error) {
 	switch {
-	case opts.Playbook == nil || opts.Playbook() == "":
-		return nil, ErrNoPlaybook("or remove the Linear app under Settings → Connections")
 	case opts.Client == nil:
 		return nil, errors.New("linear: the app needs a client signed in as it")
 	case opts.WebhookSecret == "":
@@ -348,6 +348,10 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 			return false, errors.New("this conductor was not given a way to stop a turn")
 		}
 	}
+	playbook := opts.Playbook
+	if playbook == nil {
+		playbook = func() string { return "" }
+	}
 	afterFunc := opts.AfterFunc
 	if afterFunc == nil {
 		afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
@@ -359,7 +363,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 			client:   opts.Client,
 			logger:   logger,
 			metrics:  metrics,
-			playbook: opts.Playbook,
+			playbook: playbook,
 			taskURL:  taskURL,
 			now:      now,
 			upload:   upload,
@@ -379,7 +383,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		appUserID:      opts.AppUserID,
 		organizationID: opts.OrganizationID,
 		appName:        opts.AppName,
-		playbook:       opts.Playbook,
+		playbook:       playbook,
 		onRevoked:      onRevoked,
 		stopTurn:       stopTurn,
 		changes:        opts.Events,
@@ -611,8 +615,9 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		Mentioned: true,
 		Text:      text,
 		BriefKind: conductor.SourceLinear,
-		// What happened, and not what should run: the conductor routes a delegation to a
-		// playbook and a mention to the assistant, and reads a /playbook prefix in either.
+		// What happened, and not what should run: the conductor routes a delegation by its
+		// issue's team and labels, else to the assistant as a mention, and reads a /playbook
+		// prefix in either.
 		Delegated:       sess.delegated(),
 		SpeakerProvider: conductor.SpeakerLinear,
 	}
@@ -623,6 +628,38 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 		ev.RecordText = said
 	}
 	return ev
+}
+
+// issueRoutingTimeout bounds reading a delegated issue's labels. The session was acknowledged
+// already, so the wait costs nothing in Linear; a lookup that does not answer in time leaves
+// the delegation to the assistant.
+const issueRoutingTimeout = 5 * time.Second
+
+// delegatedIssue is what a delegation's playbook rules are matched against: the issue's team
+// key, from the payload, and its labels, which the payload does not carry and are asked of
+// Linear. A lookup that fails marks the issue Unknown, which no rule claims.
+func (s *AppSource) delegatedIssue(ctx context.Context, iss *payloadIssue) *conductor.DelegatedIssue {
+	if iss == nil {
+		return &conductor.DelegatedIssue{Unknown: true}
+	}
+	out := &conductor.DelegatedIssue{}
+	if iss.Team != nil {
+		out.Team = iss.Team.Key
+	}
+	ctx, cancel := context.WithTimeout(ctx, issueRoutingTimeout)
+	defer cancel()
+	team, labels, err := s.client.IssueRouting(ctx, iss.ID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "linear: reading a delegated issue's labels failed; no playbook rule claims it",
+			"issue", iss.Identifier, "error", err)
+		out.Unknown = true
+		return out
+	}
+	if out.Team == "" {
+		out.Team = team
+	}
+	out.Labels = labels
+	return out
 }
 
 // candidate is the email a prompt's speaker may be matched to a Podium login by, or empty. It
@@ -1524,6 +1561,8 @@ func thoughtText(text string) string {
 	return strings.TrimSpace(strings.TrimPrefix(text, conductor.ProgressPrefix))
 }
 
-// ErrNoPlaybook is the refusal of a Linear source with no linear: true playbook to run, in
-// the poller's words, with what to do afterwards.
-func ErrNoPlaybook(then string) error { return errors.New(noPlaybook + then) }
+// Catalog is the workspace's teams and issue labels, asked as the app, for the playbook
+// editor's pickers.
+func (s *AppSource) Catalog(ctx context.Context) ([]TeamInfo, []LabelInfo, error) {
+	return s.client.Catalog(ctx)
+}
