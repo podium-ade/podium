@@ -310,6 +310,36 @@ describe("MemoryPanel", () => {
     expect(await screen.findByText("fact 2.0")).toBeInTheDocument();
   });
 
+  it("moves to the last page when the memory shrinks under the one being read", async () => {
+    let total = 30;
+    listMemories.mockImplementation(({ offset }: { offset?: number }) => {
+      const from = offset ?? 0;
+      const n = Math.max(0, Math.min(25, total - from));
+      const items = Array.from({ length: n }, (_, i) => ({
+        ...memory,
+        id: `m${from + i}`,
+        text: `fact ${from + i}`,
+      }));
+      return Promise.resolve({ items, nextCursor: "", total });
+    });
+    mount();
+    expect(await screen.findByText("fact 0")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("memory-next"));
+    expect(await screen.findByText("fact 25")).toBeInTheDocument();
+
+    // Forgotten elsewhere: 18 are left, all on page 1. Forgetting one here re-reads page 2.
+    total = 18;
+    deleteMemory.mockResolvedValue({});
+    await userEvent.click(screen.getAllByRole("button", { name: "Forget this memory" })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "Forget" }));
+
+    expect(await screen.findByText("fact 0")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
+    expect(
+      screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "18 memories, newest first"),
+    ).toBeInTheDocument();
+  });
+
   it("shows no pager when everything fits on one page", async () => {
     mount();
     await screen.findByTestId("memory-row");

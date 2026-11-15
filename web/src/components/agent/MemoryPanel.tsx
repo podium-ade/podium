@@ -152,6 +152,22 @@ export function MemoryPanel() {
     );
   }
 
+  // The memory shrank under a later page: someone forgot memories elsewhere, or the engine
+  // merged some. The page now starts past the end and reads back nothing while the total says
+  // there is more, so it moves to the last page that exists. Set during render, not in an
+  // effect, and it only ever moves down, so it settles; a placeholder is the page being left
+  // and is not evidence.
+  if (
+    !searching &&
+    page > 1 &&
+    list.data &&
+    !list.isPlaceholderData &&
+    list.data.items.length === 0 &&
+    list.data.total > 0
+  ) {
+    setPage(Math.max(1, Math.ceil(list.data.total / PAGE)));
+  }
+
   const shown =
     page > 1 && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
   const items = searching ? search.data?.items : morePending ? undefined : shown?.items;
