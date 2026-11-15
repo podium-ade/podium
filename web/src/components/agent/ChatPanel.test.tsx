@@ -18,6 +18,7 @@ import {
 } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { ChatPanel } from "./ChatPanel";
+import { CHAT_PAGE } from "../../hooks/useChatStream";
 import { ViewerContext, type Viewer } from "../../lib/identity";
 import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 
@@ -280,7 +281,7 @@ describe("ChatPanel", () => {
     );
     await waitFor(() =>
       expect(streamChat).toHaveBeenCalledWith(
-        { chatId: "chat_01abc", fromSeq: 0n },
+        { chatId: "chat_01abc", fromSeq: 0n, tail: CHAT_PAGE },
         expect.anything(),
       ),
     );

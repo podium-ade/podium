@@ -686,6 +686,60 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 	return items, nil
 }
 
+const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
+where chat_id = $1 and seq < $2::bigint
+order by seq desc
+limit $3::int
+`
+
+type ListChatMessagesBeforeParams struct {
+	ChatID    string
+	BeforeSeq int64
+	Lim       int32
+}
+
+// ListChatMessagesBefore is one page of history read backwards: the newest @lim messages
+// below @before_seq, newest first. The caller flips it back into seq order.
+func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessagesBeforeParams) ([]ChatMessage, error) {
+	rows, err := q.db.Query(ctx, listChatMessagesBefore, arg.ChatID, arg.BeforeSeq, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatMessage{}
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ChatID,
+			&i.Seq,
+			&i.Role,
+			&i.Text,
+			&i.Attachments,
+			&i.Ts,
+			&i.TaskID,
+			&i.Author,
+			&i.AuthorLogin,
+			&i.AuthorHandle,
+			&i.AuthorAvatar,
+			&i.Via,
+			&i.ExternalID,
+			&i.ExternalUrl,
+			&i.Addressed,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.Mentions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatPullRequests = `-- name: ListChatPullRequests :many
 select chat_id, url, owner, repo, number, source, created_at, detached_at from chat_pull_requests
 where chat_id = $1 and detached_at is null
