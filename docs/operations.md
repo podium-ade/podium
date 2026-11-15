@@ -599,8 +599,9 @@ reaches another conductor is handed over to that one, so every conversation is r
 every conductor.
 
 Give every conductor on one database the same host runtime setting (`PODIUM_AGENT_HOST_RUNTIME`).
-What answers a Linear @mention is decided by the conductor the webhook reaches: the assistant
-where there is a host runtime, the `linear: true` playbook as a task where there is none. Two
+What answers a Linear @mention or delegation is decided by the conductor the webhook reaches:
+the assistant, or the playbook a delegated issue's Linear rules claim, where there is a host
+runtime, and the `linear: true` playbook as a task where there is none. Two
 conductors that differ answer the same session one way or the other depending on which one the
 tunnel picked. A Stop in a Linear session stops the tasks its assistant delegated too, whichever
 conductor follows them.

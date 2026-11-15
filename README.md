@@ -77,9 +77,10 @@ The jobs are yours to define. Four that the shape is built for:
 
 A playbook's `secrets:` list is what that job receives. The assistant picks the playbook for
 the piece of work in front of it, and may start more than one in a single answer. An issue
-delegated to Podium in Linear is a piece of work, and runs the playbook that claims Linear; an
-@mention in Linear is a question, and the assistant answers it as it answers a chat. A person can
-name a playbook in Linear (`/playbook`), and so can a Slack thread without the host runtime.
+delegated to Podium in Linear runs the playbook whose `linear_teams` and `linear_labels` claim
+it, and otherwise goes to the assistant, which picks a playbook or asks; an @mention in Linear is
+a question, and the assistant answers it as it answers a chat. A person can name a playbook in
+Linear (`/playbook`), and so can a Slack thread without the host runtime.
 [docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
 
 ## Where it runs

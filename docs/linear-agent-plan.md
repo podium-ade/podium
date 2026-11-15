@@ -230,12 +230,12 @@ a conversation in the conductor is built on a chat row.
   (`InboundEvent.Playbook` stays the poller's, which keeps its behaviour byte for byte). It sets
   `InboundEvent.Delegated` on every prompt of a session opened by delegation, read off
   `agentSession.sourceMetadata` as the ref's fifth part is.
-- **Delegation** runs a playbook as a task, on any conductor. A `/playbook` prefix in a person's
-  words picks one for that turn — a delegation's opening prompt is Linear's own, so in practice
-  a follow-up; otherwise the session's playbook runs, which is the `linear: true` playbook
-  (`Routing.Default`, after the prefix). Unlike a Slack thread, a Linear session does not refuse
-  a second playbook: a `/name` runs for that turn alone, and is never injected into a task that is
-  already up.
+- **Delegation**, where there is a host runtime, is a conversation as a mention is (see
+  *Delegation routing*, below). Without one it runs a playbook as a task: a `/playbook` prefix in a person's words picks
+  one for that turn — a delegation's opening prompt is Linear's own, so in practice a follow-up;
+  otherwise the session's playbook runs, which is the `linear: true` playbook (`Routing.Default`,
+  after the prefix). Unlike a Slack thread, a Linear session does not refuse a second playbook: a
+  `/name` runs for that turn alone, and is never injected into a task that is already up.
 - **@mention** with no delegation is a conversation when the host runtime is on: the assistant
   answers on the host with the issue and its thread as context, and may delegate to any playbook
   it would be offered in Slack — `linear: true` plays no part in that menu. Its follow-ups stay
@@ -251,10 +251,32 @@ a conversation in the conductor is built on a chat row.
 - **Stop on a conversation** stops the assistant's turn and every task the session delegated that
   is still running, announcing each task id to every conductor's source before cancelling it,
   drops what is queued, and closes the session with one "Stopped.".
-- **Later, if wanted:** a `linear_teams:` list on a playbook, mirroring `slack_channels`. Not
-  built.
+- **`linear_teams:` and `linear_labels:` on a playbook, mirroring `slack_channels`:** built, and
+  delegation now goes to the assistant unless they claim the issue. See *Delegation routing*
+  below.
 - **Docs:** `docs/agent.md`, `docs/networking.md`, `docs/operations.md`, `docs/security.md`, the
   README and `deploy/.env.example`.
+
+## Delegation routing
+
+Built after phase 6, on `feature/linear-8-delegation-routing`.
+
+- **Rules first.** A playbook may set `linear_teams` (team keys) and `linear_labels` (label names,
+  without case). It claims a delegated issue when it sets either, the team is in `linear_teams`
+  or that list is empty, and a label is in `linear_labels` or that list is empty. Exactly one
+  claiming playbook, out of those the assistant would be offered (`menuFor`), runs directly as
+  the session's task (`claimedPlaybook`, then `runDirect`), as a `/name` on a mention does.
+- **Otherwise the assistant decides.** A delegation is a conversation like a mention
+  (`conversational` no longer looks at `Delegated`): the assistant is told the issue was delegated
+  to it, delegates from its menu or asks in the session. Several claiming playbooks fall through
+  to it too. Follow-ups are the assistant's, as a mention's are.
+- **What the rules see.** The app sets `InboundEvent.DelegatedIssue` on a delegation's opening
+  prompt only: the team key from the payload, and the labels from one `PodiumIssueRouting` query
+  with a five-second limit. A failed query marks the issue unknown, which no rule claims.
+- **`linear: true`** is the poller's, unchanged. A saved app no longer needs one; it is still
+  what a delegation runs on a conductor with no host runtime, which our installs do not have.
+- **Editor.** The playbook page sets both lists under Routing, with teams and label suggestions
+  from `ListLinearCatalog` (the app's `teams` and `issueLabels`), and a line saying when it runs.
 
 ## Testing
 
@@ -317,7 +339,10 @@ Across the whole stack, what is still open:
   task's person and surface, not its playbook.
 - **Conductors on one database must agree on the host runtime.** What answers a mention is
   decided by the conductor the webhook reaches.
-- **`linear_teams:` routing is not built.**
+- **Delegation routing by `linear_teams` and `linear_labels`** has unit tests; its integration
+  tests (`TestALinearDelegation…` in `linear_routing_integration_test.go`) have not run against
+  Postgres, and the `PodiumIssueRouting` and `PodiumCatalog` queries were written from Linear's
+  schema, not tried against a workspace.
 - **Routines on Linear events are built, against invented payloads.** Linear's documentation gives
   the data change envelope but no exact `Issue` or `Comment` body, so the team is read leniently
   (`teamId`, `team.key`, `team.id`, and a comment's `issue.teamId` or `issue.team`), and a team
