@@ -386,6 +386,15 @@ describe("Memory model settings", () => {
     expect(within(card).getByText("Not chosen")).toBeInTheDocument();
     expect(within(card).getByText(/Nothing new is being remembered/)).toBeInTheDocument();
 
+    // Why a key cannot be chosen is written out, not left in a tooltip touch never shows.
+    const unavailable = within(card).getByTestId("memory-model-unavailable");
+    expect(unavailable).toHaveTextContent("xAI: No xAI key is saved for everyone.");
+    expect(unavailable).toHaveTextContent("Google: No Google key is saved for everyone.");
+    expect(within(unavailable).getByRole("link", { name: "Open Models" })).toHaveAttribute(
+      "href",
+      "/agent/settings/models",
+    );
+
     // The first usable key is preselected and its default model filled in.
     const input = await within(card).findByTestId("memory-model-input");
     await waitFor(() => expect(input).toHaveValue("claude-sonnet-5-5"));

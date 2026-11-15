@@ -132,6 +132,7 @@ function MemoryModelForm({
   const qc = useQueryClient();
   const listId = useId();
   const usable = settings.providers.filter((p) => p.available);
+  const unusable = settings.providers.filter((p) => !p.available);
   const [provider, setProvider] = useState(
     settings.provider || (usable[0]?.provider ?? ""),
   );
@@ -236,6 +237,22 @@ function MemoryModelForm({
           </datalist>
         </div>
       </div>
+      {unusable.length > 0 ? (
+        // The reasons are written out rather than left in a tooltip on the disabled options: a
+        // tooltip never shows on touch or to the keyboard, and these say what to do.
+        <ul className="space-y-0.5 text-2xs leading-relaxed text-muted" data-testid="memory-model-unavailable">
+          {unusable.map((p) => (
+            <li key={p.provider}>
+              <span className="text-fg">{p.label}</span>: {p.reason}
+            </li>
+          ))}
+          <li>
+            <Link to="/agent/settings/models" className="text-accent hover:underline">
+              Open Models
+            </Link>
+          </li>
+        </ul>
+      ) : null}
       <p className="text-2xs leading-relaxed text-faint">
         Extraction runs after every conversation, so a smaller, cheaper model is usually the
         right call. Saving sends one short test message with this key first.
