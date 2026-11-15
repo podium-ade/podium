@@ -63,7 +63,7 @@ import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
-import { toThread } from "../../lib/chatThread";
+import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
@@ -1658,12 +1658,12 @@ function Conversation({
   const thread = useMemo(
     () =>
       toThread({
-        messages: stream.messages,
+        messages: fromFirstTurn(stream.messages, stream.hasOlder),
         busy,
         taskRunning: stream.chat?.taskRunning ?? false,
         pendingUser: pendingVisible ? pendingUser.text : undefined,
       }),
-    [stream.messages, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
+    [stream.messages, stream.hasOlder, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
   );
 
   if (stream.gone) {

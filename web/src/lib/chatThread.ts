@@ -132,6 +132,20 @@ interface Assistant {
   undelivered: Undelivered[];
 }
 
+/**
+ * fromFirstTurn is the rows to draw while there is history above them: from the first row
+ * that starts a turn — a question, or a divider — on. A page of history can begin halfway
+ * through a turn, and that part-turn is drawn again, under a new id, once the page above
+ * brings its beginning: everything in it was thrown away and re-made, focus with it. Held
+ * back until then, every message drawn keeps its id as pages land. A tail with no turn
+ * start in it at all is drawn whole: nothing would be left to draw.
+ */
+export function fromFirstTurn(messages: readonly ChatMessage[], more: boolean): readonly ChatMessage[] {
+  if (!more) return messages;
+  const at = messages.findIndex((m) => m.role === "user" || m.role === "notice");
+  return at > 0 ? messages.slice(at) : messages;
+}
+
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
   // Messages are finished at the end, not as they close: a task's later rows can still
   // land in a block an earlier message holds.
