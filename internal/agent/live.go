@@ -229,11 +229,6 @@ func (l *liveConnections) Check(ctx context.Context, next config.Config) (api.Ch
 	// An app Linear revoked is tried again even unchanged: saving it is how an operator says
 	// it was authorized again, and the save is refused if it was not.
 	if next.LinearAppEnabled() && (connections.LinearDiffers(next, running, nil) || revoked) {
-		// Refused here rather than found when the source cannot be built: the app would be
-		// saved, the poller turned off, and nothing would answer.
-		if l.linearPlaybook == nil || l.linearPlaybook() == "" {
-			return api.Checked{}, agentlinear.ErrNoPlaybook("then save the Linear app again")
-		}
 		app, err := checkLinearApp(ctx, next)
 		if err != nil {
 			return api.Checked{}, err
@@ -704,4 +699,27 @@ func (l *liveConnections) slackSource() *agentslack.Source {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.slack
+}
+
+// LinearCatalog is the running Linear app's teams and issue labels, for the playbook editor.
+// connected is false when no app runs here: the poller's playbook takes no team rules, so it
+// is not asked.
+func (l *liveConnections) LinearCatalog(ctx context.Context) (teams []api.LinearTeam, labels []api.LinearLabel, connected bool, err error) {
+	l.mu.Lock()
+	app := l.linearApp
+	l.mu.Unlock()
+	if app == nil {
+		return nil, nil, false, nil
+	}
+	ts, ls, err := app.Catalog(ctx)
+	if err != nil {
+		return nil, nil, true, err
+	}
+	for _, t := range ts {
+		teams = append(teams, api.LinearTeam{Key: t.Key, Name: t.Name})
+	}
+	for _, lb := range ls {
+		labels = append(labels, api.LinearLabel{Name: lb.Name, TeamKey: lb.TeamKey})
+	}
+	return teams, labels, true, nil
 }

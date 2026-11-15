@@ -198,7 +198,10 @@ type AgentServiceOptions struct {
 	Auditor ChatAuditor
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
-	Slack  SlackDirectory
+	Slack SlackDirectory
+	// Linear lists the Linear workspace's teams and labels for the playbook editor. Nil is a
+	// conductor that offers none, and the editor takes typed values.
+	Linear LinearDirectory
 	Logger *slog.Logger
 	// Env is the connection configuration the process was started with, before a saved
 	// connection replaced it. Running is what this process actually opened. GetConnections
@@ -275,6 +278,8 @@ type AgentService struct {
 	connMu  sync.Mutex
 	running config.Config
 	slack   SlackDirectory
+	// linear is fixed for the process: it asks whichever Linear app is running when called.
+	linear LinearDirectory
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -391,6 +396,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		canceller:          opts.Canceller,
 		auditor:            opts.Auditor,
 		slack:              opts.Slack,
+		linear:             opts.Linear,
 		logger:             opts.Logger,
 	}
 }

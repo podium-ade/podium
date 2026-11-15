@@ -785,3 +785,98 @@ func (c *Client) TeamKey(ctx context.Context, id string) (string, error) {
 	}
 	return out.Team.Key, nil
 }
+
+// issueRoutingLabels bounds how many of an issue's labels routing reads. An issue with more
+// than this is matched against the first ones Linear returns.
+const issueRoutingLabels = "50"
+
+const issueRoutingQuery = `query PodiumIssueRouting($id: String!) {
+  issue(id: $id) {
+    id
+    team { id key }
+    labels(first: ` + issueRoutingLabels + `) { nodes { name } }
+  }
+}`
+
+// IssueRouting reads what a delegated issue is routed by: its team's key and the names of its
+// labels. An agent session's webhook names the team but not the labels.
+func (c *Client) IssueRouting(ctx context.Context, id string) (team string, labels []string, err error) {
+	var out struct {
+		Issue *struct {
+			ID     string `json:"id"`
+			Team   Team   `json:"team"`
+			Labels struct {
+				Nodes []struct {
+					Name string `json:"name"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, "PodiumIssueRouting", issueRoutingQuery, map[string]any{"id": id}, &out); err != nil {
+		return "", nil, err
+	}
+	if out.Issue == nil || out.Issue.ID == "" {
+		return "", nil, fmt.Errorf("linear: no issue %s", id)
+	}
+	for _, l := range out.Issue.Labels.Nodes {
+		labels = append(labels, l.Name)
+	}
+	return out.Issue.Team.Key, labels, nil
+}
+
+// catalogPageSize bounds the teams and labels the playbook editor is offered. A workspace
+// with more is offered the first ones; a key or label typed by hand still works.
+const catalogPageSize = "250"
+
+const catalogQuery = `query PodiumCatalog {
+  teams(first: ` + catalogPageSize + `) { nodes { id key name } }
+  issueLabels(first: ` + catalogPageSize + `) { nodes { name team { key } } }
+}`
+
+// TeamInfo is a team as the playbook editor offers it.
+type TeamInfo struct {
+	Key  string
+	Name string
+}
+
+// LabelInfo is an issue label as the playbook editor offers it. TeamKey is empty for a
+// workspace label.
+type LabelInfo struct {
+	Name    string
+	TeamKey string
+}
+
+// Catalog reads the workspace's teams and issue labels, for the pickers that fill a
+// playbook's linear_teams and linear_labels.
+func (c *Client) Catalog(ctx context.Context) ([]TeamInfo, []LabelInfo, error) {
+	var out struct {
+		Teams struct {
+			Nodes []struct {
+				Key  string `json:"key"`
+				Name string `json:"name"`
+			} `json:"nodes"`
+		} `json:"teams"`
+		IssueLabels struct {
+			Nodes []struct {
+				Name string `json:"name"`
+				Team *Team  `json:"team"`
+			} `json:"nodes"`
+		} `json:"issueLabels"`
+	}
+	if err := c.do(ctx, "PodiumCatalog", catalogQuery, nil, &out); err != nil {
+		return nil, nil, err
+	}
+	teams := make([]TeamInfo, 0, len(out.Teams.Nodes))
+	for _, t := range out.Teams.Nodes {
+		teams = append(teams, TeamInfo{Key: t.Key, Name: t.Name})
+	}
+	labels := make([]LabelInfo, 0, len(out.IssueLabels.Nodes))
+	for _, l := range out.IssueLabels.Nodes {
+		info := LabelInfo{Name: l.Name}
+		if l.Team != nil {
+			info.TeamKey = l.Team.Key
+		}
+		labels = append(labels, info)
+	}
+	return teams, labels, nil
+}

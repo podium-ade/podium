@@ -288,6 +288,9 @@ func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []
 		// each can take a call to Linear, and the webhook has five seconds to answer.
 		ev.Login = s.candidate(work, act.User)
 		ev.ChannelPrivacy = s.privacy(work, teamID)
+		if created && sess.delegated() {
+			ev.DelegatedIssue = s.delegatedIssue(work, sess.Issue)
+		}
 		s.emit(work, ev)
 	})
 	return DeliveryAccepted, "", slog.LevelInfo

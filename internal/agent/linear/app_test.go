@@ -165,6 +165,14 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 		}
 		return stubReply{Message: "Entity not found: User", Code: "INVALID_INPUT"}
 	})
+	// Every issue is the fixture's team with a "Bug" label, unless a test answers otherwise.
+	h.stub.on("PodiumIssueRouting", func(vars map[string]any) stubReply {
+		return stubReply{Data: map[string]any{"issue": map[string]any{
+			"id":     vars["id"],
+			"team":   map[string]any{"id": fixtureTeam, "key": "EME"},
+			"labels": map[string]any{"nodes": []any{map[string]any{"name": "Bug"}}},
+		}}}
+	})
 	h.stub.on("PodiumTeamPrivacy", func(vars map[string]any) stubReply {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -486,8 +494,10 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 		Text:       "EME-5 — Test issue",
 		RecordText: "Work on [EME-5](https://linear.app/acme/issue/EME-5/test-issue)",
 		BriefKind:  conductor.SourceLinear,
-		// What happened, and no playbook: the conductor routes it.
-		Delegated: true,
+		// What happened, and no playbook: the conductor routes it, by the issue's team and
+		// labels first.
+		Delegated:      true,
+		DelegatedIssue: &conductor.DelegatedIssue{Team: "EME", Labels: []string{"Bug"}},
 		// A candidate: the conductor keeps it only for a login that has signed in.
 		Login:           fixtureEmail,
 		SpeakerProvider: conductor.SpeakerLinear,
@@ -497,6 +507,35 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 	assert.Equal(t, 1.0, h.deliveries(t, TypeAgentSession, DeliveryAccepted))
 	assert.Contains(t, h.log.String(), "session="+delegationSession)
 	assert.Contains(t, h.log.String(), "issue=EME-5")
+}
+
+// The labels a delegation is routed by are read from Linear, since the webhook does not carry
+// them. A failed read leaves the issue unknown, which no playbook rule claims; a follow-up and a
+// mention carry no issue to route by at all.
+func TestADelegationCarriesWhatItIsRoutedBy(t *testing.T) {
+	h := newAppHarness(t)
+	h.deliver(h.fixture(t, "session_created_delegation"), "delivery-1")
+	ev := h.event(t)
+	assert.Equal(t, &conductor.DelegatedIssue{Team: "EME", Labels: []string{"Bug"}}, ev.DelegatedIssue)
+	calls := h.stub.callsOf("PodiumIssueRouting")
+	require.Len(t, calls, 1)
+	assert.Equal(t, fixtureIssue, calls[0].Vars["id"])
+
+	h = newAppHarness(t)
+	h.stub.on("PodiumIssueRouting", func(map[string]any) stubReply {
+		return stubReply{Message: "Internal error", Code: "INTERNAL_SERVER_ERROR"}
+	})
+	h.deliver(h.fixture(t, "session_created_delegation"), "delivery-1")
+	ev = h.event(t)
+	require.NotNil(t, ev.DelegatedIssue)
+	assert.True(t, ev.DelegatedIssue.Unknown, "a lookup that failed claims nothing")
+	assert.Equal(t, "EME", ev.DelegatedIssue.Team, "the payload's team is still said")
+	assert.Contains(t, h.log.String(), "no playbook rule claims it")
+
+	h = newAppHarness(t)
+	h.deliver(h.fixture(t, "session_created_mention"), "delivery-1")
+	assert.Nil(t, h.event(t).DelegatedIssue, "a mention is not routed by its issue")
+	assert.Empty(t, h.stub.callsOf("PodiumIssueRouting"))
 }
 
 func TestADelegationCarriesTheIssuesDescription(t *testing.T) {
@@ -549,6 +588,7 @@ func TestAFollowUpIsThePromptsBody(t *testing.T) {
 	assert.Equal(t, "activity:663ba1da-7fac-4d15-a5e0-1556d70ccb3b", ev.ExternalID)
 	assert.Equal(t, "Ada Lovelace", ev.Author)
 	assert.Empty(t, ev.Playbook, "the conductor routes it")
+	assert.Nil(t, ev.DelegatedIssue, "only a delegation's opening prompt is routed by its issue")
 	assert.True(t, ev.Delegated, "a follow-up stays with how its session began")
 	assert.Empty(t, h.activities())
 	assert.Equal(t, 1.0, h.events(t, EventFollowup))
@@ -787,7 +827,7 @@ func TestASessionRefCarriesTheSessionAndAPolledRefStillParses(t *testing.T) {
 	}
 }
 
-func TestAnAppWithNoLinearPlaybookIsRefused(t *testing.T) {
+func TestAnAppNeedsNoLinearPlaybook(t *testing.T) {
 	ts, err := NewTokenSource(TokenSourceOptions{TokenURL: "https://api.linear.app/oauth/token", ClientID: "id", ClientSecret: "s"})
 	require.NoError(t, err)
 	client, err := NewClient(ClientOptions{Endpoint: "https://api.linear.app/graphql", Tokens: ts})
@@ -799,11 +839,11 @@ func TestAnAppWithNoLinearPlaybookIsRefused(t *testing.T) {
 		Playbook: func() string { return "" },
 	}
 	_, err = NewApp(base)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no playbook sets `linear: true`", "the poller's words")
-	assert.Contains(t, err.Error(), "Settings → Connections")
+	require.NoError(t, err, "the app routes delegations without a linear: true playbook")
+	base.Playbook = nil
+	_, err = NewApp(base)
+	require.NoError(t, err)
 
-	base.Playbook = func() string { return "coder" }
 	base.AppUserID = ""
 	_, err = NewApp(base)
 	assert.ErrorContains(t, err, "Save it again")
@@ -854,4 +894,20 @@ func TestRunServesTheWebhookAndStopsCleanly(t *testing.T) {
 	assert.Equal(t, cap(h.src.events), n, "what was handed over stays; the rest is dropped, not panicked on")
 	rec := h.deliver(h.fixture(t, "session_created_mention"), "delivery-late")
 	assert.Equal(t, http.StatusOK, rec.Code, "a stopped source still answers, and starts nothing")
+}
+
+// The playbook editor's pickers are the workspace's teams and labels, asked as the app.
+func TestTheCatalogIsTheWorkspacesTeamsAndLabels(t *testing.T) {
+	h := newAppHarness(t)
+	h.stub.reply("PodiumCatalog", map[string]any{
+		"teams": map[string]any{"nodes": []any{map[string]any{"id": "t1", "key": "ENG", "name": "Engineering"}}},
+		"issueLabels": map[string]any{"nodes": []any{
+			map[string]any{"name": "bug", "team": nil},
+			map[string]any{"name": "infra", "team": map[string]any{"id": "t1", "key": "ENG"}},
+		}},
+	})
+	teams, labels, err := h.src.Catalog(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []TeamInfo{{Key: "ENG", Name: "Engineering"}}, teams)
+	assert.Equal(t, []LabelInfo{{Name: "bug"}, {Name: "infra", TeamKey: "ENG"}}, labels)
 }

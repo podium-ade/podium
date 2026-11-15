@@ -108,6 +108,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListSkillsProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListMcpServersProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceListSlackChannelsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListLinearCatalogProcedure: store.RoleMember,
 	agentv1connect.AgentServiceCreateChatProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is

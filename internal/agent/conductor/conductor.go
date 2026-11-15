@@ -607,14 +607,22 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// A conversation with a host runtime is answered here. A web chat without one is
 	// refused rather than turned into a container task. The test-only KindDev source,
 	// and Slack on a conductor that has no host, still run as tasks so the playbook
-	// loop can be exercised without forking node. So does a Linear issue delegated to
-	// the agent app, and a Linear mention on a conductor with no host (conversational).
+	// loop can be exercised without forking node. So does a Linear agent session on a
+	// conductor with no host, delegated or mentioned (conversational).
+	//
+	// A Linear session the assistant answers runs a playbook directly instead when a person
+	// named one with a /playbook prefix, or when it was opened by delegating an issue that
+	// exactly one playbook's Linear rules claim (claimedPlaybook).
 	switch {
 	case c.conversational(src, ev):
 		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
 		if ok && src.Kind() == SourceLinear {
 			if nj, isNamed := c.namedPlaybook(src, profile, &ev); isNamed {
 				j, named = nj, true
+			} else if nj, claimed := c.claimedPlaybook(ctx, src, profile, &ev); claimed {
+				j, named = nj, true
+			} else if ev.DelegatedIssue != nil {
+				ev.Text = delegationPreamble + ev.Text
 			}
 		}
 	case src.Kind() == SourceChat:
@@ -1019,9 +1027,9 @@ func linearAgentSession(src Source, ev InboundEvent) bool {
 	return src != nil && src.Kind() == SourceLinear && ev.SpeakerProvider == SpeakerLinear && ev.Playbook == ""
 }
 
-// taskRouting is what a task's playbook is selected from. A Linear agent session runs the
-// linear: true playbook unless the person named another; a polled ticket names its own, which
-// no prefix can change.
+// taskRouting is what a task's playbook is selected from. A Linear agent session on a
+// conductor with no host runtime runs the linear: true playbook unless the person named
+// another; a polled ticket names its own, which no prefix can change.
 func taskRouting(profile *profiles.Profile, ev InboundEvent, linearApp bool) profiles.Routing {
 	r := profiles.Routing{Playbook: ev.Playbook, Channel: ev.Channel, Text: ev.Text}
 	if linearApp {
@@ -1038,10 +1046,10 @@ func taskRouting(profile *profiles.Profile, ev InboundEvent, linearApp bool) pro
 // /other in the middle of one is refused rather than silently ignored, because the human asked
 // for something specific.
 //
-// A Linear agent session runs a playbook somebody named for that turn instead. A delegation's
-// opening prompt is Linear's own words, so a session opened that way could otherwise never run
-// anything but the linear: true playbook; what nobody names afterwards still runs the session's
-// own.
+// A Linear agent session with no assistant to answer it runs a playbook somebody named for
+// that turn instead. A delegation's opening prompt is Linear's own words, so a session opened
+// that way could otherwise never run anything but the linear: true playbook; what nobody names
+// afterwards still runs the session's own.
 func turnPlaybook(sel profiles.Selection, session string, linearApp bool) (name string, named, refused bool) {
 	switch {
 	case sel.Explicit && linearApp:
@@ -1067,17 +1075,53 @@ func (c *Conductor) namedPlaybook(src Source, profile *profiles.Profile, ev *Inb
 	return directJob(sel.Playbook), true
 }
 
+// claimedPlaybook is the playbook a delegated Linear issue's playbook rules claim
+// (linear_teams, linear_labels), run directly for the delegation as a /playbook prefix would
+// be (runDirect). Only the session's opening prompt carries the issue (DelegatedIssue), and
+// only a playbook the assistant would be offered here counts (menuFor). Exactly one must
+// claim it: none, several, or an issue whose labels could not be read leave the delegation
+// to the assistant, which delegates to one or asks.
+func (c *Conductor) claimedPlaybook(
+	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
+) (job, bool) {
+	issue := ev.DelegatedIssue
+	if issue == nil || issue.Unknown {
+		return job{}, false
+	}
+	offered := playbookNames(c.menuFor(src, ev.SourceKey, ev.Role))
+	var claims []string
+	for _, name := range profile.LinearClaims(issue.Team, issue.Labels) {
+		if containsString(offered, name) {
+			claims = append(claims, name)
+		}
+	}
+	if len(claims) != 1 {
+		if len(claims) > 1 {
+			c.logger.InfoContext(ctx, "several playbooks claim a delegated Linear issue; the assistant decides",
+				"source_key", ev.SourceKey, "team", issue.Team, "playbooks", claims)
+		}
+		return job{}, false
+	}
+	ev.Playbook = claims[0]
+	return directJob(profile.Playbooks[claims[0]]), true
+}
+
+// delegationPreamble opens what the assistant is asked when an issue is delegated to the app
+// and no playbook's rules claimed it. The issue itself follows, as the poller words a ticket:
+// on its own it reads like a bare @mention, which asks nothing of the assistant.
+const delegationPreamble = "This Linear issue was delegated to you to work on. Delegate it to " +
+	"the playbook that fits, or ask here what you need to know to choose.\n\n"
+
 // conversational reports whether the assistant answers ev: a chat window, a Slack thread, a
-// pull request, or a question asked in a Linear agent session by @mentioning the app — and only
-// on a conductor with a host runtime to answer it on. A Linear issue delegated to the app is a
-// piece of work, and runs a playbook as a task whatever this conductor has. So does a ticket
-// the poller found, which names no provider (admit).
+// pull request, or a Linear agent session, whether it was opened by @mentioning the app or by
+// delegating an issue to it — and only on a conductor with a host runtime to answer it on. A
+// ticket the poller found names no provider (admit), and runs its playbook as a task.
 func (c *Conductor) conversational(src Source, ev InboundEvent) bool {
 	if c.host == nil || src == nil {
 		return false
 	}
 	if src.Kind() == SourceLinear {
-		return ev.SpeakerProvider == SpeakerLinear && !ev.Delegated
+		return ev.SpeakerProvider == SpeakerLinear
 	}
 	return aConversation(src.Kind())
 }
