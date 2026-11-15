@@ -119,8 +119,10 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStream {
   useEffect(() => {
     latest.current = state;
   }, [state]);
-  // Which chat a page is loading for: a second scroll to the top does not ask twice.
-  const loading = useRef<string | undefined>(undefined);
+  // The page last asked for, by the seq it pages back from. It is what stops a second ask
+  // for the same page — while it is out, and also just after it lands, when a scroll can
+  // still see the old first message because `latest` catches up only after the render.
+  const asked = useRef<{ chatId: string; before: bigint } | undefined>(undefined);
 
   useEffect(() => {
     if (chatId === "") return;
@@ -277,9 +279,12 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStream {
 
   const loadOlder = useCallback(() => {
     const cur = latest.current;
-    if (cur.chatId !== chatId || !cur.hasOlder || loading.current === chatId) return;
+    if (cur.chatId !== chatId || !cur.hasOlder) return;
     const beforeSeq = cur.messages[0]?.seq ?? 0n;
-    loading.current = chatId;
+    const prior = asked.current;
+    if (prior && prior.chatId === chatId && prior.before === beforeSeq) return;
+    const ask = { chatId, before: beforeSeq };
+    asked.current = ask;
     const update = (fn: (prev: Keyed) => Keyed) =>
       setState((prev) => (prev.chatId === chatId ? fn(prev) : prev));
     update((prev) => ({ ...prev, loadingOlder: true, olderError: undefined }));
@@ -293,11 +298,10 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStream {
           messages: mergeAll(prev.messages, res.messages),
         })),
       )
-      .catch((err: unknown) =>
-        update((prev) => ({ ...prev, loadingOlder: false, olderError: errorMessage(err) })),
-      )
-      .finally(() => {
-        if (loading.current === chatId) loading.current = undefined;
+      .catch((err: unknown) => {
+        // A failed page may be asked for again: that is what Retry does.
+        if (asked.current === ask) asked.current = undefined;
+        update((prev) => ({ ...prev, loadingOlder: false, olderError: errorMessage(err) }));
       });
   }, [chatId]);
 
