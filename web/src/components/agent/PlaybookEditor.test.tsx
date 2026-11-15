@@ -101,14 +101,68 @@ describe("PlaybookEditor", () => {
     });
   });
 
-  it("says the Linear switch is what delegated issues run, and mentions only without a host runtime", async () => {
+  it("says the Linear switch is the poller's, and that delegations go by teams and labels", async () => {
     mount();
-    const toggle = screen.getByRole("switch", { name: "Runs Linear issues" });
-    expect(screen.getByText("This is the playbook Linear issues run")).toBeInTheDocument();
-    expect(screen.getByText(/An issue delegated to Podium in Linear runs it/)).toBeInTheDocument();
-    expect(screen.getByText(/with one, the assistant answers a mention/)).toBeInTheDocument();
+    const toggle = screen.getByRole("switch", { name: "Runs polled Linear tickets" });
+    expect(screen.getByText("This is the playbook polled Linear tickets run")).toBeInTheDocument();
+    expect(screen.getByText(/The Linear app\s+does not use it/)).toBeInTheDocument();
     await userEvent.click(toggle);
     expect(toggle).toBeChecked();
+  });
+
+  it("picks Linear teams from the workspace, takes typed labels, and says when the playbook runs", async () => {
+    mount({
+      linearTeams: [
+        { key: "ENG", name: "Engineering" },
+        { key: "OPS", name: "Operations" },
+      ],
+      linearLabels: [
+        { name: "bug", teamKey: "" },
+        { name: "infra", teamKey: "OPS" },
+      ],
+    });
+    const rule = screen.getByTestId("playbook-linear-rule");
+    expect(rule).toHaveTextContent("No Linear rule");
+
+    await userEvent.type(screen.getByLabelText("Playbook name"), "bugs");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/bugs:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Fix bugs.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+
+    await userEvent.click(screen.getByRole("button", { name: "ENG · Engineering" }));
+    expect(rule).toHaveTextContent("Runs when an issue in ENG is delegated to Podium in Linear.");
+    expect(screen.queryByRole("button", { name: "ENG · Engineering" })).toBeNull();
+
+    await userEvent.type(screen.getByLabelText("Linear labels"), "bug{Enter}Regression,");
+    expect(rule).toHaveTextContent("Runs when an issue in ENG labelled bug or Regression is delegated");
+    await userEvent.type(screen.getByLabelText("Linear labels"), "BUG{Enter}");
+
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      linearTeams: ["ENG"],
+      linearLabels: ["bug", "Regression"],
+    });
+  });
+
+  it("keeps a playbook's Linear rules, and drops one that is removed", async () => {
+    mount({
+      playbook: create(PlaybookDefinitionSchema, {
+        name: "ops",
+        image: "podium-agent-runtime:dev",
+        systemPrompt: "Run ops.",
+        allowedTools: ["read"],
+        editable: true,
+        linearTeams: ["OPS", "SRE"],
+        linearLabels: ["incident"],
+      }),
+    });
+    expect(screen.getByTestId("playbook-linear-rule")).toHaveTextContent(
+      "Runs when an issue in OPS or SRE labelled incident is delegated",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove SRE" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ linearTeams: ["OPS"], linearLabels: ["incident"] });
   });
 
   // The gap Phase 2 left open: a playbook made in a browser had no way to name a skill, so
