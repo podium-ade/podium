@@ -199,6 +199,10 @@ service AgentService {
   // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
   // own; the client cancels. Progress frames are ephemeral and are not replayed.
   rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
+  // ListChatMessages pages a chat's history backwards: the newest `limit` messages with a seq
+  // below before_seq, in seq order. It is how a chat opened with StreamChat's tail loads what
+  // came before, as the reader scrolls up.
+  rpc ListChatMessages(ListChatMessagesRequest) returns (ListChatMessagesResponse);
   // AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
   // the one a turn never named or a related one a human wants on the conversation. A URL
   // that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
@@ -1613,6 +1617,25 @@ message StreamChatRequest {
   // link_token is the k= of a share link. With it, a signed-in caller may open a chat shared
   // by link, and is written an access row so it stays in their lists.
   string link_token = 3;
+  // tail, when from_seq is 0, replays only the newest `tail` messages rather than the whole
+  // conversation; ListChatMessages pages back from there. 0 replays everything. It is
+  // ignored on a reconnect (from_seq > 0), which must replay every message after from_seq.
+  uint32 tail = 4;
+}
+
+message ListChatMessagesRequest {
+  string chat_id = 1;
+  // before_seq is exclusive: only messages with a lower seq are returned. 0 means the end.
+  uint64 before_seq = 2;
+  // limit caps the page; 0 or anything over 500 is 500.
+  uint32 limit = 3;
+}
+
+message ListChatMessagesResponse {
+  // messages are in seq order, oldest first.
+  repeated ChatMessage messages = 1;
+  // has_more is true when there are messages older than the first one returned.
+  bool has_more = 2;
 }
 
 // ChatGrant is one person with access to a chat, as the share dialog lists them.

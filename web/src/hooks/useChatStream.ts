@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Chat, ChatMessage, ChatPullRequest, QueuedTurn } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
@@ -8,6 +8,13 @@ const MAX_BACKOFF_MS = 10_000;
 
 /** BASE_BACKOFF_MS is the first wait after a failure. */
 const BASE_BACKOFF_MS = 500;
+
+/**
+ * CHAT_PAGE is how many rows a chat opens on, and how many more each scroll to the top
+ * loads. A turn is several rows — its thoughts, tool calls and answer — so this is a few
+ * screens of conversation, not a hundred questions.
+ */
+export const CHAT_PAGE = 100;
 
 export type ChatPhase = "connecting" | "streaming" | "error";
 
@@ -50,6 +57,21 @@ export interface ChatStreamState {
   error?: string;
   /** gone is true when StreamChat answered NotFound: deleted, or never this login's. */
   gone?: boolean;
+  /**
+   * hasOlder is true while there is history before the first message in hand. A chat opens
+   * on its newest CHAT_PAGE rows; loadOlder pages back from there.
+   */
+  hasOlder: boolean;
+  /** loadingOlder is true while a page of older history is on its way. */
+  loadingOlder: boolean;
+  /** olderError is why the last page of older history failed, until the next try. */
+  olderError?: string;
+}
+
+export interface ChatStream extends ChatStreamState {
+  /** loadOlder fetches the page before the first message in hand. A no-op while one is
+   *  already loading, or when there is nothing older. */
+  loadOlder: () => void;
 }
 
 /** state carries the chat it belongs to, so a chat switch shows nothing rather than the
@@ -68,6 +90,8 @@ const empty: ChatStreamState = {
   awaiting: false,
   phase: "connecting",
   replayed: false,
+  hasOlder: false,
+  loadingOlder: false,
 };
 
 /**
@@ -88,13 +112,23 @@ const empty: ChatStreamState = {
  *   The stream is torn down and reopened from the last seq seen, and the replay delivers
  *   whatever was missed.
  */
-export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
+export function useChatStream(chatId: string, linkToken = ""): ChatStream {
   const [state, setState] = useState<Keyed>({ ...empty, chatId });
+  // The live state, for loadOlder to read without being rebuilt on every frame.
+  const latest = useRef(state);
+  useEffect(() => {
+    latest.current = state;
+  }, [state]);
+  // Which chat a page is loading for: a second scroll to the top does not ask twice.
+  const loading = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (chatId === "") return;
     const ctrl = new AbortController();
     let lastSeq = 0n;
+    // first is true until the first replay is in: that one opened on the tail, so how many
+    // rows it brought says whether there is history before them.
+    let first = true;
 
     // Only ever writes state for the chat this effect is following, so a frame arriving
     // from a stream that is being torn down cannot land in the next chat's view.
@@ -107,18 +141,26 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
     void (async () => {
       let backoff = BASE_BACKOFF_MS;
       while (!ctrl.signal.aborted) {
+        // replayedRows counts this stream's replay, until the stream says it is done.
+        let replayedRows: number | undefined = 0;
+        const fromSeq = lastSeq;
         try {
-          for await (const frame of agent.streamChat(
+          const req = {
+            chatId,
+            fromSeq,
+            // A first open is the newest page; a reconnect must have every row it missed.
+            tail: fromSeq === 0n ? CHAT_PAGE : 0,
             // linkToken is a share link's k= (phase 5): with it the server lets a signed-in
             // person open a chat shared by link, and writes them a row so they keep it.
-            linkToken ? { chatId, fromSeq: lastSeq, linkToken } : { chatId, fromSeq: lastSeq },
-            { signal: ctrl.signal },
-          )) {
+            ...(linkToken ? { linkToken } : {}),
+          };
+          for await (const frame of agent.streamChat(req, { signal: ctrl.signal })) {
             backoff = BASE_BACKOFF_MS;
             switch (frame.frame.case) {
               case "message": {
                 const msg = frame.frame.value;
                 if (msg.seq > lastSeq) lastSeq = msg.seq;
+                if (replayedRows !== undefined) replayedRows++;
                 update((prev) => ({
                   ...prev,
                   phase: "streaming",
@@ -188,9 +230,23 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
                 update((prev) => ({ ...prev, phase: "streaming", error: undefined, queue: turns }));
                 break;
               }
-              case "replayed":
-                update((prev) => ({ ...prev, phase: "streaming", error: undefined, replayed: true }));
+              case "replayed": {
+                const rows = replayedRows ?? 0;
+                replayedRows = undefined;
+                const opened = first;
+                first = false;
+                update((prev) => ({
+                  ...prev,
+                  phase: "streaming",
+                  error: undefined,
+                  replayed: true,
+                  // A tail that came back full may have more behind it; one that did not is
+                  // the whole conversation. A first open that dropped mid-replay and came
+                  // back from a seq cannot tell, and says there may be.
+                  hasOlder: opened ? (fromSeq === 0n ? rows >= CHAT_PAGE : true) : prev.hasOlder,
+                }));
                 break;
+              }
               case "resync":
                 // Reopen from the last seq seen; the replay is the catch-up.
                 throw new Resync();
@@ -219,7 +275,33 @@ export function useChatStream(chatId: string, linkToken = ""): ChatStreamState {
     return () => ctrl.abort();
   }, [chatId, linkToken]);
 
-  return state.chatId === chatId ? state : empty;
+  const loadOlder = useCallback(() => {
+    const cur = latest.current;
+    if (cur.chatId !== chatId || !cur.hasOlder || loading.current === chatId) return;
+    const beforeSeq = cur.messages[0]?.seq ?? 0n;
+    loading.current = chatId;
+    const update = (fn: (prev: Keyed) => Keyed) =>
+      setState((prev) => (prev.chatId === chatId ? fn(prev) : prev));
+    update((prev) => ({ ...prev, loadingOlder: true, olderError: undefined }));
+    void agent
+      .listChatMessages({ chatId, beforeSeq, limit: CHAT_PAGE })
+      .then((res) =>
+        update((prev) => ({
+          ...prev,
+          loadingOlder: false,
+          hasOlder: res.hasMore,
+          messages: mergeAll(prev.messages, res.messages),
+        })),
+      )
+      .catch((err: unknown) =>
+        update((prev) => ({ ...prev, loadingOlder: false, olderError: errorMessage(err) })),
+      )
+      .finally(() => {
+        if (loading.current === chatId) loading.current = undefined;
+      });
+  }, [chatId]);
+
+  return { ...(state.chatId === chatId ? state : empty), loadOlder };
 }
 
 /** Resync unwinds the read loop so the outer loop reconnects with the last seq seen. */
@@ -242,6 +324,16 @@ function merge(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   const next = prev.concat(msg);
   next.sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0));
   return next;
+}
+
+/** mergeAll merges a batch — a page of history — in one pass. The batch's copy of a
+ *  seq wins: it is the one just read. */
+function mergeAll(prev: ChatMessage[], rows: ChatMessage[]): ChatMessage[] {
+  if (rows.length === 0) return prev;
+  const bySeq = new Map<bigint, ChatMessage>();
+  for (const m of prev) bySeq.set(m.seq, m);
+  for (const m of rows) bySeq.set(m.seq, m);
+  return [...bySeq.values()].sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0));
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

@@ -8,15 +8,19 @@ import {
   ChatMessageSchema,
   type ChatFrame,
 } from "../gen/podium/agent/v1/agent_pb";
-import { useChatStream } from "./useChatStream";
+import { CHAT_PAGE, useChatStream } from "./useChatStream";
 
 const streamChat = vi.fn();
+const listChatMessages = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
   return {
     ...actual,
-    agent: { streamChat: (...a: unknown[]) => streamChat(...a) },
+    agent: {
+      streamChat: (...a: unknown[]) => streamChat(...a),
+      listChatMessages: (...a: unknown[]) => listChatMessages(...a),
+    },
   };
 });
 
@@ -91,6 +95,7 @@ function fromSeqs(): bigint[] {
 describe("useChatStream", () => {
   beforeEach(() => {
     streamChat.mockReset();
+    listChatMessages.mockReset();
   });
 
   it("does not connect without a chat", () => {
@@ -281,5 +286,56 @@ describe("useChatStream", () => {
 
     unmount();
     await waitFor(() => expect(signals[1].aborted).toBe(true));
+  });
+
+  describe("history", () => {
+    const replayed = create(ChatFrameSchema, { frame: { case: "replayed", value: true } });
+    const row = (seq: number) => (message(seq).frame.value as ChatFrame["frame"]["value"]);
+
+    it("opens on the newest page, and a short one is the whole conversation", async () => {
+      const stream = feed([message(1), message(2), replayed]);
+      streamChat.mockImplementation(() => stream);
+      const { result } = renderHook(() => useChatStream("chat_01abc"));
+      await waitFor(() => expect(result.current.replayed).toBe(true));
+      expect(streamChat.mock.calls[0][0]).toMatchObject({ fromSeq: 0n, tail: CHAT_PAGE });
+      expect(result.current.hasOlder).toBe(false);
+    });
+
+    it("pages back from the first message when the tail came back full, and stops at the start", async () => {
+      const first = 1000;
+      const tail = Array.from({ length: CHAT_PAGE }, (_, i) => message(first + i));
+      const stream = feed([...tail, replayed]);
+      streamChat.mockImplementation(() => stream);
+      listChatMessages.mockResolvedValueOnce({ messages: [row(998), row(999)], hasMore: false });
+      const { result } = renderHook(() => useChatStream("chat_01abc"));
+      await waitFor(() => expect(result.current.hasOlder).toBe(true));
+
+      result.current.loadOlder();
+      result.current.loadOlder(); // a second ask while the first is out is not a second page
+      await waitFor(() => expect(result.current.messages).toHaveLength(CHAT_PAGE + 2));
+      expect(listChatMessages).toHaveBeenCalledTimes(1);
+      expect(listChatMessages.mock.calls[0][0]).toMatchObject({ beforeSeq: BigInt(first), limit: CHAT_PAGE });
+      expect(result.current.messages[0].seq).toBe(998n);
+      expect(result.current.hasOlder).toBe(false);
+      expect(result.current.loadingOlder).toBe(false);
+
+      result.current.loadOlder();
+      expect(listChatMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it("says when a page failed, and tries again on request", async () => {
+      const tail = Array.from({ length: CHAT_PAGE }, (_, i) => message(10 + i));
+      streamChat.mockImplementation(() => feed([...tail, replayed]));
+      listChatMessages.mockRejectedValueOnce(new ConnectError("down", Code.Unavailable));
+      listChatMessages.mockResolvedValueOnce({ messages: [row(9)], hasMore: false });
+      const { result } = renderHook(() => useChatStream("chat_01abc"));
+      await waitFor(() => expect(result.current.hasOlder).toBe(true));
+
+      result.current.loadOlder();
+      await waitFor(() => expect(result.current.olderError).toBeDefined());
+      result.current.loadOlder();
+      await waitFor(() => expect(result.current.messages[0].seq).toBe(9n));
+      expect(result.current.olderError).toBeUndefined();
+    });
   });
 });

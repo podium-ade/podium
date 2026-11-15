@@ -1730,6 +1730,12 @@ function Conversation({
             progress={stream.progress}
             taskId={stream.taskId}
             onSend={(text) => submit(text, choice)}
+            history={{
+              more: stream.hasOlder,
+              loading: stream.loadingOlder,
+              error: stream.olderError,
+              load: stream.loadOlder,
+            }}
             top={
               <>
                 {connecting ? <TranscriptSkeleton /> : null}
