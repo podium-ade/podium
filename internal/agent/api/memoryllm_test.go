@@ -27,7 +27,7 @@ func shaped(t *testing.T, in string, row memoryLLMRow) map[string]any {
 
 // The memory service is told a placeholder model, so whatever it sends, the chosen one goes.
 func TestShapeMemoryRequestReplacesTheModelAndDropsAttribution(t *testing.T) {
-	got := shaped(t, `{"model":"podium","user":"podium","stream":true,"max_tokens":100,"temperature":0.1,
+	got := shaped(t, `{"model":"podium","user":"podium","stream":true,"max_tokens":100,"temperature":0.1,"top_p":0.9,
 		"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_object"}}`,
 		memoryLLMRow{Provider: ProviderAnthropic, Model: "claude-haiku-5-5"})
 
@@ -35,8 +35,37 @@ func TestShapeMemoryRequestReplacesTheModelAndDropsAttribution(t *testing.T) {
 	assert.NotContains(t, got, "user")
 	assert.NotContains(t, got, "stream")
 	assert.EqualValues(t, 100, got["max_tokens"], "only OpenAI renames max_tokens")
-	assert.EqualValues(t, 0.1, got["temperature"])
+	assert.NotContains(t, got, "temperature", "current Claude models refuse sampling parameters")
+	assert.NotContains(t, got, "top_p")
+	assert.NotContains(t, got, "response_format",
+		"Anthropic refuses json_object; the schema is already in the prompt")
+}
+
+// JSON mode reaches only the provider known to take it. Anthropic answers a json_object
+// request with 400 "response_format.type: Input should be 'json_schema'", which failed every
+// extraction.
+func TestShapeMemoryRequestKeepsJSONModeForOpenAIOnly(t *testing.T) {
+	in := `{"model":"podium","messages":[],"response_format":{"type":"json_object"}}`
+	for _, p := range []string{ProviderAnthropic, ProviderXAI, ProviderGoogle} {
+		got := shaped(t, in, memoryLLMRow{Provider: p, Model: "m"})
+		assert.NotContains(t, got, "response_format", p)
+	}
+	got := shaped(t, in, memoryLLMRow{Provider: ProviderOpenAI, Model: "gpt-4.1-mini"})
 	assert.Equal(t, map[string]any{"type": "json_object"}, got["response_format"])
+
+	// A schema the caller asked for strictly is not ours to drop.
+	strict := `{"model":"podium","messages":[],"response_format":{"type":"json_schema","json_schema":{"name":"r"}}}`
+	got = shaped(t, strict, memoryLLMRow{Provider: ProviderAnthropic, Model: "m"})
+	assert.Contains(t, got, "response_format")
+}
+
+func TestMemoryModelIDs(t *testing.T) {
+	for _, ok := range []string{"claude-haiku-5-5", "gpt-4.1-mini", "models/gemini-2.5-flash", "grok-4", "o3-mini", "x@2025-01:v1"} {
+		assert.True(t, memoryModelID.MatchString(ok), ok)
+	}
+	for _, bad := range []string{"", "-x", "has space", "line\nbreak", "клод", strings.Repeat("m", maxMemoryModelLen+1)} {
+		assert.False(t, memoryModelID.MatchString(bad), bad)
+	}
 }
 
 // OpenAI's newer models refuse max_tokens, and its reasoning models refuse temperature.

@@ -50,6 +50,21 @@ const memoryProbeTimeout = 60 * time.Second
 // max_completion_tokens: o1, o3, o4-mini, gpt-5 and its variants.
 var openAIReasoningModel = regexp.MustCompile(`^(o\d|gpt-5)`)
 
+// maxMemoryModelLen bounds a model id. The id is sent to the provider and quoted back in its
+// refusal, so an unbounded one is an unbounded request and an unbounded error on the page.
+const maxMemoryModelLen = 128
+
+// memoryModelID is what a provider's model ids look like, Google's "models/…" included.
+var memoryModelID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
+
+// providerLabel is a provider's name as the page shows it.
+func providerLabel(name string) string {
+	if p, err := findProvider(name); err == nil {
+		return p.label
+	}
+	return name
+}
+
 // memoryLLMRow is the jsonb of the settings row.
 type memoryLLMRow struct {
 	Provider string    `json:"provider"`
@@ -100,6 +115,10 @@ func (s *AgentService) SetMemorySettings(
 	model := strings.TrimSpace(req.Msg.GetModel())
 	if model == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("choose a model"))
+	}
+	if !memoryModelID.MatchString(model) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"a model id is up to %d letters, digits and . _ - : / @, like claude-haiku-5-5", maxMemoryModelLen))
 	}
 	if reason := s.memoryProviderUnavailable(ctx, p); reason != "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(reason))
@@ -213,6 +232,26 @@ func shapeMemoryRequest(body map[string]json.RawMessage, row memoryLLMRow) error
 	// Extraction is read in one piece.
 	delete(body, "stream")
 	delete(body, "stream_options")
+	if row.Provider != ProviderOpenAI {
+		// The memory service asks for {"type":"json_object"} and also writes the schema into
+		// the prompt, then reads the JSON out of the reply, code fences or not. Anthropic's
+		// OpenAI-compatible endpoint refuses json_object outright (it takes only json_schema),
+		// which failed every extraction; the others are not documented to honour it. The
+		// prompt alone is what they get.
+		var rf struct {
+			Type string `json:"type"`
+		}
+		if raw, ok := body["response_format"]; ok && json.Unmarshal(raw, &rf) == nil && rf.Type == "json_object" {
+			delete(body, "response_format")
+		}
+	}
+	if row.Provider == ProviderAnthropic {
+		// Current Claude models refuse sampling parameters ("`temperature` is deprecated for
+		// this model"), and the memory service sends temperature on every extraction.
+		delete(body, "temperature")
+		delete(body, "top_p")
+		delete(body, "top_k")
+	}
 	if row.Provider == ProviderOpenAI {
 		// The memory service sends max_tokens to a custom base URL, and OpenAI's newer models
 		// accept only max_completion_tokens. Every OpenAI model accepts the newer name.
@@ -273,13 +312,17 @@ func (s *AgentService) probeMemoryModel(ctx context.Context, row memoryLLMRow) e
 	ctx, cancel := context.WithTimeout(ctx, memoryProbeTimeout)
 	defer cancel()
 	body := map[string]json.RawMessage{
-		"messages":   json.RawMessage(`[{"role":"user","content":"Reply with the single word ok."}]`),
-		"max_tokens": json.RawMessage(`64`),
+		// Shaped like an extraction, JSON mode included, so a model or provider that would
+		// refuse every extraction is refused here, before it is saved.
+		"messages": json.RawMessage(`[{"role":"user","content":` +
+			`"Reply with this JSON object and nothing else: {\"ok\": true}"}]`),
+		"response_format": json.RawMessage(`{"type":"json_object"}`),
+		"max_tokens":      json.RawMessage(`64`),
 	}
 	res, err := s.forwardMemoryLLM(ctx, row, body)
 	if err != nil {
 		return connect.NewError(connect.CodeUnavailable,
-			fmt.Errorf("could not reach %s to try the model: %s", row.Provider, operatorDetail(err.Error(), nil)))
+			fmt.Errorf("could not reach %s to try the model: %s", providerLabel(row.Provider), operatorDetail(err.Error(), nil)))
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode/100 == 2 {
@@ -292,7 +335,7 @@ func (s *AgentService) probeMemoryModel(ctx context.Context, row memoryLLMRow) e
 		code = connect.CodeUnavailable
 	}
 	return connect.NewError(code,
-		fmt.Errorf("%s did not answer with %s (%s): %s", row.Provider, row.Model, res.Status, detail))
+		fmt.Errorf("%s did not answer with %s (%s): %s", providerLabel(row.Provider), row.Model, res.Status, detail))
 }
 
 // MemoryLLMHandler serves MemoryLLMPath: the memory service's chat completions, forwarded.
