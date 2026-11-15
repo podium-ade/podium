@@ -244,7 +244,9 @@ SAML is not implemented.
     person**: their personal secrets, their MCP servers, their GitHub account. In a Linear agent
     session that is **any playbook**, as it is in Slack: a `/playbook` at the start of a prompt
     names one, and the assistant answering an @mention may delegate to any playbook it is offered,
-    which is all of them. A delegated issue that names nothing runs the `linear: true` playbook.
+    which is all of them. A delegated issue runs the playbook whose `linear_teams` and
+    `linear_labels` claim it, or is answered by the assistant, which may delegate to any of
+    them; with no host runtime it runs the `linear: true` playbook.
     Pressing *Stop* in a Linear session is not gated: it ends work and starts none, Linear offers it to
     everybody who can see the session, and refusing it would leave running what somebody asked
     to end.

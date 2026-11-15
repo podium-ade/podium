@@ -14,14 +14,15 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
-A conversation runs **no playbook**. A Linear issue delegated to Podium does, and runs as a
-task, because it really is one piece of work. An @mention of Podium in Linear is a question, so
-its agent session is a conversation like a web chat: the assistant answers it, and delegates what
-needs a machine. A GitHub pull request is a conversation too, one session per pull request: the
+A conversation runs **no playbook**. A Linear agent session is a conversation like a web chat,
+whether it was opened by @mentioning Podium or by delegating an issue to it: the assistant
+answers it, and delegates what needs a machine. A delegated issue that exactly one playbook's
+`linear_teams` and `linear_labels` claim runs that playbook directly, as the session's task,
+without asking the assistant. A GitHub pull request is a conversation too, one session per pull request: the
 assistant answers what people write on it, and the review is a task of the playbook that names
 the pull request's repository in `github_repos`, or else of the one marked `github: true`. On a
-conductor with no host runtime there is no assistant, and a Linear mention runs the
-`linear: true` playbook as a task, as a delegation does.
+conductor with no host runtime there is no assistant, and a Linear delegation or mention runs
+the `linear: true` playbook as a task.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -62,7 +63,7 @@ somebody says something in a CONVERSATION
   ↓  relay                                    over a unix socket, exactly as a task's events are
   ↓  FinishTurn                                and turns.task_id stays empty
 
-somebody delegates a Linear issue to it, or speaks with no host runtime to answer
+somebody speaks with no host runtime to answer, or the Linear poller finds a ticket
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
   ↓  Select                                  which playbook? the poller's linear: true playbook, then
                                               /playbook, then the channel, then for a Linear agent
@@ -89,9 +90,10 @@ What differs is the job the turn was given — see `internal/agent/conductor/job
 A conductor with no host runtime configured (`PODIUM_AGENT_HOST_RUNTIME` unset) has nothing to
 answer a conversation *with*, so a chat message there is refused rather than turned into a
 container task. A Linear @mention there is not refused: it runs the `linear: true` playbook as a
-task, as it did before the assistant could answer one. With a host runtime, a task is only
-created when the assistant delegates, or for a Linear issue delegated to Podium, or for a
-`/playbook` a person names in a Linear session.
+task, as it did before the assistant could answer one, and so does a delegated issue. With a
+host runtime, a task is only created when the assistant delegates, for a Linear issue delegated
+to Podium that a playbook's Linear rules claim, or for a `/playbook` a person names in a Linear
+session.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
@@ -755,8 +757,8 @@ max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS N
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
                              # and there is no "off".
 # default_playbook is unused. A Slack mention with no /playbook and no channel claim is
-# refused; a Linear issue runs the playbook marked linear: true. Register playbooks for the
-# assistant to delegate to.
+# refused; a polled Linear ticket runs the playbook marked linear: true. Register playbooks for
+# the assistant to delegate to.
 ```
 
 An owner or an admin sets every one of these on Assistant. The screen stores the whole
@@ -827,7 +829,9 @@ secrets:                                                     # verbatim into the
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
-linear: false                                                # the playbook a Linear issue runs when nobody names one
+linear: false                                                # the playbook a ticket the Linear poller finds runs
+linear_teams: []                                             # [ENG] team keys whose delegated issues this playbook runs
+linear_labels: []                                            # [bug] labels whose delegated issues this playbook runs
 github: false                                                # this is the default playbook pull-request reviews run
 github_repos: []                                             # [owner/name] whose pull requests this playbook reviews instead
 github_requires: ""                                          # offered on a pull request to commenters with this role or more
@@ -867,10 +871,14 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
   `mcp_servers` is what grants a server to a playbook, and naming its secret directly
   would be a turn holding the credential of a server it was never granted.
-- **At most one playbook may set `linear: true`.** Two is a start-up error: a polled ticket and a
-  delegated issue name no playbook, so there would be nothing to choose between them with. Zero is
-  fine — most bots take no tickets — until a Linear key is set, and then the conductor refuses to
-  start, or a Linear app is saved, which is refused.
+- **At most one playbook may set `linear: true`.** Two is a start-up error: a polled ticket names
+  no playbook, so there would be nothing to choose between them with. Zero is fine — most bots
+  take no tickets — until a Linear key is set, and then the conductor refuses to start. The Linear
+  agent app does not need one: it routes a delegation by `linear_teams` and `linear_labels`, and
+  otherwise to the assistant.
+- **`linear_teams` and `linear_labels` may not hold an empty entry.** Unlike `slack_channels`,
+  two playbooks may name the same team or label: an issue several playbooks claim goes to the
+  assistant, which chooses ([The agent app](#the-agent-app)).
 - **At most one playbook may set `github: true`.** That playbook reviews every repository no
   playbook names in `github_repos`. Two is a start-up error. Zero is fine while every reviewed
   repository is named; a pull request in a repository nobody reviews is refused.
@@ -1395,7 +1403,8 @@ For a task — in order:
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error. **Deprecated** — see above.
-4. **The source's own default**: a Linear agent session runs the `linear: true` playbook.
+4. **The source's own default**: a Linear agent session on a conductor with no host runtime
+   runs the `linear: true` playbook.
 5. Nothing: there is no default playbook. Register one, or name it with `/playbook`.
 
 Rule 1 is knowledge, and keeping it first is the whole of the order: the poller names the
@@ -1403,8 +1412,10 @@ playbook because it genuinely knows it. A Slack mention answered by the assistan
 this list — it infers the playbook, as above. A mention on a conductor with no host runtime starts
 at rule 2, and is refused when nothing matches.
 
-**A Linear agent session** that runs a playbook — an issue delegated to Podium, or an @mention
-on a conductor with no host runtime — starts at rule 2. Linear writes a delegation's opening
+**A Linear agent session on a conductor with no host runtime** — an issue delegated to Podium,
+or an @mention — starts at rule 2. With a host runtime it is a conversation, and a delegated issue
+is routed by the playbooks' `linear_teams` and `linear_labels` before the assistant is asked
+([The agent app](#the-agent-app)). Linear writes a delegation's opening
 prompt itself ("Work on EME-5"), so a `/playbook` can only come from a person's words: a
 mention's comment, or a reply in the session. Anybody whose prompt is answered at all may name
 any playbook the assistant would be offered for them, which is every playbook (only a pull
@@ -1421,8 +1432,8 @@ words, and the assistant reads them as they are.
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
 same Slack thread is refused politely: start a new thread. A Linear agent session is the
 exception: a `/other` there runs `other` for that turn alone, and the next prompt that names
-nothing runs the session's own playbook again — the `linear: true` playbook for a delegated
-issue. A task that has answered and is waiting takes a follow-up only for its own playbook, and a
+nothing goes to the assistant, or, on a conductor with no host runtime, runs the session's own
+playbook again — the `linear: true` playbook. A task that has answered and is waiting takes a follow-up only for its own playbook, and a
 prompt that names a playbook is never put into a task that is already up. A conversation's
 session stores no playbook at all — `sessions.playbook` is empty, and the Sessions and Usage
 screens read that as *assistant*.
@@ -2028,10 +2039,11 @@ Linear reaches Podium one of two ways, and never both:
 
 A saved app turns the poller off even when the key is set, because the two would start every
 ticket twice. Removing the app turns the poller back on. The poller runs the playbook marked
-`linear: true`, as a task, for every ticket. The app tells a delegation from a mention: an issue
-delegated to it runs that playbook as a task, and an @mention is a question the assistant
-answers, on a conductor with a host runtime, or that playbook answers, on one without
-([Deploy](../README.md#deploy) says which an install is). A `/playbook` at the start of what a
+`linear: true`, as a task, for every ticket. The app does not use that flag where there is a host
+runtime: an issue delegated to it runs the playbook whose `linear_teams` and `linear_labels` claim
+it, and otherwise the assistant decides, and an @mention is a question the assistant answers. On a
+conductor without one, both run the `linear: true` playbook ([Deploy](../README.md#deploy) says
+which an install is). A `/playbook` at the start of what a
 person writes in an agent session names another playbook for that turn. The two also differ in
 **who may ask**: the app answers only a person signed in to Podium and runs as them ([Who is
 who](#who-is-who)); the poller cannot tell who asked, so anybody who can assign the bot user a
@@ -2049,8 +2061,8 @@ the public address that reaches the listen address you will save, with the path
 `/webhooks/linear`. Then under Access → Connections → Linear paste the client id, the client
 secret, the webhook signing secret (`lin_wh_…`) and that listen address. Saving signs in to
 Linear with the client credentials, refuses credentials Linear refuses or that belong to a person
-rather than an app, refuses an app with no `linear: true` playbook to run, and shows who the app
-is and in which workspace. The listen address may be the GitHub App's: the conductor then serves
+rather than an app, and shows who the app is and in which workspace. No playbook has to set
+`linear: true` for it. The listen address may be the GitHub App's: the conductor then serves
 `/webhooks/github` and `/webhooks/linear` on one listener.
 
 **What starts a turn.** Each agent session is one conversation (`linear:session:<id>`). The app
@@ -2059,12 +2071,33 @@ decides what answers:
 
 | in Linear | with a host runtime | with none |
 |---|---|---|
-| an issue delegated to the app | a task of the `linear: true` playbook, with the identifier, the title and the description as the instruction, worded as the poller words an assignment | the same |
+| an issue delegated to the app that exactly one playbook's Linear rules claim | that playbook, delegated directly as the conversation's task, with the identifier, the title and the description as the instruction, worded as the poller words an assignment; the assistant is not asked | a task of the `linear: true` playbook, with that instruction |
+| any other issue delegated to the app | a turn of the assistant, on the host, told the issue was delegated to it, with the issue and its thread as context. It delegates to the playbook that fits, from the menu a mention is offered, or asks in the session what it needs to choose | the same as above |
 | the app @mentioned in a comment | a turn of the assistant, on the host, with the comment, less the mention, as the question and the issue and its thread as context. It may delegate to any playbook it would be offered in a Slack thread or a chat | a task of the `linear: true` playbook, with the comment as the instruction |
 | a mention that starts `/<playbook>` | that playbook, delegated directly as the conversation's task; the assistant is not asked | a task of that playbook, for that turn |
-| a reply in a delegated session | a task of the session's playbook, or of the one a `/playbook` names for that turn. Injected into the task instead when it asked a question, or answered and waits for more, and the reply is from the person whose turn it is and names no playbook | the same |
-| a reply in a mention's session | the assistant's next turn, or the playbook a `/playbook` names. A reply to a delegated task's question is injected into that task | a task of the session's playbook, or of the one a `/playbook` names, as for a delegated session |
+| a reply in a session, delegated or mentioned | the assistant's next turn, or the playbook a `/playbook` names. A reply to a delegated task's question is injected into that task | a task of the session's playbook, or of the one a `/playbook` names for that turn. Injected into the task instead when it asked a question, or answered and waits for more, and the reply is from the person whose turn it is and names no playbook |
 | *Stop* on the session | the turn — the assistant's or a task's — and every task the session delegated that is still running are cancelled, and anything queued is dropped. Nothing more is said for any of them, on whichever conductor runs them, and the session closes with one “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not | the same |
+
+**Which playbook a delegated issue runs.** A playbook claims a delegated issue with two lists,
+set in its file or on its page under Routing, where the team picker and the label suggestions are
+read from the workspace:
+
+```yaml
+linear_teams: [ENG]          # team keys
+linear_labels: [bug, crash]  # label names, compared without case
+```
+
+A playbook claims the issue when it sets either list, the issue's team is in `linear_teams` (or
+the list is empty), **and** one of the issue's labels is in `linear_labels` (or the list is
+empty). So `[ENG]` with `[bug]` is a bug in ENG, `[ENG]` alone is anything in ENG, and `[bug]`
+alone is a bug in any team. Only playbooks the assistant would be offered there count. Exactly one
+claiming it runs that playbook directly; none, or several, leave the issue to the assistant, which
+picks among them or asks. Two playbooks may name one team or label for that reason, unlike
+`slack_channels`. The rules route the delegation only: the session's later prompts go to the
+assistant, which sees the task running and can add to it. The webhook names the team and not the
+labels, so the labels are read from Linear when the delegation arrives, with a five-second limit;
+a read that fails claims nothing, and the assistant decides, rather than a team-only rule
+matching an issue a label rule might also have claimed.
 
 A new session gets a thought (“Starting on this.”) at once, before the conductor has decided what
 answers it, because Linear marks a session unresponsive when nothing is said within ten seconds.
@@ -2164,7 +2197,8 @@ poller saw has no chat.
 - A follow-up put into a task that has already answered and waits for more is said as responses
   rather than thoughts until that task answers again: nothing tells the source the task is working
   again.
-- A playbook on Linear teams (`linear_teams:`, as `slack_channels` is for Slack) is not built.
+- Routing by labels reads them from Linear when the delegation arrives, since the webhook does
+  not carry them. It has not been checked against a real workspace.
 
 See [linear-agent-plan.md](linear-agent-plan.md).
 
