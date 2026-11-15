@@ -33,7 +33,7 @@ import {
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import { toolSummary } from "../../../lib/activity";
-import { TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
+import { PENDING_USER, TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
 import { absolute, relative } from "../../../lib/format";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
@@ -85,7 +85,8 @@ export function ChatThread({
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  useScrollAnchor(viewport, content);
+  const sending = messages.some((m) => m.id === PENDING_USER);
+  useScrollAnchor(viewport, content, sending);
   useLoadOnTop(viewport, history, messages.length);
   // A chat opens on its last message, in place: the view is at the bottom before it is
   // first painted, rather than painted at the top and then scrolled down.
@@ -111,6 +112,7 @@ export function ChatThread({
         <ThreadPrimitive.Root className="relative min-h-0 flex-1">
           <ThreadPrimitive.Viewport
             ref={viewport}
+            scrollToBottomOnRunStart={false}
             data-testid="chat-scroller"
             // useScrollAnchor holds the view in place itself; the browser's own anchoring
             // would correct the same change a second time.
@@ -196,11 +198,23 @@ function useLoadOnTop(viewport: RefObject<HTMLDivElement | null>, history: Histo
  * arrive. It remembers the first message in view and where it sits in the content; when
  * the content changes (before the browser paints) it scrolls by however far that message
  * moved. Should that message have been replaced, the distance from the bottom is kept
- * instead, which is right for anything added above.
+ * instead, which is right for anything added above. At the bottom it does nothing:
+ * following the newest message is the viewport's own job.
  *
- * At the bottom it does nothing: following the newest message is the viewport's own job.
+ * The reader's own question is the one thing that moves them: wherever they were reading,
+ * they glide to the bottom to see it, re-aimed as the answer grows under them, until they
+ * get there or take the scroll back themselves. Anybody else's message, or a turn starting,
+ * leaves them where they are — the viewport's own scroll on a turn starting yanked a reader
+ * out of the history in one frame whenever somebody else spoke, so it is turned off.
  */
-function useScrollAnchor(viewport: RefObject<HTMLDivElement | null>, content: RefObject<HTMLDivElement | null>) {
+function useScrollAnchor(
+  viewport: RefObject<HTMLDivElement | null>,
+  content: RefObject<HTMLDivElement | null>,
+  sending: boolean,
+) {
+  // chase is true while gliding to the reader's own question.
+  const chase = useRef(false);
+
   useLayoutEffect(() => {
     const vp = viewport.current;
     const body = content.current;
@@ -209,9 +223,10 @@ function useScrollAnchor(viewport: RefObject<HTMLDivElement | null>, content: Re
     // the reader's own scrolling — which moves both alike — is never taken for a change.
     let anchor: { el: Element | null; offset: number; height: number } | null = null;
     const offsetOf = (el: Element) => el.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    const atBottom = () => vp.scrollHeight - vp.scrollTop - vp.clientHeight < 4;
 
     const pick = () => {
-      if (vp.scrollHeight - vp.scrollTop - vp.clientHeight < 4) {
+      if (chase.current || atBottom()) {
         anchor = null;
         return;
       }
@@ -244,24 +259,45 @@ function useScrollAnchor(viewport: RefObject<HTMLDivElement | null>, content: Re
       if (Math.abs(shift) >= 1) vp.scrollTop += shift;
     };
 
-    // sync runs on every scroll and every resize. A browser dispatches the scroll event a
-    // change of content causes before it tells the ResizeObserver, so a scroll can be the
-    // first to see the new layout: whichever comes first holds the view, and only then is
-    // the anchor taken again — taken first, it would already be where the change put it.
-    const sync = () => {
+    // A browser dispatches the scroll event a change of content causes before it tells the
+    // ResizeObserver, so a scroll can be the first to see the new layout: whichever comes
+    // first holds the view, and only then is the anchor taken again — taken first, it would
+    // already be where the change put it.
+    const onScroll = () => {
+      if (chase.current && atBottom()) chase.current = false;
       hold();
       pick();
     };
+    const onResize = () => {
+      // Mid-glide the bottom moved: aim at where it is now.
+      if (chase.current) vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
+      hold();
+      pick();
+    };
+    // The reader taking the scroll back ends the glide.
+    const takeBack = () => {
+      chase.current = false;
+    };
 
-    const resize = new ResizeObserver(sync);
+    const resize = new ResizeObserver(onResize);
     resize.observe(body);
-    vp.addEventListener("scroll", sync, { passive: true });
+    vp.addEventListener("scroll", onScroll, { passive: true });
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const e of inputs) vp.addEventListener(e, takeBack, { passive: true });
     pick();
     return () => {
       resize.disconnect();
-      vp.removeEventListener("scroll", sync);
+      vp.removeEventListener("scroll", onScroll);
+      for (const e of inputs) vp.removeEventListener(e, takeBack);
     };
   }, [viewport, content]);
+
+  useLayoutEffect(() => {
+    const vp = viewport.current;
+    if (!sending || !vp) return;
+    chase.current = true;
+    vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
+  }, [viewport, sending]);
 }
 
 /**

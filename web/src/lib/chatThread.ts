@@ -29,6 +29,9 @@ export { parseActivity, type Activity } from "./activity";
  * speaks again after answering — a follow-up — opens a new block where that happens.
  */
 
+/** PENDING_USER is the id of the question sent from this screen and not yet on the stream. */
+export const PENDING_USER = "pending-user";
+
 /** TASK_TOOL is the tool name a delegated task is drawn under. It is Podium's, not the model's. */
 export const TASK_TOOL = "podium_task";
 
@@ -226,7 +229,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const thread = out.map((m) => ("role" in m ? m : finish(m, live)));
 
   if (pendingUser !== undefined) {
-    thread.push({ id: "pending-user", role: "user", content: pendingUser });
+    thread.push({ id: PENDING_USER, role: "user", content: pendingUser });
   }
   const tail = thread[thread.length - 1];
   if (busy && tail?.role !== "assistant") {
