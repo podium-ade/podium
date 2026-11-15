@@ -127,6 +127,11 @@ func TestMemorySettingsChooseAKeyAndExtractionSpendsIt(t *testing.T) {
 	}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "model no-such-model does not exist")
+	_, err = svc.SetMemorySettings(ctx, connect.NewRequest(&agentv1.SetMemorySettingsRequest{
+		Provider: ProviderAnthropic, Model: strings.Repeat("m", 5000),
+	}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "refused before it reaches the provider")
+	assert.Equal(t, 1, up.calls(), "only the no-such-model probe went out")
 	row, ok, err := svc.memoryLLMRow(context.Background())
 	require.NoError(t, err)
 	assert.False(t, ok, "a refused model is not saved: %+v", row)
@@ -139,9 +144,10 @@ func TestMemorySettingsChooseAKeyAndExtractionSpendsIt(t *testing.T) {
 	assert.Equal(t, ProviderAnthropic, settings.GetProvider())
 	assert.Equal(t, "claude-haiku-5-5", settings.GetModel())
 	assert.Equal(t, "alice", settings.GetSetBy())
-	path, auth, _ := up.last()
+	path, auth, probe := up.last()
 	assert.Equal(t, "/v1/chat/completions", path)
 	assert.Equal(t, "Bearer sk-ant-the-org-key", auth)
+	assert.NotContains(t, probe, "response_format", "the probe is shaped like an extraction")
 
 	// Extraction now goes to Anthropic, with the saved key and the chosen model.
 	rec = extract(t, svc, `{"model":"podium","user":"podium","max_tokens":2000,`+
@@ -153,6 +159,7 @@ func TestMemorySettingsChooseAKeyAndExtractionSpendsIt(t *testing.T) {
 	assert.Equal(t, "Bearer sk-ant-the-org-key", auth)
 	assert.Equal(t, "claude-haiku-5-5", body["model"])
 	assert.NotContains(t, body, "user")
+	assert.NotContains(t, body, "response_format", "Anthropic refuses json_object")
 	assert.EqualValues(t, 2000, body["max_tokens"])
 
 	// The upstream's refusal is passed back as-is, so the memory service records the
@@ -163,6 +170,9 @@ func TestMemorySettingsChooseAKeyAndExtractionSpendsIt(t *testing.T) {
 		Provider: ProviderOpenAI, Model: "gpt-5-mini",
 	}))
 	require.NoError(t, err)
+	_, _, probe = up.last()
+	assert.Equal(t, map[string]any{"type": "json_object"}, probe["response_format"],
+		"OpenAI's probe asks for JSON mode, as its extractions do")
 	rec = extract(t, svc, `{"model":"podium","max_tokens":2000,"temperature":0.1,"messages":[]}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	_, auth, body = up.last()
