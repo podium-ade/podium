@@ -457,6 +457,13 @@ func (s *Source) human(c Comment) bool {
 	return true
 }
 
+// postedAsPerson reports whether a comment an integration posted was posted as a person
+// (createAsUser): what somebody said in Podium, relayed by the app, is their words and not the
+// app's answer. It is never a prompt — human still says no — only who said it in a transcript.
+func postedAsPerson(c Comment) bool {
+	return c.BotActor != nil && c.BotActor.UserDisplayName != ""
+}
+
 // ---------------------------------------------------------------------------
 // FetchTranscript
 // ---------------------------------------------------------------------------
@@ -486,7 +493,7 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 			continue
 		}
 		role := conductor.RoleUser
-		if !s.human(c) {
+		if !s.human(c) && !postedAsPerson(c) {
 			if isScaffolding(text) {
 				continue
 			}

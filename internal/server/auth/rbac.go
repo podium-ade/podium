@@ -141,6 +141,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceUnshareChatProcedure:           store.RoleMember,
 	agentv1connect.AgentServiceLeaveChatProcedure:             store.RoleMember,
 	agentv1connect.AgentServiceMarkChatReadProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceSetChatRailHiddenProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,

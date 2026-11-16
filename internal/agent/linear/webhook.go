@@ -246,6 +246,12 @@ func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []
 	default:
 		return DeliveryIgnored, "unhandled", slog.LevelInfo
 	}
+	if s.ownPrompt(sess, act) {
+		// A comment the app posted for somebody who wrote in Podium (conductor/relay.go) that
+		// Linear read as a prompt: what it says was answered in Podium already, and taking it
+		// again would answer it twice, and then answer the answer.
+		return DeliveryIgnored, "the app's own comment", slog.LevelInfo
+	}
 	if act.Signal == SignalStop {
 		// A Stop is not checked against Podium the way a prompt is: whoever pressed it need
 		// not be signed in. Stopping is strictly less than starting — it ends work and starts
@@ -301,6 +307,31 @@ func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []
 		s.emit(work, ev)
 	})
 	return DeliveryAccepted, "", slog.LevelInfo
+}
+
+// ownPrompt reports whether a prompt is the app's own doing: its speaker is the app's user, or
+// it came from a comment the app posted as somebody (AppSource.relay). A Stop is never the
+// app's, and is never dropped here.
+func (s *AppSource) ownPrompt(sess *agentSession, act *agentActivity) bool {
+	if act.Signal == SignalStop {
+		return false
+	}
+	if act.User != nil && act.User.ID != "" && act.User.ID == s.appUserID {
+		return true
+	}
+	ids := []string{act.SourceCommentID}
+	if sess.Comment != nil {
+		ids = append(ids, sess.Comment.ID)
+	}
+	if m := sess.SourceMetadata; m != nil && m.AgentSessionMetadata != nil {
+		ids = append(ids, m.AgentSessionMetadata.SourceCommentID)
+	}
+	for _, id := range ids {
+		if s.ownComment(id) {
+			return true
+		}
+	}
+	return false
 }
 
 // foreign is why a delivery is for some other workspace or app user, or "" when it is for

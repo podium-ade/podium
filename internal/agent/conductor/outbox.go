@@ -133,6 +133,7 @@ func payloadOf(out Outbound) store.OutboxPayload {
 		Type: out.Type, Text: out.Text, TaskID: out.TaskID,
 		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
 		CancelReason: out.CancelReason,
+		Author:       out.Author, AuthorAvatar: out.AuthorAvatar,
 	}
 }
 
@@ -140,6 +141,7 @@ func outboundOf(p store.OutboxPayload) Outbound {
 	return Outbound{
 		Type: p.Type, Text: p.Text, TaskID: p.TaskID, CancelReason: p.CancelReason,
 		Speaker: Speaker{Playbook: p.Playbook, SourcePlaybook: p.SourcePlaybook},
+		Author:  p.Author, AuthorAvatar: p.AuthorAvatar,
 	}
 }
 

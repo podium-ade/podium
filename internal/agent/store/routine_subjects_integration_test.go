@@ -170,11 +170,11 @@ func TestWhoTouchedAnIssueReadsItsConversation(t *testing.T) {
 		{Via: LinearViaCreated},
 	}, time.Now()))
 	assert.Empty(t, role("bo@acme.com"), "an unlinked Linear account grants nothing")
-	assert.Equal(t, RoleViewer, role("ana@acme.com"), "a routine's owner reads where it ran")
+	assert.Equal(t, RoleEditor, role("ana@acme.com"), "a routine's owner writes where it ran")
 
 	// Linked later, the account's past is theirs.
 	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "bo@acme.com", Provider: ProviderLinear, ExternalID: "org-1/u-bo"}))
-	assert.Equal(t, RoleViewer, role("bo@acme.com"))
+	assert.Equal(t, RoleEditor, role("bo@acme.com"), "who touched the issue writes its conversation")
 	touched, err := s.LinearTouched(ctx, key, "bo@acme.com")
 	require.NoError(t, err)
 	assert.True(t, touched)

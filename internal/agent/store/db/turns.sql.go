@@ -128,6 +128,67 @@ func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
 	return i, err
 }
 
+const listChatTurnRunners = `-- name: ListChatTurnRunners :many
+select t.id, coalesce(t.task_id, '')::text as task_id, t.started_by, t.started_at,
+       coalesce(r.name, '')::text as routine_name,
+       coalesce(r.scope = 'system', false)::bool as routine_system,
+       coalesce(r.owner_login, '')::text as routine_owner,
+       coalesce((select array_agg(d.task_id order by d.created_at) from delegations d
+                  where d.turn_id = t.id and d.task_id is not null), '{}')::text[] as delegated
+  from turns t
+  join sessions s on s.id = t.session_id
+  left join routine_runs rr on rr.id = t.routine_run_id
+  left join routines r on r.id = rr.routine_id
+ where s.source_key = (select c.source_key from chats c where c.id = $1)
+ order by t.started_at, t.id
+`
+
+type ListChatTurnRunnersRow struct {
+	ID            string
+	TaskID        string
+	StartedBy     string
+	StartedAt     time.Time
+	RoutineName   string
+	RoutineSystem bool
+	RoutineOwner  string
+	Delegated     []string
+}
+
+// ListChatTurnRunners is every turn of the conversation a chat records, oldest first, with who
+// it ran as and the tasks it ran: its own (a playbook's turn) and every one it delegated. It is
+// what tells a reader of a Linear issue's conversation which of its rows are somebody else's
+// work (0049, api/runner.go): a row with a task id belongs to the turn that ran that task, and
+// the assistant's own rows to the turn that was running when they were said — a conversation
+// runs one turn at a time. routine_name and routine_system name a routine's run.
+func (q *Queries) ListChatTurnRunners(ctx context.Context, chatID string) ([]ListChatTurnRunnersRow, error) {
+	rows, err := q.db.Query(ctx, listChatTurnRunners, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatTurnRunnersRow{}
+	for rows.Next() {
+		var i ListChatTurnRunnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.StartedBy,
+			&i.StartedAt,
+			&i.RoutineName,
+			&i.RoutineSystem,
+			&i.RoutineOwner,
+			&i.Delegated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningTurns = `-- name: ListRunningTurns :many
 select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where status = 'running' order by started_at
 `

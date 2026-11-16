@@ -105,6 +105,10 @@ type Comment struct {
 
 // author is the display name to record for a comment, whoever wrote it.
 func (c Comment) author() string {
+	// A comment an app posted as somebody (createAsUser) is theirs: its user is the app.
+	if c.BotActor != nil && c.BotActor.UserDisplayName != "" {
+		return c.BotActor.UserDisplayName
+	}
 	if name := c.User.label(); name != "" {
 		return name
 	}
@@ -458,6 +462,49 @@ func (c *Client) AddComment(ctx context.Context, issueID, body string) (string, 
 		return out.CommentCreate.Comment.ID, nil
 	}
 	// The id we asked for is the id it has, so a payload that omits it is still usable.
+	return id, nil
+}
+
+const commentCreateAsMutation = `mutation PodiumAddCommentAs($input: CommentCreateInput!) {
+  commentCreate(input: $input) {
+    success
+    comment { id }
+  }
+}`
+
+// AddCommentAs posts one comment as the app, shown in Linear under somebody else's name and
+// picture: createAsUser and displayIconUrl, which Linear honours for an app that acts as
+// itself (actor=app) and refuses for a person's own token. It is how what a person says in
+// Podium reaches the issue as theirs while the app is what posted it. icon may be empty.
+func (c *Client) AddCommentAs(ctx context.Context, issueID, body, asUser, icon string) (string, error) {
+	id, err := newUUID()
+	if err != nil {
+		return "", err
+	}
+	input := map[string]any{"id": id, "issueId": issueID, "body": body}
+	if asUser != "" {
+		input["createAsUser"] = asUser
+	}
+	if icon != "" {
+		input["displayIconUrl"] = icon
+	}
+	var out struct {
+		CommentCreate struct {
+			Success bool `json:"success"`
+			Comment struct {
+				ID string `json:"id"`
+			} `json:"comment"`
+		} `json:"commentCreate"`
+	}
+	if err := c.do(ctx, "PodiumAddCommentAs", commentCreateAsMutation, map[string]any{"input": input}, &out); err != nil {
+		return "", err
+	}
+	if !out.CommentCreate.Success {
+		return "", fmt.Errorf("linear: commentCreate on %s reported no success", issueID)
+	}
+	if out.CommentCreate.Comment.ID != "" {
+		return out.CommentCreate.Comment.ID, nil
+	}
 	return id, nil
 }
 

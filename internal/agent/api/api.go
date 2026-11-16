@@ -502,9 +502,16 @@ func (s *AgentService) ListTurns(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	// In a Linear issue's conversation the task of a turn the caller did not run is its
+	// runner's, as its tool calls are in the chat (runner.go).
+	linear := store.IsLinearConversation(sess.SourceKey)
 	out := make([]*agentv1.Turn, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, turnToProto(r))
+		t := turnToProto(r)
+		if linear {
+			turnForReader(t, Login(ctx), Infra(ctx))
+		}
+		out = append(out, t)
 	}
 	return connect.NewResponse(&agentv1.ListTurnsResponse{Turns: out}), nil
 }

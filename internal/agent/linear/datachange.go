@@ -126,6 +126,35 @@ func dataChange(p *webhookPayload) bool {
 	return strings.HasPrefix(data, "{")
 }
 
+// ownChange reports whether a data change is the app's own: the app is its actor, or it is a
+// comment the app wrote — its author is the app's user, or it is one the app posted as somebody
+// who wrote in Podium (AppSource.relay), whose actor Linear may name as that person.
+func (s *AppSource) ownChange(p *webhookPayload) bool {
+	if p.Actor != nil && p.Actor.ID != "" && p.Actor.ID == s.appUserID {
+		return true
+	}
+	if p.Type != "Comment" {
+		return false
+	}
+	var c struct {
+		ID     string `json:"id"`
+		UserID string `json:"userId"`
+		User   *struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if json.Unmarshal(p.Data, &c) != nil {
+		return false
+	}
+	if c.UserID != "" && c.UserID == s.appUserID {
+		return true
+	}
+	if c.User != nil && c.User.ID != "" && c.User.ID == s.appUserID {
+		return true
+	}
+	return s.ownComment(c.ID)
+}
+
 // handleDataChange hands a data change to the sink, off the request: the write is a database
 // round trip, and the team's key can take a call to Linear, while Linear waits five seconds
 // for an answer. A change the app made itself is not handed over, so a routine that acts
@@ -141,7 +170,7 @@ func (s *AppSource) handleDataChange(p *webhookPayload, deliveryID string, body 
 	if s.Revoked() {
 		return DeliveryIgnored, "revoked", slog.LevelInfo
 	}
-	own := p.Actor != nil && p.Actor.ID != "" && p.Actor.ID == s.appUserID
+	own := s.ownChange(p)
 	routines := s.changes != nil && !own
 	var t dataTeam
 	_ = json.Unmarshal(p.Data, &t)
