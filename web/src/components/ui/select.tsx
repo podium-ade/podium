@@ -1,6 +1,6 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -65,7 +65,10 @@ function SelectContent({
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
-          position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]",
+          // Never wider than the room there is: a long option otherwise pushed the list past a
+          // phone's edge and cut it off.
+          position === "popper" &&
+            "w-full min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]",
           className,
         )}
         {...props}
@@ -93,7 +96,15 @@ function SelectLabel({ className, ...props }: ComponentProps<typeof SelectPrimit
   );
 }
 
-function SelectItem({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Item>) {
+function SelectItem({
+  className,
+  children,
+  aside,
+  ...props
+}: ComponentProps<typeof SelectPrimitive.Item> & {
+  /** Shown beside the option in the list only; the closed trigger shows just the children. */
+  aside?: ReactNode;
+}) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
@@ -114,6 +125,7 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {aside ? <span className="ml-auto pl-3 tabular text-2xs text-faint">{aside}</span> : null}
     </SelectPrimitive.Item>
   );
 }

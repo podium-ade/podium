@@ -27,7 +27,7 @@ export function Empty({
         <Icon className="size-5" />
       </span>
       <p className="text-lg font-bold text-fg">{title}</p>
-      {hint ? <p className="mt-2 max-w-[58ch] text-base leading-relaxed text-soft">{hint}</p> : null}
+      {hint ? <p className="mt-2 max-w-[58ch] text-base leading-relaxed [overflow-wrap:anywhere] text-soft">{hint}</p> : null}
       {action ? <div className="mt-5 flex flex-wrap justify-center gap-2">{action}</div> : null}
     </div>
   );

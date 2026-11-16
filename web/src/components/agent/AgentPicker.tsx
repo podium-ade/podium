@@ -8,6 +8,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { BackendMark } from "./BackendMark";
+import { tokens } from "../../lib/format";
 
 export type AgentPickerProps = {
   value: AgentChoice;
@@ -557,8 +558,3 @@ function Tick({ shown }: { shown: boolean }) {
   );
 }
 
-/** tokens renders a context window the way the provider's own docs do. */
-function tokens(n: number): string {
-  if (n >= 1_000_000) return `${n / 1_000_000}M ctx`;
-  return `${Math.round(n / 1000)}K ctx`;
-}

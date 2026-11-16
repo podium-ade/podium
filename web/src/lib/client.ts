@@ -72,6 +72,21 @@ export function isAgentUnreachable(err: unknown): boolean {
   );
 }
 
+/**
+ * The exact message the conductor answers a memory call with when the memory service
+ * (Hindsight) does not answer. internal/agent/api/memory.go's memoryUnreachable is the other
+ * half; change both together.
+ */
+export const MEMORY_UNREACHABLE = "the memory service is not answering";
+
+export function isMemoryUnreachable(err: unknown): boolean {
+  return (
+    err instanceof ConnectError &&
+    err.code === Code.Unavailable &&
+    err.rawMessage === MEMORY_UNREACHABLE
+  );
+}
+
 /** connectCode exposes the Connect status code so a screen can react to one by name. */
 export function connectCode(err: unknown): Code | undefined {
   return err instanceof ConnectError ? err.code : undefined;
