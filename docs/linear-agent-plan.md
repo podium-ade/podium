@@ -404,6 +404,19 @@ chat](agent.md#tickets-in-a-chat).
   (`RecordText`, else `Text`) on a host turn, not a routine's run or an automatic event: up to three
   tickets the speaker may see, without the conversation's own issue, trimmed to 12 KiB. The runtime
   renders them as "Linear tickets this message names", fenced, data not instructions.
+- **Who reads the answer** (`feature/linear-13-ticket-context-scope`). A ticket the speaker may
+  see is briefed only if everybody who will read the answer could see it too
+  (`tickets.audienceOf`, from the conversation's source key): `chat:<id>` checks `MayRead` for the
+  chat's owner, named grants (`chat_access`) and participants (`chat_participants`), each one's
+  Linear teams asked once per brief, and is nobody to vouch for — brief nothing — when the chat is
+  `members` or `link` access, has a participant with no login, or more than `MaxBriefReaders` (20)
+  readers besides the speaker; `linear:<issueId>` briefs only tickets of that issue's `team_key`
+  (nothing when the webhooks never said it); every other key (Slack, GitHub, `linear:project:`,
+  `linear:session:`) briefs nothing. `TicketBriefer` returns the count it withheld, which goes in
+  the brief as `linear_tickets_withheld`; the runtime says "Linear tickets not shown" with the
+  count and no identifiers, and tells the assistant not to guess or look them up to quote. Admins
+  are not among the readers checked (they may see everything); the conductor still does not know
+  roles, so one who is a named reader is checked by the member rule.
 - **The panel.** `GetLinearIssueConversation(chat_id)`, to a reader of the chat: the issue (Linear
   now, else the row), the session's delegations and the routine runs whose `chat_id` is the chat
   (twenty each). The web merges Linear's GitHub attachments with the chat's own pull requests.
@@ -553,6 +566,16 @@ Across the whole stack, what is still open:
   until the runtime image and the chat host's renderer are updated. Team membership is Podium's
   narrower reading of who sees what (a public team's issues are not shown to non-members).
   Admins are briefed with tickets by the member rule, since the conductor does not know roles.
+- **Who reads the answer** (`feature/linear-13-ticket-context-scope`) has unit tests for each
+  surface (a private chat, a shared chat by grant and by participant, an open chat, a stranger in
+  it, the reader cap, an issue's conversation by team, Slack and the others) and for the runtime's
+  new block. The brief's `linear_tickets_withheld` field needs the runtime rebuilt with it, as
+  `linear_tickets` did. The readers are read when the turn starts: somebody added to a chat after
+  reads what it said before. A ticket in a public Linear team is still withheld from a Linear
+  issue's conversation in another team, and a shared chat's readers are judged by Podium's
+  narrower team rule, so more is left out than Linear would hide. Each reader costs a
+  `linear_touched` query per ticket and one `IdentitiesOf` per brief; their teams come from the
+  two-minute cache. Not tried on the dev stack.
 - **Questions in the inbox** (`feature/linear-12-ticket-inbox`) have unit tests for the chat's and
   the conductor's answer rules and the web inbox, hint and deep link; the store test (create,
   dedupe, mark-all, resolve, dismiss: `question_inbox_integration_test.go`) and the conductor tests

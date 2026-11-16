@@ -571,9 +571,23 @@ know before you write one.
   tickets they may see briefs the turn with them** — title, description, latest comments — so text
   anybody in the workspace wrote reaches the model on that person's turn, with that person's
   secrets and MCP servers. It is fenced and called data, not instructions, as a routine's events are;
-  that is guidance to the model, not a boundary. In a shared conversation (a Slack thread, a shared
-  chat, an issue's conversation) the answer is read by everybody in it, so what the ticket says can
-  reach people who could not see the ticket, as anything else the asker's turn can read can.
+  that is guidance to the model, not a boundary. **A ticket is briefed only when everybody who will
+  read the answer could see it**, because the answer is read by everybody in the conversation and
+  posted wherever it lives (`tickets.BriefTickets`). A web chat only its owner reads briefs every
+  ticket the owner may see. A shared web chat briefs a ticket only when its owner, everybody it is
+  shared with by name and everybody who took part may each see it by the rule above, and briefs
+  nothing when it is open to every member or to its link, has an author who is not a Podium person,
+  or has more than twenty readers. A Linear issue's conversation, whose answer is a comment on the
+  issue, briefs only tickets of the issue's own team, whose issues everybody who can see that issue
+  can see. A Slack thread, a pull request, a Linear project's conversation and anything else whose
+  readers Podium cannot name brief nothing. The tickets left out are counted in the brief
+  (`linear_tickets_withheld`) without naming them, so the assistant says it was not given them
+  rather than guessing. The check is made when the turn starts: somebody added to a chat later
+  reads what was said before they were, as sharing a chat always lets them. Admins and owners of
+  Podium read every chat but are not among the readers checked, since they may see every ticket;
+  one who is a named reader is checked by the member rule, which can only leave a ticket out. This
+  does not stop the asker's turn from reading a ticket some other way (their own Linear MCP server)
+  and quoting it; the brief only stops Podium handing it over unasked.
 - **A question in a Linear issue's conversation goes to the inbox of whoever it is asked of**
   (0051): the person whose turn asked it, or a routine's owner for its run — never anybody else on
   the issue, and nobody for a system routine's. The item quotes the question; it shows nothing the
