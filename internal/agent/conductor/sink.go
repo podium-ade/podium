@@ -142,9 +142,10 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 	s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Text: text})
 }
 
-// activity hands one activity document to a source that draws it, and otherwise only to
-// the mirrored copy of the conversation. The text is the task's and untrusted; it is only
-// checked to be JSON, because a reader parses it.
+// activity hands one activity document to a source that draws it, and always to the mirrored
+// copy of the conversation, when there is one. A Linear agent session does both: it shows the
+// latest tool call in the session and its chat keeps the trail, as a Slack thread's does. The
+// text is the task's and untrusted; it is only checked to be JSON, because a reader parses it.
 func (s *sink) activity(ctx context.Context, text string) {
 	if !json.Valid([]byte(text)) {
 		s.c.logger.DebugContext(ctx, "dropping an activity message that is not JSON", "task_id", s.taskID)
@@ -161,6 +162,8 @@ func (s *sink) activity(ctx context.Context, text string) {
 	if err := ap.PostActivity(ctx, s.ref, out); err != nil {
 		s.c.logger.WarnContext(ctx, "posting activity to the conversation failed", "ref", s.ref, "error", err)
 	}
+	// The web chat stores its own and is not mirrored, so this records nothing for it.
+	s.c.mirrorSaid(ctx, s.src, s.ref, out)
 }
 
 // maybeEdit shows the held progress if the throttle allows it. There is no timer: the next

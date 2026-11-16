@@ -89,14 +89,28 @@ select c.*,
     else ''
   end)::text as access_reason,
   coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = @viewer::text), '')::text as shared_by,
-  chat_unread(c.id, @viewer::text)::bigint as unread_count
+  chat_unread(c.id, @viewer::text)::bigint as unread_count,
+  -- What the webhooks said about the Linear issue a ticket's conversation is about (0048), for
+  -- the rail's "EME-6 · title" with its state, and whether it waits on somebody. Empty and
+  -- null for every other chat.
+  coalesce(li.identifier, '')::text as linear_identifier,
+  coalesce(li.title, '')::text      as linear_title,
+  coalesce(li.state_name, '')::text as linear_state_name,
+  coalesce(li.state_type, '')::text as linear_state_type,
+  li.asked_at                       as linear_asked_at,
+  coalesce(li.asked_of, '')::text   as linear_asked_of
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
+    join chats mc on mc.id = cm.chat_id
    where cm.role not in ('activity', 'notice')
+     -- A ticket's conversation is read by people who did not run its turns (0049): what a turn
+     -- thought on its way is its runner's, so the preview is never one of its progress lines.
+     and not (cm.role = 'progress' and mc.origin = 'linear')
 ) m on m.chat_id = c.id and m.rn = 1
+left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
 -- include_all is the shared dev token, which has no per-user identity and is the operator
 -- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
 -- any other named login) is the other branch and sees what chat_visible_to allows: what
@@ -135,6 +149,35 @@ where (
       ))
       or (@personality_id::text <> '' and c.personality_id = @personality_id
           and (@include_all::bool or c.login = @viewer::text))
+    )
+  )
+  -- A Linear issue's or project's conversation (0048) is not in the chat list: a company has
+  -- hundreds of them. The Linear view lists them (ListLinearConversations).
+  --
+  -- linear_rail lets one kind back in (0049): an issue's conversation, in a signed-in caller's
+  -- own list, when they are one of its people — they touched the issue through their linked
+  -- Linear account (linear_people, resolved through identities when they read), or they spoke
+  -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
+  -- in the Linear view. One they hid stays out until something new is said in it.
+  and not (
+    @exclude_linear::bool and c.origin = 'linear'
+    and not (
+      @linear_rail::bool and not @include_all::bool and @section::text = ''
+      and c.source_key like 'linear:%'
+      and c.source_key not like 'linear:project:%'
+      and c.source_key not like 'linear:session:%'
+      and c.deleted_at is null
+      and (
+        exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = @viewer::text)
+        or exists (
+          select 1 from linear_people lp
+            join identities i on i.provider = 'linear' and i.external_id = lp.linear_user
+           where lp.source_key = c.source_key and lp.linear_user <> '' and i.login = @viewer::text)
+      )
+      and not exists (
+        select 1 from chat_rail_hidden h
+         where h.chat_id = c.id and h.login = @viewer::text
+           and h.hidden_at >= coalesce(m.ts, c.created_at))
     )
   )
 order by c.id desc
@@ -368,3 +411,13 @@ returning *;
 -- CountChatsStartedByTurn is how many chats one turn has opened.
 -- name: CountChatsStartedByTurn :one
 select count(*)::int from chats where started_by_turn = @started_by_turn::text;
+
+-- HideChatFromRail takes a chat out of viewer's rail until something new is said in it (0049).
+-- name: HideChatFromRail :exec
+insert into chat_rail_hidden (chat_id, login, hidden_at)
+values (@chat_id, @login, @hidden_at)
+on conflict (chat_id, login) do update set hidden_at = excluded.hidden_at;
+
+-- UnhideChatFromRail puts it back.
+-- name: UnhideChatFromRail :exec
+delete from chat_rail_hidden where chat_id = @chat_id and login = @login;

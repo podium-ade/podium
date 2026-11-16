@@ -313,6 +313,54 @@ describe("decodeBrief", () => {
     expect(brief.delegation?.playbooks).toEqual([]);
   });
 
+  it("reads the Linear tickets a person's message named, and refuses a field it does not know", () => {
+    const ticket = {
+      identifier: "EME-6",
+      title: "Fix the thing",
+      url: "https://linear.app/acme/issue/EME-6",
+      team: "EME",
+      state: "In Progress",
+      labels: ["Bug"],
+      description: "It is broken.",
+      comments: [{ author: "Ada", at: "2026-11-15T09:00:00Z", body: "Still broken." }],
+      trimmed: true,
+    };
+    const brief = decodeBrief(encode({ ...minimal, linear_tickets: [ticket] }));
+    expect(brief.linear_tickets?.[0]?.identifier).toBe("EME-6");
+    expect(brief.linear_tickets?.[0]?.comments?.[0]?.body).toBe("Still broken.");
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, secret: "x" }] }))).toThrow(BriefError);
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, identifier: "" }] }))).toThrow(BriefError);
+    expect(decodeBrief(encode({ ...minimal, linear_tickets_withheld: 2 })).linear_tickets_withheld).toBe(2);
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets_withheld: 0 }))).toThrow(BriefError);
+  });
+
+  it("reads a run on Linear events with the events it was given", () => {
+    const routine = {
+      id: "rtn_1",
+      name: "Triage",
+      schedule: "On Linear: issue created",
+      scheduled: true,
+      state: {},
+      linear: true,
+      events: [
+        {
+          event: "Issue.create",
+          label: "issue created",
+          at: "2026-01-02T03:04:05Z",
+          actor: "Robin",
+          url: "https://linear.example/acme/issue/ENG-12",
+          data: { identifier: "ENG-12" },
+        },
+      ],
+    };
+    const brief = decodeBrief(encode({ ...minimal, routine }));
+    expect(brief.routine?.linear).toBe(true);
+    expect(brief.routine?.events?.[0]?.event).toBe("Issue.create");
+    expect(() =>
+      decodeBrief(encode({ ...minimal, routine: { ...routine, events: [{ ...routine.events[0], secret: "x" }] } })),
+    ).toThrow(BriefError);
+  });
+
   it("accepts an empty menu on a turn that may create a routine, which has a token for create_routine", () => {
     const brief = decodeBrief(
       encode({ ...minimal, delegation: { url: "http://h", token_env: "T", playbooks: [], routines: true } }),

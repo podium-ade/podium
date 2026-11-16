@@ -195,3 +195,25 @@ func (s *Store) QueuePosition(ctx context.Context, sessionID string, id int64) (
 	}
 	return int(n), nil
 }
+
+// ListQueuedTurns is every turn waiting in a session, oldest first.
+func (s *Store) ListQueuedTurns(ctx context.Context, sessionID string) ([]QueuedTurn, error) {
+	rows, err := s.q.ListQueuedTurns(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list the queued turns of session %s: %w", sessionID, err)
+	}
+	out := make([]QueuedTurn, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, queuedTurnFromRow(r))
+	}
+	return out, nil
+}
+
+// DeleteQueuedTurn drops one queued turn, and reports whether it was still queued.
+func (s *Store) DeleteQueuedTurn(ctx context.Context, id int64) (bool, error) {
+	n, err := s.q.DeleteQueuedTurn(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("drop queued turn %d: %w", id, err)
+	}
+	return n > 0, nil
+}

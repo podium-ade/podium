@@ -2,9 +2,11 @@ package linear
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -28,6 +30,27 @@ type stub struct {
 	uploads []stubUpload
 	// uploadStatus is what that PUT answers.
 	uploadStatus int
+	// grants records every request to the OAuth token endpoint, and token scripts its
+	// answer. Nil token issues a numbered token that lasts 30 days, as Linear does.
+	grants []stubGrant
+	token  func(n int) stubToken
+}
+
+// stubGrant is one request to the token endpoint, as the server saw it.
+type stubGrant struct {
+	ClientID     string
+	ClientSecret string
+	BasicAuth    bool
+	Form         url.Values
+}
+
+// stubToken is one scripted answer from the token endpoint: a token, or an OAuth error.
+type stubToken struct {
+	AccessToken string
+	ExpiresIn   int64
+	Error       string
+	Description string
+	Status      int
 }
 
 type stubCall struct {
@@ -54,6 +77,7 @@ func newStub(t *testing.T) *stub {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", s.graphql)
 	mux.HandleFunc("/upload", s.upload)
+	mux.HandleFunc("/oauth/token", s.oauthToken)
 	s.srv = httptest.NewServer(mux)
 	t.Cleanup(s.srv.Close)
 	return s
@@ -61,6 +85,7 @@ func newStub(t *testing.T) *stub {
 
 func (s *stub) endpoint() string  { return s.srv.URL + "/graphql" }
 func (s *stub) uploadURL() string { return s.srv.URL + "/upload" }
+func (s *stub) tokenURL() string  { return s.srv.URL + "/oauth/token" }
 
 // on scripts one operation. The last call wins, so a test can rescript between ticks.
 func (s *stub) on(op string, fn func(vars map[string]any) stubReply) {
@@ -120,6 +145,45 @@ func (s *stub) upload(w http.ResponseWriter, r *http.Request) {
 	status := s.uploadStatus
 	s.mu.Unlock()
 	w.WriteHeader(status)
+}
+
+// oauthToken is Linear's client-credentials grant: form-encoded, client id and secret in
+// HTTP Basic auth, and a JSON answer.
+func (s *stub) oauthToken(w http.ResponseWriter, r *http.Request) {
+	require.NoError(s.t, r.ParseForm())
+	id, secret, ok := r.BasicAuth()
+	s.mu.Lock()
+	s.grants = append(s.grants, stubGrant{ClientID: id, ClientSecret: secret, BasicAuth: ok, Form: r.PostForm})
+	n := len(s.grants)
+	fn := s.token
+	s.mu.Unlock()
+
+	out := stubToken{AccessToken: fmt.Sprintf("lin_oauth_stub_%d", n), ExpiresIn: 2591999}
+	if fn != nil {
+		out = fn(n)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if out.Error != "" {
+		status := out.Status
+		if status == 0 {
+			status = http.StatusBadRequest
+		}
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": out.Error, "error_description": out.Description})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"access_token": out.AccessToken,
+		"token_type":   "Bearer",
+		"expires_in":   out.ExpiresIn,
+		"scope":        "read,write,app:assignable,app:mentionable",
+	})
+}
+
+func (s *stub) seenGrants() []stubGrant {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]stubGrant(nil), s.grants...)
 }
 
 func (s *stub) seen() []stubCall {

@@ -114,6 +114,11 @@ func (c *Conductor) NoteRoutineTurnForTest(ctx context.Context, turnID string, e
 	c.noteRoutineTurn(ctx, turnID, ev)
 }
 
+// BriefRoutineForTest is the routine block a turn for ev in src is briefed with.
+func (c *Conductor) BriefRoutineForTest(ctx context.Context, src Source, ev InboundEvent) *BriefRoutine {
+	return c.briefRoutine(ctx, src, ev)
+}
+
 // PostForTest says out through src, as a turn would.
 func (c *Conductor) PostForTest(ctx context.Context, src Source, ref string, out Outbound) string {
 	return c.post(ctx, src, ref, out)

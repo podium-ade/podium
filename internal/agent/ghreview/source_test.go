@@ -1254,3 +1254,39 @@ func TestAnApprovalOfAPullRequestThatCannotBeReadIsAComment(t *testing.T) {
 		assert.NotEqual(t, "APPROVE", r["event"])
 	}
 }
+
+// With Serve set, Run binds nothing itself: it hands the webhook handler to whoever owns the
+// listener, on the configured address and the GitHub path, and stops with it.
+func TestRunHandsTheWebhookHandlerToTheListenersOwner(t *testing.T) {
+	h := newHarness(t)
+	type mount struct {
+		listen, path string
+		h            http.Handler
+	}
+	mounted := make(chan mount, 1)
+	h.src.serve = func(ctx context.Context, listen, path string, handler http.Handler) error {
+		mounted <- mount{listen, path, handler}
+		<-ctx.Done()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- h.src.Run(ctx) }()
+
+	var m mount
+	select {
+	case m = <-mounted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run never mounted its handler")
+	}
+	assert.Equal(t, "127.0.0.1:0", m.listen)
+	assert.Equal(t, WebhookPath, m.path)
+	rec := httptest.NewRecorder()
+	m.h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, WebhookPath, strings.NewReader("{}")))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "it is the signed handler, refusing an unsigned delivery")
+
+	cancel()
+	require.NoError(t, <-done)
+	_, open := <-h.src.Events()
+	assert.False(t, open, "the source's events close when it stops")
+}

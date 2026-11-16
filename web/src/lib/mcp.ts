@@ -125,6 +125,33 @@ export function presetFor(server: { name?: string; url?: string }): McpPreset | 
   return MCP_PRESETS.find((p) => hostnameOf(p.url) === host);
 }
 
+/** MCP_ADD_PARAM is the MCP page's query parameter that opens "add a personal server" on a
+ * preset: /agent/mcp?add=linear. */
+export const MCP_ADD_PARAM = "add";
+
+/** addMcpHref is the MCP page with a preset's add dialog open. */
+export function addMcpHref(presetName: string): string {
+  return `/agent/mcp?${MCP_ADD_PARAM}=${encodeURIComponent(presetName)}`;
+}
+
+/** presetNamed is the preset a name picks, if any. */
+export function presetNamed(name: string | null | undefined): McpPreset | undefined {
+  const n = (name ?? "").trim().toLowerCase();
+  return n ? MCP_PRESETS.find((p) => p.name === n) : undefined;
+}
+
+/**
+ * hasPersonalLinear is whether a person has their own Linear MCP server switched on — the one
+ * that reads and writes Linear as them, with their permissions. A turn reaches a server by its
+ * name, and the assistant names `linear`, so it is theirs of that name. A company server they
+ * fall back to acts as whoever stored its key, so it does not count.
+ */
+export function hasPersonalLinear(
+  servers: readonly { name?: string; owner?: string; enabled?: boolean }[],
+): boolean {
+  return servers.some((s) => Boolean(s.owner) && s.enabled !== false && s.name === "linear");
+}
+
 /**
  * MCP_CALLBACK_PATH is the route an authorization server redirects back to, and the
  * conductor accepts no other: it validates the redirect_uri the browser sends against this

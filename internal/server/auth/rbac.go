@@ -108,8 +108,16 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListSkillsProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListMcpServersProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceListSlackChannelsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListLinearCatalogProcedure: store.RoleMember,
 	agentv1connect.AgentServiceCreateChatProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
+	// The Linear view: the conductor lists a member only the issues they touched, and an admin
+	// or owner (X-Podium-Infra) every one.
+	agentv1connect.AgentServiceListLinearConversationsProcedure: store.RoleMember,
+	// A chat's ticket chips and an issue conversation's panel: the conductor shows a member an
+	// issue only when they could see it in Linear, and the panel only to a reader of the chat.
+	agentv1connect.AgentServiceGetLinearIssuesProcedure:            store.RoleMember,
+	agentv1connect.AgentServiceGetLinearIssueConversationProcedure: store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is
 	// not the caller, so member is the gate and ownership is the check.
 	agentv1connect.AgentServiceListPersonalitiesProcedure: store.RoleMember,
@@ -137,6 +145,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceUnshareChatProcedure:           store.RoleMember,
 	agentv1connect.AgentServiceLeaveChatProcedure:             store.RoleMember,
 	agentv1connect.AgentServiceMarkChatReadProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceSetChatRailHiddenProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
@@ -198,13 +207,15 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceDisconnectGitHubAccountProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceSetSlackChannelDescriptionProcedure: store.RoleAdmin,
 
-	// GitHub and Slack live under Settings → Connections. Hints are still credentials.
+	// GitHub, Slack and Linear live under Settings → Connections. Hints are still credentials.
 	agentv1connect.AgentServiceGetConnectionsProcedure:          store.RoleAdmin,
 	agentv1connect.AgentServiceSetSlackConnectionProcedure:      store.RoleAdmin,
 	agentv1connect.AgentServiceClearSlackConnectionProcedure:    store.RoleAdmin,
 	agentv1connect.AgentServiceSetGitHubConnectionProcedure:     store.RoleAdmin,
 	agentv1connect.AgentServiceClearGitHubConnectionProcedure:   store.RoleAdmin,
 	agentv1connect.AgentServiceSetGitHubWebhookFiltersProcedure: store.RoleAdmin,
+	agentv1connect.AgentServiceSetLinearConnectionProcedure:     store.RoleAdmin,
+	agentv1connect.AgentServiceClearLinearConnectionProcedure:   store.RoleAdmin,
 }
 
 // RestrictRBAC forbids a KindUser from procedures their role cannot call, once the

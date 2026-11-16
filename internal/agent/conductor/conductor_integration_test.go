@@ -122,9 +122,11 @@ allowed_tools: [read, grep]
 timeout: 15m
 slack_channels: [C1]
 `), 0o600))
+	// coder is what a Linear issue runs when nobody names a playbook.
 	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
 allowed_tools: [read, edit, bash]
+linear: true
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/playbooks/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: build podium
@@ -136,6 +138,7 @@ priority: -3
 system_prompt: look at the page
 allowed_tools: [read, bash]
 browser: true
+linear_teams: [OPS]
 `), 0o600))
 
 	require.NoError(t, os.WriteFile(dir+"/playbooks/desk.yaml", []byte(`system_prompt: work on the desktop
@@ -1415,9 +1418,11 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	start(t, st, fake, src)
-	waitFor(t, 30*time.Second, "the orphan to be failed", func() bool {
+	// The turn is failed before the failure is posted, so wait for both.
+	waitFor(t, 30*time.Second, "the orphan to be failed and said so", func() bool {
 		got, err := st.GetTurn(ctx, orphan.ID)
-		return err == nil && got.Status == store.TurnFailed
+		return err == nil && got.Status == store.TurnFailed &&
+			len(posts(src.Records(), conductor.OutFailure)) > 0
 	})
 
 	assert.Empty(t, fake.Specs(), "nothing ran, so nothing is resumed")

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	db "github.com/podium-ade/podium/internal/agent/store/db"
@@ -237,6 +238,9 @@ func (s *Store) MarkChatRead(ctx context.Context, chatID, login string, seq uint
 const (
 	NotifyShare   = "share"
 	NotifyMention = "mention"
+	// NotifyQuestion is a question the assistant asked in a Linear ticket's conversation,
+	// in the inbox of the person it is asked of until the conversation hears from somebody.
+	NotifyQuestion = "question"
 )
 
 // Notification is one entry in a person's in-app inbox.
@@ -247,10 +251,14 @@ type Notification struct {
 	ChatTitle string
 	Seq       uint64
 	Actor     string
-	// Detail is what a routine notice says happened.
+	// Detail is what a routine notice says happened, or a question's text.
 	Detail    string
 	CreatedAt time.Time
 	Read      bool
+	// LinearIdentifier and LinearTitle are the ticket a Linear conversation is about, as the
+	// webhooks described it; empty for any other chat.
+	LinearIdentifier string
+	LinearTitle      string
 }
 
 // ListNotifications is login's inbox, newest first. A notification for a chat they can no
@@ -267,13 +275,49 @@ func (s *Store) ListNotifications(ctx context.Context, login string, unreadOnly 
 		out = append(out, Notification{
 			ID: r.ID, Kind: r.Kind, ChatID: r.ChatID, ChatTitle: r.ChatTitle, Seq: uint64(r.Seq),
 			Actor: r.Actor, Detail: r.Detail, CreatedAt: r.CreatedAt.UTC(), Read: r.ReadAt != nil,
+			LinearIdentifier: r.LinearIdentifier, LinearTitle: r.LinearTitle,
 		})
 	}
 	return out, nil
 }
 
+// QuestionDetailChars bounds a question's text in the inbox. The whole question is in the
+// conversation; the inbox needs enough of it to answer.
+const QuestionDetailChars = 4000
+
+// NotifyQuestion puts a question asked in a chat in login's inbox. While one is open for them
+// in that chat, it is replaced instead: one item per person and conversation (0051).
+func (s *Store) NotifyQuestion(ctx context.Context, login, chatID string, seq uint64, actor, question string) error {
+	login, question = strings.TrimSpace(login), strings.TrimSpace(question)
+	if login == "" || chatID == "" || question == "" {
+		return nil
+	}
+	if r := []rune(question); len(r) > QuestionDetailChars {
+		question = string(r[:QuestionDetailChars]) + "…"
+	}
+	if err := s.q.NotifyQuestion(ctx, db.NotifyQuestionParams{
+		Login: login, ChatID: chatID, Seq: int64(seq), Actor: actor, Detail: question,
+	}); err != nil {
+		return fmt.Errorf("put a question in %s's inbox: %w", login, err)
+	}
+	return nil
+}
+
+// ResolveQuestions closes every open question in the conversation sourceKey names: it heard
+// from somebody. It returns how many it closed.
+func (s *Store) ResolveQuestions(ctx context.Context, sourceKey string) (int64, error) {
+	if sourceKey == "" {
+		return 0, nil
+	}
+	n, err := s.q.ResolveQuestions(ctx, &sourceKey)
+	if err != nil {
+		return 0, fmt.Errorf("close the questions in %s: %w", sourceKey, err)
+	}
+	return n, nil
+}
+
 // MarkNotificationsRead marks the listed notifications of login read, or every unread one when
-// all is set. Ids that are somebody else's are ignored. It returns how many changed.
+// all is set. All leaves an open question alone: only an answer, or its own id, closes one. Ids that are somebody else's are ignored. It returns how many changed.
 func (s *Store) MarkNotificationsRead(ctx context.Context, login string, ids []int64, all bool) (int64, error) {
 	if ids == nil {
 		ids = []int64{}
