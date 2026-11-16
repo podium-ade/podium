@@ -2246,6 +2246,30 @@ nothing asks Linear per row. A title changed in Linear shows once a delivery nam
 chat rail marks an issue waiting on the viewer; the Linear view's *Needs attention* lists every
 one.
 
+**A question lands in the inbox of whoever it is asked of.** When anything in an issue's
+conversation asks a question — the assistant, or a task it delegated — the person whose turn asked
+it gets an **alert** in the bell: the ticket's identifier and title, and the question (0051). That
+person is whoever prompted the turn, from Linear or from Podium, or the owner of the routine whose
+run asked; a system routine's run asks nobody. They answer it in the bell, or on Notifications,
+without opening the chat: the answer is sent to the conversation exactly as the chat's own box
+sends it, so it is posted to the issue as their comment and goes into the task waiting on it. In
+the chat itself, while the issue waits on them, what they send is put to Podium without naming it,
+and goes into the task that asked even when the turn began in a Linear agent session or as their
+routine's run. The item is one per person and conversation — a second question before the first
+is answered replaces its text — and it closes when the conversation hears from anybody: the
+answer from the inbox, from the chat, or in Linear. Opening the chat and *mark all read* leave it
+open; **Dismiss** closes it without answering.
+
+**Linear from a chat is the person's own Linear MCP server.** Podium gives the assistant no Linear
+tools of its own. A turn that reads or changes tickets — "what's on my plate", "move ENG-12 to In
+Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server ([`mcp_servers:`](#mcp_servers--tools-that-are-somebody-elses-api)):
+an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
+(the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
+with what Linear lets them do. The Linear view and an issue's conversation show one quiet line
+offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
+who has no `linear` server of their own switched on, until they connect one or dismiss it in that
+browser. What that means for trust is in [security.md](security.md#5-the-conductor-and-the-bot).
+
 ### Tickets in a chat
 
 A Linear issue named in any chat — a person's message or the assistant's answer, as `EME-6` or as a
@@ -2318,9 +2342,12 @@ reaches Podium as a webhook, which does not move the chat stream.
   lease names the warm task's person and surface, not the agent session, and a prompt put into
   another session's task would be answered in the wrong session.
 - *Waiting on someone* is set when anything in the issue's conversation asks a question, and
-  cleared by the next thing anybody says on the issue from Linear. A question a task asked and
-  then gave up on without an answer stays until then. Whose turn asked is the latest turn's
-  asker, which for a question from a task an earlier turn delegated may be somebody else.
+  cleared by the next thing anybody puts to Podium in it, from Linear or from the web. A question
+  a task asked and then gave up on without an answer stays until then, and so does its inbox item
+  (Dismiss closes that). Whose turn asked is the turn that ran the asking task — its own, or one it
+  delegated — and otherwise the turn running on that conductor.
+- An answer from the web goes into a task waiting in a Linear agent session only on the conductor
+  that runs it; on another conductor it is queued as a turn of its own.
 - After a restart, work resumed in an issue's conversation is resumed through the source that
   wrote its ref: a routine's run, or a web message's, through the chat. This has not been tried
   against a running conductor.
@@ -3841,6 +3868,47 @@ other on one. Changing it affects later runs only, and history records the chang
 Before this, a routine in this mode opened a chat of its own for each ticket. Those chats stay as
 ordinary chats of the routine; its next event about such a ticket runs in the ticket's
 conversation.
+
+### Examples: Linear through your own MCP server
+
+Two routines that need nothing from Podium beyond a schedule and an instruction. Both assume the
+assistant names `linear` among its MCP servers and that the owner has connected their own Linear
+server under MCP servers ([Linear from a chat](#the-linear-view)): a run is its owner's, so it
+reads and writes Linear as them and sees only what they can.
+
+**A weekday digest of my tickets.** Schedule `0 8 * * 1-5` in your timezone.
+
+```text
+Using the linear MCP tools, as me: list the Linear issues assigned to me, or created by me, that
+changed since the last run (the first run: the last 24 hours). Write one short message with three
+sections, leaving out an empty one:
+- Moved: issues whose state changed — identifier, title, old → new state, who moved it.
+- Waiting on me: issues where the latest comment asks me something or mentions me, and has no
+  reply from me yet.
+- Finished by the agent: issues delegated to the Podium app, or that it commented on, which
+  reached a completed state.
+Link every identifier. Keep the ids you reported in state, and do not repeat one unless it
+changed again. If nothing changed, finish idle.
+```
+
+Its standing notes are where "skip the Platform team" or "only priority 1 and 2" go.
+
+**Bulk triage.** Not a schedule but a message — or a routine on a schedule if a team wants it
+daily. In a chat:
+
+```text
+Triage every untriaged bug in team MOB: use the linear MCP tools to list issues in MOB with the
+Bug label and the Triage state. For each, read the description and comments, then set a priority
+(urgent only for a crash or data loss), add one area label from the team's existing labels, and
+leave a comment of at most three lines saying what you set and why. Do not change the assignee
+or the state. Finish with a table of identifier, priority, label.
+```
+
+The assistant lists them and comments and labels **as you**: each comment shows as yours in
+Linear, and what it can change is what your Linear account can. Every description and comment it
+reads was written by somebody else in the workspace and is data, not instructions — but nothing
+stops one from trying (see [security.md](security.md#5-the-conductor-and-the-bot)); a read-only
+Linear key on your MCP server makes a digest safe to leave running.
 
 ### Admins: Settings → Routines
 

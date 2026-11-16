@@ -574,6 +574,28 @@ know before you write one.
   that is guidance to the model, not a boundary. In a shared conversation (a Slack thread, a shared
   chat, an issue's conversation) the answer is read by everybody in it, so what the ticket says can
   reach people who could not see the ticket, as anything else the asker's turn can read can.
+- **A question in a Linear issue's conversation goes to the inbox of whoever it is asked of**
+  (0051): the person whose turn asked it, or a routine's owner for its run — never anybody else on
+  the issue, and nobody for a system routine's. The item quotes the question; it shows nothing the
+  person could not already read in the conversation, where they ran the turn. Answering it from
+  the inbox is sending to the conversation: the same `chat_role` check, the same comment on the
+  issue under their name. In the chat, while the issue waits on them, what they send is put to
+  Podium without naming it, and goes into the task that asked whichever surface it began on
+  (a Linear agent session, their routine's run) — their own words to a task already running as
+  them. Somebody else's message is still a turn of its own.
+- **The assistant reads and writes Linear as a person only through that person's own Linear MCP
+  server.** There are no Linear tools of Podium's own: a turn that edits a ticket does it with the
+  `linear` server the assistant (or a playbook) names, which for a person is the one they connected
+  under MCP servers, with their key or sign-in and their permissions in Linear. Nothing stands
+  between the model and those tools — no approval, no allow-list of which tools or which teams —
+  and what the model reads in a turn is written by other people: a ticket's title, description and
+  comments are by anybody in the workspace who can see the ticket. Text in a ticket can therefore
+  steer a turn into acting in Linear **as the person the turn runs as** — commenting, relabelling,
+  moving or closing their tickets, reading issues in teams only they can see and repeating them
+  where others will. Fencing Linear content as data in the brief makes that less likely, not
+  impossible. A person who connects one should know that every turn they start in a ticket's
+  conversation — and every run of a routine of theirs — holds their Linear access, and a Linear
+  key scoped to read, or a sign-in with a narrow scope, is the only real bound.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. That stops an accident and one honest
@@ -1147,6 +1169,9 @@ Everything below is a real hole, not a hypothetical:
   taking ordinary work.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
+- **Text in a Linear ticket can steer a turn that holds a person's Linear MCP server** into
+  acting in Linear as that person. There is no approval step between the model and the server's
+  tools. See *5. The conductor and the bot*.
 - **With Linear's poller, anyone who can assign the bot user a ticket can run code on a worker.**
   Polling proves nobody, so a polled ticket runs as nobody for whoever assigned it. Slack and
   Linear's agent app answer only people signed in to Podium, but have no roles beyond that: any
