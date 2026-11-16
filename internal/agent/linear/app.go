@@ -315,6 +315,7 @@ var (
 	_ conductor.Source         = (*AppSource)(nil)
 	_ conductor.ActivityPoster = (*AppSource)(nil)
 	_ conductor.StopHearer     = (*AppSource)(nil)
+	_ conductor.PersonPoster   = (*AppSource)(nil)
 )
 
 // NewApp builds the agent app's source. Nothing is served until Run.
@@ -461,6 +462,53 @@ func (s *AppSource) RefForKey(sourceKey string) (string, bool) {
 	}
 	return Ref(issueID, "", ""), true
 }
+
+// PersonRef implements conductor.PersonPoster: an issue's conversation takes what people say
+// in it from Podium, posted as theirs (Post, OutRelay), and the answers to them, as the app's
+// comments. A project's does not: a project has no comments to post them in.
+func (s *AppSource) PersonRef(sourceKey string) (string, bool) {
+	if strings.HasPrefix(sourceKey, SourceKey("project:")) {
+		return "", false
+	}
+	return s.RefForKey(sourceKey)
+}
+
+// relay posts a person's words from Podium as a comment on the issue, shown under their name
+// and picture, and remembers it as the app's own: the webhooks it causes are the app's and
+// start nothing (ownDelivery).
+func (s *AppSource) relay(ctx context.Context, issueID string, out conductor.Outbound) (string, error) {
+	body := strings.TrimSpace(out.Text)
+	if body == "" {
+		return "", nil
+	}
+	id, err := s.client.AddCommentAs(ctx, issueID, body, out.Author, out.AuthorAvatar)
+	if err != nil {
+		return "", fmt.Errorf("linear: post %s's message on %s: %w", out.Author, issueID, err)
+	}
+	s.markOwnComment(id)
+	return id, nil
+}
+
+// markOwnComment remembers a comment the app posted as somebody, for dedupeTTL.
+func (s *AppSource) markOwnComment(id string) {
+	if id != "" {
+		s.firstSighting(ownCommentKey + id)
+	}
+}
+
+// ownComment reports whether the app posted this comment as somebody within dedupeTTL.
+func (s *AppSource) ownComment(id string) bool {
+	if id == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.seen[ownCommentKey+id]
+	return ok
+}
+
+// ownCommentKey prefixes a comment the app posted in AppSource.seen.
+const ownCommentKey = "own-comment:"
 
 // Run serves the webhook until ctx is cancelled. It runs on every conductor, with no leader:
 // a delivery reaches whichever one the tunnel sends it to, and only that one hears it.
@@ -840,6 +888,10 @@ func (s *AppSource) Post(ctx context.Context, ref string, out conductor.Outbound
 	issueID, _, _, sessionID, err := ParseSessionRef(ref)
 	if err != nil {
 		return "", err
+	}
+	if out.Type == conductor.OutRelay {
+		// A person's words from Podium (conductor/relay.go), wherever the ref points.
+		return s.relay(ctx, issueID, out)
 	}
 	if sessionID == "" {
 		return s.comments.Post(ctx, ref, out)

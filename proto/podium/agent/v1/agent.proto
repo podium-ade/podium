@@ -251,6 +251,10 @@ service AgentService {
   rpc LeaveChat(LeaveChatRequest) returns (LeaveChatResponse);
   // MarkChatRead moves the caller's read mark forward. It never moves it back.
   rpc MarkChatRead(MarkChatReadRequest) returns (MarkChatReadResponse);
+  // SetChatRailHidden takes a Linear ticket's conversation out of the caller's chat rail, or
+  // puts it back. It comes back by itself once something new is said in it, and stays in the
+  // Linear view throughout.
+  rpc SetChatRailHidden(SetChatRailHiddenRequest) returns (SetChatRailHiddenResponse);
   // ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
   rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
   // MarkNotificationsRead marks some, or all, of the caller's notifications read.
@@ -1462,6 +1466,27 @@ message Chat {
   // routine_id is the routine this chat belongs to, empty for any other chat. A routine chat
   // is never shared.
   string routine_id = 29;
+  // linear_issue is the Linear issue a ticket's conversation is about, set by ListChats on
+  // one in the caller's rail (a Linear issue's people see its conversation there) and unset
+  // for every other chat.
+  ChatLinearIssue linear_issue = 30;
+}
+
+// ChatLinearIssue is a Linear issue as the chat rail draws it: "EME-6 · title" with a dot for
+// its Linear state, and a mark while its conversation waits on the caller.
+message ChatLinearIssue {
+  string identifier = 1;
+  string title = 2;
+  // state_name is the issue's workflow state ("In Progress"), state_type Linear's kind of
+  // it: triage, backlog, unstarted, started, completed, canceled. Either may be empty.
+  string state_name = 3;
+  string state_type = 4;
+  // asked_at is set while the conversation waits on a person: something in it asked a
+  // question nobody has answered.
+  google.protobuf.Timestamp asked_at = 5;
+  // waiting_on_me is asked_at set and the question being the caller's to answer: their own
+  // turn asked it, or it was nobody's in particular.
+  bool waiting_on_me = 6;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -1531,6 +1556,20 @@ message ChatMessage {
   repeated ChatDelivery deliveries = 17;
   // mentions is the Podium logins the message named with the composer's person chip.
   repeated string mentions = 18;
+  // ran_as is the Podium login whose credentials the turn that said this ran with, set on
+  // what the bot said in a Linear issue's conversation, where people read turns somebody else
+  // ran. Empty when it was nobody's (a system routine's run, which ran as the company) or not
+  // known. ran_as_name is that person by name, when Podium knows one.
+  string ran_as = 19;
+  string ran_as_name = 20;
+  // ran_as_routine is the routine whose run said this, by name, empty for any other turn.
+  string ran_as_routine = 21;
+  // redacted is a row of somebody else's turn the caller may not read: a tool call, a
+  // thought, or a progress line, from a turn they did not run in a Linear issue's
+  // conversation, read by somebody who is neither its runner nor an admin. Its text, task id
+  // and attachments are withheld by the server; the UI counts it into "N steps, ran as …".
+  // An answer is never redacted, only its task id and attachments are withheld.
+  bool redacted = 22;
 }
 
 // QueuedTurn is one turn waiting behind the one in flight, oldest first.
@@ -1929,6 +1968,13 @@ message LeaveChatRequest {
 }
 
 message LeaveChatResponse {}
+
+message SetChatRailHiddenRequest {
+  string chat_id = 1;
+  bool hidden = 2;
+}
+
+message SetChatRailHiddenResponse {}
 
 message MarkChatReadRequest {
   string chat_id = 1;

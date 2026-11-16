@@ -32,6 +32,10 @@ type OutboxPayload struct {
 	// CancelReason is the conductor's Outbound.CancelReason, kept so a retry after a restart
 	// is still recognised by the source as a stop's.
 	CancelReason string `json:"cancel_reason,omitempty"`
+	// Author and AuthorAvatar are whose words a relayed message is (0049): a person's message
+	// from the web, posted to a Linear issue as theirs.
+	Author       string `json:"author,omitempty"`
+	AuthorAvatar string `json:"author_avatar,omitempty"`
 }
 
 // OutboxItem is one delivery: one bot message, to one surface.

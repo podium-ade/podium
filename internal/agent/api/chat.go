@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -186,7 +187,10 @@ func (s *AgentService) ListChats(
 		PersonalityID:     req.Msg.GetPersonalityId(),
 		Section:           req.Msg.GetSection(),
 		// A Linear issue's conversation is in the Linear view, not here: there are hundreds.
+		// The ones whose people the caller is one of are back in (0049): the rail lists the
+		// tickets they touched, by last activity like any chat, and not the ones they hid.
 		ExcludeLinear: true,
+		LinearRail:    true,
 	})
 	if err != nil {
 		return nil, storeError(err)
@@ -196,9 +200,68 @@ func (s *AgentService) ListChats(
 		c := chatToProto(r)
 		c.SharedWithMe = sharedWithMe(r, login, SeesAll(ctx))
 		withSharing(ctx, c, r.Sharing)
+		c.LinearIssue = linearIssueToProto(r.Linear, login)
 		out = append(out, c)
 	}
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
+}
+
+// linearIssueToProto is the issue a ticket's conversation is about, as the rail draws it for
+// viewer. It waits on them when its question was asked by their turn or by nobody's in
+// particular: the rail lists only conversations whose people they are one of.
+func linearIssueToProto(li *store.ChatLinearIssue, viewer string) *agentv1.ChatLinearIssue {
+	if li == nil {
+		return nil
+	}
+	out := &agentv1.ChatLinearIssue{
+		Identifier: li.Identifier,
+		Title:      li.Title,
+		StateName:  li.StateName,
+		StateType:  li.StateType,
+	}
+	if li.AskedAt != nil {
+		out.AskedAt = timestamppb.New(*li.AskedAt)
+		out.WaitingOnMe = li.AskedOf == "" || li.AskedOf == viewer
+	}
+	return out
+}
+
+// SetChatRailHidden takes a Linear ticket's conversation out of the caller's rail, or puts it
+// back. Only a ticket's conversation the caller may read: any other chat is left by leaving it
+// or deleting it, as before.
+func (s *AgentService) SetChatRailHidden(
+	ctx context.Context, req *connect.Request[agentv1.SetChatRailHiddenRequest],
+) (*connect.Response[agentv1.SetChatRailHiddenResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("hide chat: chat_id is required"))
+	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	ok, err := s.mayReadChat(ctx, row, login)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	if kind, _ := store.LinearKind(row.SourceKey); kind != store.LinearKindIssue {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"chat %s is not a Linear ticket's conversation; leave it or delete it instead", chatID))
+	}
+	if err := s.store.SetChatRailHidden(ctx, chatID, login, req.Msg.GetHidden(), time.Now()); err != nil {
+		return nil, storeError(err)
+	}
+	return connect.NewResponse(&agentv1.SetChatRailHiddenResponse{}), nil
 }
 
 // DeleteChat removes one of the caller's chats and every message in it.
@@ -670,7 +733,9 @@ func (s *AgentService) StreamChat(
 		}
 	}
 
-	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq(), req.Msg.GetTail())
+	// Who each turn ran as, and what of somebody else's turn this reader may see (runner.go).
+	view := s.newRunnerView(ctx, row, login)
+	lastSeq, err := s.replay(ctx, stream, view, chatID, req.Msg.GetFromSeq(), req.Msg.GetTail())
 	if err != nil {
 		return err
 	}
@@ -707,6 +772,13 @@ func (s *AgentService) StreamChat(
 				}
 			}
 			out := frameToProto(f)
+			if f.Kind == chat.FrameMessage {
+				if out.Frame, err = view.messageFrame(ctx, f.Message); err != nil {
+					return storeError(err)
+				}
+			} else {
+				out = view.frame(ctx, out)
+			}
 			if f.Kind == chat.FrameChat {
 				// The chat's row changed, which is how a share, an unshare or a change of
 				// general access reaches a screen (phase 5). The role is this viewer's, so it
@@ -764,7 +836,8 @@ func (s *AgentService) stillReadable(ctx context.Context, chatID, login string) 
 // open (fromSeq 0) with a tail sends only the newest tail messages: a long conversation opens
 // on its end, and the client pages back with ListChatMessages as the reader scrolls up.
 func (s *AgentService) replay(
-	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], chatID string, fromSeq uint64, tail uint32,
+	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], view *runnerView, chatID string,
+	fromSeq uint64, tail uint32,
 ) (uint64, error) {
 	var msgs []store.ChatMessage
 	var err error
@@ -778,7 +851,11 @@ func (s *AgentService) replay(
 	}
 	last := fromSeq
 	for _, m := range msgs {
-		if err := stream.Send(frameToProto(chat.Frame{Kind: chat.FrameMessage, Message: m})); err != nil {
+		frame, err := view.messageFrame(ctx, m)
+		if err != nil {
+			return 0, storeError(err)
+		}
+		if err := stream.Send(&agentv1.ChatFrame{Frame: frame}); err != nil {
 			return 0, err
 		}
 		last = m.Seq
@@ -808,6 +885,10 @@ func (s *AgentService) ListChatMessages(
 	if err := s.stillReadable(ctx, chatID, login); err != nil {
 		return nil, err
 	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
 	limit := req.Msg.GetLimit()
 	if limit == 0 || limit > maxChatPage {
 		limit = maxChatPage
@@ -816,9 +897,14 @@ func (s *AgentService) ListChatMessages(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	// A page back is shaped as StreamChat shapes the tail: somebody else's turn in a Linear
+	// conversation shows its answer and who it ran as, not its steps (runner.go).
+	view := s.newRunnerView(ctx, row, login)
 	out := make([]*agentv1.ChatMessage, len(msgs))
 	for i, m := range msgs {
-		out[i] = chatMessageToProto(m)
+		if out[i], err = view.message(ctx, m); err != nil {
+			return nil, storeError(err)
+		}
 	}
 	return connect.NewResponse(&agentv1.ListChatMessagesResponse{Messages: out, HasMore: more}), nil
 }

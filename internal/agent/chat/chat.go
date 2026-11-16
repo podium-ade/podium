@@ -149,6 +149,39 @@ type Source struct {
 
 	mu   sync.Mutex
 	live map[string]*live
+	// relayer posts what a person says in a Linear issue's conversation to the issue
+	// (conductor/relay.go). The conductor hands itself over; nil relays nothing.
+	relayer conductor.Relayer
+}
+
+// SetRelayer implements the conductor's relaySetter.
+func (s *Source) SetRelayer(r conductor.Relayer) {
+	s.mu.Lock()
+	s.relayer = r
+	s.mu.Unlock()
+}
+
+// relayTimeout bounds posting one person's message to a Linear issue, which happens off the
+// send: the outbox retries what this first attempt does not land.
+const relayTimeout = 30 * time.Second
+
+// relayToIssue posts a person's message in a Linear issue's conversation to the issue as
+// theirs, off the request. Every other chat's messages stay in Podium.
+func (s *Source) relayToIssue(ctx context.Context, chat store.Chat, msg store.ChatMessage) {
+	if kind, _ := store.LinearKind(chat.SourceKey); kind != store.LinearKindIssue {
+		return
+	}
+	s.mu.Lock()
+	r := s.relayer
+	s.mu.Unlock()
+	if r == nil {
+		return
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), relayTimeout)
+	go func() {
+		defer cancel()
+		r.RelayMessage(rctx, chat.ID, msg)
+	}()
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -266,7 +299,8 @@ type SendResult struct {
 // refused for a turn being in flight any more: a message sent while one runs is a turn of its
 // own, queued in order, and run as its sender (conductor/queue.go). A mirrored conversation
 // can be written here too, and stays one-way — the message and its answer live in Podium and
-// are never posted to Slack or GitHub (decision 18).
+// are never posted to Slack or GitHub (decision 18). A Linear issue's conversation is the
+// exception (0049): the message is posted to the issue as its author's, and so is its answer.
 func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, error) {
 	res, err := s.SendMessage(ctx, req)
 	return res.Message, err
@@ -423,6 +457,7 @@ func (s *Source) record(
 		return store.ChatMessage{}, err
 	}
 	s.bcast.Publish(chat.ID, Frame{Kind: FrameMessage, Message: msg})
+	s.relayToIssue(ctx, chat, msg)
 	return msg, nil
 }
 

@@ -102,22 +102,27 @@ func TestASpeakerWhoseAccountCannotBeReadHasNoCandidateAndIsAskedAgain(t *testin
 	assert.Len(t, h.stub.callsOf("PodiumUserAccount"), 2)
 }
 
-// A prompt with no user, or one the app wrote itself, names the provider and no account: the
-// conductor refuses it rather than mistaking it for the poller's.
+// A prompt with no user names the provider and no account: the conductor refuses it rather
+// than mistaking it for the poller's.
 func TestAPromptWithNoPersonStillNamesTheProvider(t *testing.T) {
-	for name, edit := range map[string]func(map[string]any){
-		"no user":        func(d map[string]any) { d["agentActivity"].(map[string]any)["user"] = nil },
-		"the app itself": replyFrom(fixtureAppUser, "Podium", "podium@oauthapp.linear.app"),
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newAppHarness(t)
-			h.deliver(h.fixture(t, "session_prompted_reply", edit), "delivery-1")
-			ev := h.event(t)
-			assert.Empty(t, ev.Login)
-			assert.Equal(t, conductor.SpeakerLinear, ev.SpeakerProvider)
-			assert.Empty(t, h.stub.callsOf("PodiumUserAccount"), "nobody to ask about")
-		})
-	}
+	h := newAppHarness(t)
+	h.deliver(h.fixture(t, "session_prompted_reply", func(d map[string]any) {
+		d["agentActivity"].(map[string]any)["user"] = nil
+	}), "delivery-1")
+	ev := h.event(t)
+	assert.Empty(t, ev.Login)
+	assert.Equal(t, conductor.SpeakerLinear, ev.SpeakerProvider)
+	assert.Empty(t, h.stub.callsOf("PodiumUserAccount"), "nobody to ask about")
+}
+
+// A prompt the app wrote itself — a comment it posted for somebody who wrote in Podium — is
+// not handed over at all: it was answered in Podium already.
+func TestAPromptTheAppWroteIsDropped(t *testing.T) {
+	h := newAppHarness(t)
+	h.deliver(h.fixture(t, "session_prompted_reply", replyFrom(fixtureAppUser, "Podium", "podium@oauthapp.linear.app")), "delivery-1")
+	h.noEvent(t)
+	assert.Empty(t, h.stub.callsOf("PodiumUserAccount"), "nobody to ask about")
+	assert.Equal(t, 1.0, h.deliveries(t, TypeAgentSession, DeliveryIgnored))
 }
 
 // What Linear said about an account is trusted for accountTTL, as Slack's users.info is, and

@@ -459,6 +459,9 @@ func New(opts Options) (*Conductor, error) {
 		if ds, ok := src.(deliverySetter); ok {
 			ds.SetDeliverer(c)
 		}
+		if rs, ok := src.(relaySetter); ok {
+			rs.SetRelayer(c)
+		}
 	}
 	return c, nil
 }
@@ -2354,6 +2357,11 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 	}
 	// Said out loud, so it belongs in the copy a reader sees.
 	c.mirrorSaid(ctx, src, ref, out)
+	// An answer to somebody who wrote in a Linear issue's conversation from the web is the
+	// issue's too (relay.go).
+	if durableOut(out.Type) {
+		c.relayAnswer(ctx, src, ref, id, out)
+	}
 	return id
 }
 
@@ -2546,6 +2554,9 @@ func (c *Conductor) ReplaceSource(kind string, src Source) {
 		c.sources = append(c.sources, src)
 		if ds, ok := src.(deliverySetter); ok {
 			ds.SetDeliverer(c)
+		}
+		if rs, ok := src.(relaySetter); ok {
+			rs.SetRelayer(c)
 		}
 	}
 	ctx := c.baseCtx

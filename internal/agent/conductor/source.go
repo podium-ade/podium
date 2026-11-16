@@ -54,6 +54,10 @@ const (
 	OutFailure  = "failure"
 	OutQuestion = "question"
 	OutActivity = "activity"
+	// OutRelay is a person's own words, said in Podium, posted where the conversation lives as
+	// theirs (relay.go): Author and AuthorAvatar say whose. Only a source that implements
+	// PersonPoster is ever handed one.
+	OutRelay = "relay"
 )
 
 // Outbound is one thing the conductor wants said. Text is untrusted content when it came
@@ -75,6 +79,10 @@ type Outbound struct {
 	CancelReason string
 	// Speaker is who said it. A source that posts everything the same way ignores it.
 	Speaker
+	// Author and AuthorAvatar are the person an OutRelay is posted as: their display name and
+	// their picture's URL, which may be empty. Empty on everything else.
+	Author       string
+	AuthorAvatar string
 }
 
 // Speaker is the playbook behind one Outbound. The zero Speaker is the assistant, or the

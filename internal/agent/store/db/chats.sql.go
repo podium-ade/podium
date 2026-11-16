@@ -568,6 +568,24 @@ func (q *Queries) GetChatMessage(ctx context.Context, arg GetChatMessageParams) 
 	return i, err
 }
 
+const hideChatFromRail = `-- name: HideChatFromRail :exec
+insert into chat_rail_hidden (chat_id, login, hidden_at)
+values ($1, $2, $3)
+on conflict (chat_id, login) do update set hidden_at = excluded.hidden_at
+`
+
+type HideChatFromRailParams struct {
+	ChatID   string
+	Login    string
+	HiddenAt time.Time
+}
+
+// HideChatFromRail takes a chat out of viewer's rail until something new is said in it (0049).
+func (q *Queries) HideChatFromRail(ctx context.Context, arg HideChatFromRailParams) error {
+	_, err := q.db.Exec(ctx, hideChatFromRail, arg.ChatID, arg.Login, arg.HiddenAt)
+	return err
+}
+
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
 select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
 where chat_id = $1 and role = 'assistant'
@@ -810,14 +828,28 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
     else ''
   end)::text as access_reason,
   coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = $1::text), '')::text as shared_by,
-  chat_unread(c.id, $1::text)::bigint as unread_count
+  chat_unread(c.id, $1::text)::bigint as unread_count,
+  -- What the webhooks said about the Linear issue a ticket's conversation is about (0048), for
+  -- the rail's "EME-6 · title" with its state, and whether it waits on somebody. Empty and
+  -- null for every other chat.
+  coalesce(li.identifier, '')::text as linear_identifier,
+  coalesce(li.title, '')::text      as linear_title,
+  coalesce(li.state_name, '')::text as linear_state_name,
+  coalesce(li.state_type, '')::text as linear_state_type,
+  li.asked_at                       as linear_asked_at,
+  coalesce(li.asked_of, '')::text   as linear_asked_of
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
+    join chats mc on mc.id = cm.chat_id
    where cm.role not in ('activity', 'notice')
+     -- A ticket's conversation is read by people who did not run its turns (0049): what a turn
+     -- thought on its way is its runner's, so the preview is never one of its progress lines.
+     and not (cm.role = 'progress' and mc.origin = 'linear')
 ) m on m.chat_id = c.id and m.rn = 1
+left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
 where (
     ($2::bool and $3::text = '')
     or ($3::text in ('', 'shared') and chat_visible_to(c.id, c.login, $1::text)
@@ -850,9 +882,35 @@ where (
   )
   -- A Linear issue's or project's conversation (0048) is not in the chat list: a company has
   -- hundreds of them. The Linear view lists them (ListLinearConversations).
-  and not ($7::bool and c.origin = 'linear')
+  --
+  -- linear_rail lets one kind back in (0049): an issue's conversation, in a signed-in caller's
+  -- own list, when they are one of its people — they touched the issue through their linked
+  -- Linear account (linear_people, resolved through identities when they read), or they spoke
+  -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
+  -- in the Linear view. One they hid stays out until something new is said in it.
+  and not (
+    $7::bool and c.origin = 'linear'
+    and not (
+      $8::bool and not $2::bool and $3::text = ''
+      and c.source_key like 'linear:%'
+      and c.source_key not like 'linear:project:%'
+      and c.source_key not like 'linear:session:%'
+      and c.deleted_at is null
+      and (
+        exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = $1::text)
+        or exists (
+          select 1 from linear_people lp
+            join identities i on i.provider = 'linear' and i.external_id = lp.linear_user
+           where lp.source_key = c.source_key and lp.linear_user <> '' and i.login = $1::text)
+      )
+      and not exists (
+        select 1 from chat_rail_hidden h
+         where h.chat_id = c.id and h.login = $1::text
+           and h.hidden_at >= coalesce(m.ts, c.created_at))
+    )
+  )
 order by c.id desc
-limit $8::int
+limit $9::int
 `
 
 type ListChatsParams struct {
@@ -863,6 +921,7 @@ type ListChatsParams struct {
 	FilterPersonality bool
 	PersonalityID     string
 	ExcludeLinear     bool
+	LinearRail        bool
 	PageLimit         int32
 }
 
@@ -902,6 +961,12 @@ type ListChatsRow struct {
 	AccessReason       string
 	SharedBy           string
 	UnreadCount        int64
+	LinearIdentifier   string
+	LinearTitle        string
+	LinearStateName    string
+	LinearStateType    string
+	LinearAskedAt      *time.Time
+	LinearAskedOf      string
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -932,6 +997,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 		arg.FilterPersonality,
 		arg.PersonalityID,
 		arg.ExcludeLinear,
+		arg.LinearRail,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -977,6 +1043,12 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.AccessReason,
 			&i.SharedBy,
 			&i.UnreadCount,
+			&i.LinearIdentifier,
+			&i.LinearTitle,
+			&i.LinearStateName,
+			&i.LinearStateType,
+			&i.LinearAskedAt,
+			&i.LinearAskedOf,
 		); err != nil {
 			return nil, err
 		}
@@ -1422,4 +1494,19 @@ func (q *Queries) TombstoneChat(ctx context.Context, arg TombstoneChatParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const unhideChatFromRail = `-- name: UnhideChatFromRail :exec
+delete from chat_rail_hidden where chat_id = $1 and login = $2
+`
+
+type UnhideChatFromRailParams struct {
+	ChatID string
+	Login  string
+}
+
+// UnhideChatFromRail puts it back.
+func (q *Queries) UnhideChatFromRail(ctx context.Context, arg UnhideChatFromRailParams) error {
+	_, err := q.db.Exec(ctx, unhideChatFromRail, arg.ChatID, arg.Login)
+	return err
 }
