@@ -299,6 +299,10 @@ var errClaimed = errors.New("already claimed")
 // behind either, because the next one reads the newer record anyway.
 var ErrBusy = errors.New("the routine's chat is busy: a turn is running or waiting there")
 
+// ErrNotByHand is a routine that runs on Linear events: it runs when they arrive, and a run
+// by hand would have none to act on.
+var ErrNotByHand = errors.New("a routine on Linear events runs when they arrive and cannot be run by hand")
+
 // start claims a run and hands it to the chat. A chat that is busy records the run as skipped.
 func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor time.Time, trigger string) (store.RoutineRun, error) {
 	busy, err := s.busy(ctx, r)
@@ -362,21 +366,16 @@ func (s *Scheduler) chatBusy(ctx context.Context, chatID string) (bool, error) {
 	return s.store.SessionBusy(ctx, sess.ID)
 }
 
-// RunNow fires a routine at once, outside its schedule. It runs on whichever conductor the
-// person reached, through that conductor's chat.
+// RunNow fires a scheduled routine at once, outside its schedule. It runs on whichever
+// conductor the person reached, through that conductor's chat. A routine on Linear events is
+// refused (ErrNotByHand).
 func (s *Scheduler) RunNow(ctx context.Context, routineID string) (store.RoutineRun, error) {
 	r, err := s.store.GetRoutine(ctx, routineID)
 	if err != nil {
 		return store.RoutineRun{}, err
 	}
-	if s.perSubject(r) {
-		// Its run by hand is in its own chat, but it is still one run of the routine at a time:
-		// the runs share its state.
-		if running, err := s.subjects.RunningRoutineRun(ctx, r.ID); err == nil {
-			return store.RoutineRun{}, fmt.Errorf("%w: a run is going in another of its chats (run %s)", ErrBusy, running.ID)
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return store.RoutineRun{}, err
-		}
+	if r.OnLinear() {
+		return store.RoutineRun{}, ErrNotByHand
 	}
 	run, err := s.start(ctx, r, s.now().UTC().Truncate(time.Second), store.RoutineTriggerManual)
 	if errors.Is(err, errClaimed) {
