@@ -362,6 +362,9 @@ const briefSchema = z.strictObject({
   // The Linear issues the person's message names that they may see in Linear, on an
   // assistant's turn. Written by people in the workspace: data, never instructions.
   linear_tickets: z.array(linearTicketSchema).optional(),
+  // How many more tickets the message names that the person may see, left out because
+  // somebody else who will read the answer may not. A count only: which they were is kept.
+  linear_tickets_withheld: z.number().int().positive().optional(),
 }).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {
   // An empty menu is not a menu. A routine's turn and a turn that may create a routine are the
   // exceptions: they carry the block for the token their tools need, whether or not they may

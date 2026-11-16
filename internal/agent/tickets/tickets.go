@@ -48,6 +48,11 @@ type Store interface {
 	LinearIssueTeamKeys(ctx context.Context) ([]string, error)
 	LinearTouched(ctx context.Context, sourceKey, login string) (bool, error)
 	IdentitiesOf(ctx context.Context, logins []string) ([]store.Identity, error)
+	// For who reads the answer a ticket would be briefed into.
+	GetLinearIssue(ctx context.Context, sourceKey string) (store.LinearIssue, error)
+	GetChat(ctx context.Context, id string) (store.Chat, error)
+	ListChatAccess(ctx context.Context, chatID string) ([]store.ChatGrant, error)
+	ChatParticipants(ctx context.Context, chatID string) ([]store.ChatParticipant, error)
 }
 
 // Viewer is who is asking. Admin is an admin or owner of Podium, or the dev token.
@@ -201,29 +206,41 @@ func (r *Reader) mayRead(ctx context.Context, v Viewer, issue Issue) (bool, erro
 	if touched {
 		return true, nil
 	}
-	app := r.app()
-	if app == nil || issue.TeamKey == "" {
+	if issue.TeamKey == "" {
 		return false, nil
 	}
-	ids, err := r.store.IdentitiesOf(ctx, []string{v.Login})
+	teams, err := r.memberTeams(ctx, v.Login)
 	if err != nil {
 		return false, err
 	}
+	return MayRead(false, false, teams, issue.TeamKey), nil
+}
+
+// memberTeams is the team keys login's linked Linear accounts are on. An account Linear cannot
+// be asked about is on none: not knowing is not seeing.
+func (r *Reader) memberTeams(ctx context.Context, login string) ([]string, error) {
+	app := r.app()
+	if app == nil {
+		return nil, nil
+	}
+	ids, err := r.store.IdentitiesOf(ctx, []string{login})
+	if err != nil {
+		return nil, err
+	}
 	var teams []string
 	for _, id := range ids {
-		if id.Provider != store.ProviderLinear || id.Login != v.Login {
+		if id.Provider != store.ProviderLinear || id.Login != login {
 			continue
 		}
 		keys, err := app.MemberTeams(ctx, id.ExternalID)
 		if err != nil {
-			// Not knowing is not seeing.
 			r.logger.DebugContext(ctx, "tickets: reading a person's Linear teams failed",
-				"login", v.Login, "error", err)
+				"login", login, "error", err)
 			continue
 		}
 		teams = append(teams, keys...)
 	}
-	return MayRead(false, false, teams, issue.TeamKey), nil
+	return teams, nil
 }
 
 func fromRow(row store.LinearIssue) Issue {
@@ -241,16 +258,21 @@ const (
 	maxTicketsBytes      = 12 * 1024
 )
 
-// BriefTickets is conductor.TicketBriefer: the tickets text names that login may see, leaving
-// out the issue sourceKey is the conversation of, in the brief's form. Anything it cannot tell
-// it leaves out.
-func (r *Reader) BriefTickets(ctx context.Context, login, sourceKey, text string) []conductor.BriefTicket {
+// BriefTickets is conductor.TicketBriefer: the tickets text names that login may see AND that
+// everybody who will read the answer in the conversation sourceKey could see, leaving out the
+// issue sourceKey is the conversation of, in the brief's form. withheld counts the tickets login
+// may see that were left out only because somebody else reading the answer may not (audience).
+// Anything it cannot tell it leaves out.
+func (r *Reader) BriefTickets(ctx context.Context, login, sourceKey, text string) (out []conductor.BriefTicket, withheld int) {
 	known := r.KnownTeams(ctx)
 	if len(known) == 0 {
-		return nil
+		return nil, 0
 	}
 	refs := linear.FindIssueRefs(text, func(k string) bool { return known[k] }, 2*conductor.MaxBriefTickets+1)
-	var out []conductor.BriefTicket
+	if len(refs) == 0 {
+		return nil, 0
+	}
+	aud := r.audienceOf(ctx, login, sourceKey)
 	budget := maxTicketsBytes
 	for _, ref := range refs {
 		if len(out) == conductor.MaxBriefTickets {
@@ -266,6 +288,10 @@ func (r *Reader) BriefTickets(ctx context.Context, login, sourceKey, text string
 		if issue.Key() == sourceKey {
 			continue
 		}
+		if !aud.mayAllRead(ctx, issue) {
+			withheld++
+			continue
+		}
 		bt := BriefTicket(issue, budget)
 		budget -= briefSize(bt)
 		out = append(out, bt)
@@ -273,7 +299,151 @@ func (r *Reader) BriefTickets(ctx context.Context, login, sourceKey, text string
 			break
 		}
 	}
-	return out
+	return out, withheld
+}
+
+// MaxBriefReaders is how many people a shared web chat may have for the tickets its messages
+// name to be briefed at all: each of them is asked about each ticket, and a chat read by more
+// is read by too many to vouch for.
+const MaxBriefReaders = 20
+
+// audience is who will read the answer to a turn, as far as briefing it with a ticket goes. The
+// answer is read by everybody who can read the conversation, and where the conversation lives
+// outside Podium it is posted there: a ticket the speaker may see is briefed only when every one
+// of them could see it too, or the assistant would quote it to people Linear keeps it from.
+type audience struct {
+	r *Reader
+	// none is a conversation whose readers cannot be told: a Slack thread, a pull request, a
+	// Linear project's conversation, a chat open to every member or to anybody with its link.
+	// Nothing is briefed in it.
+	none bool
+	// team, when set, is a Linear issue's conversation: the answer is a comment on the issue,
+	// read by whoever can see it in Linear, which is whoever can see its team. Only tickets of
+	// that team are briefed.
+	team string
+	// readers are the web chat's readers other than the speaker, each of whom must be able to
+	// see a ticket for it to be briefed. Empty, with none and team unset, is a chat only the
+	// speaker reads.
+	readers []string
+	// teams remembers each reader's Linear teams for the length of one brief.
+	teams map[string][]string
+}
+
+// audienceOf is who reads the answer in the conversation sourceKey, login asking.
+func (r *Reader) audienceOf(ctx context.Context, login, sourceKey string) *audience {
+	none := &audience{r: r, none: true}
+	if kind, _ := store.LinearKind(sourceKey); kind != "" {
+		if kind != store.LinearKindIssue {
+			return none
+		}
+		li, err := r.store.GetLinearIssue(ctx, sourceKey)
+		if err != nil || li.TeamKey == "" {
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				r.logger.DebugContext(ctx, "tickets: reading a conversation's issue failed", "source_key", sourceKey, "error", err)
+			}
+			return none
+		}
+		return &audience{r: r, team: li.TeamKey}
+	}
+	chatID, ok := strings.CutPrefix(sourceKey, store.ChatSourceKeyPrefix)
+	if !ok || chatID == "" {
+		return none
+	}
+	readers, err := r.chatReaders(ctx, chatID)
+	if err != nil {
+		r.logger.DebugContext(ctx, "tickets: listing a chat's readers failed", "chat_id", chatID, "error", err)
+		return none
+	}
+	if readers == nil {
+		return none
+	}
+	var others []string
+	for _, l := range readers {
+		if l != login && !slices.Contains(others, l) {
+			others = append(others, l)
+		}
+	}
+	if len(others) > MaxBriefReaders {
+		return none
+	}
+	return &audience{r: r, readers: others, teams: map[string][]string{}}
+}
+
+// chatReaders is everybody who can read a web chat by name: its owner, everybody it is shared
+// with, and everybody who took part. nil, with no error, is a chat whose readers cannot be
+// named: one open to every member or to anybody with its link, one with no owner, or one with
+// a participant who is not a Podium person. An admin or owner of Podium reads every chat too,
+// and may see every ticket, so they are nobody to check.
+func (r *Reader) chatReaders(ctx context.Context, chatID string) ([]string, error) {
+	chat, err := r.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if chat.Login == "" || (chat.GeneralAccess != "" && chat.GeneralAccess != store.AccessRestricted) {
+		return nil, nil
+	}
+	out := []string{chat.Login}
+	grants, err := r.store.ListChatAccess(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range grants {
+		out = append(out, g.Login)
+	}
+	people, err := r.store.ChatParticipants(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range people {
+		if p.Login == "" {
+			return nil, nil
+		}
+		out = append(out, p.Login)
+	}
+	return out, nil
+}
+
+// mayAllRead reports whether everybody in the audience could see issue.
+func (a *audience) mayAllRead(ctx context.Context, issue Issue) bool {
+	switch {
+	case a.none:
+		return false
+	case a.team != "":
+		return strings.EqualFold(issue.TeamKey, a.team)
+	}
+	for _, login := range a.readers {
+		ok, err := a.mayRead(ctx, login, issue)
+		if err != nil {
+			a.r.logger.DebugContext(ctx, "tickets: asking whether a chat's reader may see a ticket failed",
+				"issue", issue.Identifier, "error", err)
+			return false
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// mayRead is Reader.mayRead for one reader, remembering their teams across the brief's tickets.
+func (a *audience) mayRead(ctx context.Context, login string, issue Issue) (bool, error) {
+	teams, seen := a.teams[login]
+	if !seen {
+		touched, err := a.r.store.LinearTouched(ctx, issue.Key(), login)
+		if err != nil || touched {
+			return touched, err
+		}
+		teams, err = a.r.memberTeams(ctx, login)
+		if err != nil {
+			return false, err
+		}
+		a.teams[login] = teams
+		return MayRead(false, false, teams, issue.TeamKey), nil
+	}
+	if MayRead(false, false, teams, issue.TeamKey) {
+		return true, nil
+	}
+	return a.r.store.LinearTouched(ctx, issue.Key(), login)
 }
 
 // BriefTicket is one issue as a brief carries it, its description and comments trimmed to fit

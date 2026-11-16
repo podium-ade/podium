@@ -330,6 +330,8 @@ describe("decodeBrief", () => {
     expect(brief.linear_tickets?.[0]?.comments?.[0]?.body).toBe("Still broken.");
     expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, secret: "x" }] }))).toThrow(BriefError);
     expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, identifier: "" }] }))).toThrow(BriefError);
+    expect(decodeBrief(encode({ ...minimal, linear_tickets_withheld: 2 })).linear_tickets_withheld).toBe(2);
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets_withheld: 0 }))).toThrow(BriefError);
   });
 
   it("reads a run on Linear events with the events it was given", () => {

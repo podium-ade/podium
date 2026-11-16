@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -19,6 +20,34 @@ type fakeStore struct {
 	rows       []store.LinearIssue
 	touched    map[string][]string // source key -> logins
 	identities []store.Identity
+	chats      map[string]store.Chat
+	grants     map[string][]store.ChatGrant
+	people     map[string][]store.ChatParticipant
+}
+
+func (f *fakeStore) GetLinearIssue(_ context.Context, key string) (store.LinearIssue, error) {
+	for _, r := range f.rows {
+		if r.SourceKey == key {
+			return r, nil
+		}
+	}
+	return store.LinearIssue{}, fmt.Errorf("%w: none", store.ErrNotFound)
+}
+
+func (f *fakeStore) GetChat(_ context.Context, id string) (store.Chat, error) {
+	c, ok := f.chats[id]
+	if !ok {
+		return store.Chat{}, fmt.Errorf("%w: none", store.ErrNotFound)
+	}
+	return c, nil
+}
+
+func (f *fakeStore) ListChatAccess(_ context.Context, id string) ([]store.ChatGrant, error) {
+	return f.grants[id], nil
+}
+
+func (f *fakeStore) ChatParticipants(_ context.Context, id string) ([]store.ChatParticipant, error) {
+	return f.people[id], nil
 }
 
 func (f *fakeStore) FindLinearIssue(_ context.Context, identifier, id string) (store.LinearIssue, error) {
@@ -96,6 +125,11 @@ func fixture() (*fakeStore, *fakeApp) {
 			UpdatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
 		}},
 		touched: map[string][]string{"linear:issue-6": {"toucher@acme.com"}},
+		chats: map[string]store.Chat{
+			"mine": {ID: "mine", Login: "member@acme.com", GeneralAccess: store.AccessRestricted},
+		},
+		grants: map[string][]store.ChatGrant{},
+		people: map[string][]store.ChatParticipant{"mine": {{Login: "member@acme.com"}}},
 		identities: []store.Identity{
 			{Login: "member@acme.com", Provider: store.ProviderLinear, ExternalID: org + "/u-member"},
 			{Login: "outsider@acme.com", Provider: store.ProviderLinear, ExternalID: org + "/u-outsider"},
@@ -218,20 +252,144 @@ func TestBriefTicketsAreThoseTheSpeakerMaySeeAtMostThree(t *testing.T) {
 		app.tickets[id] = linear.Ticket{ID: id, Identifier: fmt.Sprintf("EME-%d", 100+i), Title: "t", TeamKey: "EME"}
 	}
 	r := reader(st, app)
-	got := r.BriefTickets(context.Background(), "member@acme.com", "",
+	got, withheld := r.BriefTickets(context.Background(), "member@acme.com", "chat:mine",
 		"SEC-9 is secret; EME-6, UTF-8, EME-101 EME-102 EME-103 EME-104")
-	var ids []string
-	for _, bt := range got {
-		ids = append(ids, bt.Identifier)
-	}
-	assert.Equal(t, []string{"EME-6", "EME-101", "EME-102"}, ids)
+	assert.Equal(t, []string{"EME-6", "EME-101", "EME-102"}, identifiers(got))
 	assert.Equal(t, "the description", got[0].Description)
+	assert.Zero(t, withheld, "a ticket the speaker may not see is not counted either")
 
-	got = r.BriefTickets(context.Background(), "member@acme.com", "linear:issue-6", "about EME-6 and EME-101")
+	got, _ = r.BriefTickets(context.Background(), "member@acme.com", "linear:issue-6", "about EME-6 and EME-101")
 	require.Len(t, got, 1, "the conversation's own issue is left out")
 	assert.Equal(t, "EME-101", got[0].Identifier)
 
-	assert.Empty(t, r.BriefTickets(context.Background(), "outsider@acme.com", "", "EME-6"))
+	st.chats["theirs"] = store.Chat{ID: "theirs", Login: "outsider@acme.com"}
+	got, withheld = r.BriefTickets(context.Background(), "outsider@acme.com", "chat:theirs", "EME-6")
+	assert.Empty(t, got)
+	assert.Zero(t, withheld)
+}
+
+func identifiers(bts []conductor.BriefTicket) []string {
+	var ids []string
+	for _, bt := range bts {
+		ids = append(ids, bt.Identifier)
+	}
+	return ids
+}
+
+// shared is the fixture with SEC-9 visible to the speaker (an SEC member) and a chat of theirs
+// shared with somebody on EME only.
+func shared() (*fakeStore, *fakeApp, *Reader) {
+	st, app := fixture()
+	st.identities = append(st.identities, store.Identity{Login: "both@acme.com", Provider: store.ProviderLinear, ExternalID: org + "/u-both"})
+	app.members[org+"/u-both"] = []string{"EME", "SEC"}
+	st.chats["team"] = store.Chat{ID: "team", Login: "both@acme.com", GeneralAccess: store.AccessRestricted}
+	st.grants["team"] = []store.ChatGrant{{Login: "member@acme.com", Role: store.RoleViewer}}
+	st.people["team"] = []store.ChatParticipant{{Login: "both@acme.com"}}
+	return st, app, reader(st, app)
+}
+
+func TestAPrivateChatIsBriefedWithEveryTicketTheSpeakerMaySee(t *testing.T) {
+	st, _, r := shared()
+	st.chats["solo"] = store.Chat{ID: "solo", Login: "both@acme.com", GeneralAccess: store.AccessRestricted}
+	got, withheld := r.BriefTickets(context.Background(), "both@acme.com", "chat:solo", "EME-6 and SEC-9")
+	assert.Equal(t, []string{"EME-6", "SEC-9"}, identifiers(got))
+	assert.Zero(t, withheld)
+}
+
+func TestASharedChatIsBriefedOnlyWithTicketsEveryReaderMaySee(t *testing.T) {
+	st, _, r := shared()
+	ctx := context.Background()
+
+	got, withheld := r.BriefTickets(ctx, "both@acme.com", "chat:team", "EME-6 and SEC-9")
+	assert.Equal(t, []string{"EME-6"}, identifiers(got), "the reader it is shared with is not on SEC")
+	assert.Equal(t, 1, withheld)
+
+	// A participant counts the same as a grant, and so does the owner when somebody else asks.
+	st.grants["team"] = nil
+	st.people["team"] = []store.ChatParticipant{{Login: "both@acme.com"}, {Login: "outsider@acme.com"}}
+	got, withheld = r.BriefTickets(ctx, "both@acme.com", "chat:team", "EME-6 and SEC-9")
+	assert.Empty(t, got, "the participant is on neither team")
+	assert.Equal(t, 2, withheld)
+
+	// A reader who touched the issue may see it whatever their team.
+	st.touched["linear:issue-6"] = append(st.touched["linear:issue-6"], "outsider@acme.com")
+	got, _ = r.BriefTickets(ctx, "both@acme.com", "chat:team", "EME-6 and SEC-9")
+	assert.Equal(t, []string{"EME-6"}, identifiers(got))
+}
+
+func TestAChatWhoseReadersCannotBeNamedIsBriefedWithNothing(t *testing.T) {
+	ctx := context.Background()
+	for name, change := range map[string]func(*fakeStore){
+		"open to every member": func(st *fakeStore) {
+			c := st.chats["team"]
+			c.GeneralAccess = store.AccessMembers
+			st.chats["team"] = c
+		},
+		"open to its link": func(st *fakeStore) {
+			c := st.chats["team"]
+			c.GeneralAccess = store.AccessLink
+			st.chats["team"] = c
+		},
+		"an author who is not in Podium": func(st *fakeStore) {
+			st.people["team"] = append(st.people["team"], store.ChatParticipant{Name: "Someone on Slack"})
+		},
+		"more readers than are checked": func(st *fakeStore) {
+			for i := range MaxBriefReaders + 1 {
+				login := fmt.Sprintf("p%d@acme.com", i)
+				st.grants["team"] = append(st.grants["team"], store.ChatGrant{Login: login})
+				st.touched["linear:issue-6"] = append(st.touched["linear:issue-6"], login)
+			}
+		},
+		"no such chat": func(st *fakeStore) { delete(st.chats, "team") },
+	} {
+		st, _, r := shared()
+		st.grants["team"] = nil // only the speaker, until the change
+		change(st)
+		got, withheld := r.BriefTickets(ctx, "both@acme.com", "chat:team", "EME-6")
+		assert.Empty(t, got, name)
+		assert.Equal(t, 1, withheld, name)
+	}
+}
+
+func TestAChatOfAsManyReadersAsAreCheckedIsBriefed(t *testing.T) {
+	st, _, r := shared()
+	st.grants["team"] = nil
+	for i := range MaxBriefReaders {
+		login := fmt.Sprintf("p%d@acme.com", i)
+		st.grants["team"] = append(st.grants["team"], store.ChatGrant{Login: login})
+		st.touched["linear:issue-6"] = append(st.touched["linear:issue-6"], login)
+	}
+	got, withheld := r.BriefTickets(context.Background(), "both@acme.com", "chat:team", "EME-6")
+	assert.Equal(t, []string{"EME-6"}, identifiers(got))
+	assert.Zero(t, withheld)
+}
+
+func TestALinearIssueConversationIsBriefedOnlyWithTicketsOfItsTeam(t *testing.T) {
+	st, app, r := shared()
+	app.tickets["issue-7"] = linear.Ticket{ID: "issue-7", Identifier: "EME-7", Title: "t", TeamKey: "EME"}
+	ctx := context.Background()
+
+	got, withheld := r.BriefTickets(ctx, "both@acme.com", "linear:issue-6", "EME-7 and SEC-9")
+	assert.Equal(t, []string{"EME-7"}, identifiers(got), "the answer is a comment on EME-6, read by whoever sees EME")
+	assert.Equal(t, 1, withheld)
+
+	// An issue whose team the webhooks never said, and a project's conversation, can't be told.
+	st.rows[0].TeamKey = ""
+	got, withheld = r.BriefTickets(ctx, "both@acme.com", "linear:issue-6", "EME-7 and SEC-9")
+	assert.Empty(t, got)
+	assert.Equal(t, 2, withheld)
+	got, _ = r.BriefTickets(ctx, "both@acme.com", "linear:project:p-1", "EME-7")
+	assert.Empty(t, got)
+}
+
+func TestAConversationOutsidePodiumIsBriefedWithNothing(t *testing.T) {
+	_, _, r := shared()
+	ctx := context.Background()
+	for _, key := range []string{"slack:C1:1700000000.000100", "github:acme/app#4", "linear:session:s-1", ""} {
+		got, withheld := r.BriefTickets(ctx, "both@acme.com", key, "EME-6 and SEC-9")
+		assert.Empty(t, got, key)
+		assert.Equal(t, 2, withheld, key)
+	}
 }
 
 func TestBriefTicketIsTrimmedToItsBudget(t *testing.T) {

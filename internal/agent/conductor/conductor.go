@@ -1308,7 +1308,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	brief.Playbook.UnavailableMCPServers = unavailable
 	brief.Routine = c.briefRoutine(ctx, src, ev)
-	brief.LinearTickets = c.briefTickets(ctx, j, login, ev)
+	brief.LinearTickets, brief.LinearTicketsWithheld = c.briefTickets(ctx, j, login, ev)
 	if persona != nil {
 		brief.Git = persona
 	}

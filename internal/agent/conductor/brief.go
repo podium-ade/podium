@@ -110,6 +110,10 @@ type Brief struct {
 	// assistant's turn (tickets.go). Written by people in Linear: the runtime marks them as
 	// data, not instructions.
 	LinearTickets []BriefTicket `json:"linear_tickets,omitempty"`
+	// LinearTicketsWithheld is how many more tickets the message names that the person may
+	// see, left out because somebody else who will read the answer may not (tickets.go). It is
+	// a count and nothing else: which tickets they were is what is being kept.
+	LinearTicketsWithheld int `json:"linear_tickets_withheld,omitempty"`
 }
 
 // RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a
