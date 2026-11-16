@@ -78,14 +78,34 @@ on conflict (login, chat_id) where kind = 'share' do nothing;
 insert into notifications (login, kind, chat_id, actor, detail)
 values (@login, 'routine', @chat_id, @actor, @detail);
 
--- ListNotifications is a person's inbox, newest first, with the chat's title for the toast.
+-- NotifyQuestion puts a question the assistant asked in a Linear ticket's conversation in the
+-- inbox of the person it is asked of (0051). While one is open in that conversation for them, a
+-- new question replaces its text and seq: one item per person and conversation, never two.
+-- name: NotifyQuestion :exec
+insert into notifications (login, kind, chat_id, seq, actor, detail)
+values (@login, 'question', @chat_id, @seq, @actor, @detail)
+on conflict (chat_id, login) where kind = 'question' and read_at is null do update
+  set detail = excluded.detail, seq = excluded.seq, actor = excluded.actor;
+
+-- ResolveQuestions closes every open question in a conversation: it heard from somebody, in
+-- Linear, in the chat or from the inbox. It returns how many it closed.
+-- name: ResolveQuestions :execrows
+update notifications set read_at = now()
+ where kind = 'question' and read_at is null
+   and chat_id in (select id from chats where source_key = @source_key);
+
+-- ListNotifications is a person's inbox, newest first, with the chat's title for the toast and,
+-- for a Linear ticket's conversation, the ticket's identifier and title.
 -- A notification for a chat they can no longer open is left out rather than deleted: access
 -- can come back, and the row is harmless.
 -- name: ListNotifications :many
 select n.id, n.login, n.kind, n.chat_id, n.seq, n.actor, n.created_at, n.read_at,
-       n.detail, c.title as chat_title
+       n.detail, c.title as chat_title,
+       coalesce(li.identifier, '')::text as linear_identifier,
+       coalesce(li.title, '')::text as linear_title
   from notifications n
   join chats c on c.id = n.chat_id
+  left join linear_issues li on li.source_key = c.source_key
  where n.login = @login
    and (not @unread_only::bool or n.read_at is null)
    and chat_role(c.id, @login::text) <> ''
@@ -93,10 +113,12 @@ select n.id, n.login, n.kind, n.chat_id, n.seq, n.actor, n.created_at, n.read_at
  limit @page_limit::int;
 
 -- MarkNotificationsRead marks some, or with all set every one, of a person's notifications.
+-- "Every one" leaves an open question alone: it waits for an answer, and only being answered
+-- or being dismissed by its id closes it (0051).
 -- name: MarkNotificationsRead :execrows
 update notifications set read_at = now()
  where login = @login and read_at is null
-   and (@mark_all::bool or id = any(@ids::bigint[]));
+   and ((@mark_all::bool and kind <> 'question') or id = any(@ids::bigint[]));
 
 -- MemberProfile is one Podium person's name and picture, from whichever of their accounts
 -- says so — the share dialog's owner row.

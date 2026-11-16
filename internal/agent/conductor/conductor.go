@@ -663,6 +663,10 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.mu.Lock()
 	st := c.state(sess.ID)
 	same := c.sameAsker(st, src, ev) && !named
+	// A task waiting on a question in a Linear ticket's conversation also takes the answer of
+	// the person it asked when they give it from the web chat — or from their inbox, which sends
+	// there — whichever surface the turn began on (answersQuestion).
+	answers := !same && !named && st.awaitingTaskID != "" && c.answersQuestion(st, src, ev)
 	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" && same {
 		// The host turn that answered this conversation is still up: the message goes into
 		// it, and it is working again, so it is no longer a candidate to give its slot up.
@@ -700,7 +704,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		injectID = st.warmTaskID
 	}
 	c.mu.Unlock()
-	if injectID != "" && same {
+	if injectID != "" && (same || answers) {
 		c.recordHeld(ctx, src, &ev)
 		err := c.podium.InjectTask(ctx, injectID, ev.Text)
 		if err == nil {
@@ -2346,7 +2350,7 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 		answer = out.Text
 	}
 	if out.Type == OutQuestion {
-		c.noteLinearQuestion(ctx, src, ref)
+		c.noteLinearQuestion(ctx, src, ref, out)
 	}
 	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref, answer) && out.Type == OutFinal {
 		return ""

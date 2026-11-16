@@ -77,3 +77,45 @@ func TestARoutineRunNeverRunsAsTheChatsOwner(t *testing.T) {
 	run.Login = "ana@acme.com"
 	assert.Equal(t, "ana@acme.com", c.turnLogin(context.Background(), &hearer{}, store.Session{}, run))
 }
+
+// A question in a Linear ticket's conversation is answered from the web chat — or the inbox,
+// which sends there — by the person whose turn asked it, whichever surface the turn began on: a
+// Linear agent session, or their routine's run. Not by anybody else, not by a routine, and not
+// in a conversation that is no ticket's.
+func TestTheAskedPersonAnswersFromTheWebWhicheverSurfaceAsked(t *testing.T) {
+	linear := &threaded{}
+	web := chatSource{}
+	c := &Conductor{sources: []Source{linear, web}, sessions: map[string]*sessionState{}}
+	answer := InboundEvent{Login: "ada@acme.com", Ref: "chat_1", SourceKey: "linear:iss-1"}
+
+	c.setTurnAsker("sess_1", linear, InboundEvent{Login: "ada@acme.com", Ref: "iss-1/s-1"}, "")
+	c.mu.Lock()
+	st := c.state("sess_1")
+	assert.False(t, c.sameAsker(st, web, answer), "the web is another surface")
+	assert.True(t, c.answersQuestion(st, web, answer), "but the asked person answers from it")
+	bo := answer
+	bo.Login = "bo@acme.com"
+	assert.False(t, c.answersQuestion(st, web, bo), "somebody else's message is a turn of its own")
+	slack := answer
+	slack.SourceKey = "slack:C1/1.1"
+	assert.False(t, c.answersQuestion(st, web, slack), "only a ticket's conversation")
+	assert.False(t, c.answersQuestion(st, linear, answer), "from the web chat only")
+	run := answer
+	run.Routine = &RoutineRef{RoutineID: "rtn_1", RunID: "rrun_2"}
+	assert.False(t, c.answersQuestion(st, web, run), "a routine's run answers nothing")
+	c.mu.Unlock()
+
+	// A routine's run asks its owner.
+	c.setTurnAsker("sess_1", web, InboundEvent{
+		Login: "ada@acme.com", Ref: "chat_1", Routine: &RoutineRef{RoutineID: "rtn_1", RunID: "rrun_1"},
+	}, "")
+	c.mu.Lock()
+	assert.True(t, c.answersQuestion(c.state("sess_1"), web, answer))
+	c.mu.Unlock()
+
+	// A turn that ran as nobody is answered by nobody this way.
+	c.setTurnAsker("sess_1", web, InboundEvent{Ref: "chat_1", Routine: &RoutineRef{RoutineID: "rtn_s", RunID: "rrun_3"}}, "")
+	c.mu.Lock()
+	assert.False(t, c.answersQuestion(c.state("sess_1"), web, answer))
+	c.mu.Unlock()
+}
