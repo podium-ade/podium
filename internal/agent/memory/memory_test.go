@@ -420,6 +420,44 @@ func TestReadyFailsWhenHindsightIsNotThere(t *testing.T) {
 // errors
 // ---------------------------------------------------------------------------
 
+// Hindsight not answering is the failure the Memory page names in plain words, so nothing
+// listening and a gateway saying the same are both ErrUnreachable.
+func TestHindsightNotAnsweringIsUnreachable(t *testing.T) {
+	c, err := New(Options{
+		BaseURL:    "http://127.0.0.1:1",
+		Bank:       "podium",
+		APIKey:     testKey,
+		HTTPClient: &http.Client{Timeout: 2 * time.Second},
+	})
+	require.NoError(t, err)
+	_, _, _, err = c.List(context.Background(), "", 10)
+	require.ErrorIs(t, err, ErrUnreachable)
+
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		f, c := newFake(t)
+		f.status = status
+		_, _, _, err := c.List(context.Background(), "", 10)
+		require.ErrorIs(t, err, ErrUnreachable, "status %d", status)
+	}
+
+	// A 500 is Hindsight answering, badly: not this.
+	f, c2 := newFake(t)
+	f.status = http.StatusInternalServerError
+	_, _, _, err = c2.List(context.Background(), "", 10)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrUnreachable)
+}
+
+// A caller that gave up is not Hindsight being down.
+func TestACancelledCallIsNotUnreachable(t *testing.T) {
+	_, c := newFake(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err := c.List(ctx, "", 10)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrUnreachable)
+}
+
 // A wrong key is the one memory failure an operator fixes by editing .env rather than by
 // reading a log, so it is a typed error.
 func TestAWrongKeyIsATypedError(t *testing.T) {

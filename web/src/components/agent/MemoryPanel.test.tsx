@@ -136,7 +136,7 @@ describe("MemoryPanel", () => {
           defaultModel: "claude-sonnet-5-5",
           models: [
             { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", note: "Speed and intelligence." },
-            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", note: "Fastest and cheapest." },
+            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", note: "Fastest and cheapest.", contextTokens: 200_000 },
           ],
         },
         { provider: "openai", defaultModel: "gpt-5-mini", models: [{ id: "gpt-5-mini" }] },
@@ -278,6 +278,24 @@ describe("MemoryPanel", () => {
     expect(screen.getByTestId("memory-search")).toBeInTheDocument();
   });
 
+  it("says plainly when the memory service is not answering, and retries", async () => {
+    listMemories.mockRejectedValueOnce(
+      new ConnectError("the memory service is not answering", Code.Unavailable),
+    );
+    mount();
+    expect(await screen.findByText("The memory service isn't answering")).toBeInTheDocument();
+    // The card stops looking healthy, and no "0 memories" reads as an empty memory.
+    expect(await screen.findByTestId("memory-model")).toHaveTextContent(
+      "The memory service isn't answering, so nothing new is being remembered.",
+    );
+    expect(screen.queryByText(/memories?, newest first/)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Bob owns the Podium scheduler.")).toBeInTheDocument();
+    expect(screen.queryByText("The memory service isn't answering")).toBeNull();
+    expect(screen.getByTestId("memory-model")).toHaveTextContent("using your saved Anthropic key");
+  });
+
   it("pages through the memory by number", async () => {
     const page = (n: number) =>
       Array.from({ length: n === 3 ? 10 : 25 }, (_, i) => ({
@@ -364,7 +382,7 @@ describe("Memory model settings", () => {
           defaultModel: "claude-sonnet-5-5",
           models: [
             { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", note: "Speed and intelligence." },
-            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", note: "Fastest and cheapest." },
+            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", note: "Fastest and cheapest.", contextTokens: 200_000 },
           ],
         },
       ],
@@ -408,12 +426,13 @@ describe("Memory model settings", () => {
     await userEvent.keyboard("{Escape}");
 
     await userEvent.click(model);
-    // Each model says what it is for, in the list only.
+    // Each model shows its context window, as the chat's picker does, in the list only; no note.
     const haiku = await screen.findByRole("option", { name: /Claude Haiku 5\.5/ });
-    expect(haiku).toHaveTextContent("Fastest and cheapest.");
+    expect(haiku).toHaveTextContent("200K ctx");
+    expect(haiku).not.toHaveTextContent("Fastest and cheapest.");
     await userEvent.click(haiku);
     expect(model).toHaveTextContent("Claude Haiku 5.5");
-    expect(model).not.toHaveTextContent("Fastest and cheapest.");
+    expect(model).not.toHaveTextContent("200K ctx");
     // A double click is one save, not two probes and two "saved" toasts.
     await userEvent.dblClick(within(card).getByTestId("memory-model-save"));
 

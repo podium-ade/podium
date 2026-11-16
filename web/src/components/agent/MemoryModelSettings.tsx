@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MemorySettings } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../../lib/client";
-import { absolute, relative } from "../../lib/format";
+import { absolute, relative, tokens } from "../../lib/format";
 import { Badge } from "../Badge";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -19,7 +19,14 @@ const SETTINGS_KEY = ["agent", "memory-settings"] as const;
  * and the key it spends, is one of the provider keys already saved under Models: nothing new
  * is pasted here. Members see what is in use; an admin or owner can change it.
  */
-export function MemoryModelSettings({ manage }: { manage: boolean }) {
+export function MemoryModelSettings({
+  manage,
+  down = false,
+}: {
+  manage: boolean;
+  /** The memory service is not answering: the model is chosen, but nothing is extracted. */
+  down?: boolean;
+}) {
   const settings = useQuery({
     queryKey: SETTINGS_KEY,
     queryFn: async () => (await agent.getMemorySettings({})).settings,
@@ -63,6 +70,10 @@ export function MemoryModelSettings({ manage }: { manage: boolean }) {
               </>
             ) : s.provider === "" ? (
               <>Nothing new is being remembered until a model is chosen.</>
+            ) : down ? (
+              <span className="text-warn">
+                The memory service isn&apos;t answering, so nothing new is being remembered.
+              </span>
             ) : (
               <>
                 Reads each finished conversation and decides what to keep, using your saved{" "}
@@ -137,7 +148,7 @@ function MemoryModelForm({
   );
   // Nothing is preselected for a new choice. The provider's default is the chat's default,
   // its most capable model, and extraction runs after every conversation: an admin who just
-  // pressed Save would pay that on every one. The notes say which model is the cheap one.
+  // pressed Save would pay that on every one.
   const [picked, setPicked] = useState(settings.model);
 
   // The models the agent catalogue knows for each provider, by name, as the chat's picker
@@ -148,12 +159,12 @@ function MemoryModelForm({
     staleTime: 60_000,
   });
   const catalogue = useMemo(() => {
-    const out = new Map<string, { models: { id: string; name: string; note: string }[] }>();
+    const out = new Map<string, { models: { id: string; name: string; context: number }[] }>();
     for (const b of agents.data?.agents ?? []) {
       const entry = out.get(b.provider) ?? { models: [] };
       for (const m of b.models) {
         if (!entry.models.some((x) => x.id === m.id)) {
-          entry.models.push({ id: m.id, name: m.displayName || m.id, note: m.note });
+          entry.models.push({ id: m.id, name: m.displayName || m.id, context: m.contextTokens });
         }
       }
       out.set(b.provider, entry);
@@ -166,7 +177,7 @@ function MemoryModelForm({
   // A saved model this build's catalogue does not list is still offered, so opening the
   // form never silently changes it.
   const options = [...(known?.models ?? [])];
-  if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model, note: "" });
+  if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model, context: 0 });
 
   const inFlight = useRef(false);
   const save = useMutation({
@@ -241,7 +252,7 @@ function MemoryModelForm({
             </SelectTrigger>
             <SelectContent>
               {options.map((m) => (
-                <SelectItem key={m.id} value={m.id} description={m.note || undefined}>
+                <SelectItem key={m.id} value={m.id} aside={m.context > 0 ? tokens(m.context) : undefined}>
                   {m.name}
                 </SelectItem>
               ))}

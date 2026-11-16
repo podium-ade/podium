@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"errors"
 	"sync"
 	"testing"
@@ -267,6 +268,21 @@ func TestAMemoryOutageIsUnavailable(t *testing.T) {
 	_, err := s.ListMemories(context.Background(), connect.NewRequest(&agentv1.ListMemoriesRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+}
+
+// Hindsight not answering reaches the page as one exact sentence the web client matches,
+// with no address or dial error in it.
+func TestMemoryNotAnsweringIsOnePlainSentence(t *testing.T) {
+	s := memoryService(t, &fakeMemory{
+		err: fmt.Errorf("%w (GET /v1/x): dial tcp 127.0.0.1:8888: connect: connection refused", memory.ErrUnreachable),
+	})
+
+	_, err := s.ListMemories(context.Background(), connect.NewRequest(&agentv1.ListMemoriesRequest{Limit: 25}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+	var ce *connect.Error
+	require.ErrorAs(t, err, &ce)
+	assert.Equal(t, "the memory service is not answering", ce.Message())
 }
 
 // A refused API key is this HOST's problem, not the caller's, so it is Unavailable rather
