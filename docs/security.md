@@ -527,15 +527,37 @@ know before you write one.
   into a Podium login only through a proven link (`identities`, [Who is
   who](agent.md#who-is-who)) at the moment somebody reads. An account never linked grants nothing,
   and one linked later sees what it touched before; nothing is matched by name or email. Touching
-  an issue grants **reading** its conversation; writing in it is still a participant's, somebody
-  who spoke in it from Linear as a Podium person, and an admin or owner reads every one without
-  writing. Two things follow: anybody in the Linear workspace who can comment on an issue can make
-  its Podium conversation readable to themselves once their account is linked, which is no more
-  than the issue itself shows them; and the people a routine's events are about learn nothing
-  from it — a routine's run is visible to its owner and to admins, and to those who touched the
-  issue, who could already read the issue. What a delivery says about an issue (its identifier,
-  title, team and state) is kept in `linear_issues` for the Linear view, for every issue the
-  webhook names, including ones with no conversation.
+  an issue makes somebody one of its conversation's **writers** (0049): it is in their chat rail,
+  and what they send there runs a turn as them and is posted to the issue under their name — no
+  more than an @mention of the app on the issue in Linear, which they can already write. An admin
+  or owner who never touched it reads it and does not write in it. Two things follow: anybody in
+  the Linear workspace who can comment on an issue can make its Podium conversation theirs once
+  their account is linked, which is no more than the issue itself lets them do; and the people a
+  routine's events are about learn nothing from it — a routine's run is visible to its owner and to
+  admins, and to those who touched the issue, who could already read the issue. What a delivery
+  says about an issue (its identifier, title, team and state) is kept in `linear_issues` for the
+  Linear view, for every issue the webhook names, including ones with no conversation.
+- **A turn in a Linear issue's conversation shows its work only to whoever it ran as.** Each turn
+  runs as whoever prompted it — their secrets, their MCP servers, their GitHub account — and the
+  conversation is read by everybody who touched the issue. So every row the bot wrote says whose
+  turn it was (`ran_as`, or the routine whose run it was), and what the turn did on its way — its
+  tool calls with their inputs and outputs, its thoughts and progress lines, the task it ran and
+  the files that task produced — leaves the API (`StreamChat`, its live frames, `ListTurns`) only
+  for that person and for admins and owners. Everybody else gets the prompt and the answer, which
+  the issue shows them anyway, and an empty redacted row per step. A row that cannot be placed on
+  a turn is shown in full only to admins. The rule is applied on the server
+  (`internal/agent/api/runner.go`), not in the UI. It does not cover the control plane: a task's
+  page and logs are guarded by the control plane's own rules, and somebody who learns a task id
+  another way reads what those rules let them. It is not applied to shared web chats or mirrored
+  Slack threads, whose people chose to share them and have always seen their whole trail.
+- **What somebody writes in a Linear issue's conversation in Podium is posted to the issue.** The
+  app posts it as a comment with `createAsUser` (their Podium name) and `displayIconUrl` (their
+  picture), so Linear shows it as theirs while the app is its author, and posts the answer as the
+  app's own comment. Nothing verifies to Linear that the name is the person's: the app vouches for
+  it, as it vouches for the turn. The comments are the app's, and the webhooks they cause start
+  nothing: an agent session prompt whose speaker is the app, or that came from a comment the app
+  posted, is dropped, and so is a `Comment` data change by the app's user or about such a comment,
+  so neither answers itself nor wakes a routine.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. That stops an accident and one honest

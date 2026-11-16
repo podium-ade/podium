@@ -2182,14 +2182,35 @@ questions, failures, progress and tool calls are the bot's, as in a mirrored Sla
 are the tasks the assistant delegated, shown as a Slack thread's chat shows them. A routine's run
 about the issue is in it too, under its `Routine run · …` divider. The chip in the chat's header
 opens the issue in Linear. The people who spoke in it from Linear and are in Podium are its
-participants, who may act in it, and the first of them owns it. It is **read** by everybody who
-touched the issue and has linked their Linear account to Podium — who created it, was assigned
-it, delegated it, @mentioned the app on it, commented on it or changed it, or whose routine ran in
-it — and by every admin and owner ([The Linear view](#the-linear-view)). Sharing a chat of a
-private team's issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused is
-recorded, as in Slack, and is never a participant. The refusal itself is the source's word in
-Linear and is not recorded, as Slack's 🚫 is not. A ticket the poller saw has no chat. Issue
-conversations are not in the chat rail — a company has hundreds — but in the Linear view.
+participants, who may act in it, and the first of them owns it. Everybody who touched the issue
+and has linked their Linear account to Podium — who created it, was assigned it, delegated it,
+@mentioned the app on it, commented on it or changed it, or whose routine ran in it — may **read
+and write** it, and every admin and owner reads it ([The Linear view](#the-linear-view)). Sharing a
+chat of a private team's issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused
+is recorded, as in Slack, and is never a participant. The refusal itself is the source's word in
+Linear and is not recorded, as Slack's 🚫 is not. A ticket the poller saw has no chat.
+
+**In the chat rail.** An issue's conversation is in the rail of its people — those who touched it
+through a linked Linear account, and those who spoke in it — not of everybody who could read it:
+an admin finds every one in the Linear view. Its row reads `EME-6 · title`, with a dot for the
+issue's state in Linear and *Waiting on you* while a question asked by your turn, or by nobody's,
+is unanswered. It is ordered by its last activity with the other chats. *Hide* in its menu takes
+it out of your rail until something new is said in it; it stays in the Linear view.
+
+**Writing from Podium.** What you send in an issue's conversation is posted to the issue as a
+comment under your name and picture (the app posts it, with Linear's `createAsUser`), whether or
+not it is addressed to Podium. A message that is answers as in any shared chat, running as you,
+and the answer — or its failure or question, and the answers of the tasks it delegated — is posted
+to the issue as the app's comment. Both show *not delivered* in the chat if Linear refused them,
+and are retried. A routine's run in the conversation posts nothing to the issue but what its tools
+do.
+
+**Whose turn it was.** Every turn in an issue's conversation runs as whoever started it, with
+their secrets, MCP servers and GitHub account, so every answer says *ran as …* — a person, or the
+routine whose run it was. Its prompt and its answer are read by everybody in the conversation; its
+steps (tool calls and what they returned, thoughts, progress) and the task and files behind it
+are shown only to the person it ran as and to admins and owners. Everybody else sees *4 steps, ran
+as Alice*. The server withholds them, not the browser.
 
 Before this, each agent session was a conversation of its own (`linear:session:<id>`). Chats kept
 under such a key stay readable as they were, by the people in them, and are listed under Sessions;
@@ -2222,8 +2243,8 @@ without them, a person is recorded only by delegating, mentioning or writing in 
 What a row says about the issue is what the webhooks said, kept in `linear_issues` and updated on
 each delivery that names the issue (an agent session's prompt, an `Issue` or `Comment` change):
 nothing asks Linear per row. A title changed in Linear shows once a delivery names it again. The
-chat rail does not list issues waiting on the viewer; the Linear view's *Needs attention* is where
-to look.
+chat rail marks an issue waiting on the viewer; the Linear view's *Needs attention* lists every
+one.
 
 **What it does not do yet.**
 
@@ -3410,9 +3431,9 @@ task it delegates, and may choose several while answering once.
   Slack thread, a pull request or a Linear issue the bot was in is mirrored into a
   read-only chat. A thread or a pull request is listed — in Chat and in Sessions — for every
   Podium person who spoke in it, and for nobody else except the dev token; a thread only people
-  outside Podium spoke in stays hidden. A Linear issue is listed in the Linear view instead, for
+  outside Podium spoke in stays hidden. A Linear issue is listed in the Linear view, for
   the people who spoke in it, everybody who touched the issue with a linked Linear account, and
-  every admin and owner ([The Linear view](#the-linear-view)). A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
+  every admin and owner ([The Linear view](#the-linear-view)), and in Chat for the first two only. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
@@ -3845,6 +3866,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 | `ListLinearConversations` | the Linear view: one row per Linear issue's conversation the caller may read, filtered and paged on the server |
+| `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
