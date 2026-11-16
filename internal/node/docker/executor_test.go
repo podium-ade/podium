@@ -241,10 +241,12 @@ func TestApplySidecarHardeningKeepsNoNewPrivilegesWhenPrivileged(t *testing.T) {
 }
 
 func TestCanDialTaskNetworks(t *testing.T) {
-	assert.True(t, canDialTaskNetworks("linux", "linux"))
-	assert.False(t, canDialTaskNetworks("darwin", "linux"), "docker desktop's bridges are inside a VM")
-	assert.False(t, canDialTaskNetworks("windows", "linux"))
-	assert.False(t, canDialTaskNetworks("linux", "windows"))
+	assert.True(t, canDialTaskNetworks("linux", "linux", "Ubuntu 24.04.1 LTS"))
+	assert.False(t, canDialTaskNetworks("darwin", "linux", "Docker Desktop"), "docker desktop's bridges are inside a VM")
+	assert.False(t, canDialTaskNetworks("windows", "linux", "Docker Desktop"))
+	assert.False(t, canDialTaskNetworks("linux", "windows", "Windows Server 2022"))
+	assert.False(t, canDialTaskNetworks("linux", "linux", "Docker Desktop"),
+		"a node in WSL is linux on a linux engine, and Docker Desktop's bridges are still in its VM")
 }
 
 func TestSidecarNamesAndLabels(t *testing.T) {
