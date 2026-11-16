@@ -258,6 +258,15 @@ type Config struct {
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
 	// every turn's container gets it. SENSITIVE: never log it.
 	MemoryAPIKey string
+	// MemoryLLMToken is PODIUM_AGENT_MEMORY_LLM_TOKEN: the bearer the memory service presents
+	// when it calls this conductor for fact extraction (the /memory-llm/ route). It is set on
+	// the memory service as its LLM API key and its base URL points here, so the provider key
+	// and model behind it are chosen in the UI rather than in the memory service's
+	// environment. Empty means the route is not served and the memory service uses its own
+	// key. It is deliberately NOT MemoryAPIKey: every turn's container holds that one, and a
+	// turn must not be able to spend the organisation's model key through this route.
+	// SENSITIVE: never log it.
+	MemoryLLMToken string
 	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
 	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
 	// turns the Linear source off entirely. SENSITIVE: never log it.
@@ -425,6 +434,7 @@ func FromEnv() Config {
 		MemorySandboxURL:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_SANDBOX_URL")),
 		MemoryBank:           envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
 		MemoryAPIKey:         os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
+		MemoryLLMToken:       strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_LLM_TOKEN")),
 		LinearAPIKey:         os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
 		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
@@ -843,6 +853,11 @@ func (c Config) validateMemory() error {
 		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +
 			"is set: Hindsight has no authentication until it is given a key, so an install " +
 			"without one is a memory anybody who can reach the port can read and rewrite")
+	}
+	if c.MemoryLLMToken != "" && c.MemoryLLMToken == c.MemoryAPIKey {
+		return errors.New("PODIUM_AGENT_MEMORY_LLM_TOKEN must differ from PODIUM_AGENT_MEMORY_API_KEY: " +
+			"every turn's container is given the memory API key, and the LLM token spends the " +
+			"organisation's model key")
 	}
 	if !bankNameRE.MatchString(c.MemoryBank) {
 		return fmt.Errorf("PODIUM_AGENT_MEMORY_BANK=%q must match %s: it becomes a path segment "+

@@ -355,7 +355,11 @@ SAML is not implemented.
   graph, and the row is kept in an archive. No future turn sees it — which is what the operator
   asked for — but the text is still in `podium_memory`, and it is reversible through the memory
   engine's own API. If a memory must be *destroyed*, that is a database operation, not a UI one.
-- **The memory service gets its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
+- **By default the memory service holds no LLM key.** It calls the conductor's `/memory-llm/`
+  route with `PODIUM_AGENT_MEMORY_LLM_TOKEN`, and the conductor spends the global model key an
+  admin chose on the Memory page. That token can spend the key, so it is not the memory API key
+  every turn holds, and the conductor refuses to start if the two are equal. An install that
+  opts out gives it its own key, `PODIUM_MEMORY_LLM_API_KEY`, as a container
   environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
   any compose environment value. It is not stored in Podium's encrypted secret store, because it
   is read before anything Podium controls is running. Three things reduce what that costs
