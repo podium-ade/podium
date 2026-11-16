@@ -233,3 +233,35 @@ func TestSnapshotTTL(t *testing.T) {
 		t.Fatal("modal keeps workspaces as directory snapshots")
 	}
 }
+
+func TestAnImageBuildModalGaveNoReasonForIsExplained(t *testing.T) {
+	remote := sdk.RemoteError{Exception: "Image build for im-81iSZK4loO5wBfFIwRgwEd failed with the exception:\n"}
+	err := explainBuild("podium-agent-runtime:dev", remote)
+	msg := err.Error()
+	for _, want := range []string{`image "podium-agent-runtime:dev"`, "im-81iSZK4loO5wBfFIwRgwEd", "only in a local Docker engine"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("%q does not say %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "the exception:") {
+		t.Errorf("%q still ends on Modal's empty exception", msg)
+	}
+	var back sdk.RemoteError
+	if !errors.As(err, &back) {
+		t.Error("Modal's own error is no longer underneath")
+	}
+
+	// A build that did say why is left as Modal said it, and so is anything that is not a build.
+	said := sdk.RemoteError{Exception: "Image build for im-1 failed with the exception:\nmanifest unknown"}
+	if got := explainBuild("x:1", said); got != error(said) {
+		t.Errorf("a build with a reason became %v", got)
+	}
+	other := errors.New("boom")
+	if got := explainBuild("x:1", other); got != other {
+		t.Errorf("an error that is not a build became %v", got)
+	}
+	// An image Podium did not name is still described.
+	if got := explainBuild("", remote).Error(); !strings.Contains(got, "the sandbox image") {
+		t.Errorf("%q does not describe an unnamed image", got)
+	}
+}

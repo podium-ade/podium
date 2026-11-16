@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -364,11 +365,54 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		return p.byName(ctx, app, params.Name, cfg.Environment)
 	}
 	if err != nil {
-		return "", toError("create", err)
+		source := req.Image
+		if source == "" && req.Snapshot == "" {
+			source = cfg.Image
+		}
+		return "", toError("create", explainBuild(source, err))
 	}
 	p.remember(sb)
 	return sb.SandboxID, nil
 }
+
+// emptyBuild is Modal's SDK reporting a failed image build whose exception is empty: Modal put
+// the reason in the build's log, which the SDK reads and throws away.
+var emptyBuild = regexp.MustCompile(`^Image build for (im-[A-Za-z0-9]+) failed with the exception:\s*$`)
+
+// explainBuild replaces a failed image build that came back with no reason by what Podium can
+// say about it: which image, what usually causes it, and where Modal keeps the log. Without it
+// a task fails with "failed with the exception:" and nothing after the colon.
+func explainBuild(image string, err error) error {
+	var remote sdk.RemoteError
+	if !errors.As(err, &remote) {
+		return err
+	}
+	m := emptyBuild.FindStringSubmatch(remote.Exception)
+	if m == nil {
+		return err
+	}
+	return buildError{image: image, build: m[1], err: err}
+}
+
+// buildError is an image build Modal failed without a reason. It still unwraps to Modal's own
+// error; it only does not print that error's empty tail.
+type buildError struct {
+	image, build string
+	err          error
+}
+
+func (e buildError) Error() string {
+	what := "the sandbox image"
+	if e.image != "" {
+		what = fmt.Sprintf("image %q", e.image)
+	}
+	return fmt.Sprintf("Modal could not prepare %s and gave no reason (build %s). Usually Modal "+
+		"could not pull it: the image must be in a registry Modal can reach, so a tag that exists "+
+		"only in a local Docker engine will not work, and a private registry needs its login set "+
+		"on the sandbox provider. Modal's dashboard has the build's log", what, e.build)
+}
+
+func (e buildError) Unwrap() error { return e.err }
 
 func isModalImage(image string) bool {
 	_, ok := spec.ModalImage(image)
