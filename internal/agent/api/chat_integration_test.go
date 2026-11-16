@@ -631,6 +631,58 @@ func TestStreamChatFromSeqSkipsWhatTheClientHas(t *testing.T) {
 	require.NoError(t, stream.Close())
 }
 
+func TestStreamChatTailThenPageBack(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+
+	for _, text := range []string{"one", "two", "three", "four", "five"} {
+		_, err := f.store.AppendChatMessage(ctx, store.ChatMessage{
+			ChatID: chatID, Role: store.RoleUser, Text: text,
+		})
+		require.NoError(t, err)
+	}
+	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, f.url)
+	req := connect.NewRequest(&agentv1.StreamChatRequest{ChatId: chatID, Tail: 2})
+	req.Header().Set("Authorization", "Bearer "+chatToken)
+	req.Header().Set(LoginHeader, "alice")
+	stream, err := client.StreamChat(streamCtx, req)
+	require.NoError(t, err)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
+	require.NotNil(t, nextFrame(t, stream).GetPullRequests())
+	assert.Equal(t, "four", nextFrame(t, stream).GetMessage().GetText(), "the tail opens on the newest messages")
+	assert.Equal(t, "five", nextFrame(t, stream).GetMessage().GetText())
+	assert.True(t, nextFrame(t, stream).GetReplayed())
+	require.NoError(t, stream.Close())
+
+	page, err := f.clientAs("alice").ListChatMessages(ctx, connect.NewRequest(&agentv1.ListChatMessagesRequest{
+		ChatId: chatID, BeforeSeq: 4, Limit: 2,
+	}))
+	require.NoError(t, err)
+	require.Len(t, page.Msg.GetMessages(), 2)
+	assert.Equal(t, "two", page.Msg.GetMessages()[0].GetText(), "a page is in seq order")
+	assert.Equal(t, "three", page.Msg.GetMessages()[1].GetText())
+	assert.True(t, page.Msg.GetHasMore())
+
+	page, err = f.clientAs("alice").ListChatMessages(ctx, connect.NewRequest(&agentv1.ListChatMessagesRequest{
+		ChatId: chatID, BeforeSeq: 2, Limit: 2,
+	}))
+	require.NoError(t, err)
+	require.Len(t, page.Msg.GetMessages(), 1)
+	assert.Equal(t, "one", page.Msg.GetMessages()[0].GetText())
+	assert.False(t, page.Msg.GetHasMore())
+
+	_, err = f.clientAs("mallory").ListChatMessages(ctx, connect.NewRequest(&agentv1.ListChatMessagesRequest{
+		ChatId: chatID,
+	}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "paging is read access, as the stream is")
+}
+
 func TestStreamChatSaysATurnIsAlreadyRunning(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
