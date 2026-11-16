@@ -1417,9 +1417,11 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	start(t, st, fake, src)
-	waitFor(t, 30*time.Second, "the orphan to be failed", func() bool {
+	// The turn is failed before the failure is posted, so wait for both.
+	waitFor(t, 30*time.Second, "the orphan to be failed and said so", func() bool {
 		got, err := st.GetTurn(ctx, orphan.ID)
-		return err == nil && got.Status == store.TurnFailed
+		return err == nil && got.Status == store.TurnFailed &&
+			len(posts(src.Records(), conductor.OutFailure)) > 0
 	})
 
 	assert.Empty(t, fake.Specs(), "nothing ran, so nothing is resumed")
