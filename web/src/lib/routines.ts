@@ -29,10 +29,13 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
 /** Trigger is what starts a routine's runs: its schedule, or Linear events. */
 export type Trigger = "schedule" | "linear";
 
-/** ChatMode is where a routine on Linear events runs: all in its own chat, or a chat per ticket. */
+/**
+ * ChatMode is where a routine on Linear events runs: all in its own chat, or in each ticket's
+ * conversation — the one every agent session on the issue is a turn of.
+ */
 export type ChatMode = "routine" | "subject";
 
-/** perTicket is a routine on Linear events whose runs each happen in the chat of the ticket they are about. */
+/** perTicket is a routine on Linear events whose runs each happen in the conversation of the ticket they are about. */
 export function perTicket(r: Pick<Routine, "trigger" | "chatMode">): boolean {
   return isLinear(r) && r.chatMode === "subject";
 }
@@ -121,6 +124,17 @@ export const CI_FIXER: Pick<RoutineDraft, "name" | "instruction" | "notes" | "sc
 export function routineChatPath(r: Pick<Routine, "personalityId" | "chatId">): string {
   return r.personalityId ? `/agent/chat/a/${r.personalityId}/${r.chatId}` : `/agent/chat/${r.chatId}`;
 }
+
+/**
+ * routinePath is where a routine is opened: its chat, or — for a routine on Linear events that
+ * has none, because it runs in each ticket's conversation or has not run yet — its own page.
+ */
+export function routinePath(r: Pick<Routine, "id" | "personalityId" | "chatId">): string {
+  return r.chatId ? routineChatPath(r) : `/agent/routines/${r.id}`;
+}
+
+/** routineByIdKey is where a routine read by its id, for its own page, is cached. */
+export const routineByIdKey = (id: string) => ["agent", "routine", "id", id];
 
 /** upcoming says a future moment the way a person reads one: "today 09:00", "Tue 09:00", "Nov 18 09:00". */
 export function upcoming(ts: Parameters<typeof toDate>[0], now = new Date()): string {

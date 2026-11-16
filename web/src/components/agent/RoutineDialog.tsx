@@ -67,18 +67,21 @@ const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: LucideIco
   { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: Webhook },
 ];
 
-/** CHAT_MODES are where a routine on Linear events runs: all in its own chat, or each ticket in a chat of its own. */
+/**
+ * CHAT_MODES are where a routine on Linear events runs: all in its own chat, opened on its first
+ * run, or each ticket's events in that ticket's conversation, which needs no chat of the routine's.
+ */
 const CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[] = [
   {
     mode: "routine",
     label: "The routine’s chat",
-    hint: "Every run is in one chat, with the whole history in view.",
+    hint: "Every run is in one chat, with the whole history in view. It is opened on the first run.",
     icon: MessageSquare,
   },
   {
     mode: "subject",
-    label: "A chat per ticket",
-    hint: "Each issue or project gets its own chat, so a run sees what was said about that ticket before.",
+    label: "Each ticket’s conversation",
+    hint: "A run joins the issue’s or project’s one conversation, where delegations, mentions and other routines are, and sees what was done on it before.",
     icon: MessagesSquare,
   },
 ];
@@ -340,7 +343,7 @@ export function RoutineDialog({
           trigger,
           events: linear ? events : [],
           teams: linear ? teamKeys(teams) : [],
-          // A run on a schedule is about no ticket: the server refuses a chat per ticket there.
+          // A run on a schedule is about no ticket: the server refuses a ticket's conversation there.
           chatMode: linear ? chatMode : "routine",
           timezone: timezone.trim() || "UTC",
           personalityId: system

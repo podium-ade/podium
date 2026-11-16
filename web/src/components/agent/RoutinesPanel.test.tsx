@@ -94,7 +94,7 @@ describe("RoutinesPanel", () => {
     expect(within(row).getByRole("button", { name: /pause/i })).toBeInTheDocument();
   });
 
-  it("says when a routine on Linear events runs in a chat per ticket", async () => {
+  it("says when a routine on Linear events runs in each ticket's conversation, and opens its page when it has no chat", async () => {
     listRoutines.mockResolvedValue({
       routines: [
         routine({
@@ -104,6 +104,7 @@ describe("RoutinesPanel", () => {
           events: ["Issue.create"],
           chatMode: "subject",
           nextRunAt: undefined,
+          chatId: "",
         }),
         routine({ id: "rtn_2", name: "Digest", chatId: "chat_d" }),
       ],
@@ -113,8 +114,16 @@ describe("RoutinesPanel", () => {
     const rows = await screen.findAllByTestId("routine-row");
     const triage = rows.find((r) => r.textContent?.includes("PR digest"));
     const digest = rows.find((r) => r.textContent?.includes("Digest") && r !== triage);
-    expect(triage).toHaveTextContent("Runs on Linear: issue created · a chat per ticket");
-    expect(digest).not.toHaveTextContent("a chat per ticket");
+    expect(triage).toHaveTextContent("Runs on Linear: issue created · in each ticket’s conversation");
+    expect(digest).not.toHaveTextContent("in each ticket’s conversation");
+    expect(within(triage as HTMLElement).getByRole("link", { name: "PR digest" })).toHaveAttribute(
+      "href",
+      "/agent/routines/rtn_1",
+    );
+    expect(within(digest as HTMLElement).getByRole("link", { name: "Digest" })).toHaveAttribute(
+      "href",
+      "/agent/chat/chat_d",
+    );
   });
 
   it("lists each routine with when it runs, and pauses one", async () => {
