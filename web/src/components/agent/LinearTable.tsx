@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
-import { ChevronRight, ExternalLink, SquareKanban } from "lucide-react";
+import { ChevronRight, ExternalLink, Rows3, SquareKanban } from "lucide-react";
 import type { LinearConversation } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { money } from "../../lib/routines";
 import { cn } from "../../lib/utils";
-import { Badge, type Tone } from "../Badge";
+import { Badge } from "../Badge";
 import { Empty } from "../Empty";
 import { TableSkeleton } from "../Skeleton";
 import { Button } from "../ui/button";
@@ -15,10 +15,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { ConductorDown } from "./ConductorDown";
+import { LinearBoard } from "./LinearBoard";
 import { LinearMcpHint } from "./LinearMcpHint";
-
-/** How often the list refreshes while it is open. */
-const POLL_MS = 15_000;
+import {
+  type LinearFilters,
+  POLL_MS,
+  boardColumnQuery,
+  type StateFilter,
+  type View,
+  podiumState,
+  storeView,
+  storedView,
+} from "./linearView";
 
 /** One page of the list. The server pages it, so a workspace's thousands of issues are never read at once. */
 const PAGE = 50;
@@ -26,19 +34,8 @@ const PAGE = 50;
 /** ALL_TEAMS is the team filter's "every team", which a Select cannot hold as "". */
 const ALL_TEAMS = "*";
 
-/** Where Podium is with an issue, in words and a tone. */
-const STATE: Record<string, { label: string; tone: Tone }> = {
-  waiting: { label: "waiting on someone", tone: "warn" },
-  working: { label: "working", tone: "run" },
-  failed: { label: "failed", tone: "err" },
-  done: { label: "done", tone: "ok" },
-  new: { label: "not started", tone: "idle" },
-};
-
 /** ITEM is a filter toggle the height of the chat rail's filter, so the two read as one control. */
 const ITEM = "h-9 px-2.5";
-
-type StateFilter = "" | "working" | "attention";
 
 /** linearKey is where one filter's pages of the list are cached. */
 const linearKey = (mine: boolean, team: string, state: StateFilter) => [
@@ -61,12 +58,34 @@ const linearKey = (mine: boolean, team: string, state: StateFilter) => [
  *
  * Admins and owners see every issue; anybody else sees the issues they touched in Linear (once
  * their Linear account is linked to Podium), spoke in, or were shared.
+ *
+ * The same issues lay out as a table or as a board of Linear's states (LinearBoard), under the
+ * same filters. The layout is ?view=board in the URL, so a board can be linked, and the browser
+ * remembers the last one chosen for a visit whose URL names none.
  */
 export function LinearTable() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const [remembered, setRemembered] = useState<View>(storedView);
   const [mine, setMine] = useState(false);
   const [team, setTeam] = useState("");
   const [state, setState] = useState<StateFilter>("");
+  const filters: LinearFilters = { mine, team, state };
+
+  const asked = params.get("view");
+  const view: View = asked === "board" || asked === "table" ? asked : remembered;
+  const setView = (v: View) => {
+    storeView(v);
+    setRemembered(v);
+    setParams(
+      (p) => {
+        if (v === "board") p.set("view", "board");
+        else p.delete("view");
+        return p;
+      },
+      { replace: true },
+    );
+  };
 
   const list = useInfiniteQuery({
     queryKey: linearKey(mine, team, state),
@@ -78,10 +97,15 @@ export function LinearTable() {
     // A filter not asked for yet keeps the rows already shown, dimmed, until its own arrive,
     // rather than swapping the table for a skeleton and back.
     placeholderData: keepPreviousData,
+    enabled: view === "table",
   });
+  // The board's Backlog column, always on it: its pages carry the teams for the team filter,
+  // and its failure is the board's.
+  const backlog = useInfiniteQuery({ ...boardColumnQuery(filters, "backlog"), enabled: view === "board" });
+  const shown = view === "table" ? list : backlog;
 
   const rows = list.data?.pages.flatMap((p) => p.conversations) ?? [];
-  const teams = list.data?.pages[0]?.teams ?? [];
+  const teams = shown.data?.pages[0]?.teams ?? [];
   const filtered = mine || team !== "" || state !== "";
 
   return (
@@ -126,25 +150,82 @@ export function LinearTable() {
             </SelectContent>
           </Select>
         ) : null}
+        <ToggleGroup
+          type="single"
+          value={view}
+          onValueChange={(v) => v && setView(v as View)}
+          aria-label="Layout"
+          className="sm:ml-auto"
+        >
+          <ToggleGroupItem value="table" className={ITEM}>
+            <Rows3 aria-hidden />
+            Table
+          </ToggleGroupItem>
+          <ToggleGroupItem value="board" className={ITEM}>
+            <SquareKanban aria-hidden />
+            Board
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       <LinearMcpHint />
 
-      {list.isPending ? <TableSkeleton rows={6} cols={6} /> : null}
-
-      {list.isError ? (
-        isAgentUnreachable(list.error) ? (
+      {shown.isError ? (
+        isAgentUnreachable(shown.error) ? (
           <ConductorDown
             what="Could not list Linear issues"
-            onRetry={() => void list.refetch()}
-            retrying={list.isFetching}
+            onRetry={() => void shown.refetch()}
+            retrying={shown.isFetching}
           />
         ) : (
-          <Empty icon={SquareKanban} title="Could not list Linear issues" hint={errorMessage(list.error)} />
+          <Empty icon={SquareKanban} title="Could not list Linear issues" hint={errorMessage(shown.error)} />
         )
-      ) : null}
+      ) : view === "board" ? (
+        <LinearBoard filters={filters} />
+      ) : (
+        <LinearTableBody
+          rows={rows}
+          filtered={filtered}
+          pending={list.isPending}
+          success={list.isSuccess}
+          dimmed={list.isPlaceholderData}
+          more={list.hasNextPage}
+          loadingMore={list.isFetchingNextPage}
+          onMore={() => void list.fetchNextPage()}
+          onOpen={(id) => void navigate(`/agent/chat/${id}`)}
+        />
+      )}
+    </div>
+  );
+}
 
-      {list.isSuccess && rows.length === 0 ? (
+/** LinearTableBody is the table layout of the Linear view: one row per issue, fifty a page. */
+function LinearTableBody({
+  rows,
+  filtered,
+  pending,
+  success,
+  dimmed,
+  more,
+  loadingMore,
+  onMore,
+  onOpen,
+}: {
+  rows: LinearConversation[];
+  filtered: boolean;
+  pending: boolean;
+  success: boolean;
+  dimmed: boolean;
+  more: boolean;
+  loadingMore: boolean;
+  onMore: () => void;
+  onOpen: (chatId: string) => void;
+}) {
+  return (
+    <>
+      {pending ? <TableSkeleton rows={6} cols={6} /> : null}
+
+      {success && rows.length === 0 ? (
         <Empty
           icon={SquareKanban}
           title={filtered ? "No issues match." : "No Linear issues yet."}
@@ -157,10 +238,7 @@ export function LinearTable() {
       ) : null}
 
       {rows.length > 0 ? (
-        <Table
-          aria-busy={list.isPlaceholderData}
-          className={cn("transition-opacity duration-150", list.isPlaceholderData && "opacity-60")}
-        >
+        <Table aria-busy={dimmed} className={cn("transition-opacity duration-150", dimmed && "opacity-60")}>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Issue</TableHead>
@@ -173,30 +251,25 @@ export function LinearTable() {
           </TableHeader>
           <TableBody>
             {rows.map((c) => (
-              <LinearRow key={c.chatId} c={c} onOpen={() => void navigate(`/agent/chat/${c.chatId}`)} />
+              <LinearRow key={c.chatId} c={c} onOpen={() => onOpen(c.chatId)} />
             ))}
           </TableBody>
         </Table>
       ) : null}
 
-      {list.hasNextPage ? (
+      {more ? (
         <div className="flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={list.isFetchingNextPage}
-            onClick={() => void list.fetchNextPage()}
-          >
-            {list.isFetchingNextPage ? "Loading…" : "Show more"}
+          <Button variant="outline" size="sm" disabled={loadingMore} onClick={onMore}>
+            {loadingMore ? "Loading…" : "Show more"}
           </Button>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
 function LinearRow({ c, onOpen }: { c: LinearConversation; onOpen: () => void }) {
-  const state = STATE[c.state] ?? { label: c.state || "unknown", tone: "idle" as Tone };
+  const state = podiumState(c.state);
   const label = c.identifier || (c.kind === "project" ? "Project" : "Issue");
   return (
     <TableRow
