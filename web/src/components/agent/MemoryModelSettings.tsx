@@ -135,7 +135,9 @@ function MemoryModelForm({
   const [provider, setProvider] = useState(
     settings.provider || (usable[0]?.provider ?? ""),
   );
-  // "" is "not picked": the provider's default model stands in, so Save works at once.
+  // Nothing is preselected for a new choice. The provider's default is the chat's default,
+  // its most capable model, and extraction runs after every conversation: an admin who just
+  // pressed Save would pay that on every one. The notes say which model is the cheap one.
   const [picked, setPicked] = useState(settings.model);
 
   // The models the agent catalogue knows for each provider, by name, as the chat's picker
@@ -146,12 +148,12 @@ function MemoryModelForm({
     staleTime: 60_000,
   });
   const catalogue = useMemo(() => {
-    const out = new Map<string, { models: { id: string; name: string }[]; fallback: string }>();
+    const out = new Map<string, { models: { id: string; name: string; note: string }[] }>();
     for (const b of agents.data?.agents ?? []) {
-      const entry = out.get(b.provider) ?? { models: [], fallback: b.defaultModel };
+      const entry = out.get(b.provider) ?? { models: [] };
       for (const m of b.models) {
         if (!entry.models.some((x) => x.id === m.id)) {
-          entry.models.push({ id: m.id, name: m.displayName || m.id });
+          entry.models.push({ id: m.id, name: m.displayName || m.id, note: m.note });
         }
       }
       out.set(b.provider, entry);
@@ -160,11 +162,11 @@ function MemoryModelForm({
   }, [agents.data]);
 
   const known = catalogue.get(provider);
-  const model = picked || known?.fallback || "";
+  const model = picked;
   // A saved model this build's catalogue does not list is still offered, so opening the
   // form never silently changes it.
   const options = [...(known?.models ?? [])];
-  if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model });
+  if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model, note: "" });
 
   const save = useMutation({
     mutationFn: () => agent.setMemorySettings({ provider, model }),
@@ -233,7 +235,7 @@ function MemoryModelForm({
             </SelectTrigger>
             <SelectContent>
               {options.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
+                <SelectItem key={m.id} value={m.id} description={m.note || undefined}>
                   {m.name}
                 </SelectItem>
               ))}
