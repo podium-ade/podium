@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { ConductorDown } from "./ConductorDown";
+import { LinearMcpHint } from "./LinearMcpHint";
 
 /** How often the list refreshes while it is open. */
 const POLL_MS = 15_000;
@@ -114,6 +115,8 @@ export function LinearTable() {
           </Select>
         ) : null}
       </div>
+
+      <LinearMcpHint />
 
       {list.isPending ? <TableSkeleton rows={6} cols={6} /> : null}
 

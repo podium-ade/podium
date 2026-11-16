@@ -162,4 +162,52 @@ describe("alertsFromInbox", () => {
     expect(alertsFromInbox([{ ...row, read: true }], "")).toEqual([]);
     expect(alertsFromInbox([row], "chat_r")).toEqual([]);
   });
+
+  it("names a question's ticket, quotes it, and is answered inline into its conversation", () => {
+    const row = create(NotificationSchema, {
+      id: 12n, kind: "question", chatId: "chat_t", chatTitle: "ENG-12 Export is slow",
+      detail: "Which region is slow?", linearIdentifier: "ENG-12", linearTitle: "Export is slow",
+    });
+    const [q] = alertsFromInbox([row], "");
+    expect(q).toMatchObject({
+      key: "inbox:12",
+      level: "alert",
+      title: "Podium asks you about ENG-12 · Export is slow",
+      body: "Which region is slow?",
+      href: "/agent/chat/chat_t",
+      action: "Open conversation",
+      reply: { chatId: "chat_t", notificationId: "12" },
+    });
+  });
+
+  it("keeps an unanswered question while its conversation is open, and drops an answered one", () => {
+    const row = create(NotificationSchema, { id: 12n, kind: "question", chatId: "chat_t", detail: "?" });
+    expect(alertsFromInbox([row], "chat_t")).toHaveLength(1);
+    expect(alertsFromInbox([{ ...row, read: true }], "chat_t")).toEqual([]);
+  });
+
+  it("falls back to the chat's title for a question whose ticket the webhooks never named", () => {
+    const row = create(NotificationSchema, { id: 13n, kind: "question", chatId: "chat_p", chatTitle: "Q4 launch" });
+    expect(alertsFromInbox([row], "")[0]?.title).toBe("Podium asks you about “Q4 launch”");
+  });
+
+  it("is one row per question: the next poll updates it, and the answer resolves it", () => {
+    const draft = alertsFromInbox(
+      [create(NotificationSchema, { id: 12n, kind: "question", chatId: "chat_t", detail: "Which region?" })],
+      "",
+    );
+    const first = mergeNotifications([], draft, now);
+    const again = mergeNotifications(
+      first,
+      alertsFromInbox(
+        [create(NotificationSchema, { id: 12n, kind: "question", chatId: "chat_t", detail: "And since when?" })],
+        "",
+      ),
+      now + 1000,
+    );
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ body: "And since when?", reply: { chatId: "chat_t" } });
+    const answered = mergeNotifications(again, [], now + 2000);
+    expect(answered[0]?.resolvedAt).toBe(now + 2000);
+  });
 });

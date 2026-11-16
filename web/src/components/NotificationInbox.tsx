@@ -1,8 +1,13 @@
+import { useId, useState } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Empty } from "./Empty";
+import { useToast } from "./Toast";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
+import { agent, errorMessage } from "../lib/client";
 import {
   NOTIFICATION_LEVELS,
   ago,
@@ -10,6 +15,7 @@ import {
   writeNotifications,
   type AppNotification,
   type NotificationLevel,
+  type NotificationReply,
 } from "../lib/notifications";
 import { cn } from "../lib/utils";
 
@@ -115,19 +121,117 @@ function NotificationRow({ row }: { row: AppNotification }) {
         role={resolved ? "status" : "alert"}
         title={row.title}
       >
-        <p>{row.body}</p>
+        <p className={cn(row.reply && "whitespace-pre-wrap")}>{row.body}</p>
         <p className="mt-1 text-2xs">
           {LEVEL_NAME[row.level]}
           {" · "}
           {ago(row.createdAt)}
           {resolved && row.resolvedAt ? ` · resolved ${ago(row.resolvedAt)}` : ""}
         </p>
-        {resolved || !row.href || !row.action ? null : (
+        {!resolved && row.reply ? (
+          <QuestionReply reply={row.reply} href={row.href} action={row.action} />
+        ) : resolved || !row.href || !row.action ? null : (
           <Button asChild size="sm" className="mt-2">
             <Link to={row.href}>{row.action}</Link>
           </Button>
         )}
       </Alert>
     </article>
+  );
+}
+
+/**
+ * QuestionReply answers a question the assistant asked in a Linear ticket's conversation without
+ * leaving the inbox. The answer is sent to that conversation exactly as the chat's own box sends
+ * it: it is posted to the issue as the viewer's comment and goes to the task waiting on it. The
+ * row closes when the conversation hears the answer, from here or anywhere else; until the next
+ * poll says so, it says the answer went.
+ */
+function QuestionReply({ reply, href, action }: { reply: NotificationReply; href: string; action: string }) {
+  const id = useId();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState(false);
+  const refresh = () => qc.invalidateQueries({ queryKey: ["agent", "notifications"] });
+
+  const send = useMutation({
+    mutationFn: (answer: string) => agent.sendChatMessage({ chatId: reply.chatId, text: answer }),
+    onSuccess: () => {
+      setSent(true);
+      setText("");
+      toast("Answer sent. It is posted to the issue as yours.", "ok");
+      void refresh();
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+  const dismiss = useMutation({
+    mutationFn: () => agent.markNotificationsRead({ ids: [BigInt(reply.notificationId)] }),
+    onSuccess: () => void refresh(),
+    onError: (err) => toast(errorMessage(err)),
+  });
+
+  if (sent) {
+    return (
+      <p data-testid="question-sent" className="mt-2 text-xs">
+        Answer sent.{" "}
+        <Link to={href} className="underline">
+          {action}
+        </Link>
+      </p>
+    );
+  }
+
+  const submit = () => {
+    const answer = text.trim();
+    if (answer === "" || send.isPending) return;
+    send.mutate(answer);
+  };
+
+  return (
+    <form
+      data-testid="question-reply"
+      className="mt-2 space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <label htmlFor={id} className="sr-only">
+        Your answer
+      </label>
+      <Textarea
+        id={id}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        // The bell is a menu, whose type-ahead would take the keystrokes for itself.
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Answer here, or in the conversation"
+        className="min-h-[64px] text-sm"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" size="sm" disabled={text.trim() === "" || send.isPending}>
+          {send.isPending ? "Sending…" : "Send answer"}
+        </Button>
+        <Button asChild variant="outline" size="sm">
+          <Link to={href}>{action}</Link>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={dismiss.isPending}
+          onClick={() => dismiss.mutate()}
+        >
+          Dismiss
+        </Button>
+      </div>
+    </form>
   );
 }
