@@ -323,11 +323,14 @@ function RoutineRow({
       </dl>
 
       <div className="flex items-center gap-1.5 lg:justify-end">
-        <Button size="sm" variant="outline" disabled={busy || r.running} onClick={onRun}>
-          <Zap />
-          Run now
-        </Button>
-        {/* One width for Pause and Resume, so Run now sits in the same place on every row. */}
+        {/* A routine on Linear events runs when they arrive; there is nothing to run by hand. */}
+        {linear ? null : (
+          <Button size="sm" variant="outline" disabled={busy || r.running} onClick={onRun}>
+            <Zap />
+            Run now
+          </Button>
+        )}
+        {/* One width for Pause and Resume, so the buttons line up on every row. */}
         <Button size="sm" variant="outline" disabled={busy} onClick={onToggle} className="w-[6.75rem]">
           {r.enabled ? <Pause /> : <Play />}
           {r.enabled ? "Pause" : "Resume"}

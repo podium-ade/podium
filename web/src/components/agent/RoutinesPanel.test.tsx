@@ -89,6 +89,9 @@ describe("RoutinesPanel", () => {
     const status = within(row).getByTestId("routine-row-status");
     expect(status).toHaveTextContent("Waiting3 events");
     expect(status).not.toHaveTextContent("Next run");
+    // It runs when its events arrive: there is no run by hand.
+    expect(within(row).queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /pause/i })).toBeInTheDocument();
   });
 
   it("says when a routine on Linear events runs in a chat per ticket", async () => {
