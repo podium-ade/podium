@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,23 +16,21 @@ import (
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
-// fakeSubjects is the store's chats per ticket in memory, beside a fakeEvents, under the
+// fakeSubjects is the store's Linear conversations in memory, beside a fakeEvents, under the
 // fakeStore's lock. about is what each event is about, by its id; an event missing from it is
 // about nothing in particular.
 type fakeSubjects struct {
-	ev     *fakeEvents
-	about  map[int]string
-	chats  map[string]string    // routine|subject -> chat
-	opened map[string]time.Time // chat -> when it was opened
-	// openedBefore is how many chats each routine opened earlier in the last 24 hours.
-	openedBefore map[string]int
-	runChats     map[string]string // run -> chat
+	ev       *fakeEvents
+	about    map[int]string
+	convs    map[string]string // conversation key -> chat
+	people   map[string][]store.LinearPerson
+	runChats map[string]string // run -> chat
 }
 
 func newFakeSubjects(ev *fakeEvents) *fakeSubjects {
 	return &fakeSubjects{
-		ev: ev, about: map[int]string{}, chats: map[string]string{}, opened: map[string]time.Time{},
-		openedBefore: map[string]int{}, runChats: map[string]string{},
+		ev: ev, about: map[int]string{}, convs: map[string]string{}, people: map[string][]store.LinearPerson{},
+		runChats: map[string]string{},
 	}
 }
 
@@ -54,7 +53,7 @@ func (f *fakeSubjects) PendingRoutineSubjects(_ context.Context, routine string)
 		key := f.about[e.id]
 		sub, ok := by[key]
 		if !ok {
-			sub = &store.RoutineSubject{Key: key, Title: key, Oldest: e.at, ChatID: f.chats[routine+"|"+key]}
+			sub = &store.RoutineSubject{Key: key, Title: key, Oldest: e.at}
 			by[key] = sub
 		}
 		sub.Pending++
@@ -81,31 +80,22 @@ func (f *fakeSubjects) AttachRoutineSubjectEvents(_ context.Context, run, routin
 	return n, nil
 }
 
-func (f *fakeSubjects) EnsureRoutineSubjectChat(_ context.Context, r store.Routine, subject, _ string) (string, bool, error) {
+func (f *fakeSubjects) EnsureLinearConversation(_ context.Context, key, title string) (store.Chat, bool, error) {
 	f.ev.st.mu.Lock()
 	defer f.ev.st.mu.Unlock()
-	if subject == "" {
-		return r.ChatID, false, nil
+	if id, ok := f.convs[key]; ok {
+		return store.Chat{ID: id, SourceKey: key, Origin: store.OriginLinear}, false, nil
 	}
-	if id, ok := f.chats[r.ID+"|"+subject]; ok {
-		return id, false, nil
-	}
-	id := "chat_" + subject
-	f.chats[r.ID+"|"+subject] = id
-	f.opened[id] = time.Now()
-	return id, true, nil
+	id := "chat_" + key
+	f.convs[key] = id
+	return store.Chat{ID: id, SourceKey: key, Origin: store.OriginLinear, Title: title}, true, nil
 }
 
-func (f *fakeSubjects) CountRoutineSubjectChatsSince(_ context.Context, routine string, _ time.Time) (int, error) {
+func (f *fakeSubjects) RecordLinearPeople(_ context.Context, key string, people []store.LinearPerson, _ time.Time) error {
 	f.ev.st.mu.Lock()
 	defer f.ev.st.mu.Unlock()
-	n := f.openedBefore[routine]
-	for key := range f.chats {
-		if len(key) > len(routine) && key[:len(routine)+1] == routine+"|" {
-			n++
-		}
-	}
-	return n, nil
+	f.people[key] = append(f.people[key], people...)
+	return nil
 }
 
 func (f *fakeSubjects) SetRoutineRunChat(_ context.Context, run, chatID string) error {
@@ -134,10 +124,12 @@ func newSubjectScheduler(t *testing.T, sub *fakeSubjects, runner *fakeRunner, no
 	return s
 }
 
-// perTicket is the triage routine with a chat per ticket.
+// perTicket is the triage routine that runs in each ticket's conversation. It has no chat of its
+// own: one is opened only if an event about no ticket needs it.
 func perTicket() store.Routine {
 	r := triage()
 	r.ChatMode = store.RoutineChatModeSubject
+	r.ChatID = ""
 	return r
 }
 
@@ -150,7 +142,7 @@ func finish(st *fakeStore, runID string) {
 	st.runs[runID] = run
 }
 
-func TestAChatPerTicketRunsEachTicketInItsOwnChatOneRunAtATime(t *testing.T) {
+func TestEachTicketsEventsRunInItsConversationOneRunAtATime(t *testing.T) {
 	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
 	st, runner := newFakeStore(), &fakeRunner{}
 	sub := newFakeSubjects(&fakeEvents{st: st})
@@ -162,12 +154,17 @@ func TestAChatPerTicketRunsEachTicketInItsOwnChatOneRunAtATime(t *testing.T) {
 	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
 	require.Len(t, runner.runs, 1, "one run of the routine at a time")
 	got := runner.runs[0]
-	assert.Equal(t, "chat_Issue:a", got.ChatID, "the ticket that waited longest, in its own chat")
-	assert.Equal(t, "chat_Issue:a", sub.runChats[got.RunID])
+	assert.Equal(t, "chat_linear:a", got.ChatID, "the ticket that waited longest, in the issue's conversation")
+	assert.True(t, got.Conversation, "a turn of the issue's conversation, not the routine's chat")
+	assert.True(t, strings.HasPrefix(got.Instruction, ConversationPreamble), "told it shares the issue's conversation")
+	assert.True(t, strings.HasSuffix(got.Instruction, "Label each new issue."))
+	assert.Equal(t, "chat_linear:a", sub.runChats[got.RunID])
 	given := sub.ev.given(got.RunID)
 	require.Len(t, given, 2, "every waiting event about that ticket, and nothing else")
 	assert.Equal(t, []int{first, third}, []int{given[0].id, given[1].id})
 	assert.Equal(t, 1, sub.ev.waiting("rtn_triage"))
+	assert.Empty(t, st.routines["rtn_triage"].ChatID, "the routine opened no chat of its own")
+	assert.Empty(t, sub.people["linear:a"], "a system routine has no owner to record")
 
 	// While that run goes, the next ticket waits.
 	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())
@@ -176,80 +173,70 @@ func TestAChatPerTicketRunsEachTicketInItsOwnChatOneRunAtATime(t *testing.T) {
 	finish(st, got.RunID)
 	newSubjectScheduler(t, sub, runner, now.Add(30*time.Second)).Tick(context.Background())
 	require.Len(t, runner.runs, 2)
-	assert.Equal(t, "chat_Issue:b", runner.runs[1].ChatID)
+	assert.Equal(t, "chat_linear:b", runner.runs[1].ChatID)
 	assert.Zero(t, sub.ev.waiting("rtn_triage"))
 
-	// The next event about the first ticket goes to the chat it already has.
+	// The next event about the first ticket goes to its conversation again.
 	finish(st, runner.runs[1].RunID)
 	sub.add("rtn_triage", "Issue:a", now.Add(40*time.Second))
 	newSubjectScheduler(t, sub, runner, now.Add(45*time.Second)).Tick(context.Background())
 	require.Len(t, runner.runs, 3)
-	assert.Equal(t, "chat_Issue:a", runner.runs[2].ChatID)
-	assert.Len(t, sub.chats, 2)
+	assert.Equal(t, "chat_linear:a", runner.runs[2].ChatID)
+	assert.Len(t, sub.convs, 2)
 }
 
-func TestABusyTicketChatIsPassedOverForTheNextTicket(t *testing.T) {
+// A project's events are its conversation's, and a personal routine's owner is recorded as
+// having touched what it ran on, which is what lets them read it there.
+func TestAProjectIsAConversationAndTheOwnerIsRecordedOnIt(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	sub := newFakeSubjects(&fakeEvents{st: st})
+	r := perTicket()
+	r.Scope, r.OwnerLogin, r.PersonalityID = store.RoutineScopePersonal, "ana@acme.com", "pers_ana"
+	st.routines[r.ID] = r
+	sub.add(r.ID, "Project:p", now.Add(-time.Minute))
+
+	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
+	require.Len(t, runner.runs, 1)
+	assert.Equal(t, "chat_linear:project:p", runner.runs[0].ChatID)
+	assert.Equal(t, "ana@acme.com", runner.runs[0].Login, "the run is its owner's, in whoever's conversation")
+	assert.Equal(t, "pers_ana", runner.runs[0].PersonalityID, "with the routine's assistant")
+	assert.Equal(t, []store.LinearPerson{{Login: "ana@acme.com", Via: store.LinearViaRoutine}}, sub.people["linear:project:p"])
+}
+
+// A conversation with a turn going — a delegation, somebody's mention, another routine — keeps
+// the routine's events about it waiting, as a second prompt would; the next ticket runs.
+func TestABusyConversationIsPassedOverForTheNextTicket(t *testing.T) {
 	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
 	st, runner := newFakeStore(), &fakeRunner{}
 	sub := newFakeSubjects(&fakeEvents{st: st})
 	st.routines["rtn_triage"] = perTicket()
-	sub.chats["rtn_triage|Issue:a"] = "chat_a"
-	st.busy["sess:"+store.ChatSourceKey("chat_a")] = true
+	st.busy["sess:linear:a"] = true
 	sub.add("rtn_triage", "Issue:a", now.Add(-2*time.Minute))
 	sub.add("rtn_triage", "Issue:b", now.Add(-time.Minute))
 
 	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
 	require.Len(t, runner.runs, 1)
-	assert.Equal(t, "chat_Issue:b", runner.runs[0].ChatID)
-	assert.Equal(t, 1, sub.ev.waiting("rtn_triage"), "the busy ticket's event waits for its chat")
+	assert.Equal(t, "chat_linear:b", runner.runs[0].ChatID)
+	assert.Equal(t, 1, sub.ev.waiting("rtn_triage"), "the busy ticket's event waits for its conversation")
 }
 
-func TestAnEventAboutNoTicketRunsInTheRoutinesOwnChat(t *testing.T) {
+// An event about no conversation — a cycle, a label, nothing — runs in the routine's own chat,
+// which is opened then, the first time one needs it.
+func TestAnEventAboutNoTicketOpensTheRoutinesOwnChatThen(t *testing.T) {
 	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
 	st, runner := newFakeStore(), &fakeRunner{}
 	sub := newFakeSubjects(&fakeEvents{st: st})
 	st.routines["rtn_triage"] = perTicket()
-	sub.add("rtn_triage", "", now.Add(-time.Minute))
+	sub.add("rtn_triage", "Cycle:c", now.Add(-time.Minute))
 
 	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
 	require.Len(t, runner.runs, 1)
-	assert.Equal(t, "chat_triage", runner.runs[0].ChatID)
-	assert.Empty(t, sub.chats, "no chat is opened for it")
-	assert.Empty(t, sub.runChats)
-}
-
-func TestARoutineThatOpensTooManyTicketChatsPausesItself(t *testing.T) {
-	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
-	st, runner := newFakeStore(), &fakeRunner{}
-	sub := newFakeSubjects(&fakeEvents{st: st})
-	r := perTicket()
-	r.Scope, r.OwnerLogin = store.RoutineScopePersonal, "ana@acme.com"
-	st.routines[r.ID] = r
-	sub.openedBefore[r.ID] = MaxSubjectChatsPerDay
-	sub.add(r.ID, "Issue:new", now.Add(-time.Minute))
-
-	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
-	assert.Empty(t, runner.runs)
-	got := st.routines[r.ID]
-	assert.False(t, got.Enabled)
-	assert.Contains(t, got.PausedReason, "50 chats, one per ticket, within 24 hours")
-	require.Len(t, st.notices, 1)
-	assert.Equal(t, 1, sub.ev.waiting(r.ID))
-}
-
-func TestATicketWithAChatAlreadyRunsPastTheChatCap(t *testing.T) {
-	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
-	st, runner := newFakeStore(), &fakeRunner{}
-	sub := newFakeSubjects(&fakeEvents{st: st})
-	st.routines["rtn_triage"] = perTicket()
-	sub.openedBefore["rtn_triage"] = MaxSubjectChatsPerDay
-	sub.chats["rtn_triage|Issue:a"] = "chat_a"
-	sub.add("rtn_triage", "Issue:a", now.Add(-time.Minute))
-
-	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
-	require.Len(t, runner.runs, 1, "the cap is on new chats; a ticket that has one is answered there")
-	assert.Equal(t, "chat_a", runner.runs[0].ChatID)
-	assert.True(t, st.routines["rtn_triage"].Enabled)
+	assert.Equal(t, "chat_rtn_triage", runner.runs[0].ChatID)
+	assert.False(t, runner.runs[0].Conversation)
+	assert.Equal(t, "Label each new issue.", runner.runs[0].Instruction)
+	assert.Equal(t, "chat_rtn_triage", st.routines["rtn_triage"].ChatID)
+	assert.Empty(t, sub.convs, "a cycle is no conversation")
 }
 
 func TestAPerTicketRoutineCannotBeRunByHand(t *testing.T) {
@@ -274,5 +261,22 @@ func TestARoutineInItsOwnChatRunsEveryTicketTogetherAsBefore(t *testing.T) {
 	require.Len(t, runner.runs, 1)
 	assert.Equal(t, "chat_triage", runner.runs[0].ChatID)
 	assert.Len(t, sub.ev.given(runner.runs[0].RunID), 2)
-	assert.Empty(t, sub.chats)
+	assert.Empty(t, sub.convs)
+}
+
+// A routine on Linear events that runs in its own chat opens it on its first run: none was
+// opened when it was made.
+func TestARoutineInItsOwnChatOpensItOnItsFirstRun(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	sub := newFakeSubjects(&fakeEvents{st: st})
+	r := triage()
+	r.ChatID = ""
+	st.routines[r.ID] = r
+	sub.add(r.ID, "Issue:a", now.Add(-time.Minute))
+
+	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
+	require.Len(t, runner.runs, 1)
+	assert.Equal(t, "chat_rtn_triage", runner.runs[0].ChatID)
+	assert.Equal(t, "chat_rtn_triage", st.routines[r.ID].ChatID)
 }

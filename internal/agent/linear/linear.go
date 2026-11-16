@@ -934,12 +934,13 @@ func ParseSessionRef(ref string) (issueID, teamID, identifier, sessionID string,
 	return parts[0], parts[1], parts[2], sessionID, nil
 }
 
-// SourceKey is a polled session's identity: the issue, for the life of the ticket.
+// SourceKey is an issue's conversation, for the life of the ticket: the poller's session, and
+// the agent app's, which every agent session on the issue is a turn of.
 func SourceKey(issueID string) string { return Kind + ":" + issueID }
 
-// SessionKey is the identity of a conversation the agent app holds: one Linear agent
-// session. A second delegation or mention on the same issue is a session of its own, and
-// reads the earlier ones through the issue's comments.
+// SessionKey is one Linear agent session within its issue's conversation: the thread a turn's
+// replies go to, and what a Stop pressed in it stops (AppSource.ThreadKey). Before issues were
+// conversations it was a conversation's own key, and chats from then are still keyed by it.
 func SessionKey(sessionID string) string { return Kind + ":session:" + sessionID }
 
 // withFooter adds the one line that says which Podium task said this. It is the thread a

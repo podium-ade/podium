@@ -87,3 +87,12 @@ select (
       select 1 from turns t where t.session_id = @session_id and t.status = 'running'
     ) then 1 else 0 end)
 )::int as ahead;
+
+-- ListQueuedTurns is every turn waiting in a session, oldest first.
+-- name: ListQueuedTurns :many
+select * from turn_queue where session_id = @session_id order by id;
+
+-- DeleteQueuedTurn drops one queued turn: a Stop in the one Linear agent session it came from
+-- (0048). Zero rows: it started, or another Stop took it, first.
+-- name: DeleteQueuedTurn :execrows
+delete from turn_queue where id = @id;

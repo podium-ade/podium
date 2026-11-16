@@ -35,6 +35,13 @@ type RoutineRun struct {
 	Override profiles.Override
 	// System is a system routine's run: its chat has no owner, and it runs as nobody.
 	System bool
+	// Conversation is a run in a Linear issue's or project's conversation rather than the
+	// routine's own chat (0048). That chat is the issue's, owned by whoever spoke in it first,
+	// and is shared by every turn about the issue: the run is still its routine's — its owner's,
+	// or nobody's — and it answers with its routine's assistant, never the chat's owner's.
+	Conversation bool
+	// PersonalityID is the routine's assistant, which a run in a conversation answers with.
+	PersonalityID string
 }
 
 // ErrChatBusy is a run for a chat that is answering, or has something waiting.
@@ -57,15 +64,28 @@ func (s *Source) RunRoutine(ctx context.Context, run RoutineRun) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case run.System:
-		if chat.Login != "" || run.Login != "" {
-			return fmt.Errorf("run routine: a system routine's chat %s must have no owner", run.ChatID)
+	var personalityName, personalityPrompt string
+	var personalityModel profiles.Override
+	if run.Conversation {
+		// The issue's conversation is nobody's in particular; the run is its routine's.
+		if !store.IsLinearConversation(chat.SourceKey) {
+			return fmt.Errorf("run routine: chat %s is not a Linear issue's or project's conversation", run.ChatID)
 		}
-	case chat.Login == "" || chat.Login != run.Login:
-		return fmt.Errorf("run routine: chat %s is not %s's", run.ChatID, run.Login)
+		if run.System && run.Login != "" {
+			return errors.New("run routine: a system routine runs as nobody")
+		}
+		personalityName, personalityPrompt, personalityModel, err = s.routinePersonality(ctx, run)
+	} else {
+		switch {
+		case run.System:
+			if chat.Login != "" || run.Login != "" {
+				return fmt.Errorf("run routine: a system routine's chat %s must have no owner", run.ChatID)
+			}
+		case chat.Login == "" || chat.Login != run.Login:
+			return fmt.Errorf("run routine: chat %s is not %s's", run.ChatID, run.Login)
+		}
+		personalityName, personalityPrompt, personalityModel, err = s.personalityFor(ctx, chat)
 	}
-	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)
 	if err != nil {
 		return err
 	}
@@ -118,6 +138,22 @@ func (s *Source) RunRoutine(ctx context.Context, run RoutineRun) error {
 		s.mu.Unlock()
 		return fmt.Errorf("run routine in chat %s: %w", run.ChatID, ctx.Err())
 	}
+}
+
+// routinePersonality is the assistant a run in a Linear conversation answers with: its
+// routine's, when that assistant is still its owner's. A system routine has none.
+func (s *Source) routinePersonality(ctx context.Context, run RoutineRun) (string, string, profiles.Override, error) {
+	if run.PersonalityID == "" || run.System {
+		return "", "", profiles.Override{}, nil
+	}
+	p, err := s.store.GetPersonality(ctx, run.PersonalityID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && p.Login != run.Login) {
+		return "", "", profiles.Override{}, ErrPersonalityGone
+	}
+	if err != nil {
+		return "", "", profiles.Override{}, err
+	}
+	return p.Name, p.Instructions, profiles.Override{Agent: p.Agent, Model: p.Model, Effort: p.Effort}, nil
 }
 
 // HoldsRun implements conductor.RoutineHolder.

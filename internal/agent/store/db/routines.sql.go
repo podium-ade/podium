@@ -150,23 +150,6 @@ func (q *Queries) CountRoutineRunsSince(ctx context.Context, arg CountRoutineRun
 	return column_1, err
 }
 
-const countRoutineSubjectChatsSince = `-- name: CountRoutineSubjectChatsSince :one
-select count(*)::int from routine_subject_chats where routine_id = $1 and created_at >= $2
-`
-
-type CountRoutineSubjectChatsSinceParams struct {
-	RoutineID string
-	Since     time.Time
-}
-
-// CountRoutineSubjectChatsSince is how many chats per ticket a routine opened in a window.
-func (q *Queries) CountRoutineSubjectChatsSince(ctx context.Context, arg CountRoutineSubjectChatsSinceParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countRoutineSubjectChatsSince, arg.RoutineID, arg.Since)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countRoutinesByOwner = `-- name: CountRoutinesByOwner :one
 select count(*)::int from routines where owner_login = $1
 `
@@ -385,9 +368,10 @@ where r.chat_id = $1
 limit 1
 `
 
-// GetRoutineByChat is the routine a chat belongs to: its own chat, or one of its chats per
-// ticket (0047), which carry chats.routine_id as its own chat does.
-func (q *Queries) GetRoutineByChat(ctx context.Context, chatID string) (Routine, error) {
+// GetRoutineByChat is the routine a chat belongs to: its own chat, or a chat per ticket it
+// opened before tickets were conversations (0047), which carries chats.routine_id as its own
+// chat does. A Linear issue's conversation belongs to no routine, whatever ran in it (0048).
+func (q *Queries) GetRoutineByChat(ctx context.Context, chatID *string) (Routine, error) {
 	row := q.db.QueryRow(ctx, getRoutineByChat, chatID)
 	var i Routine
 	err := row.Scan(
@@ -450,45 +434,6 @@ func (q *Queries) GetRoutineRun(ctx context.Context, id string) (RoutineRun, err
 	return i, err
 }
 
-const getRoutineSubjectChat = `-- name: GetRoutineSubjectChat :one
-select routine_id, subject_key, subject_title, chat_id, created_at from routine_subject_chats where routine_id = $1 and subject_key = $2
-`
-
-type GetRoutineSubjectChatParams struct {
-	RoutineID  string
-	SubjectKey string
-}
-
-func (q *Queries) GetRoutineSubjectChat(ctx context.Context, arg GetRoutineSubjectChatParams) (RoutineSubjectChat, error) {
-	row := q.db.QueryRow(ctx, getRoutineSubjectChat, arg.RoutineID, arg.SubjectKey)
-	var i RoutineSubjectChat
-	err := row.Scan(
-		&i.RoutineID,
-		&i.SubjectKey,
-		&i.SubjectTitle,
-		&i.ChatID,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getRoutineSubjectChatByChat = `-- name: GetRoutineSubjectChatByChat :one
-select routine_id, subject_key, subject_title, chat_id, created_at from routine_subject_chats where chat_id = $1
-`
-
-func (q *Queries) GetRoutineSubjectChatByChat(ctx context.Context, chatID string) (RoutineSubjectChat, error) {
-	row := q.db.QueryRow(ctx, getRoutineSubjectChatByChat, chatID)
-	var i RoutineSubjectChat
-	err := row.Scan(
-		&i.RoutineID,
-		&i.SubjectKey,
-		&i.SubjectTitle,
-		&i.ChatID,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const insertRoutine = `-- name: InsertRoutine :one
 
 insert into routines (
@@ -516,7 +461,7 @@ type InsertRoutineParams struct {
 	PersonalityID *string
 	Model         string
 	Effort        string
-	ChatID        string
+	ChatID        *string
 	NextRunAt     time.Time
 	Repos         []string
 	DailyCapUsd   *float64
@@ -703,42 +648,6 @@ func (q *Queries) InsertRoutineRun(ctx context.Context, arg InsertRoutineRunPara
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ChatID,
-	)
-	return i, err
-}
-
-const insertRoutineSubjectChat = `-- name: InsertRoutineSubjectChat :one
-insert into routine_subject_chats (routine_id, subject_key, subject_title, chat_id, created_at)
-values ($1, $2, $3, $4, $5)
-on conflict do nothing
-returning routine_id, subject_key, subject_title, chat_id, created_at
-`
-
-type InsertRoutineSubjectChatParams struct {
-	RoutineID    string
-	SubjectKey   string
-	SubjectTitle string
-	ChatID       string
-	CreatedAt    time.Time
-}
-
-// InsertRoutineSubjectChat gives a subject its chat. No row back means another tick gave it
-// one first.
-func (q *Queries) InsertRoutineSubjectChat(ctx context.Context, arg InsertRoutineSubjectChatParams) (RoutineSubjectChat, error) {
-	row := q.db.QueryRow(ctx, insertRoutineSubjectChat,
-		arg.RoutineID,
-		arg.SubjectKey,
-		arg.SubjectTitle,
-		arg.ChatID,
-		arg.CreatedAt,
-	)
-	var i RoutineSubjectChat
-	err := row.Scan(
-		&i.RoutineID,
-		&i.SubjectKey,
-		&i.SubjectTitle,
-		&i.ChatID,
-		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1144,10 +1053,8 @@ const pendingRoutineSubjects = `-- name: PendingRoutineSubjects :many
 select coalesce(e.subject_key, '')::text as subject_key,
        coalesce(max(e.subject_title), '')::text as subject_title,
        min(e.received_at)::timestamptz as oldest,
-       count(*)::int as pending,
-       coalesce(max(sc.chat_id), '')::text as chat_id
+       count(*)::int as pending
   from routine_events e
-  left join routine_subject_chats sc on sc.routine_id = e.routine_id and sc.subject_key = e.subject_key
  where e.routine_id = $1::text and e.run_id is null
  group by coalesce(e.subject_key, '')
  order by min(e.received_at), coalesce(e.subject_key, '')
@@ -1164,12 +1071,10 @@ type PendingRoutineSubjectsRow struct {
 	SubjectTitle string
 	Oldest       time.Time
 	Pending      int32
-	ChatID       string
 }
 
 // PendingRoutineSubjects is what a routine's waiting events are about, the subject waiting
-// longest first, with the chat each already has. An event about nothing in particular is the
-// subject ”.
+// longest first. An event about nothing in particular is the subject ”.
 func (q *Queries) PendingRoutineSubjects(ctx context.Context, arg PendingRoutineSubjectsParams) ([]PendingRoutineSubjectsRow, error) {
 	rows, err := q.db.Query(ctx, pendingRoutineSubjects, arg.RoutineID, arg.PageLimit)
 	if err != nil {
@@ -1184,7 +1089,6 @@ func (q *Queries) PendingRoutineSubjects(ctx context.Context, arg PendingRoutine
 			&i.SubjectTitle,
 			&i.Oldest,
 			&i.Pending,
-			&i.ChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -1489,6 +1393,57 @@ func (q *Queries) SetChatRoutine(ctx context.Context, arg SetChatRoutineParams) 
 	return err
 }
 
+const setRoutineChat = `-- name: SetRoutineChat :one
+update routines set chat_id = $1 where id = $2 and chat_id is null
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+`
+
+type SetRoutineChatParams struct {
+	ChatID *string
+	ID     string
+}
+
+// SetRoutineChat gives a routine that has no chat yet the one just opened for it (0048). No
+// row back means another tick gave it one first.
+func (q *Queries) SetRoutineChat(ctx context.Context, arg SetRoutineChatParams) (Routine, error) {
+	row := q.db.QueryRow(ctx, setRoutineChat, arg.ChatID, arg.ID)
+	var i Routine
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.OwnerLogin,
+		&i.Name,
+		&i.Schedule,
+		&i.Timezone,
+		&i.Instruction,
+		&i.InstructionUpdatedAt,
+		&i.Notes,
+		&i.ProposedNote,
+		&i.PersonalityID,
+		&i.Model,
+		&i.Effort,
+		&i.Enabled,
+		&i.PausedReason,
+		&i.State,
+		&i.StateUpdatedAt,
+		&i.ChatID,
+		&i.NextRunAt,
+		&i.LastRunAt,
+		&i.IdleCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Repos,
+		&i.DailyCapUsd,
+		&i.PausedUntil,
+		&i.CreatedBy,
+		&i.TriggerKind,
+		&i.Events,
+		&i.Teams,
+		&i.ChatMode,
+	)
+	return i, err
+}
+
 const setRoutineEnabled = `-- name: SetRoutineEnabled :one
 update routines
 set enabled = $1,
@@ -1654,8 +1609,8 @@ type SetRoutineRunChatParams struct {
 	ID     string
 }
 
-// SetRoutineRunChat records that a run happened in one subject's chat rather than the
-// routine's own (0047).
+// SetRoutineRunChat records the chat a run happened in when it was not the routine's own: a
+// Linear issue's or project's conversation (0048).
 func (q *Queries) SetRoutineRunChat(ctx context.Context, arg SetRoutineRunChatParams) error {
 	_, err := q.db.Exec(ctx, setRoutineRunChat, arg.ChatID, arg.ID)
 	return err

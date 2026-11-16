@@ -185,6 +185,8 @@ func (s *AgentService) ListChats(
 		FilterPersonality: req.Msg.GetFilterPersonality(),
 		PersonalityID:     req.Msg.GetPersonalityId(),
 		Section:           req.Msg.GetSection(),
+		// A Linear issue's conversation is in the Linear view, not here: there are hundreds.
+		ExcludeLinear: true,
 	})
 	if err != nil {
 		return nil, storeError(err)
@@ -1021,7 +1023,8 @@ func peopleToProto(ps []store.ChatParticipant) []*agentv1.ChatPerson {
 
 // surfacesOf is where a mirrored conversation lives, read from the session it records. The
 // key is the conductor's, and its mirrored shapes are fixed: slack:<channel>:<thread>,
-// github:<owner>/<repo>#<n> and linear:session:<id>. A web chat lives nowhere else.
+// github:<owner>/<repo>#<n>, linear:<issue id>, linear:project:<id> and, from before 0048,
+// linear:session:<id>. A web chat lives nowhere else.
 func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
 	switch {
 	case strings.HasPrefix(c.SourceKey, "slack:"):
@@ -1041,6 +1044,14 @@ func surfacesOf(c store.Chat) []*agentv1.ChatSurface {
 		// The session's link is the Linear source's to give (0038): a session's URL needs the
 		// workspace's slug, which the key does not carry.
 		return []*agentv1.ChatSurface{{Kind: store.ViaLinear, Label: "Linear session", Url: c.SourceURL}}
+	case strings.HasPrefix(c.SourceKey, "linear:"):
+		// An issue's or project's conversation (0048): every agent session on it, and every
+		// routine run about it. Its link is the issue's, which the deliveries carry.
+		label := "Linear issue"
+		if kind, _ := store.LinearKind(c.SourceKey); kind == store.LinearKindProject {
+			label = "Linear project"
+		}
+		return []*agentv1.ChatSurface{{Kind: store.ViaLinear, Label: label, Url: c.SourceURL}}
 	}
 	return nil
 }

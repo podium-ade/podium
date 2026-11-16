@@ -238,6 +238,13 @@ func (c *Conductor) linearFor(ctx context.Context, src Source, ref, sourceKey st
 			return lin, t.TriggerRef, true
 		}
 	}
+	// An issue's conversation that only routines have run in so far: the source names the issue
+	// from its key, with a ref that names no agent session.
+	if kr, ok := lin.(keyRefSource); ok {
+		if ref, ok := kr.RefForKey(sourceKey); ok {
+			return lin, ref, true
+		}
+	}
 	return nil, "", false
 }
 

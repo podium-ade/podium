@@ -11,7 +11,7 @@ insert into routines (
   repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode
 ) values (
   @id, @scope, sqlc.narg('owner_login'), @name, @schedule, @timezone, @instruction, @created_at,
-  @notes, sqlc.narg('personality_id'), @model, @effort, true, @chat_id, @next_run_at, @created_at, @created_at,
+  @notes, sqlc.narg('personality_id'), @model, @effort, true, sqlc.narg('chat_id'), @next_run_at, @created_at, @created_at,
   @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[], @chat_mode
 )
 returning *;
@@ -19,13 +19,20 @@ returning *;
 -- name: GetRoutine :one
 select * from routines where id = @id;
 
--- GetRoutineByChat is the routine a chat belongs to: its own chat, or one of its chats per
--- ticket (0047), which carry chats.routine_id as its own chat does.
+-- GetRoutineByChat is the routine a chat belongs to: its own chat, or a chat per ticket it
+-- opened before tickets were conversations (0047), which carries chats.routine_id as its own
+-- chat does. A Linear issue's conversation belongs to no routine, whatever ran in it (0048).
 -- name: GetRoutineByChat :one
 select r.* from routines r
 where r.chat_id = @chat_id
    or r.id = (select c.routine_id from chats c where c.id = @chat_id)
 limit 1;
+
+-- SetRoutineChat gives a routine that has no chat yet the one just opened for it (0048). No
+-- row back means another tick gave it one first.
+-- name: SetRoutineChat :one
+update routines set chat_id = @chat_id where id = @id and chat_id is null
+returning *;
 
 -- name: ListRoutinesByOwner :many
 select * from routines where owner_login = @owner_login order by name, id;
@@ -299,22 +306,19 @@ where routine_id = @routine_id and trigger = @trigger and created_at >= @since;
 -- name: DeleteUnstartedRoutineRun :exec
 delete from routine_runs where id = @id and status = 'running' and turn_id is null;
 
--- SetRoutineRunChat records that a run happened in one subject's chat rather than the
--- routine's own (0047).
+-- SetRoutineRunChat records the chat a run happened in when it was not the routine's own: a
+-- Linear issue's or project's conversation (0048).
 -- name: SetRoutineRunChat :exec
 update routine_runs set chat_id = @chat_id where id = @id;
 
 -- PendingRoutineSubjects is what a routine's waiting events are about, the subject waiting
--- longest first, with the chat each already has. An event about nothing in particular is the
--- subject ''.
+-- longest first. An event about nothing in particular is the subject ''.
 -- name: PendingRoutineSubjects :many
 select coalesce(e.subject_key, '')::text as subject_key,
        coalesce(max(e.subject_title), '')::text as subject_title,
        min(e.received_at)::timestamptz as oldest,
-       count(*)::int as pending,
-       coalesce(max(sc.chat_id), '')::text as chat_id
+       count(*)::int as pending
   from routine_events e
-  left join routine_subject_chats sc on sc.routine_id = e.routine_id and sc.subject_key = e.subject_key
  where e.routine_id = @routine_id::text and e.run_id is null
  group by coalesce(e.subject_key, '')
  order by min(e.received_at), coalesce(e.subject_key, '')
@@ -331,21 +335,3 @@ where id in (
   limit @max::int
   for update skip locked
 );
-
--- name: GetRoutineSubjectChat :one
-select * from routine_subject_chats where routine_id = @routine_id and subject_key = @subject_key;
-
--- name: GetRoutineSubjectChatByChat :one
-select * from routine_subject_chats where chat_id = @chat_id;
-
--- InsertRoutineSubjectChat gives a subject its chat. No row back means another tick gave it
--- one first.
--- name: InsertRoutineSubjectChat :one
-insert into routine_subject_chats (routine_id, subject_key, subject_title, chat_id, created_at)
-values (@routine_id, @subject_key, @subject_title, @chat_id, @created_at)
-on conflict do nothing
-returning *;
-
--- CountRoutineSubjectChatsSince is how many chats per ticket a routine opened in a window.
--- name: CountRoutineSubjectChatsSince :one
-select count(*)::int from routine_subject_chats where routine_id = @routine_id and created_at >= @since;

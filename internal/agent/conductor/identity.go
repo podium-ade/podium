@@ -396,6 +396,12 @@ func (c *Conductor) turnLogin(ctx context.Context, src Source, sess store.Sessio
 	if l := strings.TrimSpace(ev.Login); l != "" && !ev.Automatic {
 		return l
 	}
+	if ev.Routine != nil {
+		// A routine's run is its owner's, or nobody's for a system routine — never the chat's
+		// owner's. A run in a Linear issue's conversation is in a chat whose owner is whoever
+		// spoke in it first, and must not run with their secrets.
+		return ""
+	}
 	return c.asker(ctx, src, sess)
 }
 
