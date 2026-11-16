@@ -19,7 +19,7 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
-import { oauthExpired } from "../../lib/providerCredential";
+import { keyRefused, oauthExpired } from "../../lib/providerCredential";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Alert } from "../ui/alert";
@@ -41,6 +41,11 @@ import { BrandTile } from "./BrandIcon";
 
 /** How many model ids the confirmation card shows before it stops. */
 const MODEL_CHIPS = 6;
+
+// The row's two action slots keep one width whatever their label, so Connect, Rotate key and
+// Sign in again line up down the table, and so do Remove key and Sign out.
+const primaryAction = "min-w-32";
+const removeAction = "min-w-28";
 
 type Result =
   | { tone: "ok"; text: string; models: string[]; note?: string }
@@ -304,6 +309,7 @@ export function ProviderCard({
 
   const subscriptionStored = settings?.authKind === "oauth";
   const expired = oauthExpired(settings);
+  const refused = keyRefused(settings);
   const showWork = !readOnly && !loading && (rotating || (!stored && open) || signing !== undefined);
   const signInAgain = () => {
     setRotating(true);
@@ -331,8 +337,8 @@ export function ProviderCard({
               <Skeleton className="h-4 w-16" />
             </div>
           ) : (
-            <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
-              {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+            <Badge tone={refused ? "err" : expired ? "warn" : keySet ? "ok" : "idle"}>
+              {refused ? "Key refused" : expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
             </Badge>
           )}
         </TableCell>
@@ -356,12 +362,18 @@ export function ProviderCard({
           {loading || readOnly ? null : (
             <div className="flex items-center justify-end gap-2">
               {!stored && !showWork ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={primaryAction}
+                  onClick={() => setOpen(true)}
+                >
                   Connect
                 </Button>
               ) : null}
               {stored && !rotating && !expired ? (
-                <Button variant="outline" size="sm" onClick={signInAgain}>
+                <Button variant="outline" size="sm" className={primaryAction} onClick={signInAgain}>
                   {subscriptionStored ? "Sign in again" : "Rotate key"}
                 </Button>
               ) : null}
@@ -370,12 +382,15 @@ export function ProviderCard({
                   variant="ghost"
                   size="sm"
                   data-testid={tid("provider-key-remove")}
-                  className="text-err hover:bg-err-bg"
+                  className={cn(removeAction, "text-err hover:bg-err-bg")}
                   onClick={() => setConfirming(true)}
                 >
                   {subscriptionStored ? "Sign out" : "Remove key"}
                 </Button>
-              ) : null}
+              ) : (
+                // Holds Remove's place, so every row's first button starts at the same x.
+                <span aria-hidden className={cn(removeAction, "shrink-0")} />
+              )}
             </div>
           )}
         </TableCell>
@@ -842,6 +857,12 @@ function Connected({ settings, personal }: { settings?: ProviderSettings; person
         ••••{settings.keyHint}
         {settings.setBy && !personal ? ` · set by ${settings.setBy}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
+        {settings.refusedAt ? (
+          <span className="block text-err" title={settings.refusal || undefined}>
+            refused {relative(settings.refusedAt)}
+            {settings.refusal ? `: ${settings.refusal}` : ""}
+          </span>
+        ) : null}
       </>
     );
   }

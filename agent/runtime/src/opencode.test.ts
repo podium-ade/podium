@@ -8,6 +8,7 @@ import {
   endedOnModelTurn,
   errorOf,
   lostToNetwork,
+  credentialRefused,
   resetTakesThinking,
   takesThinking,
   AgentName,
@@ -505,6 +506,21 @@ describe("lostToNetwork", () => {
     expect(lostToNetwork("credit balance is too low")).toBe(false);
     expect(lostToNetwork("Requests ending with a model turn are not supported")).toBe(false);
     expect(lostToNetwork(undefined)).toBe(false);
+  });
+});
+
+describe("credentialRefused", () => {
+  it("knows a refused credential from every other provider error", () => {
+    // What three reviews on popos died of after the Anthropic key expired.
+    expect(credentialRefused("invalid x-api-key")).toBe(true);
+    expect(credentialRefused('{"type":"authentication_error","message":"invalid x-api-key"}')).toBe(true);
+    expect(credentialRefused("Incorrect API key provided: sk-...abcd")).toBe(true);
+    expect(credentialRefused("API key not valid. Please pass a valid API key.")).toBe(true);
+    expect(credentialRefused("API key expired. Please renew the API key.")).toBe(true);
+    expect(credentialRefused("credit balance is too low")).toBe(false);
+    expect(credentialRefused("Overloaded")).toBe(false);
+    expect(credentialRefused("rate_limit_error")).toBe(false);
+    expect(credentialRefused(undefined)).toBe(false);
   });
 });
 

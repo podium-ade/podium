@@ -450,7 +450,7 @@ function Triggers({ p }: { p: PlaybookDefinition }) {
   const chips = [
     (p.slackChannels ?? []).length > 0 ? "Slack" : "",
     p.linear ? "Linear" : "",
-    p.github ? "GitHub" : "",
+    p.github || (p.githubRepos ?? []).length > 0 ? "GitHub" : "",
   ].filter(Boolean);
   if (chips.length === 0) return <span className="text-xs text-faint">Chat</span>;
   return (
@@ -487,6 +487,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     slackChannels: draft.slackChannels,
     linear: draft.linear,
     github: draft.github,
+    githubRepos: draft.githubRepos,
     githubRequires: draft.githubRequires,
     interactive: draft.interactive,
     docker: draft.docker,

@@ -5,6 +5,7 @@ import { Avatar } from "./Avatar";
 import { Badge } from "./Badge";
 import { GoogleSignIn } from "./SignInControls";
 import { Button } from "./ui/button";
+import { brandName } from "../lib/brand";
 
 /**
  * IdentityCard is the Account section of Settings: who this browser is, and Google
@@ -32,7 +33,7 @@ export function IdentityCard() {
       </header>
       <p className="max-w-[68ch] text-sm text-soft">
         {claimed && viewer.hostedDomain
-          ? `This Podium instance belongs to the ${viewer.hostedDomain} Workspace.`
+          ? `This ${brandName(viewer)} instance belongs to the ${viewer.hostedDomain} Workspace.`
           : "The first person to confirm claims this instance for their domain. Later sign-ins from that Workspace join as members."}
       </p>
       <div className="flex min-w-0 items-center gap-3">

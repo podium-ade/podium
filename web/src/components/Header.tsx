@@ -12,6 +12,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { cn } from "@/lib/utils";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel, type Viewer } from "../lib/identity";
+import { HOUSE_NAME, useBrand } from "../lib/brand";
 import { Avatar } from "./Avatar";
 import { PodiumMark } from "./PodiumMark";
 import {
@@ -181,7 +182,12 @@ function Folder({
 const shortcutLabel =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘K" : "Ctrl K";
 
+/**
+ * Wordmark is the product's name beside its mark. Podium's own is set lowercase with an accent
+ * dot; a renamed deployment ("Acme AI") is written as its admin typed it.
+ */
 function Wordmark({ collapsed }: { collapsed: boolean }) {
+  const brand = useBrand();
   return (
     <div
       className={cn(
@@ -190,9 +196,18 @@ function Wordmark({ collapsed }: { collapsed: boolean }) {
       )}
     >
       <PodiumMark className="size-9" />
-      <span className={cn("ml-3 text-[1.35rem] font-[760] text-fg", collapsed && "md:hidden")}>
-        podium<span className="text-accent">.</span>
-      </span>
+      {brand === HOUSE_NAME ? (
+        <span className={cn("ml-3 text-[1.35rem] font-[760] text-fg", collapsed && "md:hidden")}>
+          podium<span className="text-accent">.</span>
+        </span>
+      ) : (
+        <span
+          className={cn("ml-3 min-w-0 truncate text-[1.2rem] font-[700] tracking-[-0.02em] text-fg", collapsed && "md:hidden")}
+          title={brand}
+        >
+          {brand}
+        </span>
+      )}
     </div>
   );
 }

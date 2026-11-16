@@ -87,6 +87,9 @@ var catalog = map[string]string{
 	podiumv1connect.SandboxProviderServiceSetSandboxProviderProcedure:    store.RoleAdmin,
 	podiumv1connect.SandboxProviderServiceDeleteSandboxProviderProcedure: store.RoleAdmin,
 
+	podiumv1connect.OrganizationServiceGetOrganizationProcedure:    store.RoleMember,
+	podiumv1connect.OrganizationServiceUpdateOrganizationProcedure: store.RoleAdmin,
+
 	agentv1connect.AgentServiceListSessionsProcedure:      store.RoleMember,
 	agentv1connect.AgentServiceGetSessionProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListTurnsProcedure:         store.RoleMember,
@@ -137,6 +140,9 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
+	// Paging back through a chat's history is reading it, as StreamChat is: member is the
+	// gate, and the conductor checks the caller may read that chat.
+	agentv1connect.AgentServiceListChatMessagesProcedure:      store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
 	// Routines: any member keeps their own, and the conductor answers only for routines the

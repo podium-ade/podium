@@ -206,12 +206,13 @@ func (c *Conductor) withEarlierHistory(ctx context.Context, src Source, ref stri
 
 // botName is how the bot's own words are attributed in a transcript.
 func (c *Conductor) botName() string {
+	name := ""
 	if c.profiles != nil {
-		if p := c.profiles.Current(); p != nil && p.DisplayName != "" {
-			return p.DisplayName
+		if p := c.profiles.Current(); p != nil {
+			name = p.DisplayName
 		}
 	}
-	return "Podium"
+	return displayNameFor(name, c.cachedBranding())
 }
 
 // recordLines turns a chat's record into transcript lines. Progress and activity are left out

@@ -230,6 +230,7 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		SlackChannels:  s.SlackChannels,
 		Linear:         s.Linear,
 		Github:         s.GitHub,
+		GithubRepos:    s.GitHubRepos,
 		GithubRequires: s.GitHubRequires,
 		Skills:         s.Skills,
 		McpServers:     s.MCPServers,
