@@ -83,6 +83,24 @@ func (c *Conductor) sameAsker(st *sessionState, src Source, ev InboundEvent) boo
 		ev.Routine == nil && !isRoutineThread(st.turnThread)
 }
 
+// answersQuestion reports whether ev, said in the web chat of a Linear ticket's conversation,
+// is the answer to the question the task st awaits asked: it is from the person whose turn
+// asked, on any surface the turn began on — a Linear agent session, the web chat, or their
+// routine's run. The answer is the same person's words to the same task, and the task already
+// runs with their credentials; what it says next goes where its turn answers, and the reply
+// itself is posted to the issue as theirs (relay.go). The caller holds c.mu and has checked
+// that st awaits a task.
+func (c *Conductor) answersQuestion(st *sessionState, src Source, ev InboundEvent) bool {
+	if src == nil || src.Kind() != SourceChat || ev.Routine != nil {
+		return false
+	}
+	if kind, _ := store.LinearKind(ev.SourceKey); kind == "" {
+		return false
+	}
+	login, _ := c.askerOf(src, ev)
+	return login != "" && login == st.turnLogin
+}
+
 // setTurnAsker records whose turn a session is running, and of which playbook, for
 // sameAsker and for the lease's warm task. Called as each turn starts.
 func (c *Conductor) setTurnAsker(sessionID string, src Source, ev InboundEvent, playbook string) {

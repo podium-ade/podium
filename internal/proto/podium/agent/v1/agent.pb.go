@@ -11725,7 +11725,9 @@ func (*MarkChatReadResponse) Descriptor() ([]byte, []int) {
 type Notification struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	// kind is "share", "mention" or "routine" (a routine of yours was paused).
+	// kind is "share", "mention", "routine" (a routine of yours was paused) or "question" (the
+	// assistant asked you something in a Linear ticket's conversation; it stays unread until the
+	// conversation hears from somebody, and is answered by sending to chat_id).
 	Kind      string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
 	ChatId    string `protobuf:"bytes,3,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
 	ChatTitle string `protobuf:"bytes,4,opt,name=chat_title,json=chatTitle,proto3" json:"chat_title,omitempty"`
@@ -11735,10 +11737,15 @@ type Notification struct {
 	Actor     string                 `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Read      bool                   `protobuf:"varint,8,opt,name=read,proto3" json:"read,omitempty"`
-	// detail is what a routine notice says happened ("5 runs failed within an hour").
-	Detail        string `protobuf:"bytes,9,opt,name=detail,proto3" json:"detail,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// detail is what a routine notice says happened ("5 runs failed within an hour"), or a
+	// question's text.
+	Detail string `protobuf:"bytes,9,opt,name=detail,proto3" json:"detail,omitempty"`
+	// linear_identifier and linear_title are the ticket a Linear conversation is about ("ENG-12",
+	// its title), as the webhooks described it; empty for any other chat.
+	LinearIdentifier string `protobuf:"bytes,10,opt,name=linear_identifier,json=linearIdentifier,proto3" json:"linear_identifier,omitempty"`
+	LinearTitle      string `protobuf:"bytes,11,opt,name=linear_title,json=linearTitle,proto3" json:"linear_title,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Notification) Reset() {
@@ -11830,6 +11837,20 @@ func (x *Notification) GetRead() bool {
 func (x *Notification) GetDetail() string {
 	if x != nil {
 		return x.Detail
+	}
+	return ""
+}
+
+func (x *Notification) GetLinearIdentifier() string {
+	if x != nil {
+		return x.LinearIdentifier
+	}
+	return ""
+}
+
+func (x *Notification) GetLinearTitle() string {
+	if x != nil {
+		return x.LinearTitle
 	}
 	return ""
 }
@@ -11931,9 +11952,11 @@ func (x *ListNotificationsResponse) GetNotifications() []*Notification {
 }
 
 type MarkNotificationsReadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ids           []int64                `protobuf:"varint,1,rep,packed,name=ids,proto3" json:"ids,omitempty"`
-	All           bool                   `protobuf:"varint,2,opt,name=all,proto3" json:"all,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ids   []int64                `protobuf:"varint,1,rep,packed,name=ids,proto3" json:"ids,omitempty"`
+	// all marks every unread notification read except an open question, which only an answer,
+	// or naming it in ids, closes.
+	All           bool `protobuf:"varint,2,opt,name=all,proto3" json:"all,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18424,7 +18447,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x13MarkChatReadRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\"\x16\n" +
-	"\x14MarkChatReadResponse\"\xf9\x01\n" +
+	"\x14MarkChatReadResponse\"\xc9\x02\n" +
 	"\fNotification\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x17\n" +
@@ -18436,7 +18459,10 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x12\n" +
 	"\x04read\x18\b \x01(\bR\x04read\x12\x16\n" +
-	"\x06detail\x18\t \x01(\tR\x06detail\"Q\n" +
+	"\x06detail\x18\t \x01(\tR\x06detail\x12+\n" +
+	"\x11linear_identifier\x18\n" +
+	" \x01(\tR\x10linearIdentifier\x12!\n" +
+	"\flinear_title\x18\v \x01(\tR\vlinearTitle\"Q\n" +
 	"\x18ListNotificationsRequest\x12\x1f\n" +
 	"\vunread_only\x18\x01 \x01(\bR\n" +
 	"unreadOnly\x12\x14\n" +

@@ -80,6 +80,13 @@ type Store interface {
 	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
 }
 
+// QuestionStore is the optional half of Store that says whether a Linear ticket's conversation
+// waits on a question, and whom it was asked of (answersQuestion). A store without it never
+// takes a message as an answer.
+type QuestionStore interface {
+	GetLinearIssue(ctx context.Context, sourceKey string) (store.LinearIssue, error)
+}
+
 // Options is what a Source needs.
 type Options struct {
 	Store Store
@@ -338,7 +345,12 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	//
 	// The assistant answers to its name and to the display name the chat was opened with, which
 	// is the one a participant who does not own it can see (and the one the composer inserts).
-	addressed := !chat.Multiplayer || MentionsPodium(req.Text, personalityName) ||
+	//
+	// In a Linear ticket's conversation that waits on a question, the person it was asked of
+	// answers it without naming anybody: what they send is put to Podium (answersQuestion). The
+	// inbox's reply box sends here, so answering there is the same as answering in the chat.
+	answering := s.answersQuestion(ctx, chat, req.Login)
+	addressed := !chat.Multiplayer || answering || MentionsPodium(req.Text, personalityName) ||
 		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay))
 
 	now := time.Now().UTC()
@@ -353,7 +365,9 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		ahead = s.ahead(ctx, req.ChatID)
 	}
 	// A task that asked a question is waiting for exactly this: the answer goes in now.
-	held := addressed && ahead > 0 && !s.awaiting(req.ChatID)
+	// So is an answer to a question asked in a Linear ticket's conversation, whichever surface
+	// asked it: the turn that asked is the one in progress, waiting for it.
+	held := addressed && ahead > 0 && !s.awaiting(req.ChatID) && !answering
 	var msg store.ChatMessage
 	if !held {
 		msg, err = s.record(ctx, chat, req.Login, req.Text, now, addressed)
@@ -482,6 +496,25 @@ func (s *Source) RecordHeld(ctx context.Context, ev *conductor.InboundEvent) err
 	ev.ChatSeq = msg.Seq
 	ev.Held = false
 	return nil
+}
+
+// answersQuestion reports whether login is who the open question in chat's Linear ticket
+// conversation was asked of (linear_issues.asked_of, 0048). A conversation that waits on
+// nobody, or on somebody else, and any other chat, is not answered this way. A read that fails
+// is no answer: the message is then what it would otherwise have been.
+func (s *Source) answersQuestion(ctx context.Context, chat store.Chat, login string) bool {
+	if login == "" || !store.IsLinearConversation(chat.SourceKey) {
+		return false
+	}
+	qs, ok := s.store.(QuestionStore)
+	if !ok {
+		return false
+	}
+	li, err := qs.GetLinearIssue(ctx, chat.SourceKey)
+	if err != nil {
+		return false
+	}
+	return li.AskedAt != nil && li.AskedOf != "" && li.AskedOf == login
 }
 
 // DefaultPlacedWait is how long Send waits to hear where its message went before it answers

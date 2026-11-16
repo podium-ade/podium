@@ -548,6 +548,7 @@ func (s *AgentService) ListNotifications(
 		out = append(out, &agentv1.Notification{
 			Id: n.ID, Kind: n.Kind, ChatId: n.ChatID, ChatTitle: n.ChatTitle, Seq: n.Seq,
 			Actor: n.Actor, Detail: n.Detail, CreatedAt: timestamppb.New(n.CreatedAt), Read: n.Read,
+			LinearIdentifier: n.LinearIdentifier, LinearTitle: n.LinearTitle,
 		})
 	}
 	return connect.NewResponse(&agentv1.ListNotificationsResponse{Notifications: out}), nil

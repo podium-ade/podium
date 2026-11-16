@@ -1995,7 +1995,9 @@ message MarkChatReadResponse {}
 // Notification is one entry in the caller's inbox.
 message Notification {
   int64 id = 1;
-  // kind is "share", "mention" or "routine" (a routine of yours was paused).
+  // kind is "share", "mention", "routine" (a routine of yours was paused) or "question" (the
+  // assistant asked you something in a Linear ticket's conversation; it stays unread until the
+  // conversation hears from somebody, and is answered by sending to chat_id).
   string kind = 2;
   string chat_id = 3;
   string chat_title = 4;
@@ -2005,8 +2007,13 @@ message Notification {
   string actor = 6;
   google.protobuf.Timestamp created_at = 7;
   bool read = 8;
-  // detail is what a routine notice says happened ("5 runs failed within an hour").
+  // detail is what a routine notice says happened ("5 runs failed within an hour"), or a
+  // question's text.
   string detail = 9;
+  // linear_identifier and linear_title are the ticket a Linear conversation is about ("ENG-12",
+  // its title), as the webhooks described it; empty for any other chat.
+  string linear_identifier = 10;
+  string linear_title = 11;
 }
 
 message ListNotificationsRequest {
@@ -2020,6 +2027,8 @@ message ListNotificationsResponse {
 
 message MarkNotificationsReadRequest {
   repeated int64 ids = 1;
+  // all marks every unread notification read except an open question, which only an answer,
+  // or naming it in ids, closes.
   bool all = 2;
 }
 
