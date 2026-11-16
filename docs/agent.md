@@ -2230,6 +2230,16 @@ failed), and a team. The list is filtered and paged on the server, fifty rows at
 workspace with thousands of issues is never read whole. A row opens the issue's conversation,
 read-only as a pull request's is for anybody who is not a participant.
 
+**Table | Board** switches the same issues, under the same filters, to a board with a column per
+state type in Linear, in Linear's order: *Backlog*, *Todo*, *In progress*, *Done* and *Canceled*
+always, and *Triage* and *No state* (a project, or an issue whose state no delivery named yet) only
+when something is in them. Each column is its own server query: it shows the ten most recently
+active, its header says how many the filters match, and **Load more** reads the next ten of that
+column alone. A card opens the issue's conversation, and its identifier the issue in Linear. The
+board only reads: a card moves when Linear says the issue did, and is not dragged, since moving
+it would mean writing to Linear. The layout is `?view=board` in the URL, so a board can be
+linked, and each browser remembers the one last chosen.
+
 Admins and owners see every issue. Anybody else sees an issue they touched in Linear once their
 Linear account is linked to Podium ([Who is who](#who-is-who)): the conductor records, as the
 deliveries arrive, which Linear accounts created an issue, were assigned it, delegated it,
@@ -3988,7 +3998,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartMcpOAuth`, `CompleteMcpOAuth` | signing in to a server that speaks OAuth: discovery, dynamic client registration and the code exchange. The verifier stays on the conductor; the browser carries a flow id |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
-| `ListLinearConversations` | the Linear view: one row per Linear issue's conversation the caller may read, filtered and paged on the server |
+| `ListLinearConversations` | the Linear view: one row per Linear issue's conversation the caller may read, filtered (also to one Linear state type, a board column) and paged on the server; the first page carries the filters' total |
 | `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 

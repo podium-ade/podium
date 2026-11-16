@@ -469,6 +469,31 @@ person's own Linear MCP server, not tools of Podium's; and the trust that follow
   wrote. agent.md: the inbox item and Linear-from-chat under *The Linear view*, and two example
   routines (a weekday digest, bulk triage) under *Routines*.
 
+## The board
+
+Built on `feature/linear-13-ticket-context-scope`. What the user asked for: a kanban board of the
+Linear view, at most ten cards a column, with a Load more on each.
+
+- **Columns are Linear's state types**, in Linear's order: Triage, Backlog, Todo (`unstarted`),
+  In progress (`started`), Done (`completed`), Canceled, then No state. Triage and No state show
+  only while something is in them (many teams leave triage off; a project and an issue no
+  delivery gave a state to have none); the rest always show, so the board keeps its shape.
+- **One query a column.** `ListLinearConversationsRequest.linear_state_type` narrows the view's
+  query to one type (`none` for the rest, a project always among them) next to mine, team and
+  state; the keyset paging is unchanged, so each column has its own cursor and Load more reads
+  ten more of that column only. Anything else is `invalid_argument`.
+- **Totals for free.** The response's `total`, on a first page only, is `count(*) over ()` in the
+  same query: ordering by last activity already computes every matching row, so a column's header
+  reads its count without a second query. The table gets it too and ignores it.
+- **The web.** A Table | Board toggle in the filter row (the toggles' height); `?view=board` in the
+  URL, remembered per browser in `localStorage`. The filters apply to every column; the team
+  filter's list comes from the Backlog column's response, which is always on the board. Columns
+  keep the previous filter's cards, dimmed, while a new one loads; the skeleton is the first load
+  only. A card's title is a link stretched over the card, its identifier a link to Linear above it.
+- **No drag and drop.** Moving a card would be writing an issue's state to Linear as somebody;
+  out of scope. A card moves when a webhook says its issue did.
+- **No migration.** The query change is read-only.
+
 ## Testing
 
 - **Unit:** extend `stub_test.go` to serve the OAuth token endpoint and the agent mutations.
@@ -503,6 +528,8 @@ Across the whole stack, what is still open:
   (phase 0) captured payloads with a throwaway listener; every phase since was built against
   those fixtures and a GraphQL stub. One live pass per phase on the dev stack, through a tunnel,
   is still owed.
+- **The board has not been looked at against a running conductor**, nor its store test run
+  (`TestTheLinearBoardListsOneStateTypeAPage`, needs Postgres); the web is covered by vitest.
 - **The stack's integration tests and `make e2e` have not been run.** They compile. The ones that
   matter here are in `internal/agent/conductor` (`gate_`, `linear_mirror_`, `cancel_session_`,
   `linear_routing_integration_test.go`) and need Postgres.
