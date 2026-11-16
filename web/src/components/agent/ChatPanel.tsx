@@ -61,6 +61,7 @@ import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
+import { LinearIssuePanel } from "./LinearIssuePanel";
 import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { TicketState, TicketTitle } from "./chat/Ticket";
@@ -1766,6 +1767,10 @@ function Conversation({
           }
         />
         {routineId ? <RoutineCard chatId={chatId} /> : null}
+        {/* A Linear issue's conversation is headed by the issue as Linear has it now. */}
+        {origin === "linear" ? (
+          <LinearIssuePanel chatId={chatId} pullRequests={stream.pullRequests} refreshKey={stream.messages.length} />
+        ) : null}
         {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
             title and above the composer, it read as a new chat. */}
         <Suspense fallback={<ThreadLoading />}>
