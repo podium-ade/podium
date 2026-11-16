@@ -222,7 +222,10 @@ func TestAStopMidTaskStopsTheTurnAndClosesTheSession(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, h.deliver(h.fixture(t, "session_prompted_stop"), "delivery-1").Code)
 	h.noEvent(t)
-	assert.Equal(t, []string{SessionKey(delegationSession)}, h.stopped())
+	assert.Equal(t, []string{SessionKey(delegationSession)}, h.stopped(), "what this agent session started")
+	h.mu.Lock()
+	assert.Equal(t, []string{SourceKey(fixtureIssue)}, h.stopKeys, "in its issue's conversation")
+	h.mu.Unlock()
 	acts := h.activities()
 	require.Len(t, acts, before+1, "what the throttle held is not said after the stop")
 	assert.Equal(t, map[string]any{"type": "response", "body": "Stopped."}, acts[before]["content"])

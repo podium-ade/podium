@@ -114,9 +114,10 @@ func (s *Scheduler) startEvents(ctx context.Context, r store.Routine, now time.T
 	return s.startEventRun(ctx, r, now, nil)
 }
 
-// startEventRun is startEvents for the events about one subject alone when sub is set, in that
-// subject's chat, which is opened here when it has none. Nil is every waiting event, in the
-// routine's own chat.
+// startEventRun is startEvents for the events about one subject alone when sub is set: an
+// issue's or a project's in its conversation, which is opened here when it has none, and a
+// cycle's or a label's in the routine's own chat. Nil is every waiting event, in the routine's
+// own chat, which is opened here the first time a run needs it.
 func (s *Scheduler) startEventRun(ctx context.Context, r store.Routine, now time.Time, sub *store.RoutineSubject) (store.RoutineRun, error) {
 	run, ok, err := s.store.ClaimRoutineRun(ctx, r.ID, now, store.RoutineTriggerEvent, store.RoutineRunRunning)
 	if err != nil {
@@ -141,21 +142,30 @@ func (s *Scheduler) startEventRun(ctx context.Context, r store.Routine, now time
 		}
 		return store.RoutineRun{}, err
 	}
-	target := r
-	if sub != nil && sub.Key != "" {
-		chatID, err := s.subjectChat(ctx, r, run, *sub)
-		if err != nil {
-			s.releaseEvents(ctx, run.ID)
-			if _, _, serr := s.store.SettleRoutineRun(ctx, run.ID, store.RoutineRunFailed,
-				"The run could not start: "+err.Error(), nil); serr != nil {
-				s.logger.WarnContext(ctx, "settling a run that did not start failed", "run_id", run.ID, "error", serr)
-			}
-			s.checkFailures(ctx, r.ID, now)
-			return run, err
-		}
-		target.ChatID = chatID
+	target, conversation := r, false
+	var where error
+	if key := subjectKey(sub); key != "" {
+		target.ChatID, where = s.subjectConversation(ctx, r, run, key, sub.Title)
+		conversation = true
+	} else if target.ChatID == "" {
+		// A routine on Linear events opens its own chat the first time a run needs it.
+		target.ChatID, where = s.routineChat(ctx, r)
 	}
-	if err := s.runner.RunRoutine(ctx, chatRun(target, run)); err != nil {
+	if where != nil {
+		s.releaseEvents(ctx, run.ID)
+		if _, _, serr := s.store.SettleRoutineRun(ctx, run.ID, store.RoutineRunFailed,
+			"The run could not start: "+where.Error(), nil); serr != nil {
+			s.logger.WarnContext(ctx, "settling a run that did not start failed", "run_id", run.ID, "error", serr)
+		}
+		s.checkFailures(ctx, r.ID, now)
+		return run, where
+	}
+	cr := chatRun(target, run)
+	if conversation {
+		cr.Conversation = true
+		cr.Instruction = ConversationPreamble + cr.Instruction
+	}
+	if err := s.runner.RunRoutine(ctx, cr); err != nil {
 		s.releaseEvents(ctx, run.ID)
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
 		if errors.Is(err, chat.ErrChatBusy) {
@@ -185,4 +195,24 @@ func (s *Scheduler) releaseEvents(ctx context.Context, runID string) {
 	if _, err := s.events.ReleaseRoutineEvents(context.WithoutCancel(ctx), runID); err != nil {
 		s.logger.WarnContext(ctx, "putting a run's Linear events back failed", "run_id", runID, "error", err)
 	}
+}
+
+// subjectKey is the conversation sub's events run in, "" for the routine's own chat.
+func subjectKey(sub *store.RoutineSubject) string {
+	if sub == nil {
+		return ""
+	}
+	return store.LinearConversationKey(sub.Key)
+}
+
+// routineChat is r's own chat, opened now when it has none.
+func (s *Scheduler) routineChat(ctx context.Context, r store.Routine) (string, error) {
+	chatID, created, err := s.store.EnsureRoutineChat(ctx, r)
+	if err != nil {
+		return "", err
+	}
+	if created {
+		s.logger.InfoContext(ctx, "opened a routine's chat for its first run", "routine_id", r.ID, "chat_id", chatID)
+	}
+	return chatID, nil
 }

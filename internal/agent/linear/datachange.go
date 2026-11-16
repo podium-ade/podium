@@ -130,45 +130,58 @@ func dataChange(p *webhookPayload) bool {
 // round trip, and the team's key can take a call to Linear, while Linear waits five seconds
 // for an answer. A change the app made itself is not handed over, so a routine that acts
 // through the app cannot start itself.
+//
+// What the change says about its issue or project — its title and state, who touched it — goes
+// to the issue sink as well, the app's own changes included: the app moving an issue to started
+// is the issue's state like any other.
 func (s *AppSource) handleDataChange(p *webhookPayload, deliveryID string, body []byte) (outcome, reason string, level slog.Level) {
-	if s.changes == nil {
+	if s.changes == nil && s.issues == nil {
 		return DeliveryIgnored, "no routine runs on Linear events here", slog.LevelInfo
 	}
 	if s.Revoked() {
 		return DeliveryIgnored, "revoked", slog.LevelInfo
 	}
-	if p.Actor != nil && p.Actor.ID != "" && p.Actor.ID == s.appUserID {
-		return DeliveryIgnored, "the app's own change", slog.LevelInfo
-	}
-	if deliveryID == "" {
-		sum := sha256.Sum256(body)
-		deliveryID = "sha256:" + hex.EncodeToString(sum[:])
-	}
-	envelope := map[string]any{
-		"action": p.Action, "type": p.Type, "data": p.Data, "actor": p.Actor, "url": p.URL,
-		"updatedFrom": rawOrNil(p.UpdatedFrom),
-	}
-	if !p.CreatedAt.IsZero() {
-		envelope["createdAt"] = p.CreatedAt.UTC().Format(time.RFC3339Nano)
-	}
-	payload, err := json.Marshal(envelope)
-	if err != nil {
-		return DeliveryIgnored, "payload could not be encoded", slog.LevelWarn
-	}
+	own := p.Actor != nil && p.Actor.ID != "" && p.Actor.ID == s.appUserID
+	routines := s.changes != nil && !own
 	var t dataTeam
 	_ = json.Unmarshal(p.Data, &t)
 	teamID, teamKey := t.team()
-	change := DataChange{
-		DeliveryID: deliveryID, Type: p.Type, Action: p.Action, Payload: payload, ReceivedAt: s.now().UTC(),
+	var change DataChange
+	if routines {
+		if deliveryID == "" {
+			sum := sha256.Sum256(body)
+			deliveryID = "sha256:" + hex.EncodeToString(sum[:])
+		}
+		envelope := map[string]any{
+			"action": p.Action, "type": p.Type, "data": p.Data, "actor": p.Actor, "url": p.URL,
+			"updatedFrom": rawOrNil(p.UpdatedFrom),
+		}
+		if !p.CreatedAt.IsZero() {
+			envelope["createdAt"] = p.CreatedAt.UTC().Format(time.RFC3339Nano)
+		}
+		payload, err := json.Marshal(envelope)
+		if err != nil {
+			return DeliveryIgnored, "payload could not be encoded", slog.LevelWarn
+		}
+		change = DataChange{
+			DeliveryID: deliveryID, Type: p.Type, Action: p.Action, Payload: payload, ReceivedAt: s.now().UTC(),
+		}
 	}
 	sink := s.changes
 	s.enqueue(dataChangeQueue, func(work context.Context) {
 		ctx, cancel := context.WithTimeout(work, dataChangeTimeout)
 		defer cancel()
-		change.TeamKey = teamKey
-		if change.TeamKey == "" {
-			change.TeamKey = s.teamKey(ctx, teamID)
+		key := teamKey
+		if key == "" {
+			key = s.teamKey(ctx, teamID)
 		}
+		if s.issues != nil {
+			s.issueSeen(ctx, s.dataIssue(p, key))
+		}
+		if !routines {
+			return
+		}
+		change.TeamKey = key
 		n, err := sink.LinearDataChange(ctx, change)
 		if err != nil {
 			// Linear was answered already, and a retry would be dropped as a duplicate: the
@@ -182,6 +195,12 @@ func (s *AppSource) handleDataChange(p *webhookPayload, deliveryID string, body 
 				"delivery", change.DeliveryID, "event", change.Event(), "routines", n)
 		}
 	})
+	switch {
+	case own:
+		return DeliveryIgnored, "the app's own change", slog.LevelInfo
+	case !routines:
+		return DeliveryIgnored, "no routine runs on Linear events here", slog.LevelInfo
+	}
 	return DeliveryAccepted, "data change", slog.LevelInfo
 }
 

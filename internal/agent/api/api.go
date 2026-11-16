@@ -726,7 +726,8 @@ func storeError(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, store.ErrNoSuchMember):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection):
+	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection),
+		errors.Is(err, store.ErrBadLinearCursor):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("agent store: %w", err))

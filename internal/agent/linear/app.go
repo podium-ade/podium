@@ -117,14 +117,21 @@ type AppOptions struct {
 	// OnRevoked is told when Linear revokes the app, so the saved connection can say so. It
 	// runs off the request.
 	OnRevoked func(ctx context.Context)
-	// Stop stops the turn answering a conversation, named by its source key, and the turns
-	// queued behind it, and reports whether anything was stopped: the conductor's
-	// CancelSessionTurn. A source never holds the conductor, so it is handed this. Nil stops
-	// nothing, and a Stop pressed in Linear is answered with an error saying so.
-	Stop func(ctx context.Context, sourceKey string) (bool, error)
+	// Stop stops what one agent session started in its issue's conversation — the turn it is
+	// running, the tasks it delegated, and its prompts queued behind them — and reports whether
+	// anything was stopped: the conductor's CancelThreadTurn. sourceKey is the issue's
+	// conversation and threadKey the agent session (SessionKey); another agent session's work
+	// on the same issue, and a routine's run there, are left alone. A source never holds the
+	// conductor, so it is handed this. Nil stops nothing, and a Stop pressed in Linear is
+	// answered with an error saying so.
+	Stop func(ctx context.Context, sourceKey, threadKey string) (bool, error)
 	// Events takes the data changes Linear sends when the app's webhook has resource types
 	// ticked: the routines that run on Linear events. Nil ignores them.
 	Events EventSink
+	// Issues is told what every delivery says about an issue or project — its identifier,
+	// title, team and state, and who touched it — for the Linear view and for who may read an
+	// issue's conversation. Nil keeps none of it.
+	Issues IssueSink
 	// Metrics is optional; nil registers nothing.
 	Metrics *Metrics
 	Logger  *slog.Logger
@@ -140,8 +147,12 @@ type AppOptions struct {
 // AppSource is Linear as an agent app: webhooks in, agent activities out. It is the same
 // Kind as the poller, and only one of the two ever runs.
 //
-// Each agent session is one conversation, and a chat in Podium (MirrorKey). A delegation or an
-// @mention opens one; what people say in it afterwards is a follow-up. The source says which of
+// Each issue is one conversation, and a chat in Podium (MirrorKey), however it was started: every
+// agent session on it — the delegation, each @mention — is a turn of it, as every comment on a
+// pull request is a turn of that pull request's. What a turn says still goes into the agent
+// session that prompted it, which the turn's ref names (ThreadKey): Linear draws each session on
+// its own. A delegation or an @mention opens a session; what people say in it afterwards is a
+// follow-up. The source says which of
 // the two opened it (InboundEvent.Delegated), and on a delegation's opening prompt what its
 // issue is routed by (InboundEvent.DelegatedIssue), and the conductor decides what answers: a
 // delegation runs the playbook whose Linear rules claim its issue, and otherwise both are
@@ -169,8 +180,9 @@ type AppSource struct {
 	appName        string
 	playbook       func() string
 	onRevoked      func(ctx context.Context)
-	stopTurn       func(ctx context.Context, sourceKey string) (bool, error)
+	stopTurn       func(ctx context.Context, sourceKey, threadKey string) (bool, error)
 	changes        EventSink
+	issues         IssueSink
 	now            func() time.Time
 	afterFunc      func(d time.Duration, f func()) func() bool
 
@@ -344,7 +356,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 	}
 	stopTurn := opts.Stop
 	if stopTurn == nil {
-		stopTurn = func(context.Context, string) (bool, error) {
+		stopTurn = func(context.Context, string, string) (bool, error) {
 			return false, errors.New("this conductor was not given a way to stop a turn")
 		}
 	}
@@ -387,6 +399,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		onRevoked:      onRevoked,
 		stopTurn:       stopTurn,
 		changes:        opts.Events,
+		issues:         opts.Issues,
 		now:            now,
 		afterFunc:      afterFunc,
 		work:           work,
@@ -407,20 +420,46 @@ func (s *AppSource) Kind() string { return Kind }
 // Events implements conductor.Source. The channel closes when Run returns.
 func (s *AppSource) Events() <-chan conductor.InboundEvent { return s.events }
 
-// MirrorKey makes the agent app a mirrored source: each agent session is a chat in Podium, as
-// a Slack thread and a pull request are, with the people who spoke in it as its participants.
-// The key is the session's, out of the ref's fourth part, never the issue's: a second session
-// on the same issue is a conversation of its own.
+// MirrorKey makes the agent app a mirrored source: each issue is a chat in Podium, as a Slack
+// thread and a pull request are, with the people who spoke in it as its participants. The key
+// is the issue's (SourceKey), out of the ref's first part, never the agent session's: a second
+// delegation or @mention on the same issue is a turn of the same conversation, which is how it
+// sees the first, and what it started, and decides whether it is the same work.
 //
 // A ref the poller wrote names no session, and is not mirrored. A polled ticket has no person
 // behind it to own the chat or to be its participant, so a chat of it would be one nobody but
 // the dev token could ever open.
 func (s *AppSource) MirrorKey(ref string) (string, bool) {
-	_, _, _, sessionID, err := ParseSessionRef(ref)
+	issueID, _, _, sessionID, err := ParseSessionRef(ref)
 	if err != nil || sessionID == "" {
 		return "", false
 	}
-	return SessionKey(sessionID), true
+	return SourceKey(issueID), true
+}
+
+// ThreadKey implements conductor.ThreadKeyer: the agent session a turn's ref answers into,
+// within its issue's conversation. A turn's replies, activities, questions and links go to that
+// session, a Stop pressed in it stops what it started and nothing else, and a prompt from
+// another session on the issue is never injected into its turn. A ref with no session — the
+// poller's — has none.
+func (s *AppSource) ThreadKey(ref string) string {
+	_, _, _, sessionID, err := ParseSessionRef(ref)
+	if err != nil || sessionID == "" {
+		return ""
+	}
+	return SessionKey(sessionID)
+}
+
+// RefForKey names an issue's conversation by its key alone, for a turn that did not come from
+// Linear — a routine's run in the issue's conversation, a message from the web — to read the
+// issue around the conversation's record. The ref names no session, so nothing is ever posted
+// with it into one.
+func (s *AppSource) RefForKey(sourceKey string) (string, bool) {
+	issueID, ok := strings.CutPrefix(sourceKey, SourceKey(""))
+	if !ok || issueID == "" || strings.Contains(issueID, ":") {
+		return "", false
+	}
+	return Ref(issueID, "", ""), true
 }
 
 // Run serves the webhook until ctx is cancelled. It runs on every conductor, with no leader:
@@ -596,17 +635,18 @@ func (s *AppSource) inbound(p *webhookPayload) conductor.InboundEvent {
 	}
 	ev := conductor.InboundEvent{
 		SourceKind: Kind,
-		SourceKey:  SessionKey(sess.ID),
-		Ref:        ref,
-		Author:     author,
+		// The issue's conversation, which every agent session on it is a turn of. The ref
+		// names the session, which is where this turn's replies go.
+		SourceKey: SourceKey(iss.ID),
+		Ref:       ref,
+		Author:    author,
 		// The prompt's own id, which a retried delivery keeps: the session's chat records one
 		// row per id, and only the arrival that wrote it starts a turn.
 		ExternalID: "activity:" + act.ID,
 		// A prompt has no page of its own. Linear writes it into the issue's comments, so its
-		// link is the issue, and the session — the conversation the chat is a record of — is
-		// the chat's own link.
+		// link is the issue, and so is the chat's: the chat is the issue's conversation.
 		ExternalURL: iss.URL,
-		ThreadURL:   sess.URL,
+		ThreadURL:   iss.URL,
 		URL:         iss.URL,
 		// The chat is named after the issue, and renamed with it on the next prompt: Linear
 		// tells an agent app nothing when an issue is retitled.
@@ -1451,12 +1491,13 @@ func (s *AppSource) stopping(sessionID string) {
 	}
 }
 
-// closeStopped asks the conductor to stop the session's work and closes the session with one
+// closeStopped asks the conductor to stop the session's work — what this agent session started
+// in its issue's conversation, not another session's or a routine's — and closes the session with one
 // response, as Linear requires of an agent after a Stop: "Stopped.", or that nothing was
 // running. A stop that failed is closed with an error instead, and the session stays stopped:
 // the person asked for nothing more to happen in it.
-func (s *AppSource) closeStopped(ctx context.Context, sessionID string) {
-	stopped, err := s.stopTurn(ctx, SessionKey(sessionID))
+func (s *AppSource) closeStopped(ctx context.Context, issueID, sessionID string) {
+	stopped, err := s.stopTurn(ctx, SourceKey(issueID), SessionKey(sessionID))
 	content := ActivityContent{Type: ActivityResponse, Body: stoppedText}
 	switch {
 	case err != nil:

@@ -79,21 +79,16 @@ func (s *AgentService) GetRoutine(
 		return nil, err
 	}
 	var r store.Routine
-	subject := ""
 	switch {
 	case req.Msg.GetId() != "":
 		r, err = s.ownedRoutine(ctx, req.Msg.GetId(), login)
 	case req.Msg.GetChatId() != "":
-		// A chat per ticket (0047) resolves to its routine as the routine's own chat does, and
-		// says which ticket it is for.
+		// The routine's own chat, or a chat per ticket it opened before tickets were
+		// conversations (0047). A Linear issue's conversation is no routine's (0048), whatever
+		// ran in it, and has no routine card.
 		r, err = s.store.RoutineByChat(ctx, req.Msg.GetChatId())
 		if err == nil && !s.mayManageRoutine(ctx, r, login) {
 			err = fmt.Errorf("%w: routine of chat %s", store.ErrNotFound, req.Msg.GetChatId())
-		}
-		if err == nil && r.ChatID != req.Msg.GetChatId() {
-			if sc, serr := s.store.RoutineSubjectOfChat(ctx, req.Msg.GetChatId()); serr == nil {
-				subject = cmpOr(sc.SubjectTitle, sc.SubjectKey)
-			}
 		}
 		err = routineError(err)
 	default:
@@ -102,7 +97,7 @@ func (s *AgentService) GetRoutine(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r), SubjectTitle: subject}), nil
+	return connect.NewResponse(&agentv1.GetRoutineResponse{Routine: s.routineToProto(ctx, r)}), nil
 }
 
 // CreateRoutine opens a routine and its chat for the caller.
@@ -450,7 +445,11 @@ func (s *AgentService) CancelRoutineRun(
 	if s.canceller == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cancel routine run: no conductor is wired in"))
 	}
-	stopped, err := s.canceller.CancelChatTurn(ctx, s.runChat(ctx, r))
+	chatID, mine := s.runChat(ctx, r)
+	if !mine {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("the routine is not running"))
+	}
+	stopped, err := s.canceller.CancelChatTurn(ctx, chatID)
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -787,8 +786,8 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 	if spend, err := s.store.RoutineSpendSince(ctx, r.ID, time.Now().Add(-24*time.Hour)); err == nil {
 		out.SpendTodayUsd = spend
 	}
-	if running, err := s.store.ChatTurnRunning(ctx, s.runChat(ctx, r)); err == nil {
-		out.Running = running
+	if _, mine := s.runChat(ctx, r); mine {
+		out.Running = true
 	}
 	if last, err := s.store.LastRoutineRuns(ctx, []string{r.ID}); err == nil {
 		out.LastRunStatus = last[r.ID].Status
@@ -796,19 +795,29 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 	return out
 }
 
-// runChat is the chat a routine's run is going in: one ticket's chat, for a routine with a chat
-// per ticket whose run is there, and otherwise the routine's own.
-func (s *AgentService) runChat(ctx context.Context, r store.Routine) string {
+// runChat is the chat a routine's run is going in, and whether the turn running there now is
+// the routine's: its own chat's turn, or, for a routine that runs in each ticket's conversation,
+// the turn of its run going now. That conversation is the issue's, and the turn running in it
+// may be somebody's delegation, which a routine's Stop run must never stop.
+func (s *AgentService) runChat(ctx context.Context, r store.Routine) (string, bool) {
 	if r.PerSubject() {
-		if run, err := s.store.RunningRoutineRun(ctx, r.ID); err == nil && run.ChatID != "" {
-			return run.ChatID
+		run, err := s.store.RunningRoutineRun(ctx, r.ID)
+		if err != nil || run.ChatID == "" || run.TurnID == "" {
+			return "", false
 		}
+		turn, ok, err := s.store.RunningChatTurn(ctx, run.ChatID)
+		return run.ChatID, err == nil && ok && turn.ID == run.TurnID
 	}
-	return r.ChatID
+	if r.ChatID == "" {
+		return "", false
+	}
+	running, err := s.store.ChatTurnRunning(ctx, r.ChatID)
+	return r.ChatID, err == nil && running
 }
 
 func routineRunToProto(r store.RoutineRun) *agentv1.RoutineRun {
 	out := &agentv1.RoutineRun{
+		ChatId:       r.ChatID,
 		Id:           r.ID,
 		ScheduledFor: timestamppb.New(r.ScheduledFor),
 		Trigger:      r.Trigger,

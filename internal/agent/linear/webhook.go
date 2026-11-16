@@ -137,6 +137,12 @@ type payloadIssue struct {
 		ID  string `json:"id"`
 		Key string `json:"key"`
 	} `json:"team"`
+	// Who created the issue and who it is assigned to, when the payload says. Linear documents
+	// neither on an agent session's issue; they are read when present and never required.
+	CreatorID  string       `json:"creatorId"`
+	AssigneeID string       `json:"assigneeId"`
+	Creator    *payloadUser `json:"creator"`
+	Assignee   *payloadUser `json:"assignee"`
 }
 
 type payloadComment struct {
@@ -254,7 +260,7 @@ func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []
 		// turn in the session's queue behind whatever reached it first.
 		s.metrics.Events.WithLabelValues(EventStop).Inc()
 		s.stopping(sess.ID)
-		s.enqueue(sess.ID, func(work context.Context) { s.closeStopped(work, sess.ID) })
+		s.enqueue(sess.ID, func(work context.Context) { s.closeStopped(work, sess.Issue.ID, sess.ID) })
 		return DeliveryAccepted, "stop", slog.LevelInfo
 	}
 	if p.Action == ActionPrompted && strings.TrimSpace(act.Content.Body) == "" {
@@ -291,6 +297,7 @@ func (s *AppSource) handleDelivery(p *webhookPayload, deliveryID string, body []
 		if created && sess.delegated() {
 			ev.DelegatedIssue = s.delegatedIssue(work, sess.Issue)
 		}
+		s.issueSeen(work, s.sessionIssue(p))
 		s.emit(work, ev)
 	})
 	return DeliveryAccepted, "", slog.LevelInfo

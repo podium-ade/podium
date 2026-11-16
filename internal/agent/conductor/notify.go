@@ -39,6 +39,11 @@ func (c *Conductor) notifyAway(ctx context.Context, src Source, ref string, dlg 
 	if err != nil {
 		return
 	}
+	if store.IsLinearConversation(sess.SourceKey) {
+		// A Linear issue's conversation is nobody's in particular: its chat's owner is whoever
+		// spoke first, and did not ask for what a routine's run, or somebody else, delegated.
+		return
+	}
 	login := c.asker(ctx, src, sess)
 	if login == "" {
 		return

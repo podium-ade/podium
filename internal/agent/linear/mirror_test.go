@@ -16,22 +16,40 @@ import (
 // a session is a chat in Podium
 // ---------------------------------------------------------------------------
 
-// An agent session is mirrored under its own key, whatever else its ref says; a ref the
-// poller wrote names no session and is not mirrored at all.
-func TestASessionIsMirroredAndAPolledTicketIsNot(t *testing.T) {
+// An agent session is mirrored under its issue's key: every session on the issue — the
+// delegation, each mention — is a turn of one conversation, as every comment on a pull request
+// is. Which session a turn answers into is its thread. A ref the poller wrote names no session
+// and is not mirrored at all.
+func TestASessionIsMirroredAsItsIssueAndAPolledTicketIsNot(t *testing.T) {
 	h := newAppHarness(t)
 	key, ok := h.src.MirrorKey(sessionRef())
 	require.True(t, ok)
-	assert.Equal(t, SessionKey(delegationSession), key)
+	assert.Equal(t, SourceKey(fixtureIssue), key)
+	assert.Equal(t, SessionKey(delegationSession), h.src.ThreadKey(sessionRef()))
 
 	key, ok = h.src.MirrorKey(DelegatedSessionRef(fixtureIssue, fixtureTeam, "EME-5", delegationSession))
 	require.True(t, ok)
-	assert.Equal(t, SessionKey(delegationSession), key, "a delegation's session is the same conversation")
+	assert.Equal(t, SourceKey(fixtureIssue), key, "a delegation's session is the same conversation")
+	other := SessionRef(fixtureIssue, fixtureTeam, "EME-5", mentionSession)
+	key, ok = h.src.MirrorKey(other)
+	require.True(t, ok)
+	assert.Equal(t, SourceKey(fixtureIssue), key, "so is a mention's on the same issue")
+	assert.Equal(t, SessionKey(mentionSession), h.src.ThreadKey(other), "each a thread of its own")
 
 	_, ok = h.src.MirrorKey(Ref(fixtureIssue, fixtureTeam, "EME-5"))
 	assert.False(t, ok, "the poller has nobody to own or see a chat")
+	assert.Empty(t, h.src.ThreadKey(Ref(fixtureIssue, fixtureTeam, "EME-5")))
 	_, ok = h.src.MirrorKey("not a ref")
 	assert.False(t, ok)
+	assert.Empty(t, h.src.ThreadKey("chat_01"))
+
+	ref, ok := h.src.RefForKey(SourceKey(fixtureIssue))
+	require.True(t, ok)
+	assert.Equal(t, Ref(fixtureIssue, "", ""), ref, "an issue's conversation can be read without a session")
+	for _, k := range []string{ProjectKey("prj-1"), SessionKey(delegationSession), "slack:C1:1", "linear:"} {
+		_, ok := h.src.RefForKey(k)
+		assert.False(t, ok, k)
+	}
 }
 
 // The session's chat says whether the issue's team is private, as Linear says it, so sharing

@@ -181,6 +181,13 @@ func (c *Conductor) noteRoutineTurn(ctx context.Context, turnID string, ev Inbou
 	c.mu.Unlock()
 }
 
+// isRoutineTurn reports whether turnID is a routine run's turn this conductor is running.
+func (c *Conductor) isRoutineTurn(turnID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.routineTurns[turnID] != nil
+}
+
 // forgetRoutineTurn drops a finished turn's in-memory record.
 func (c *Conductor) forgetRoutineTurn(turnID string) {
 	c.mu.Lock()
@@ -251,7 +258,16 @@ func (c *Conductor) briefRoutine(ctx context.Context, src Source, ev InboundEven
 	if c.store == nil || src == nil || src.Kind() != SourceChat || ev.Ref == "" {
 		return nil
 	}
-	r, err := c.store.RoutineByChat(ctx, ev.Ref)
+	// A run is its routine's wherever it runs: in a Linear issue's conversation, which is no
+	// routine's chat, it is found by its own id. A person's message is a routine's turn only in
+	// the routine's own chat.
+	var r store.Routine
+	var err error
+	if ev.Routine != nil && ev.Routine.RoutineID != "" {
+		r, err = c.store.GetRoutine(ctx, ev.Routine.RoutineID)
+	} else {
+		r, err = c.store.RoutineByChat(ctx, ev.Ref)
+	}
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			c.logger.WarnContext(ctx, "reading a chat's routine failed; briefing without it",
@@ -329,7 +345,7 @@ func (c *Conductor) FinishRoutine(ctx context.Context, token string, req Routine
 	if c.store == nil || g.src == nil || g.src.Kind() != SourceChat {
 		return "", ErrNotARoutine
 	}
-	r, err := c.store.RoutineByChat(ctx, g.ref)
+	r, err := c.grantRoutine(ctx, g)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", ErrNotARoutine
 	}
@@ -412,8 +428,20 @@ func (c *Conductor) inRoutineChat(ctx context.Context, token string) bool {
 	if !ok || c.store == nil || g.src == nil || g.src.Kind() != SourceChat {
 		return false
 	}
-	_, err := c.store.RoutineByChat(ctx, g.ref)
+	_, err := c.grantRoutine(ctx, g)
 	return err == nil
+}
+
+// grantRoutine is the routine the turn g holds is a turn of: the run's own routine, wherever
+// it runs, or the routine whose chat a person wrote in.
+func (c *Conductor) grantRoutine(ctx context.Context, g turnGrant) (store.Routine, error) {
+	c.mu.Lock()
+	rt := c.routineTurns[g.turnID]
+	c.mu.Unlock()
+	if rt != nil && rt.ref.RoutineID != "" {
+		return c.store.GetRoutine(ctx, rt.ref.RoutineID)
+	}
+	return c.store.RoutineByChat(ctx, g.ref)
 }
 
 // RoutineCreator opens a routine for a person, checked as their own request would be. The API
@@ -510,7 +538,15 @@ func (c *Conductor) mayCreateRoutine(ctx context.Context, token string) (turnGra
 	if !ok || c.store == nil || c.creator() == nil || g.src == nil || g.src.Kind() != SourceChat || g.login == "" {
 		return g, false
 	}
+	if c.isRoutineTurn(g.turnID) {
+		return g, false
+	}
 	if _, err := c.store.RoutineByChat(ctx, g.ref); err == nil {
+		return g, false
+	}
+	if chat, err := c.store.GetChat(ctx, g.ref); err == nil && chat.Origin != store.OriginWeb {
+		// A routine is set up from a person's own web chat, not from a conversation that lives
+		// on another surface.
 		return g, false
 	}
 	return g, true

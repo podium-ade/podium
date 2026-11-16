@@ -20,6 +20,20 @@ func (q *Queries) CountQueuedTurns(ctx context.Context, sessionID string) (int32
 	return column_1, err
 }
 
+const deleteQueuedTurn = `-- name: DeleteQueuedTurn :execrows
+delete from turn_queue where id = $1
+`
+
+// DeleteQueuedTurn drops one queued turn: a Stop in the one Linear agent session it came from
+// (0048). Zero rows: it started, or another Stop took it, first.
+func (q *Queries) DeleteQueuedTurn(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteQueuedTurn, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const enqueueTurn = `-- name: EnqueueTurn :one
 
 insert into turn_queue (session_id, source_kind, login, author, chat_id, message_seq, event)
@@ -61,6 +75,41 @@ func (q *Queries) EnqueueTurn(ctx context.Context, arg EnqueueTurnParams) (TurnQ
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listQueuedTurns = `-- name: ListQueuedTurns :many
+select id, session_id, source_kind, login, author, chat_id, message_seq, event, created_at from turn_queue where session_id = $1 order by id
+`
+
+// ListQueuedTurns is every turn waiting in a session, oldest first.
+func (q *Queries) ListQueuedTurns(ctx context.Context, sessionID string) ([]TurnQueue, error) {
+	rows, err := q.db.Query(ctx, listQueuedTurns, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TurnQueue{}
+	for rows.Next() {
+		var i TurnQueue
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.SourceKind,
+			&i.Login,
+			&i.Author,
+			&i.ChatID,
+			&i.MessageSeq,
+			&i.Event,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listQueuedTurnsForChat = `-- name: ListQueuedTurnsForChat :many

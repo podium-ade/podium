@@ -56,9 +56,11 @@ type appHarness struct {
 	// pending is how many events were already waiting for the conductor each time an
 	// activity was posted, in order. It is how a test sees the acknowledgement go first.
 	pending []int
-	// stops is every source key the conductor was asked to stop, and stopAnswer what it
+	// stops is every agent session (thread key) the conductor was asked to stop, and stopAnswer what it
 	// answers. Nil answers that something was stopped.
-	stops      []string
+	stops []string
+	// stopKeys is the conversation each of stops was in: the issue's.
+	stopKeys   []string
 	stopAnswer func(key string) (bool, error)
 	// users is what Linear says about each user the source asks after, by id. A user who is
 	// not here is not found. It starts with Ada, a full member of the workspace.
@@ -129,14 +131,15 @@ func newAppHarness(t *testing.T, mutate ...func(*AppOptions)) *appHarness {
 		Logger:         slog.New(slog.NewTextHandler(h.log, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Clock:          h.clock.Now,
 		AfterFunc:      h.clock.AfterFunc,
-		Stop: func(_ context.Context, key string) (bool, error) {
+		Stop: func(_ context.Context, key, thread string) (bool, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			h.stops = append(h.stops, key)
+			h.stops = append(h.stops, thread)
+			h.stopKeys = append(h.stopKeys, key)
 			if h.stopAnswer == nil {
 				return true, nil
 			}
-			return h.stopAnswer(key)
+			return h.stopAnswer(thread)
 		},
 	}
 	for _, m := range mutate {
@@ -355,7 +358,7 @@ func TestALinearDeliveryIsCheckedBeforeAnythingIsDone(t *testing.T) {
 			assert.Equal(t, tc.status, rec.Code)
 			if tc.started {
 				ev := h.event(t)
-				assert.Equal(t, SessionKey(delegationSession), ev.SourceKey)
+				assert.Equal(t, SourceKey(fixtureIssue), ev.SourceKey)
 				return
 			}
 			h.noEvent(t)
@@ -478,13 +481,14 @@ func TestADelegationIsAcknowledgedAndThenStartsATurn(t *testing.T) {
 
 	assert.Equal(t, conductor.InboundEvent{
 		SourceKind: Kind,
-		SourceKey:  "linear:session:" + delegationSession,
+		SourceKey:  "linear:" + fixtureIssue,
 		Ref:        fixtureIssue + "/" + fixtureTeam + "/EME-5/" + delegationSession + "/delegated",
 		Author:     "Ada Lovelace",
 		ExternalID: "activity:4f5f35e1-86e4-4dc7-9239-414bacd832a5",
-		// The prompt's link is the issue, where Linear writes it; the chat's is the session.
+		// The prompt's link is the issue, where Linear writes it, and so is the chat's: the
+		// chat is the issue's conversation.
 		ExternalURL:    "https://linear.app/acme/issue/EME-5/test-issue",
-		ThreadURL:      "https://linear.app/acme/agent-session/" + delegationSession,
+		ThreadURL:      "https://linear.app/acme/issue/EME-5/test-issue",
 		URL:            "https://linear.app/acme/issue/EME-5/test-issue",
 		Title:          "EME-5 Test issue",
 		ChannelPrivacy: conductor.ChannelPublic,
@@ -554,7 +558,7 @@ func TestAMentionStartsATurnWithTheComment(t *testing.T) {
 	ev := h.event(t)
 	assert.Equal(t, "what is the time?", ev.Text)
 	assert.Equal(t, "@podium what is the time?", ev.RecordText)
-	assert.Equal(t, "linear:session:"+mentionSession, ev.SourceKey)
+	assert.Equal(t, "linear:"+fixtureIssue, ev.SourceKey, "every session on an issue is a turn of its conversation")
 	assert.Equal(t, fixtureIssue+"/"+fixtureTeam+"/EME-5/"+mentionSession, ev.Ref)
 	assert.Equal(t, "activity:5e1c605c-1cf6-427c-a132-8ea2f36daef7", ev.ExternalID)
 	assert.True(t, ev.Mentioned)
@@ -584,7 +588,7 @@ func TestAFollowUpIsThePromptsBody(t *testing.T) {
 	ev := h.event(t)
 	assert.Equal(t, "What is the time?", ev.Text)
 	assert.Empty(t, ev.RecordText)
-	assert.Equal(t, "linear:session:"+delegationSession, ev.SourceKey)
+	assert.Equal(t, "linear:"+fixtureIssue, ev.SourceKey)
 	assert.Equal(t, "activity:663ba1da-7fac-4d15-a5e0-1556d70ccb3b", ev.ExternalID)
 	assert.Equal(t, "Ada Lovelace", ev.Author)
 	assert.Empty(t, ev.Playbook, "the conductor routes it")

@@ -97,6 +97,11 @@ func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", nil
 	}
+	if err == nil && role == "" && Infra(ctx) && store.IsLinearConversation(c.SourceKey) {
+		// An admin or owner reads every Linear issue's conversation (0048), and only reads it:
+		// what they may do in one beyond that is what their own part in it gives them.
+		return store.RoleViewer, nil
+	}
 	return role, err
 }
 
@@ -112,6 +117,11 @@ func (s *AgentService) openChat(ctx context.Context, c store.Chat, login, linkTo
 	if c.Login == "" && c.RoutineID != "" {
 		// A system routine's chat is read through the admin's role, never joined: opening it
 		// writes no access row, so it stays out of their chat list and is never shared.
+		return role, nil
+	}
+	if store.IsLinearConversation(c.SourceKey) && role != "" && !validLinkToken(c, linkToken) {
+		// A Linear issue's conversation read by having touched the issue, or as an admin, is
+		// not joined either: who may read it follows the issue, not a row opening it wrote.
 		return role, nil
 	}
 	via := ""

@@ -4,6 +4,7 @@ package conductor_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,4 +133,47 @@ func TestStoppingASessionReleasesATurnParkedOnAQuestion(t *testing.T) {
 	require.NoError(t, src.Send(ctx, inbound("C1/83.1", "main")))
 	waitFor(t, 30*time.Second, "a turn of its own", func() bool { return len(fake.Specs()) == 2 })
 	assert.Empty(t, fake.Injects(), "nothing goes into the task that was stopped")
+}
+
+// A Linear issue is one conversation however many agent sessions are on it. Stop in one session
+// stops what that session started — here, its prompt still queued — and leaves another
+// session's running turn alone; Stop in that one stops it.
+func TestStoppingOneThreadLeavesAnothersWorkInTheSameConversation(t *testing.T) {
+	st, fake, src, r, _ := startStoppable(t, nil)
+	src.SetThreads(func(ref string) string {
+		if _, sess, ok := strings.Cut(ref, "#"); ok {
+			return "session:" + sess
+		}
+		return ""
+	})
+	ctx := context.Background()
+	key := conductor.KindDev + ":C1:91.1"
+	first := inbound("C1/91.1#s1", "a long job")
+	first.SourceKey = key
+	require.NoError(t, src.Send(ctx, first))
+	waitFor(t, 30*time.Second, "the task", func() bool { return len(fake.TaskIDs()) == 1 })
+	second := asker("C1/91.1#s2", "something else", "bob@podium.test")
+	second.SourceKey = key
+	require.NoError(t, src.Send(ctx, second))
+	waitFor(t, 30*time.Second, "the other session's prompt to be queued", func() bool { return queued(t, st, key) == 1 })
+
+	stopped, err := r.cond.CancelThreadTurn(ctx, key, "session:s2", stopReason)
+	require.NoError(t, err)
+	assert.True(t, stopped, "its queued prompt was dropped")
+	assert.Zero(t, queued(t, st, key))
+	assert.Empty(t, fake.Cancels(), "the other session's running task is not this Stop's")
+
+	stopped, err = r.cond.CancelThreadTurn(ctx, key, "session:s1", stopReason)
+	require.NoError(t, err)
+	assert.True(t, stopped)
+	require.Len(t, fake.Cancels(), 1)
+	assert.Equal(t, fake.TaskIDs()[0], fake.Cancels()[0].GetTaskId())
+	stops := 0
+	for _, rec := range src.Records() {
+		if rec.Action == fakesource.ActionStoppedElsewhere {
+			assert.Equal(t, "session:s1", rec.Ref, "announced by its thread, which the source knows it by")
+			stops++
+		}
+	}
+	assert.Equal(t, 1, stops)
 }

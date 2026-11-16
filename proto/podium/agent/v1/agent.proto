@@ -184,6 +184,11 @@ service AgentService {
   // ListChats returns the caller's own chats, newest first. Another login's chats are
   // never returned.
   rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
+  // ListLinearConversations is the Linear view: one row per Linear issue or project
+  // conversation, most recently active first. Admins and owners list every one; anybody else
+  // lists those whose issue they touched (through their linked Linear account), spoke in, or
+  // were shared. Each opens as a read-only chat, as a pull request's does.
+  rpc ListLinearConversations(ListLinearConversationsRequest) returns (ListLinearConversationsResponse);
   // RenameChat changes the title of one of the caller's chats. Another login's chat is
   // not_found, the same as every other chat RPC. An empty title is refused.
   rpc RenameChat(RenameChatRequest) returns (RenameChatResponse);
@@ -330,6 +335,9 @@ message Routine {
   string paused_reason = 13;
   // state is the agent's JSON object across runs, "{}" when it has kept nothing.
   string state = 14;
+  // chat_id is the routine's own chat. It is empty for a routine on Linear events that has not
+  // needed one: one that runs in each ticket's conversation never does, and one that runs in
+  // its own chat gets it on its first run.
   string chat_id = 15;
   google.protobuf.Timestamp next_run_at = 16;
   google.protobuf.Timestamp last_run_at = 17;
@@ -364,8 +372,9 @@ message Routine {
   // pending_events is how many Linear events wait for the routine's next run.
   int32 pending_events = 32;
   // chat_mode is where a linear routine's runs happen: "routine" (every run in chat_id) or
-  // "subject" (a chat per ticket: each issue, project, cycle or label the events are about
-  // has a chat of its own). A routine on a schedule is always "routine".
+  // "subject" (in each ticket's conversation: an issue's or project's events run as a turn in
+  // the one conversation that issue or project has, beside its agent sessions; a cycle's or a
+  // label's in chat_id). A routine on a schedule is always "routine".
   string chat_mode = 33;
 }
 
@@ -384,6 +393,9 @@ message RoutineRun {
   double cost_usd = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp finished_at = 9;
+  // chat_id is the chat the run happened in when it was not the routine's own: the Linear
+  // issue's or project's conversation its events were about.
+  string chat_id = 10;
 }
 
 // RoutineDraft is what a person writes.
@@ -419,9 +431,9 @@ message GetRoutineRequest {
 }
 message GetRoutineResponse {
   Routine routine = 1;
-  // subject_title is, when chat_id is one ticket's chat of a routine with a chat per ticket,
-  // what that chat is about ("ENG-12 Fix login"). It is empty for the routine's own chat.
-  string subject_title = 2;
+  // subject_title is no longer set: a ticket's events run in the ticket's conversation, which
+  // is no routine's chat.
+  string subject_title = 2 [deprecated = true];
 }
 
 message CreateRoutineRequest {
@@ -1670,6 +1682,55 @@ message ListChatsRequest {
   string personality_id = 3;
   // section is as ListSessionsRequest.section.
   string section = 4;
+}
+
+// LinearConversation is one Linear issue's or project's conversation: every agent session on
+// it, and every routine run about it, as one chat.
+message LinearConversation {
+  string chat_id = 1;
+  // kind is "issue" or "project".
+  string kind = 2;
+  // identifier is the issue's ("ENG-12"), empty for a project.
+  string identifier = 3;
+  string title = 4;
+  // url is the issue or project in Linear.
+  string url = 5;
+  string team_key = 6;
+  // linear_state is the issue's state in Linear as the webhooks last said it ("In Progress"),
+  // and linear_state_type its type ("started").
+  string linear_state = 7;
+  string linear_state_type = 8;
+  // state is where Podium is with it: "waiting" on a person, "working", "failed", "done", or
+  // "new" before its first turn.
+  string state = 9;
+  // asked_of is whose turn asked the question it waits on, when it waits.
+  string asked_of = 10;
+  google.protobuf.Timestamp last_activity_at = 11;
+  string last_text = 12;
+  // cost_usd is what its turns and the tasks they started cost.
+  double cost_usd = 13;
+  // my_role is the caller's role in it; an admin who reads it only as an admin is "viewer".
+  string my_role = 14;
+  // mine is a conversation the caller touched, spoke in, owns or was shared.
+  bool mine = 15;
+}
+
+message ListLinearConversationsRequest {
+  Page page = 1;
+  // mine lists only the conversations the caller touched, spoke in, owns or was shared.
+  bool mine = 2;
+  // team is a team key, empty for every team.
+  string team = 3;
+  // state is "", one of LinearConversation.state, or "attention" (waiting and failed).
+  string state = 4;
+}
+
+message ListLinearConversationsResponse {
+  repeated LinearConversation conversations = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+  // teams are the team keys of every conversation the caller may list, for the team filter.
+  repeated string teams = 3;
 }
 
 message ListChatsResponse {

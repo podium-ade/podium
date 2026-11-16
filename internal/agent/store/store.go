@@ -953,6 +953,9 @@ type ListChatsScope struct {
 	FilterPersonality bool
 	PersonalityID     string
 	Section           string
+	// ExcludeLinear leaves out Linear issues' and projects' conversations (0048), which the
+	// Linear view lists: the chat rail asks for this.
+	ExcludeLinear bool
 }
 
 // ListChats returns chats newest first. all is the dev token and returns every chat,
@@ -979,6 +982,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 		AfterID:           cursor,
 		FilterPersonality: sc.FilterPersonality,
 		PersonalityID:     sc.PersonalityID,
+		ExcludeLinear:     sc.ExcludeLinear,
 		PageLimit:         int32(limit),
 	})
 	if err != nil {

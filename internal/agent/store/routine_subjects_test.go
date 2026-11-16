@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,12 +63,12 @@ func TestAnEventLinearSentInAnotherShapeIsAboutNothing(t *testing.T) {
 	}
 }
 
-func TestATicketChatIsNamedForTheRoutineAndTheTicket(t *testing.T) {
-	assert.Equal(t, "Triage · ENG-12 Fix login", RoutineSubjectChatTitle("Triage", "Issue:iss-1", "ENG-12 Fix login"))
-	assert.Equal(t, "Triage · Issue:iss-1", RoutineSubjectChatTitle("Triage", "Issue:iss-1", " "))
-	long := RoutineSubjectChatTitle("Triage", "Issue:iss-1", strings.Repeat("word ", 40))
-	assert.LessOrEqual(t, len([]rune(long)), MaxChatTitleRunes)
-	assert.True(t, strings.HasSuffix(long, "…"))
+func TestAnIssueOrAProjectIsAConversationAndNothingElseIs(t *testing.T) {
+	assert.Equal(t, "linear:iss-1", LinearConversationKey("Issue:iss-1"))
+	assert.Equal(t, "linear:project:prj-1", LinearConversationKey("Project:prj-1"))
+	for _, key := range []string{"Cycle:cyc-1", "IssueLabel:lbl-1", "", "Issue:", "nonsense"} {
+		assert.Empty(t, LinearConversationKey(key), key)
+	}
 }
 
 func TestAChatPerTicketIsALinearRoutinesAlone(t *testing.T) {
@@ -93,14 +92,14 @@ func TestAChatPerTicketIsALinearRoutinesAlone(t *testing.T) {
 	}
 	_, err = PrepareRoutine(sched)
 	require.ErrorIs(t, err, ErrInvalidRoutine)
-	assert.Contains(t, err.Error(), "a chat per ticket is for a routine on Linear events")
+	assert.Contains(t, err.Error(), "is for a routine on Linear events")
 }
 
 func TestSwitchingToAChatPerTicketIsInTheHistory(t *testing.T) {
 	r := Routine{Kind: RoutineKindLinear, Events: []string{"Issue.create"}, ChatMode: RoutineChatModeRoutine}
 	per := r
 	per.ChatMode = RoutineChatModeSubject
-	assert.Equal(t, "On Linear: issue created · a chat per ticket", per.When())
+	assert.Equal(t, "On Linear: issue created · in each ticket's conversation", per.When())
 	assert.True(t, revised(r, per))
 	assert.True(t, per.PerSubject())
 	assert.False(t, r.PerSubject())

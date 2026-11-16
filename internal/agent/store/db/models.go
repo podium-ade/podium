@@ -153,6 +153,30 @@ type LinearCursor struct {
 	UpdatedAt time.Time
 }
 
+type LinearIssue struct {
+	SourceKey  string
+	Kind       string
+	LinearID   string
+	Identifier string
+	Title      string
+	Url        string
+	TeamKey    string
+	StateName  string
+	StateType  string
+	AskedAt    *time.Time
+	AskedOf    string
+	UpdatedAt  time.Time
+}
+
+type LinearPerson struct {
+	SourceKey  string
+	LinearUser string
+	Login      string
+	Via        string
+	FirstSeen  time.Time
+	LastSeen   time.Time
+}
+
 type McpServer struct {
 	Name               string
 	Url                string
@@ -226,7 +250,7 @@ type Routine struct {
 	PausedReason         string
 	State                []byte
 	StateUpdatedAt       *time.Time
-	ChatID               string
+	ChatID               *string
 	NextRunAt            time.Time
 	LastRunAt            *time.Time
 	IdleCount            int32
@@ -278,14 +302,6 @@ type RoutineRun struct {
 	CreatedAt    time.Time
 	FinishedAt   *time.Time
 	ChatID       *string
-}
-
-type RoutineSubjectChat struct {
-	RoutineID    string
-	SubjectKey   string
-	SubjectTitle string
-	ChatID       string
-	CreatedAt    time.Time
 }
 
 type Session struct {

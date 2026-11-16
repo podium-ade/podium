@@ -48,6 +48,8 @@ type Store interface {
 	PauseRoutineUntil(ctx context.Context, id, reason string, until, next time.Time) (store.Routine, error)
 	DueToResume(ctx context.Context, now time.Time, limit int) ([]store.Routine, error)
 	NotifyRoutine(ctx context.Context, login, chatID, actor, detail string) error
+	GetChat(ctx context.Context, id string) (store.Chat, error)
+	EnsureRoutineChat(ctx context.Context, r store.Routine) (string, bool, error)
 }
 
 // EventStore is what the scheduler needs of the database to run routines on Linear events
@@ -63,13 +65,13 @@ type EventStore interface {
 }
 
 // SubjectStore is what the scheduler needs of the database to run a routine on Linear events in
-// a chat per ticket (subjects.go). It is apart from EventStore so that a scheduler given none
-// runs every routine in its own chat.
+// each ticket's conversation (subjects.go). It is apart from EventStore so that a scheduler
+// given none runs every routine in its own chat.
 type SubjectStore interface {
 	PendingRoutineSubjects(ctx context.Context, routineID string) ([]store.RoutineSubject, error)
 	AttachRoutineSubjectEvents(ctx context.Context, runID, routineID, subjectKey string, limit int) (int, error)
-	EnsureRoutineSubjectChat(ctx context.Context, r store.Routine, subjectKey, subjectTitle string) (string, bool, error)
-	CountRoutineSubjectChatsSince(ctx context.Context, routineID string, since time.Time) (int, error)
+	EnsureLinearConversation(ctx context.Context, sourceKey, title string) (store.Chat, bool, error)
+	RecordLinearPeople(ctx context.Context, sourceKey string, people []store.LinearPerson, at time.Time) error
 	SetRoutineRunChat(ctx context.Context, runID, chatID string) error
 	RunningRoutineRun(ctx context.Context, routineID string) (store.RoutineRun, error)
 }
@@ -96,8 +98,8 @@ type Options struct {
 	// Events is the store's Linear events. Nil runs no routine on Linear events: their events
 	// wait, and are pruned by whichever scheduler has them.
 	Events EventStore
-	// Subjects is the store's chats per ticket. Nil runs a routine set to a chat per ticket in
-	// its own chat, as every other.
+	// Subjects is the store's Linear conversations. Nil runs a routine set to run in each
+	// ticket's conversation in its own chat, as every other.
 	Subjects SubjectStore
 	Runner   Runner
 	Logger   *slog.Logger
@@ -284,6 +286,12 @@ func (s *Scheduler) notify(ctx context.Context, r store.Routine, reason string) 
 	if r.OwnerLogin == "" {
 		return
 	}
+	if r.ChatID == "" {
+		// A notice is about a chat, and a routine on Linear events may have none (0048). Its
+		// row on the Routines page says why it paused.
+		s.logger.InfoContext(ctx, "not telling a routine's owner it was paused: it has no chat", "routine_id", r.ID)
+		return
+	}
 	if err := s.store.NotifyRoutine(ctx, r.OwnerLogin, r.ChatID, "", reason); err != nil {
 		s.logger.WarnContext(ctx, "telling a routine's owner it was paused failed", "routine_id", r.ID, "error", err)
 	}
@@ -340,23 +348,41 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 // chatRun is the run as the chat is handed it.
 func chatRun(r store.Routine, run store.RoutineRun) chat.RoutineRun {
 	return chat.RoutineRun{
-		ChatID:      r.ChatID,
-		Login:       r.OwnerLogin,
-		Instruction: r.Instruction,
-		RoutineID:   r.ID,
-		RunID:       run.ID,
-		Override:    profiles.Override{Model: r.Model, Effort: r.Effort},
-		System:      r.System(),
+		ChatID:        r.ChatID,
+		Login:         r.OwnerLogin,
+		Instruction:   r.Instruction,
+		RoutineID:     r.ID,
+		RunID:         run.ID,
+		Override:      profiles.Override{Model: r.Model, Effort: r.Effort},
+		System:        r.System(),
+		PersonalityID: r.PersonalityID,
 	}
 }
 
+// busy is whether the routine's own chat is answering. A routine with no chat yet is not.
 func (s *Scheduler) busy(ctx context.Context, r store.Routine) (bool, error) {
+	if r.ChatID == "" {
+		return false, nil
+	}
 	return s.chatBusy(ctx, r.ChatID)
 }
 
-// chatBusy is whether a chat has a turn running or waiting.
+// chatBusy is whether a chat has a turn running or waiting. A mirrored chat's turns are its
+// conversation's: a Linear issue's conversation is busy while any turn on the issue is.
 func (s *Scheduler) chatBusy(ctx context.Context, chatID string) (bool, error) {
-	sess, err := s.store.GetSessionByKey(ctx, store.ChatSourceKey(chatID))
+	key := store.ChatSourceKey(chatID)
+	if c, err := s.store.GetChat(ctx, chatID); err == nil && c.SourceKey != "" {
+		key = c.SourceKey
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	return s.keyBusy(ctx, key)
+}
+
+// keyBusy is whether the conversation a session key names has a turn running or waiting. One
+// that has never had a session is not.
+func (s *Scheduler) keyBusy(ctx context.Context, key string) (bool, error) {
+	sess, err := s.store.GetSessionByKey(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}

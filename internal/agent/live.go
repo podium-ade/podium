@@ -524,22 +524,49 @@ func (l *liveConnections) newLinearApp(
 		OnRevoked:      l.linearRevoked(cfg.LinearClientID),
 		Stop:           l.stopLinearTurn,
 		Events:         l,
+		Issues:         l,
 		Metrics:        l.linearMetrics,
 		Logger:         l.logger,
 	})
 }
 
-// stopLinearTurn is Stop pressed in a Linear agent session: the conductor cancels the turn
-// answering it and drops what is queued behind it. The source is built before the conductor
-// exists, so the conductor is looked up when somebody presses Stop, not when it is built.
-func (l *liveConnections) stopLinearTurn(ctx context.Context, sourceKey string) (bool, error) {
+// stopLinearTurn is Stop pressed in a Linear agent session: the conductor cancels what that
+// session started in its issue's conversation — its turn, the tasks it delegated, what is queued
+// behind it — and leaves another session's, or a routine's, work on the issue alone. The source
+// is built before the conductor exists, so the conductor is looked up when somebody presses
+// Stop, not when it is built.
+func (l *liveConnections) stopLinearTurn(ctx context.Context, sourceKey, threadKey string) (bool, error) {
 	if l.conductor == nil {
 		return false, errors.New("the conductor is not running")
 	}
-	return l.conductor.CancelSessionTurn(ctx, sourceKey, agentlinear.StopReason)
+	return l.conductor.CancelThreadTurn(ctx, sourceKey, threadKey, agentlinear.StopReason)
 }
 
-var _ agentlinear.EventSink = (*liveConnections)(nil)
+var (
+	_ agentlinear.EventSink = (*liveConnections)(nil)
+	_ agentlinear.IssueSink = (*liveConnections)(nil)
+)
+
+// LinearIssueSeen keeps what a delivery said about an issue or project, and who touched it, for
+// the Linear view and for who may read the issue's conversation.
+func (l *liveConnections) LinearIssueSeen(ctx context.Context, r agentlinear.IssueRecord) error {
+	if l.store == nil {
+		return nil
+	}
+	key := r.Key()
+	err := l.store.UpsertLinearIssue(ctx, store.LinearIssue{
+		SourceKey: key, Identifier: r.Identifier, Title: r.Title, URL: r.URL, TeamKey: r.TeamKey,
+		StateName: r.StateName, StateType: r.StateType, UpdatedAt: r.At,
+	})
+	if len(r.People) == 0 {
+		return err
+	}
+	people := make([]store.LinearPerson, 0, len(r.People))
+	for _, p := range r.People {
+		people = append(people, store.LinearPerson{LinearUser: p.UserID, Via: p.Via})
+	}
+	return errors.Join(err, l.store.RecordLinearPeople(ctx, key, people, r.At))
+}
 
 // LinearDataChange keeps a Linear data change for the routines that run on it. The source is
 // built before New knows whether routines run here, so that is asked when a change arrives.

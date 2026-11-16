@@ -848,18 +848,11 @@ where (
           and ($2::bool or c.login = $1::text))
     )
   )
-  -- One ticket's chat of a routine (0047) is listed once a run in it has said something. Until
-  -- then it holds only runs that found nothing to do, kept as rows that are not history, and a
-  -- routine on a busy Linear workspace would otherwise fill the list with them.
-  and (
-    not exists (select 1 from routine_subject_chats rs where rs.chat_id = c.id)
-    or exists (
-      select 1 from chat_messages h
-       where h.chat_id = c.id and h.role in ('user', 'assistant') and h.deleted_at is null
-    )
-  )
+  -- A Linear issue's or project's conversation (0048) is not in the chat list: a company has
+  -- hundreds of them. The Linear view lists them (ListLinearConversations).
+  and not ($7::bool and c.origin = 'linear')
 order by c.id desc
-limit $7::int
+limit $8::int
 `
 
 type ListChatsParams struct {
@@ -869,6 +862,7 @@ type ListChatsParams struct {
 	AfterID           string
 	FilterPersonality bool
 	PersonalityID     string
+	ExcludeLinear     bool
 	PageLimit         int32
 }
 
@@ -937,6 +931,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 		arg.AfterID,
 		arg.FilterPersonality,
 		arg.PersonalityID,
+		arg.ExcludeLinear,
 		arg.PageLimit,
 	)
 	if err != nil {

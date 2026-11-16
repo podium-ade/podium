@@ -55,6 +55,9 @@ where (
       and exists (select 1 from identities i where i.provider = 'web' and i.external_id = @viewer::text))
 )
 and (@after_id::text = '' or s.id < @after_id::text)
+-- A Linear issue's or project's conversation (0048) is listed in the Linear view instead: a
+-- company has hundreds. One keyed by an agent session, from before, stays here.
+and not (c.origin is not distinct from 'linear' and s.source_key not like 'linear:session:%')
 order by s.id desc
 limit @page_limit::int;
 

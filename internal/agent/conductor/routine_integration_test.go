@@ -154,6 +154,9 @@ func TestALinearRoutineRunIsBriefedWithItsEventsAndSaysWhatStartedIt(t *testing.
 		Timezone: "UTC", Instruction: "Label each new issue by its area.",
 	}, "")
 	require.NoError(t, err)
+	// A routine on Linear events has no chat until a run needs one.
+	routine.ChatID, _, err = st.EnsureRoutineChat(ctx, routine)
+	require.NoError(t, err)
 	n, err := st.StoreRoutineEvents(ctx, store.LinearDelivery{
 		DeliveryID: "delivery-1", Event: "Issue.create", TeamKey: "ENG", ReceivedAt: time.Now(),
 		Payload: []byte(`{"type":"Issue","action":"create","url":"https://linear.example/acme/issue/ENG-12",` +
@@ -391,10 +394,11 @@ func TestASystemRoutineRunsInItsUnownedChatAsNobody(t *testing.T) {
 	}))
 }
 
-// A routine with a chat per ticket runs each ticket in that ticket's chat, which is the
-// routine's chat in every way that matters: its brief, routine_finish, and a quiet run kept
-// as rows that are not history, which keep the chat out of the list until a run says something.
-func TestATicketsChatIsTheRoutinesChatForThatTicket(t *testing.T) {
+// A routine that runs in each ticket's conversation runs as a turn of the issue's conversation:
+// the issue's chat, no routine's, which every agent session on the issue is a turn of. The run
+// is still its routine's — briefed with it, offered routine_finish, held and kept quietly when
+// idle — and runs as its owner, never as the conversation's owner, who is whoever spoke first.
+func TestARoutineRunsInTheIssuesConversationAsItsOwner(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)
 	fake := newFakePodium(t)
@@ -409,6 +413,7 @@ func TestATicketsChatIsTheRoutinesChatForThatTicket(t *testing.T) {
 		Instruction: "Label each new issue by its area.", ChatMode: store.RoutineChatModeSubject,
 	}, "")
 	require.NoError(t, err)
+	require.Empty(t, routine.ChatID, "it opened no chat of its own")
 	_, err = st.StoreRoutineEvents(ctx, store.LinearDelivery{
 		DeliveryID: "delivery-1", Event: "Issue.create", TeamKey: "ENG", ReceivedAt: time.Now(),
 		Payload: []byte(`{"type":"Issue","action":"create","data":{"id":"iss-12","identifier":"ENG-12","title":"Fix login"}}`),
@@ -417,31 +422,37 @@ func TestATicketsChatIsTheRoutinesChatForThatTicket(t *testing.T) {
 	subjects, err := st.PendingRoutineSubjects(ctx, routine.ID)
 	require.NoError(t, err)
 	require.Len(t, subjects, 1)
-	chatID, created, err := st.EnsureRoutineSubjectChat(ctx, routine, subjects[0].Key, subjects[0].Title)
+	key := store.LinearConversationKey(subjects[0].Key)
+	conv, created, err := st.EnsureLinearConversation(ctx, key, subjects[0].Title)
 	require.NoError(t, err)
 	require.True(t, created)
+	// Somebody else spoke on the issue first, and owns its conversation.
+	_, err = st.ClaimChatOwner(ctx, conv.ID, "bob@acme.com")
+	require.NoError(t, err)
+	chatID := conv.ID
 	run, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now(), store.RoutineTriggerEvent, store.RoutineRunRunning)
 	require.NoError(t, err)
 	require.True(t, ok)
 	_, err = st.AttachRoutineSubjectEvents(ctx, run.ID, routine.ID, subjects[0].Key, 20)
 	require.NoError(t, err)
 
-	sess, err := st.UpsertSession(ctx, store.Session{
-		SourceKind: conductor.SourceChat, SourceKey: store.ChatSourceKey(chatID), Profile: "podium",
-	})
+	sess, err := st.GetSessionByKey(ctx, key)
 	require.NoError(t, err)
 	turn, err := st.CreateTurnFor(ctx, sess.ID, chatID, testSpeaker, store.Backend{})
 	require.NoError(t, err)
 	require.NoError(t, web.RunRoutine(ctx, chat.RoutineRun{
 		ChatID: chatID, Login: testSpeaker, Instruction: routine.Instruction, RoutineID: routine.ID, RunID: run.ID,
+		Conversation: true,
 	}))
 	ev := <-web.Events()
+	assert.Equal(t, key, ev.SourceKey, "a turn of the issue's session")
+	assert.Equal(t, testSpeaker, ev.Login, "as the routine's owner")
 	r.cond.NoteRoutineTurnForTest(ctx, turn.ID, ev)
 	token, err := r.cond.MintChatTurnTokenForTest(web, sess.ID, turn.ID, chatID, testSpeaker)
 	require.NoError(t, err)
 
 	b := r.cond.BriefRoutineForTest(ctx, web, ev)
-	require.NotNil(t, b, "the ticket's chat is briefed as the routine's")
+	require.NotNil(t, b, "the run is briefed as its routine's")
 	assert.Equal(t, routine.ID, b.ID)
 	require.Len(t, b.Events, 1)
 	assert.Contains(t, r.cond.ChatToolNamesForTest(ctx, token), "routine_finish")
@@ -456,12 +467,20 @@ func TestATicketsChatIsTheRoutinesChatForThatTicket(t *testing.T) {
 	for _, m := range msgs {
 		assert.NotEqual(t, store.RoleAssistant, m.Role, "an idle run is kept quietly")
 	}
-	chats, _, err := st.ListChats(ctx, testSpeaker, false, 50, "")
-	require.NoError(t, err)
-	for _, c := range chats {
-		assert.NotEqual(t, chatID, c.ID, "a ticket's chat with only quiet runs is not listed")
-	}
 	reported, err := st.GetRoutineRun(ctx, run.ID)
 	require.NoError(t, err)
 	assert.Equal(t, store.RoutineRunIdle, reported.Reported)
+
+	// A person's own message in the issue's conversation is no routine's turn.
+	plain := ev
+	plain.Routine = nil
+	assert.Nil(t, r.cond.BriefRoutineForTest(ctx, web, plain))
+
+	// A run in somebody else's conversation that is not a Linear one is refused.
+	other, err := st.CreateChat(ctx, "bob@acme.com", "Bob's chat")
+	require.NoError(t, err)
+	assert.Error(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: other.ID, Login: testSpeaker, Instruction: routine.Instruction, RoutineID: routine.ID, RunID: run.ID,
+		Conversation: true,
+	}))
 }

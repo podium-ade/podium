@@ -71,6 +71,9 @@ type Source struct {
 	// mirrorKey, when set, is the mirror's key for a ref instead of the Slack-shaped default:
 	// a Linear agent session's ref names its session fourth, not second.
 	mirrorKey func(ref string) (string, bool)
+	// threads, when set, names the thread of the conversation a ref answers into, as the
+	// Linear app names an issue's agent sessions (conductor.ThreadKeyer).
+	threads func(ref string) string
 	// failPosts is how many more answers, failures or questions Post refuses, which is how a
 	// test drives the delivery outbox's retries.
 	failPosts int
@@ -86,9 +89,28 @@ type Source struct {
 }
 
 var (
-	_ conductor.Source     = (*Source)(nil)
-	_ conductor.StopHearer = (*Source)(nil)
+	_ conductor.Source      = (*Source)(nil)
+	_ conductor.StopHearer  = (*Source)(nil)
+	_ conductor.ThreadKeyer = (*Source)(nil)
 )
+
+// SetThreads makes the source's conversations hold threads, named by f from a ref.
+func (s *Source) SetThreads(f func(ref string) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.threads = f
+}
+
+// ThreadKey implements conductor.ThreadKeyer: "" unless SetThreads gave the source threads.
+func (s *Source) ThreadKey(ref string) string {
+	s.mu.Lock()
+	f := s.threads
+	s.mu.Unlock()
+	if f == nil {
+		return ""
+	}
+	return f(ref)
+}
 
 // New returns a source announcing itself as kind.
 func New(kind string) *Source {

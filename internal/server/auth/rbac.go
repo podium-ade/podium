@@ -111,6 +111,9 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListLinearCatalogProcedure: store.RoleMember,
 	agentv1connect.AgentServiceCreateChatProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
+	// The Linear view: the conductor lists a member only the issues they touched, and an admin
+	// or owner (X-Podium-Infra) every one.
+	agentv1connect.AgentServiceListLinearConversationsProcedure: store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is
 	// not the caller, so member is the gate and ownership is the check.
 	agentv1connect.AgentServiceListPersonalitiesProcedure: store.RoleMember,

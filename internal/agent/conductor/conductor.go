@@ -346,6 +346,9 @@ type sessionState struct {
 	// turnPlaybook is the playbook that turn ran, empty for the assistant. A task that has
 	// answered takes a follow-up only for its own playbook.
 	turnPlaybook string
+	// turnThread is the thread of the conversation that turn answered (threadOf): a Linear
+	// agent session within its issue's conversation, a routine's run, or "".
+	turnThread string
 	// local is turns queued in this process because the database refused to queue them.
 	// They are served after the durable queue.
 	local []InboundEvent
@@ -560,6 +563,8 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			"source", src.Kind(), "source_key", ev.SourceKey, "external_id", ev.ExternalID)
 		return
 	}
+	// A Linear conversation that waited on a person has heard from one.
+	c.clearLinearQuestion(ctx, src, ev)
 	// A message the web chat held back (ev.Held) is in nobody's record until a turn takes it.
 	// Whatever path this event leaves by without one — refused, a failed start — the message
 	// is recorded on the way out, so what a person said is never simply gone. A path that
@@ -2330,6 +2335,9 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 	if out.Type == OutFinal {
 		answer = out.Text
 	}
+	if out.Type == OutQuestion {
+		c.noteLinearQuestion(ctx, src, ref)
+	}
 	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref, answer) && out.Type == OutFinal {
 		return ""
 	}
@@ -2394,7 +2402,7 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 			c.logger.ErrorContext(ctx, "a running turn has no session", "turn_id", turn.ID, "error", err)
 			continue
 		}
-		src := c.sourceOf(sess.SourceKind)
+		src := c.sourceForRef(ctx, sess.SourceKind, turn.TriggerRef)
 
 		c.mu.Lock()
 		local := c.sessions[sess.ID] != nil && c.sessions[sess.ID].running
