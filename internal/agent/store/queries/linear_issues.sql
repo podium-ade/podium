@@ -55,8 +55,14 @@ select linear_touched(@source_key::text, @viewer::text)::bool as touched;
 -- (its last turn ended), or 'new' (no turn yet). filter_state is '' for every one, a state, or
 -- 'attention' for waiting and failed together.
 --
+-- filter_state_type is the board's column: '' for every one, an issue's Linear state type
+-- ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'), or 'none' for the rest
+-- — a project, or an issue whose state type the webhooks never said or Linear added since.
+--
 -- The page is keyed by (last_activity_at, chat_id), newest first: after_at and after_id are the
--- last row of the page before, and after_at null is the first page.
+-- last row of the page before, and after_at null is the first page. total is how many rows match
+-- from the cursor on, so on the first page every row the filters match; it costs nothing more,
+-- since ordering by last activity already reads every one.
 -- name: ListLinearConversations :many
 with conv as (
   select c.id as chat_id, c.source_key, c.title as chat_title, c.login as owner_login,
@@ -104,12 +110,17 @@ with conv as (
           end)::text as state
     from conv
 )
-select * from listed
+select listed.*, (count(*) over ())::int as total from listed
  where (not @only_mine::bool or listed.mine)
    and (@team::text = '' or listed.team_key = @team::text)
    and (@filter_state::text = ''
         or listed.state = @filter_state::text
         or (@filter_state::text = 'attention' and listed.state in ('waiting', 'failed')))
+   and (@filter_state_type::text = ''
+        or (@filter_state_type::text = 'none'
+            and (listed.kind = 'project'
+                 or listed.state_type not in ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled')))
+        or (listed.kind <> 'project' and listed.state_type = @filter_state_type::text))
    and (sqlc.narg('after_at')::timestamptz is null
         or (listed.last_activity_at, listed.chat_id) < (sqlc.narg('after_at')::timestamptz, @after_id::text))
  order by listed.last_activity_at desc, listed.chat_id desc

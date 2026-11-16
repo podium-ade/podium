@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -285,28 +286,61 @@ type LinearConversationFilter struct {
 	Team string
 	// State is "", a state, or LinearStateAttention.
 	State string
+	// StateType is the board's column: "", one of LinearStateTypes, or LinearStateTypeNone.
+	StateType string
 }
 
-// ListLinearConversations is a page of the Linear view for viewer, most recently active first,
-// and the cursor of the next page ("" for none).
+// LinearStateTypes are the types of an issue's state in Linear, in Linear's order: the board's
+// columns.
+var LinearStateTypes = []string{"triage", "backlog", "unstarted", "started", "completed", "canceled"}
+
+// LinearStateTypeNone filters the Linear view to what has none of LinearStateTypes: projects,
+// and issues whose state type the webhooks never said.
+const LinearStateTypeNone = "none"
+
+// LinearStateTypeFilter is s as a LinearConversationFilter.StateType, and whether it is one.
+func LinearStateTypeFilter(s string) (string, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" || s == LinearStateTypeNone || slices.Contains(LinearStateTypes, s) {
+		return s, true
+	}
+	return "", false
+}
+
+// LinearConversationPage is one page of the Linear view.
+type LinearConversationPage struct {
+	Rows []LinearConversation
+	// Next is the cursor of the next page, "" for none.
+	Next string
+	// Total is how many conversations the filter matches, counted on the first page only.
+	Total int
+}
+
+// ListLinearConversations is a page of the Linear view for viewer, most recently active first.
+// A StateType that is not one (LinearStateTypeFilter) matches nothing.
 func (s *Store) ListLinearConversations(
 	ctx context.Context, viewer string, f LinearConversationFilter, limit int, cursor string,
-) ([]LinearConversation, string, error) {
+) (LinearConversationPage, error) {
 	limit = clampLimit(limit)
 	params := db.ListLinearConversationsParams{
 		Viewer: viewer, SeeAll: f.SeeAll, OnlyMine: f.Mine, Team: strings.ToUpper(strings.TrimSpace(f.Team)),
-		FilterState: strings.TrimSpace(f.State), PageLimit: int32(limit + 1),
+		FilterState: strings.TrimSpace(f.State), FilterStateType: strings.ToLower(strings.TrimSpace(f.StateType)),
+		PageLimit: int32(limit + 1),
 	}
 	if cursor != "" {
 		at, id, ok := parseLinearCursor(cursor)
 		if !ok {
-			return nil, "", fmt.Errorf("%w: %q", ErrBadLinearCursor, cursor)
+			return LinearConversationPage{}, fmt.Errorf("%w: %q", ErrBadLinearCursor, cursor)
 		}
 		params.AfterAt, params.AfterID = &at, id
 	}
 	rows, err := s.q.ListLinearConversations(ctx, params)
 	if err != nil {
-		return nil, "", fmt.Errorf("list Linear conversations: %w", err)
+		return LinearConversationPage{}, fmt.Errorf("list Linear conversations: %w", err)
+	}
+	total := 0
+	if cursor == "" && len(rows) > 0 {
+		total = int(rows[0].Total)
 	}
 	next := ""
 	if len(rows) > limit {
@@ -331,7 +365,7 @@ func (s *Store) ListLinearConversations(
 			CostUSD: r.CostUsd, MyRole: r.MyRole, Mine: r.Mine,
 		})
 	}
-	return out, next, nil
+	return LinearConversationPage{Rows: out, Next: next, Total: total}, nil
 }
 
 // LinearConversationTeams is every team a conversation viewer may list is in.

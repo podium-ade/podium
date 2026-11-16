@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -187,20 +188,24 @@ func TestWhoTouchedAnIssueReadsItsConversation(t *testing.T) {
 	assert.Equal(t, "ENG", li.TeamKey)
 	assert.Equal(t, "In Progress", li.StateName)
 
-	mine, _, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{}, 50, "")
+	minePage, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{}, 50, "")
 	require.NoError(t, err)
+	mine := minePage.Rows
 	require.Len(t, mine, 1)
 	assert.Equal(t, LinearStateNew, mine[0].State)
-	none, _, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{}, 50, "")
+	nonePage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{}, 50, "")
 	require.NoError(t, err)
+	none := nonePage.Rows
 	assert.Empty(t, none, "somebody who never touched it does not list it")
-	all, _, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{SeeAll: true}, 50, "")
+	allPage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{SeeAll: true}, 50, "")
 	require.NoError(t, err)
+	all := allPage.Rows
 	assert.Len(t, all, 1, "an admin lists every one")
 
 	require.NoError(t, s.SetLinearIssueAsked(ctx, key, true, "bo@acme.com"))
-	waiting, _, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{State: LinearStateAttention}, 50, "")
+	waitingPage, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{State: LinearStateAttention}, 50, "")
 	require.NoError(t, err)
+	waiting := waitingPage.Rows
 	require.Len(t, waiting, 1)
 	assert.Equal(t, LinearStateWaiting, waiting[0].State)
 	assert.Equal(t, "bo@acme.com", waiting[0].AskedOf)
@@ -208,4 +213,77 @@ func TestWhoTouchedAnIssueReadsItsConversation(t *testing.T) {
 	chats, _, err := s.ListChats(ctx, "bo@acme.com", false, 50, "", ListChatsScope{ExcludeLinear: true})
 	require.NoError(t, err)
 	assert.Empty(t, chats, "an issue's conversation is not in the chat rail")
+}
+
+func TestTheLinearBoardListsOneStateTypeAPage(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	open := func(key, title string, li LinearIssue) {
+		t.Helper()
+		_, _, err := s.EnsureLinearConversation(ctx, key, title)
+		require.NoError(t, err)
+		li.SourceKey = key
+		require.NoError(t, s.UpsertLinearIssue(ctx, li))
+	}
+	for i := range 3 {
+		id := fmt.Sprintf("ENG-%d", i+1)
+		open(LinearIssueKey("started-"+id), id, LinearIssue{Identifier: id, TeamKey: "ENG", StateName: "In Progress", StateType: "started"})
+	}
+	open(LinearIssueKey("todo"), "ENG-9", LinearIssue{Identifier: "ENG-9", TeamKey: "ENG", StateName: "Todo", StateType: "unstarted"})
+	open(LinearIssueKey("ops"), "OPS-1", LinearIssue{Identifier: "OPS-1", TeamKey: "OPS", StateName: "In Progress", StateType: "started"})
+	open(LinearIssueKey("unsaid"), "ENG-10", LinearIssue{Identifier: "ENG-10", TeamKey: "ENG"})
+	open(LinearProjectKey("p1"), "Roadmap", LinearIssue{Title: "Roadmap", StateName: "Started", StateType: "started"})
+
+	list := func(f LinearConversationFilter, limit int, cursor string) LinearConversationPage {
+		t.Helper()
+		f.SeeAll = true
+		p, err := s.ListLinearConversations(ctx, "root@acme.com", f, limit, cursor)
+		require.NoError(t, err)
+		return p
+	}
+	idents := func(rows []LinearConversation) []string {
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.Identifier+r.Kind)
+		}
+		return out
+	}
+
+	first := list(LinearConversationFilter{StateType: "started"}, 2, "")
+	assert.Len(t, first.Rows, 2)
+	assert.Equal(t, 4, first.Total, "three ENG and one OPS issue are started; the project is not an issue")
+	require.NotEmpty(t, first.Next)
+	second := list(LinearConversationFilter{StateType: "started"}, 2, first.Next)
+	assert.Len(t, second.Rows, 2)
+	assert.Empty(t, second.Next)
+	assert.Zero(t, second.Total, "only the first page counts")
+	for _, r := range append(first.Rows, second.Rows...) {
+		assert.Equal(t, "started", r.StateType)
+		assert.Equal(t, "issue", r.Kind)
+	}
+
+	eng := list(LinearConversationFilter{StateType: "started", Team: "eng"}, 10, "")
+	assert.Equal(t, 3, eng.Total, "the team filter applies to a column too")
+	assert.Len(t, eng.Rows, 3)
+
+	todo := list(LinearConversationFilter{StateType: "unstarted"}, 10, "")
+	assert.Equal(t, []string{"ENG-9issue"}, idents(todo.Rows))
+
+	none := list(LinearConversationFilter{StateType: LinearStateTypeNone}, 10, "")
+	assert.ElementsMatch(t, []string{"ENG-10issue", "project"}, idents(none.Rows),
+		"an issue whose state type is unknown and a project have no column of their own")
+	assert.Equal(t, 2, none.Total)
+
+	empty := list(LinearConversationFilter{StateType: "canceled"}, 10, "")
+	assert.Empty(t, empty.Rows)
+	assert.Zero(t, empty.Total)
+
+	every := list(LinearConversationFilter{}, 10, "")
+	assert.Equal(t, 7, every.Total)
+	assert.Len(t, every.Rows, 7)
+
+	nobody, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{StateType: "started"}, 10, "")
+	require.NoError(t, err)
+	assert.Empty(t, nobody.Rows, "a column lists only what the caller may read")
+	assert.Zero(t, nobody.Total, "and counts only that")
 }
