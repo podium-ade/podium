@@ -410,6 +410,52 @@ chat](agent.md#tickets-in-a-chat).
   It refetches when the stream's message count changes, on focus, and every thirty seconds.
 - **No migration.** The queries are read-only (`queries/linear_tickets.sql`).
 
+## Questions in the inbox
+
+Built on `feature/linear-12-ticket-inbox`, after tickets in a chat. What the user asked for: a question
+the agent asks in a ticket's conversation reaches the person it is asked of where they already
+look, answered without opening the chat; reading and writing Linear from a chat through the
+person's own Linear MCP server, not tools of Podium's; and the trust that follows written down.
+
+- **The item.** `noteLinearQuestion` (`conductor/linear_conversation.go`), which already set
+  `asked_at`, now also puts the question in the inbox of whoever it is asked of: a `question` row in
+  `notifications` (0051) with the text in `detail`, for the person the turn that ran the asking task
+  ran as (`ChatTurnRunners` and the turn index #300 built), else the turn running on this
+  conductor. That is who prompted it, from Linear or the web, or a routine's owner for its run; a
+  system routine's run asks nobody. `asked_of` is set the same way, which fixes a question from a
+  task an earlier turn delegated being put on the latest turn's person. `ListNotifications` joins
+  `linear_issues` for the ticket's identifier and title.
+- **No duplicates.** A partial unique index on `(chat_id, login) where kind = 'question' and read_at
+  is null`: one open item per person and conversation, and a second question before the first is
+  answered replaces its text (`NotifyQuestion`, an upsert). A question is posted once by `post`, so
+  an outbox retry adds nothing.
+- **Closed by an answer from anywhere.** `clearLinearQuestion` — every event put to Podium in a
+  Linear conversation, whichever source, which is what cleared `asked_at` — also closes the
+  conversation's open questions (`ResolveQuestions`). An agent session prompt in Linear, a message
+  in the chat and an answer from the inbox are all such events. Opening the chat, and *mark all
+  read*, leave a question open (`MarkNotificationsRead` skips `question` unless named by id, and the
+  web does not mark it seen on open); **Dismiss** names it.
+- **Answering from the inbox is the chat.** The bell's row has a box that calls `SendChatMessage`
+  on the conversation, nothing more, so it is relayed to the issue as the person's comment (#300's
+  path) and goes where a reply typed in the chat would. Two things make that reach the question:
+  - In the chat, while the issue waits on the sender (`asked_of`), their message is addressed
+    without naming Podium, and is not held behind the turn waiting for it
+    (`chat.answersQuestion`, through an optional `QuestionStore`).
+  - In the conductor, a task awaiting a question takes the asked person's message from the web in a
+    Linear conversation even when its turn began on another surface — a Linear agent session or
+    their routine's run (`conductor.answersQuestion`). Before, a web reply to a question asked in an
+    agent session was queued behind the task waiting for it. It is the same person's words to a task
+    running as them; its answer still goes where its turn answers.
+- **Linear MCP hint.** No custom Linear tools. `LinearMcpHint` shows one line in the Linear view and
+  above an issue conversation's composer to a signed-in person with no enabled personal server named
+  `linear` (the name the assistant asks for; a global fallback acts as whoever stored its key, so it
+  does not count). It links to `/agent/mcp?add=linear`, which opens the MCP screen's add dialog on
+  the Linear preset, and is dismissed per browser (`localStorage`).
+- **Docs.** security.md: a question's inbox item, and that the person's Linear MCP server acts as
+  them with nothing between the model and its tools while turns read ticket text other members
+  wrote. agent.md: the inbox item and Linear-from-chat under *The Linear view*, and two example
+  routines (a weekday digest, bulk triage) under *Routines*.
+
 ## Testing
 
 - **Unit:** extend `stub_test.go` to serve the OAuth token endpoint and the agent mutations.
@@ -507,5 +553,14 @@ Across the whole stack, what is still open:
   until the runtime image and the chat host's renderer are updated. Team membership is Podium's
   narrower reading of who sees what (a public team's issues are not shown to non-members).
   Admins are briefed with tickets by the member rule, since the conductor does not know roles.
+- **Questions in the inbox** (`feature/linear-12-ticket-inbox`) have unit tests for the chat's and
+  the conductor's answer rules and the web inbox, hint and deep link; the store test (create,
+  dedupe, mark-all, resolve, dismiss: `question_inbox_integration_test.go`) and the conductor tests
+  (a question from a Linear agent session in the inbox, closed by the answer in Linear and by one
+  from the web) compile and have not run against Postgres. An answer from the web goes into a task
+  waiting in a Linear agent session only on the conductor that runs it; another conductor queues it
+  as a turn. Whether Linear shows the agent session's elicitation as answered when the answer
+  arrives as a relayed comment rather than a prompt in the session was not tried. A question whose
+  task ended without an answer keeps its item until somebody speaks or it is dismissed.
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.
