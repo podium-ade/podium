@@ -286,7 +286,7 @@ func (c *Conductor) reviewRunning(ctx context.Context, sourceKey string) bool {
 	}
 	name := ""
 	if p := c.profiles.Current(); p != nil {
-		name = p.GitHubPlaybook()
+		name = p.GitHubPlaybookFor(pullRequestRepo(sourceKey))
 	}
 	for _, d := range running {
 		if name == "" || d.Playbook == name {

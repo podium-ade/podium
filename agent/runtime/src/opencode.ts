@@ -679,6 +679,27 @@ export function lostToNetwork(reason: string | undefined): boolean {
   return networkError.test(reason ?? "");
 }
 
+// What each provider says when it does not accept the credential at all: Anthropic's
+// "invalid x-api-key" and authentication_error, OpenAI's "Incorrect API key" and
+// invalid_api_key, Google's "API key not valid" and "API key expired", xAI's
+// "Incorrect API key". A rate limit, an overload or a refusal of the request is not one.
+const credentialError =
+  /invalid x-api-key|authentication_error|invalid[ _]api[ _]key|incorrect api key|api key not valid|api key expired|api_key_invalid/i;
+
+/**
+ * CredentialRefusedText is the whole answer of a turn whose credential the provider refused.
+ * The provider's own words stay in the log: they mean something to an operator and nothing
+ * to the person on a pull request, and the conductor recognises this sentence to re-check
+ * the key and tell whoever set it (internal/agent/conductor/keyhealth.go).
+ */
+export const CredentialRefusedText =
+  "I could not answer: the model provider refused this bot's API key. An operator needs to replace it.";
+
+/** credentialRefused reports whether a harness error is the provider refusing the credential. */
+export function credentialRefused(reason: string | undefined): boolean {
+  return credentialError.test(reason ?? "");
+}
+
 /** errorOf is the reason an error event gives, or undefined for any other event. */
 export function errorOf(event: Event): string | undefined {
   if (event.type !== "error") {

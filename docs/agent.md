@@ -16,8 +16,9 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 
 A conversation runs **no playbook**. A Linear ticket does, and runs as a task, because it
 really is one piece of work. A GitHub pull request is a conversation, one session per pull
-request: the assistant answers what people write on it, and the review is a task of the one
-playbook marked `github: true`.
+request: the assistant answers what people write on it, and the review is a task of the
+playbook that names the pull request's repository in `github_repos`, or else of the one marked
+`github: true`.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -792,7 +793,8 @@ secrets:                                                     # verbatim into the
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
-github: false                                                # this is the playbook pull-request reviews run
+github: false                                                # this is the default playbook pull-request reviews run
+github_repos: []                                             # [owner/name] whose pull requests this playbook reviews instead
 github_requires: ""                                          # offered on a pull request to commenters with this role or more
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
@@ -833,11 +835,16 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
-- **At most one playbook may set `github: true`.** That playbook is the whole of a pull-request
-  review. Two is a start-up error. Zero means a review is refused until one is marked.
-- **`github_requires` is `read`, `triage`, `write`, `maintain` or `admin`**, and the review
-  playbook may not set it: it is always offered. A playbook that sets it names the same first
-  repository as the review playbook, because both work in the pull request's one workspace.
+- **At most one playbook may set `github: true`.** That playbook reviews every repository no
+  playbook names in `github_repos`. Two is a start-up error. Zero is fine while every reviewed
+  repository is named; a pull request in a repository nobody reviews is refused.
+- **A repository is in at most one playbook's `github_repos`.** Entries are `owner/name`
+  (an `https://github.com/` prefix and `.git` suffix are dropped), compared without case. Two
+  playbooks naming one repository is a start-up error.
+- **`github_requires` is `read`, `triage`, `write`, `maintain` or `admin`**, and no review
+  playbook may set it: a review playbook is always offered on the pull requests it reviews. A
+  playbook that sets it names the same first repository as a review playbook, because both work
+  in the pull request's one workspace, and it is offered on that review playbook's pull requests.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
@@ -1634,6 +1641,37 @@ never as markup. **The key never appears in it.**
 A key with an unfamiliar prefix is **not** refused — Anthropic has changed prefixes before — but
 the card says `key format looks unusual; validated anyway` next to the success line.
 
+### When a saved key stops working
+
+A key that worked when it was saved can stop working later: it expires, it is revoked in the
+provider's console, or its workspace is disabled. The conductor checks for that itself.
+
+- **About once an hour** the background pass that renews subscriptions also makes the same
+  free model-list call for each stored **global** API key. A 429, a 5xx or a network failure
+  tells it nothing about the key, so nothing is recorded and the next tick tries again.
+- **A turn that fails because its credential was refused asks for a check at once**, so it
+  doesn't wait out the hour. The runtime recognises the provider's refusal (Anthropic's
+  `invalid x-api-key`, OpenAI's `Incorrect API key`, Google's `API key not valid` and so on). It
+  answers with one plain sentence instead of the provider's error. Several turns failing
+  together trigger one check, not one each.
+- When the provider refuses the key, the conductor records that on its metadata row:
+  - The Models page shows **Key refused** and what the provider said.
+  - The notification inbox raises an alert.
+  - The login that saved the key is told once, by Slack DM or else email, with the same
+    notifiers as *task finished* messages.
+  - From then on, **a turn that would spend that key is stopped before it starts**. That covers a
+    review, a Slack mention, a Linear issue, a delegated task, and an assistant turn outside the
+    chat host. Instead of a sandbox that boots and then posts the provider's raw error, the
+    conversation gets one sentence: *I can't run this right now: Anthropic is refusing this
+    bot's API key, so nothing ran.*
+- Saving a working key clears the refusal. So does a later check that finds the key working
+  again.
+
+The refusal is believed only about the key it was recorded for. A key replaced with
+`podium secret set` is not refused, and the next pass checks it. Personal keys are not checked
+in the background: a person's own key is theirs to look after. A turn on one still answers with
+the plain sentence when it is refused.
+
 **Remove key** deletes the secret and the metadata row. It asks for an inline confirmation
 first, because every turn on that backend fails until a credential is set again. Doing it twice
 is not an error.
@@ -2096,6 +2134,23 @@ Then `@your-app review this` on a PR, or in Slack:
 Those are the same session (`github:acme/repo#12`). Mark the review playbook with `github: true`
 before any of this runs. With none marked, an opened pull request is refused, and the assistant
 says it has nothing to review with.
+
+### A review playbook per repository
+
+A repository can have its own reviewer — another system prompt, image, tools, or checkout. Name
+it in that playbook's `github_repos`; its pull requests are reviewed there, and every other
+repository still goes to the `github: true` playbook:
+
+```yaml
+# playbooks/api-review.yaml
+system_prompt: |
+  Review this pull request against the API's compatibility rules in docs/api.md.
+github_repos: [acme/api]
+repos: [{name: api, url: https://github.com/acme/api.git, default_branch: main}]
+```
+
+A pull request's menu carries only its own repository's review playbook, so a comment cannot
+reach another repository's reviewer.
 
 Every task on a pull request runs on the same session workspace, and **one task at a time
 changes it**: a task that writes replaces the snapshot when it exits, and two at once would race

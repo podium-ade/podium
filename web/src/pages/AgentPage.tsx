@@ -3,7 +3,6 @@ import { Settings2 } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
-import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { GitHubAccountCard } from "../components/agent/GitHubAccountCard";
 import { GitHubCallback } from "../components/agent/GitHubCallback";
@@ -14,16 +13,13 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
-import { RoutinesAdminPanel } from "../components/agent/RoutinesAdminPanel";
 import { RoutinesPanel } from "../components/agent/RoutinesPanel";
-import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybookPage, PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillPage, SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
 import { PageFrame } from "../components/PageHeader";
-import { UsersPage } from "./UsersPage";
 import {
   Table,
   TableBody,
@@ -163,9 +159,10 @@ function ProfileRedirect() {
 }
 
 /**
- * SETTINGS_SECTIONS are the pages that used to be Settings' tabs. Each is its own sidebar
- * entry now, in the group it answers to, but keeps its /agent/settings address so old
- * links, the GitHub callback and notifications still land on it.
+ * SETTINGS_SECTIONS are the pages that used to be Settings' tabs and are still the
+ * viewer's own: their account and the models their chats spend. The organization's —
+ * Members, Connections and the routines policy — moved to Organization settings
+ * (pages/OrgSettingsPage), and Backend to the Sandboxes page; MOVED sends an old link there.
  */
 const SETTINGS_SECTIONS: {
   id: string;
@@ -180,38 +177,20 @@ const SETTINGS_SECTIONS: {
     show: (v) => Boolean(v?.googleAuthEnabled),
   },
   {
-    id: "users",
-    title: "Members",
-    lead: "The people who can sign in, and what each of them is allowed to do.",
-    show: () => true,
-  },
-  {
-    id: "runs-on",
-    title: "Backend",
-    lead: "Where your assistants do their work when a playbook doesn't say: on your own nodes, or in a cloud sandbox.",
-    show: (v) => Boolean(v?.agentEnabled),
-  },
-  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
-  {
-    id: "connections",
-    title: "Connections",
-    lead: "The outside apps your assistants work with. GitHub lets them read code and open pull requests, and Slack lets people message them.",
-    show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v),
-  },
-  // Everyone's routines, and the per-person limits, are an admin's.
-  {
-    id: "routines",
-    title: "Routines",
-    lead: "Everyone's routines at a glance, and how many routines each person may have and spend on.",
-    show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v),
-  },
-  {
     id: "models",
     title: "Models",
     lead: "The AI services your assistants run on. Add a key or sign in, and that service's models appear in Chat.",
     show: (v) => Boolean(v?.agentEnabled),
   },
 ];
+
+/** Where each section that moved to Organization settings lives now. */
+const MOVED: Record<string, string> = {
+  users: "/org/settings/members",
+  "runs-on": "/sandboxes/providers",
+  connections: "/org/settings/connections",
+  routines: "/org/settings/routines",
+};
 
 /**
  * SettingsTab draws one former settings section as a page of its own. A bare
@@ -222,6 +201,9 @@ function SettingsTab() {
   const { pathname } = useLocation();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
+  const moved = MOVED[tab];
+  if (moved) return <Navigate to={moved} replace />;
+
   const sections = SETTINGS_SECTIONS.filter((s) => s.show(viewer));
   const section = sections.find((s) => s.id === tab);
   if (!section) {
@@ -229,14 +211,11 @@ function SettingsTab() {
     return fallback ? (
       <Navigate to={`/agent/settings/${fallback.id}`} replace />
     ) : (
-      <PageFrame title="Settings">
-        <p className="text-sm text-muted">Nothing to configure.</p>
-      </PageFrame>
+      <Navigate to="/org/settings" replace />
     );
   }
 
   const current = section.id;
-  const flush = current === "users" || current === "connections" || current === "models" || current === "routines";
 
   return (
     <PageFrame title={section.title} lead={section.lead} bodyClassName="space-y-5 p-6">
@@ -244,18 +223,14 @@ function SettingsTab() {
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
         aria-label={section.title}
       >
-        <div className={flush ? undefined : "grid gap-4 p-4"}>
+        <div className={current === "models" ? undefined : "grid gap-4 p-4"}>
           {current === "account" ? (
             <>
               <IdentityCard />
               {viewer?.agentEnabled ? <GitHubAccountCard /> : null}
             </>
           ) : null}
-          {current === "users" ? <UsersPage /> : null}
-          {current === "runs-on" ? <RunsOnSettings /> : null}
-          {current === "connections" ? <ConnectionsPanel /> : null}
           {current === "models" ? <ModelsPanel /> : null}
-          {current === "routines" ? <RoutinesAdminPanel /> : null}
         </div>
       </section>
     </PageFrame>

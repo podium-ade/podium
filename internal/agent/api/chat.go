@@ -668,7 +668,7 @@ func (s *AgentService) StreamChat(
 		}
 	}
 
-	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq())
+	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq(), req.Msg.GetTail())
 	if err != nil {
 		return err
 	}
@@ -758,11 +758,19 @@ func (s *AgentService) stillReadable(ctx context.Context, chatID, login string) 
 	return nil
 }
 
-// replay sends everything stored after fromSeq and returns the highest seq it sent.
+// replay sends everything stored after fromSeq and returns the highest seq it sent. A first
+// open (fromSeq 0) with a tail sends only the newest tail messages: a long conversation opens
+// on its end, and the client pages back with ListChatMessages as the reader scrolls up.
 func (s *AgentService) replay(
-	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], chatID string, fromSeq uint64,
+	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], chatID string, fromSeq uint64, tail uint32,
 ) (uint64, error) {
-	msgs, err := s.store.ListChatMessages(ctx, chatID, fromSeq)
+	var msgs []store.ChatMessage
+	var err error
+	if fromSeq == 0 && tail > 0 {
+		msgs, _, err = s.store.ListChatMessagesBefore(ctx, chatID, 0, int(min(tail, maxChatPage)))
+	} else {
+		msgs, err = s.store.ListChatMessages(ctx, chatID, fromSeq)
+	}
 	if err != nil {
 		return 0, storeError(err)
 	}
@@ -774,6 +782,43 @@ func (s *AgentService) replay(
 		last = m.Seq
 	}
 	return last, nil
+}
+
+// maxChatPage caps one page of history, from StreamChat's tail or ListChatMessages.
+const maxChatPage = 500
+
+// ListChatMessages pages a chat's history backwards from before_seq, for a reader scrolling
+// up past the tail StreamChat opened on. Reading is checked as StreamChat checks it.
+func (s *AgentService) ListChatMessages(
+	ctx context.Context, req *connect.Request[agentv1.ListChatMessagesRequest],
+) (*connect.Response[agentv1.ListChatMessagesResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("list chat messages: chat_id is required"))
+	}
+	if err := s.stillReadable(ctx, chatID, login); err != nil {
+		return nil, err
+	}
+	limit := req.Msg.GetLimit()
+	if limit == 0 || limit > maxChatPage {
+		limit = maxChatPage
+	}
+	msgs, more, err := s.store.ListChatMessagesBefore(ctx, chatID, req.Msg.GetBeforeSeq(), int(limit))
+	if err != nil {
+		return nil, storeError(err)
+	}
+	out := make([]*agentv1.ChatMessage, len(msgs))
+	for i, m := range msgs {
+		out[i] = chatMessageToProto(m)
+	}
+	return connect.NewResponse(&agentv1.ListChatMessagesResponse{Messages: out, HasMore: more}), nil
 }
 
 func frameToProto(f chat.Frame) *agentv1.ChatFrame {

@@ -123,6 +123,7 @@ func (r *turnRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.job.playbook.Timeout.Std())
+	r.c.noteRefusal(ctx, r.turn.Backend.Provider, r.answer(), result.Status == store.TurnFailed)
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.

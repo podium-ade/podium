@@ -205,6 +205,14 @@ select * from chat_messages
 where chat_id = @chat_id and seq > @from_seq::bigint
 order by seq;
 
+-- ListChatMessagesBefore is one page of history read backwards: the newest @lim messages
+-- below @before_seq, newest first. The caller flips it back into seq order.
+-- name: ListChatMessagesBefore :many
+select * from chat_messages
+where chat_id = @chat_id and seq < @before_seq::bigint
+order by seq desc
+limit @lim::int;
+
 -- name: LastAssistantMessage :one
 select * from chat_messages
 where chat_id = @chat_id and role = 'assistant'

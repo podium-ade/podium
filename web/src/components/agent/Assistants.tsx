@@ -51,6 +51,7 @@ import { absolute, relative } from "../../lib/format";
 import { AssistantRowActions, DeleteAssistantDialog } from "./AssistantRowActions";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import { assistantName, useBrand } from "../../lib/brand";
 
 const PERSONAL_SECTIONS = ["identity", "instructions", "model"] as const;
 
@@ -185,6 +186,7 @@ export function Assistants() {
  */
 function AssistantList({ voices }: { voices: UseQueryResult<{ personalities: Personality[] }> }) {
   const navigate = useNavigate();
+  const brand = useBrand();
   const profile = useQuery({
     queryKey: ["agent", "profile"],
     queryFn: () => agent.getProfile({}),
@@ -248,7 +250,7 @@ function AssistantList({ voices }: { voices: UseQueryResult<{ personalities: Per
                 chatHref="/agent/chat"
                 onOpen={openRow}
                 tile={<AssistantTile kind="podium" />}
-                name={podium?.displayName || "Podium"}
+                name={assistantName(podium?.displayName, brand)}
                 badge={<Chip className="px-2 py-0.5">Built-in</Chip>}
                 hint={firstLine(podium?.systemPrompt ?? "")}
                 model={<ModelLine agentId={podium?.agent ?? ""} model={podium?.model ?? ""} />}
