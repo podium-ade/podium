@@ -492,6 +492,45 @@ export type Child = ChildProcessByStdio<null, Readable, Readable>;
 export interface Run {
   child: Child;
   argv: string[];
+  /**
+   * notStarted is set when the harness could not be started at all, to what the person who
+   * asked is told instead of an exit code: it is their chat the failure lands in, and
+   * "the harness exited -2" tells them nothing.
+   */
+  notStarted?: string;
+}
+
+/** HarnessVersion is the opencode-ai the runtime image installs, and a host should too. */
+export const HarnessVersion = "1.19.5";
+
+/**
+ * NotInstalledText is what a turn says when the harness is not installed where it runs — a
+ * HOST turn on a machine nobody installed it on, since the image always has it. It says what
+ * is wrong in plain words and what fixes it, for the person to pass to whoever runs Podium.
+ */
+export const NotInstalledText =
+  `I couldn't start: the program that runs me (${Binary}) isn't installed on the machine ` +
+  `running Podium's conductor. Whoever runs Podium can install it with ` +
+  `\`npm install -g opencode-ai@${HarnessVersion}\`; nothing needs restarting. Then ask me again.`;
+
+/**
+ * notStartedText is what a turn says when spawning the harness failed with err.
+ */
+export function notStartedText(err: NodeJS.ErrnoException): string {
+  if (err.code === "ENOENT") {
+    return NotInstalledText;
+  }
+  if (err.code === "EACCES") {
+    return (
+      `I couldn't start: the program that runs me (${Binary}) is installed but can't be run ` +
+      `on the machine running Podium's conductor (permission denied). Whoever runs Podium ` +
+      `should check how it was installed. Then ask me again.`
+    );
+  }
+  return (
+    `I couldn't start: the program that runs me (${Binary}) failed to launch on the machine ` +
+    `running Podium's conductor (${err.message}). Whoever runs Podium can look into it; then ask me again.`
+  );
 }
 
 /**
@@ -515,17 +554,23 @@ export function start(opts: {
 }): Run {
   const { argv, cwd, env } = invocation({ ...opts, thinking: takesThinking(opts.env) });
   const child = spawn(Binary, argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const run: Run = { child, argv };
   // ENOENT is an 'error' event, not a non-zero exit. Without a listener Node treats it as
   // unhandled and kills THIS process with status 1 — before main can emit a final — which
-  // is how a host turn ends as "said nothing at all".
+  // is how a host turn ends as "said nothing at all". The event comes before 'close', so
+  // notStarted is set by the time the caller has the exit code.
   child.on("error", (err) => {
+    const e = err as NodeJS.ErrnoException;
     const why =
-      (err as NodeJS.ErrnoException).code === "ENOENT"
-        ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs (opencode-ai).`
+      e.code === "ENOENT"
+        ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs: npm install -g opencode-ai@${HarnessVersion}`
         : err.message;
     process.stderr.write(`podium-agent: ${why}\n`);
+    if (e.syscall?.startsWith("spawn")) {
+      run.notStarted = notStartedText(e);
+    }
   });
-  return { child, argv };
+  return run;
 }
 
 let thinks: boolean | undefined;

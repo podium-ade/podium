@@ -539,7 +539,9 @@ async function main(): Promise<number> {
       if (code !== 0 && summary.code === ExitOK && !cancelled) {
         summary.code = ExitHarnessError;
         if (finalText.trim() === "") {
-          finalText = oc.credentialRefused(harnessError)
+          finalText = run.notStarted
+            ? run.notStarted
+            : oc.credentialRefused(harnessError)
             ? oc.CredentialRefusedText
             : harnessError
               ? `The turn failed before I could answer: ${harnessError}`
