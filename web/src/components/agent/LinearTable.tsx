@@ -101,7 +101,12 @@ export function LinearTable() {
         </ToggleGroup>
         {teams.length > 0 || team !== "" ? (
           <Select value={team || ALL_TEAMS} onValueChange={(v) => setTeam(v === ALL_TEAMS ? "" : v)}>
-            <SelectTrigger className="h-8 w-[9rem]" aria-label="Team" data-testid="linear-team">
+            <SelectTrigger
+              size="sm"
+              className="h-[2.125rem] min-h-0 w-[9rem] rounded-lg border-border px-2.5 text-xs font-medium"
+              aria-label="Team"
+              data-testid="linear-team"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
