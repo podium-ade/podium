@@ -50,30 +50,37 @@ type BriefTicketComment struct {
 }
 
 // TicketBriefer is what the conductor asks for the tickets a message names: those of the at
-// most MaxBriefTickets issues text names that login may see in Linear, leaving out the issue
-// whose conversation sourceKey is (its turn is already about it). It returns nothing, never an
-// error, when it cannot tell.
-type TicketBriefer func(ctx context.Context, login, sourceKey, text string) []BriefTicket
+// most MaxBriefTickets issues text names that login may see in Linear AND that everybody who
+// will read the answer in the conversation sourceKey could see, leaving out the issue whose
+// conversation sourceKey is (its turn is already about it). withheld is how many tickets login
+// may see were left out only because somebody else reading the answer may not. It returns
+// nothing, never an error, when it cannot tell.
+type TicketBriefer func(ctx context.Context, login, sourceKey, text string) (tickets []BriefTicket, withheld int)
 
 // briefTickets is the tickets a person's own message to the assistant names. A routine's run,
 // an automatic event, a playbook's turn and a message nobody is known to have sent get none:
 // only a person's words are looked in, and only for what that person may see.
-func (c *Conductor) briefTickets(ctx context.Context, j job, login string, ev InboundEvent) []BriefTicket {
+//
+// The answer is read by everybody in the conversation, and posted wherever it lives, so a
+// ticket is briefed only if all of them could see it: the tickets package decides that too. The
+// count of those withheld goes in the brief so the assistant does not answer as if they did not
+// exist; it names none of them.
+func (c *Conductor) briefTickets(ctx context.Context, j job, login string, ev InboundEvent) ([]BriefTicket, int) {
 	if c.tickets == nil || !j.onHost || login == "" || ev.Routine != nil || ev.Automatic {
-		return nil
+		return nil, 0
 	}
 	text := ev.RecordText
 	if text == "" {
 		text = ev.Text
 	}
 	if text == "" {
-		return nil
+		return nil, 0
 	}
 	ctx, cancel := context.WithTimeout(ctx, ticketsTimeout)
 	defer cancel()
-	tickets := c.tickets(ctx, login, ev.SourceKey, text)
+	tickets, withheld := c.tickets(ctx, login, ev.SourceKey, text)
 	if len(tickets) > MaxBriefTickets {
 		tickets = tickets[:MaxBriefTickets]
 	}
-	return tickets
+	return tickets, max(0, withheld)
 }
