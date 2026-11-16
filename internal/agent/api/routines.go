@@ -332,7 +332,7 @@ func (s *AgentService) RunRoutineNow(
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("routines are not running on this conductor"))
 	}
 	run, err := runner.RunNow(ctx, r.ID)
-	if errors.Is(err, routines.ErrBusy) {
+	if errors.Is(err, routines.ErrBusy) || errors.Is(err, routines.ErrNotByHand) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	if err != nil {

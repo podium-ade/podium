@@ -3549,7 +3549,7 @@ it act by editing that instruction, which the history records. There is no globa
 pausing is per routine.
 
 The card at the top of a routine's chat shows when it runs next, the last run, how many quiet runs
-since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going),
+since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going; a routine on Linear events has no Run now),
 Pause/Resume, Edit, the note
 the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
 the standing notes, the spend cap, the history and Delete, which
@@ -3585,8 +3585,8 @@ schedule with the events it runs on and, optionally, the teams.
   the app asks Linear for its key once and keeps it ten minutes.
 - **What it is.** One kind or the other, never both: a routine on Linear events has no schedule
   and no next run, its card and row say "Runs on Linear: issue created (ENG)" and how many events
-  are waiting, and it keeps a timezone for its daily spend cap. **Run now** runs it with no events,
-  and its brief says it was started by hand.
+  are waiting, and it keeps a timezone for its daily spend cap. It has no **Run now**: it runs when
+  its events arrive, and a run by hand would have none to act on (the API refuses one).
 - **How it runs.** The Linear app's webhook hands every data change to the routines that ask for
   it: one row per routine in `routine_events`, with `unique (routine, delivery)` so a delivery
   Linear retried, or one that reached two conductors, is kept once. The leading conductor's
@@ -3651,10 +3651,9 @@ chats already opened stay where they are, and history records the change.
 - **One run at a time.** A tick gives the subject that has waited longest a run with that
   subject's waiting events (still at most twenty), in that subject's chat. The routine's state is
   one object every run rewrites, so two runs in two chats would overwrite each other: while a run
-  of the routine is going, in any of its chats or started by hand, the rest wait for the ticks
+  of the routine is going, in any of its chats, the rest wait for the ticks
   after it. A subject whose chat is busy — somebody is talking in it, or a turn is running there —
-  is passed over for the next one that is not. **Run now** runs in the routine's own chat with no
-  events, and is refused while a run is going in another of its chats. **Stop run** on the card
+  is passed over for the next one that is not. **Stop run** on the card
   stops the run wherever it is going.
 - **At most 50 new chats a day.** A routine that has opened 50 chats per ticket within 24 hours
   and would open another is paused instead, with that reason on its card and in its owner's

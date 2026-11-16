@@ -338,15 +338,14 @@ func TestALinearRoutineOverItsCapLeavesItsEventsWaiting(t *testing.T) {
 	require.Len(t, runner.runs, 1)
 }
 
-func TestRunNowOnALinearRoutineRunsWithNoEvents(t *testing.T) {
+func TestALinearRoutineCannotBeRunByHand(t *testing.T) {
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	st, runner := newFakeStore(), &fakeRunner{}
 	ev := &fakeEvents{st: st}
 	st.routines["rtn_triage"] = triage()
 	ev.add("rtn_triage", now.Add(-time.Minute))
-	run, err := newEventScheduler(t, st, ev, runner, now).RunNow(context.Background(), "rtn_triage")
-	require.NoError(t, err)
-	assert.Equal(t, store.RoutineTriggerManual, run.Trigger)
-	assert.Empty(t, ev.given(run.ID))
-	assert.Equal(t, 1, ev.waiting("rtn_triage"))
+	_, err := newEventScheduler(t, st, ev, runner, now).RunNow(context.Background(), "rtn_triage")
+	require.ErrorIs(t, err, ErrNotByHand)
+	assert.Empty(t, runner.runs)
+	assert.Equal(t, 1, ev.waiting("rtn_triage"), "its events still wait for the next tick")
 }

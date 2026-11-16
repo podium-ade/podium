@@ -202,17 +202,6 @@ func TestALinearRoutineRunIsBriefedWithItsEventsAndSaysWhatStartedIt(t *testing.
 	for _, m := range msgs {
 		assert.NotContains(t, m.Text, routine.Instruction, "the instruction is never written into the chat")
 	}
-
-	// Run now: the brief says it was started by hand, with no events.
-	manual, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now().Add(time.Minute), store.RoutineTriggerManual, store.RoutineRunRunning)
-	require.NoError(t, err)
-	require.True(t, ok)
-	b = r.cond.BriefRoutineForTest(ctx, web, conductor.InboundEvent{
-		Ref: routine.ChatID, Routine: &conductor.RoutineRef{RoutineID: routine.ID, RunID: manual.ID},
-	})
-	require.NotNil(t, b)
-	assert.True(t, b.ByHand)
-	assert.Empty(t, b.Events)
 }
 
 func TestRoutineFinishRefusesWhatIsNotARunsToSay(t *testing.T) {

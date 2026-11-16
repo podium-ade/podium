@@ -252,30 +252,14 @@ func TestATicketWithAChatAlreadyRunsPastTheChatCap(t *testing.T) {
 	assert.True(t, st.routines["rtn_triage"].Enabled)
 }
 
-func TestRunNowOnAPerTicketRoutineRunsInItsOwnChatOnlyWhenNoRunIsGoing(t *testing.T) {
+func TestAPerTicketRoutineCannotBeRunByHand(t *testing.T) {
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	st, runner := newFakeStore(), &fakeRunner{}
 	sub := newFakeSubjects(&fakeEvents{st: st})
 	st.routines["rtn_triage"] = perTicket()
-	sub.add("rtn_triage", "Issue:a", now.Add(-time.Minute))
-
-	s := newSubjectScheduler(t, sub, runner, now)
-	run, err := s.RunNow(context.Background(), "rtn_triage")
-	require.NoError(t, err)
-	assert.Equal(t, store.RoutineTriggerManual, run.Trigger)
-	assert.Equal(t, "chat_triage", runner.runs[0].ChatID)
-	assert.Empty(t, sub.ev.given(run.ID))
-
-	// A run by hand is a run of the routine: the ticket's events wait for it to end.
-	s.Tick(context.Background())
-	require.Len(t, runner.runs, 1)
-
-	// And a run going in a ticket's chat refuses another by hand.
-	finish(st, run.ID)
-	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())
-	require.Len(t, runner.runs, 2)
-	_, err = newSubjectScheduler(t, sub, runner, now.Add(time.Minute)).RunNow(context.Background(), "rtn_triage")
-	require.ErrorIs(t, err, ErrBusy)
+	_, err := newSubjectScheduler(t, sub, runner, now).RunNow(context.Background(), "rtn_triage")
+	require.ErrorIs(t, err, ErrNotByHand)
+	assert.Empty(t, runner.runs)
 }
 
 func TestARoutineInItsOwnChatRunsEveryTicketTogetherAsBefore(t *testing.T) {
