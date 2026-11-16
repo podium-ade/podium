@@ -414,11 +414,13 @@ describe("Memory model settings", () => {
     await userEvent.click(haiku);
     expect(model).toHaveTextContent("Claude Haiku 5.5");
     expect(model).not.toHaveTextContent("Fastest and cheapest.");
-    await userEvent.click(within(card).getByTestId("memory-model-save"));
+    // A double click is one save, not two probes and two "saved" toasts.
+    await userEvent.dblClick(within(card).getByTestId("memory-model-save"));
 
     await waitFor(() =>
       expect(setMemorySettings).toHaveBeenCalledWith({ provider: "anthropic", model: "claude-haiku-5-5" }),
     );
+    expect(setMemorySettings).toHaveBeenCalledTimes(1);
     expect(await within(card).findByText("claude-haiku-5-5")).toBeInTheDocument();
     expect(within(card).queryByTestId("memory-model-input")).toBeNull();
   });

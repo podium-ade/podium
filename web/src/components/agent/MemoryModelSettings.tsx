@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MemorySettings } from "../../gen/podium/agent/v1/agent_pb";
@@ -168,6 +168,7 @@ function MemoryModelForm({
   const options = [...(known?.models ?? [])];
   if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model, note: "" });
 
+  const inFlight = useRef(false);
   const save = useMutation({
     mutationFn: () => agent.setMemorySettings({ provider, model }),
     onSuccess: (res) => {
@@ -194,7 +195,12 @@ function MemoryModelForm({
       className="space-y-3 border-t border-hairline pt-3"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate();
+        // The button disables on the next render; a second click inside the same one would
+        // send a second probe and save, and say "saved" twice. A ref sees the first at once.
+        if (inFlight.current) return;
+        inFlight.current = true;
+        // Released only on failure: a save that worked closes the form.
+        save.mutate(undefined, { onError: () => (inFlight.current = false) });
       }}
     >
       <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
