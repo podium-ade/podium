@@ -2305,6 +2305,16 @@ issue has a conversation in Podium the viewer may read. Text inside code is neve
   issue again. A turn waits at most five seconds for them and otherwise starts without. Admins are
   briefed by the same rule as everybody else: the conductor does not know who is an admin, only the
   API does.
+- **Only what everybody reading the answer could see.** The answer is read by everybody in the
+  conversation, so a ticket is briefed only if all of them could see it too. A web chat only its
+  owner reads: every ticket they may see. A shared web chat: only tickets its owner, the people it
+  is shared with and everybody who took part may each see, and none at all when it is open to every
+  member or to its link, has somebody in it who is not in Podium, or has more than twenty readers.
+  A Linear issue's conversation, answered with a comment on the issue: only tickets of the issue's
+  team. A Slack thread, a pull request or a Linear project: none. The brief counts the tickets left
+  out this way (`linear_tickets_withheld`) without naming them, and the assistant is told it was
+  not given them because others here cannot see them. Their chips still show to whoever may see
+  them.
 
 **The issue panel.** An issue's conversation is headed by the issue as Linear has it now
 (`GetLinearIssueConversation`): the state, identifier and title, the state's name, team, assignee,
