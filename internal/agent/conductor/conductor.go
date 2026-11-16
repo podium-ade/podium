@@ -163,6 +163,9 @@ type Options struct {
 	// ChatHostRender renders a turn's system prompt from its encoded brief — the runtime's
 	// own prompt, in the form the chat host calls tools in.
 	ChatHostRender func(ctx context.Context, encodedBrief string) (string, error)
+	// Tickets finds the Linear tickets a person's message to the assistant names that they may
+	// see, for the turn's brief (tickets.go). Nil briefs none.
+	Tickets TicketBriefer
 	// Notifiers tell a person their delegated task ended when they have left its conversation
 	// (notify.go), tried in order. None sends nothing.
 	Notifiers []Notifier
@@ -209,6 +212,8 @@ type Conductor struct {
 	brand brandCache
 	// sources is guarded by mu: ReplaceSource swaps Slack and GitHub while turns run.
 	sources []Source
+	// tickets is Options.Tickets.
+	tickets TicketBriefer
 	metrics *Metrics
 	logger  *slog.Logger
 	memory  *BriefMemory
@@ -409,6 +414,7 @@ func New(opts Options) (*Conductor, error) {
 		podium:              opts.Podium,
 		profiles:            opts.Profiles,
 		sources:             opts.Sources,
+		tickets:             opts.Tickets,
 		metrics:             metrics,
 		logger:              logger,
 		memory:              opts.Memory,
@@ -1298,6 +1304,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	brief.Playbook.UnavailableMCPServers = unavailable
 	brief.Routine = c.briefRoutine(ctx, src, ev)
+	brief.LinearTickets = c.briefTickets(ctx, j, login, ev)
 	if persona != nil {
 		brief.Git = persona
 	}

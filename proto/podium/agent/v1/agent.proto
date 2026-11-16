@@ -315,6 +315,15 @@ service AgentService {
   // GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
   rpc GetRoutineLimits(GetRoutineLimitsRequest) returns (GetRoutineLimitsResponse);
   rpc SetRoutineLimits(SetRoutineLimitsRequest) returns (SetRoutineLimitsResponse);
+  // GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
+  // each ref the caller could see in Linear — an admin or owner, somebody who touched the
+  // issue, or somebody whose linked Linear account is on its team — and nothing about the
+  // others, which are left out exactly as an identifier no team has is.
+  rpc GetLinearIssues(GetLinearIssuesRequest) returns (GetLinearIssuesResponse);
+  // GetLinearIssueConversation is the panel of a Linear issue's conversation: the issue as
+  // Linear has it now, the tasks the conversation started and the routine runs that happened
+  // in it. To anybody who may read the conversation.
+  rpc GetLinearIssueConversation(GetLinearIssueConversationRequest) returns (GetLinearIssueConversationResponse);
 }
 
 // Routine is one recurring job.
@@ -2792,3 +2801,91 @@ message DeletePersonalityRequest {
 }
 
 message DeletePersonalityResponse {}
+
+// LinearIssue is one Linear issue as a person may be shown it: a chip, its card, or an issue
+// conversation's panel.
+message LinearIssue {
+  // ref is what was asked for, as the request named it, so a client can match its answer.
+  string ref = 1;
+  string id = 2;
+  // identifier is "ENG-12".
+  string identifier = 3;
+  string title = 4;
+  // url opens the issue in Linear.
+  string url = 5;
+  string team_key = 6;
+  string team_name = 7;
+  // state_name is the issue's workflow state ("In Progress"), and state_type its kind:
+  // triage, backlog, unstarted, started, completed or canceled.
+  string state_name = 8;
+  string state_type = 9;
+  // assignee is the assignee's name, "" for nobody or when Linear was not asked.
+  string assignee = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  repeated string labels = 12;
+  // links are what is attached to the issue in Linear: pull requests, mostly.
+  repeated LinearIssueLink links = 13;
+  // chat_id is the issue's conversation in Podium when there is one and the caller may read
+  // it; "" otherwise.
+  string chat_id = 14;
+  // cached is an issue described from what Linear's webhooks said, because Linear was not
+  // asked or did not answer: it carries no assignee, labels or links.
+  bool cached = 15;
+}
+
+// LinearIssueLink is one attachment on a Linear issue. source is Linear's sourceType
+// ("github", …), "" when it names none.
+message LinearIssueLink {
+  string title = 1;
+  string url = 2;
+  string source = 3;
+}
+
+message GetLinearIssuesRequest {
+  // refs are identifiers ("ENG-12"), linear.app issue links, or Linear ids. At most 25; a ref
+  // that is none of those is left out of the answer.
+  repeated string refs = 1;
+  // detail asks Linear for the issue now — its assignee, labels and links — rather than taking
+  // what the webhooks said, which is enough for a chip.
+  bool detail = 2;
+}
+
+message GetLinearIssuesResponse {
+  // issues are the refs the caller may see, in the order asked, each once.
+  repeated LinearIssue issues = 1;
+}
+
+message GetLinearIssueConversationRequest {
+  string chat_id = 1;
+}
+
+// LinearConversationTask is one task a conversation started.
+message LinearConversationTask {
+  string task_id = 1;
+  string playbook = 2;
+  // status is running, succeeded, failed, lost, cancelled or timeout.
+  string status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp finished_at = 5;
+}
+
+// LinearConversationRoutineRun is one routine run that happened in a conversation.
+message LinearConversationRoutineRun {
+  string id = 1;
+  string routine_id = 2;
+  string routine_name = 3;
+  // status is running, done, idle, failed, skipped_overlap or skipped_paused.
+  string status = 4;
+  string summary = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+}
+
+message GetLinearIssueConversationResponse {
+  // issue is unset for a project's conversation, and for an issue Linear no longer has and
+  // the webhooks never described.
+  LinearIssue issue = 1;
+  // tasks are the newest twenty, newest first; routine_runs likewise.
+  repeated LinearConversationTask tasks = 2;
+  repeated LinearConversationRoutineRun routine_runs = 3;
+}

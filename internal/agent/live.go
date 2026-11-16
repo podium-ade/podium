@@ -19,6 +19,7 @@ import (
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/tickets"
 	"github.com/podium-ade/podium/internal/agent/webhooks"
 	"github.com/podium-ade/podium/internal/netlisten"
 )
@@ -726,6 +727,18 @@ func (l *liveConnections) slackSource() *agentslack.Source {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.slack
+}
+
+// ticketApp is the running Linear app as package tickets reads issues through it, or nil
+// when none runs here: the poller's personal key is no app, and is never used to show people
+// issues.
+func (l *liveConnections) ticketApp() tickets.App {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.linearApp == nil {
+		return nil
+	}
+	return l.linearApp
 }
 
 // LinearCatalog is the running Linear app's teams and issue labels, for the playbook editor.

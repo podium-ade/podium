@@ -106,6 +106,10 @@ type Brief struct {
 	// Routine is set on a turn in a routine's chat: a scheduled run, or the owner's own
 	// message there. See routine.go.
 	Routine *BriefRoutine `json:"routine,omitempty"`
+	// LinearTickets are the Linear issues the person's message names that they may see, on an
+	// assistant's turn (tickets.go). Written by people in Linear: the runtime marks them as
+	// data, not instructions.
+	LinearTickets []BriefTicket `json:"linear_tickets,omitempty"`
 }
 
 // RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a

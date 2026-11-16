@@ -212,6 +212,9 @@ type AppSource struct {
 	// teamKeys is each team's key, by team id, for accountTTL: a data change names its team by
 	// id, and a routine names teams by key.
 	teamKeys map[string]teamKeyAt
+	// ticketCache is the issues, people's teams and team keys read for people in Podium
+	// (tickets.go).
+	ticketCache *ticketCache
 }
 
 // teamPrivacy is what Linear said about one team's privacy, and when it was asked.
@@ -412,6 +415,7 @@ func NewApp(opts AppOptions) (*AppSource, error) {
 		accounts:       map[string]speakerAccount{},
 		teams:          map[string]teamPrivacy{},
 		teamKeys:       map[string]teamKeyAt{},
+		ticketCache:    newTicketCache(),
 	}, nil
 }
 

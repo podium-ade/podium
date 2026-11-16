@@ -202,7 +202,10 @@ type AgentServiceOptions struct {
 	// Linear lists the Linear workspace's teams and labels for the playbook editor. Nil is a
 	// conductor that offers none, and the editor takes typed values.
 	Linear LinearDirectory
-	Logger *slog.Logger
+	// LinearIssues reads the Linear issues a chat names for the people who could see them in
+	// Linear (GetLinearIssues). Nil describes none, and a chat draws identifiers as text.
+	LinearIssues LinearIssueReader
+	Logger       *slog.Logger
 	// Env is the connection configuration the process was started with, before a saved
 	// connection replaced it. Running is what this process actually opened. GetConnections
 	// uses the two to say whether a restart is still owed. The zero value is an install
@@ -280,6 +283,8 @@ type AgentService struct {
 	slack   SlackDirectory
 	// linear is fixed for the process: it asks whichever Linear app is running when called.
 	linear LinearDirectory
+	// linearIssues is AgentServiceOptions.LinearIssues.
+	linearIssues LinearIssueReader
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -397,6 +402,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		auditor:            opts.Auditor,
 		slack:              opts.Slack,
 		linear:             opts.Linear,
+		linearIssues:       opts.LinearIssues,
 		logger:             opts.Logger,
 	}
 }

@@ -305,6 +305,12 @@ const (
 	// AgentServiceSetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
 	// SetRoutineLimits RPC.
 	AgentServiceSetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/SetRoutineLimits"
+	// AgentServiceGetLinearIssuesProcedure is the fully-qualified name of the AgentService's
+	// GetLinearIssues RPC.
+	AgentServiceGetLinearIssuesProcedure = "/podium.agent.v1.AgentService/GetLinearIssues"
+	// AgentServiceGetLinearIssueConversationProcedure is the fully-qualified name of the AgentService's
+	// GetLinearIssueConversation RPC.
+	AgentServiceGetLinearIssueConversationProcedure = "/podium.agent.v1.AgentService/GetLinearIssueConversation"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -614,6 +620,15 @@ type AgentServiceClient interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
+	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
+	// issue, or somebody whose linked Linear account is on its team — and nothing about the
+	// others, which are left out exactly as an identifier no team has is.
+	GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error)
+	// GetLinearIssueConversation is the panel of a Linear issue's conversation: the issue as
+	// Linear has it now, the tasks the conversation started and the routine runs that happened
+	// in it. To anybody who may read the conversation.
+	GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -1203,6 +1218,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 			connect.WithClientOptions(opts...),
 		),
+		getLinearIssues: connect.NewClient[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse](
+			httpClient,
+			baseURL+AgentServiceGetLinearIssuesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetLinearIssues")),
+			connect.WithClientOptions(opts...),
+		),
+		getLinearIssueConversation: connect.NewClient[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse](
+			httpClient,
+			baseURL+AgentServiceGetLinearIssueConversationProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetLinearIssueConversation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1304,6 +1331,8 @@ type agentServiceClient struct {
 	listMemberRoutines         *connect.Client[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse]
 	getRoutineLimits           *connect.Client[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse]
 	setRoutineLimits           *connect.Client[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse]
+	getLinearIssues            *connect.Client[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse]
+	getLinearIssueConversation *connect.Client[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -1786,6 +1815,16 @@ func (c *agentServiceClient) SetRoutineLimits(ctx context.Context, req *connect.
 	return c.setRoutineLimits.CallUnary(ctx, req)
 }
 
+// GetLinearIssues calls podium.agent.v1.AgentService.GetLinearIssues.
+func (c *agentServiceClient) GetLinearIssues(ctx context.Context, req *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
+	return c.getLinearIssues.CallUnary(ctx, req)
+}
+
+// GetLinearIssueConversation calls podium.agent.v1.AgentService.GetLinearIssueConversation.
+func (c *agentServiceClient) GetLinearIssueConversation(ctx context.Context, req *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error) {
+	return c.getLinearIssueConversation.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -2093,6 +2132,15 @@ type AgentServiceHandler interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
+	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
+	// issue, or somebody whose linked Linear account is on its team — and nothing about the
+	// others, which are left out exactly as an identifier no team has is.
+	GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error)
+	// GetLinearIssueConversation is the panel of a Linear issue's conversation: the issue as
+	// Linear has it now, the tasks the conversation started and the routine runs that happened
+	// in it. To anybody who may read the conversation.
+	GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -2678,6 +2726,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetLinearIssuesHandler := connect.NewUnaryHandler(
+		AgentServiceGetLinearIssuesProcedure,
+		svc.GetLinearIssues,
+		connect.WithSchema(agentServiceMethods.ByName("GetLinearIssues")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetLinearIssueConversationHandler := connect.NewUnaryHandler(
+		AgentServiceGetLinearIssueConversationProcedure,
+		svc.GetLinearIssueConversation,
+		connect.WithSchema(agentServiceMethods.ByName("GetLinearIssueConversation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -2872,6 +2932,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetRoutineLimitsHandler.ServeHTTP(w, r)
 		case AgentServiceSetRoutineLimitsProcedure:
 			agentServiceSetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceGetLinearIssuesProcedure:
+			agentServiceGetLinearIssuesHandler.ServeHTTP(w, r)
+		case AgentServiceGetLinearIssueConversationProcedure:
+			agentServiceGetLinearIssueConversationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -3263,4 +3327,12 @@ func (UnimplementedAgentServiceHandler) GetRoutineLimits(context.Context, *conne
 
 func (UnimplementedAgentServiceHandler) SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetLinearIssues is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetLinearIssueConversation is not implemented"))
 }
