@@ -9818,9 +9818,13 @@ type ListLinearConversationsRequest struct {
 	// team is a team key, empty for every team.
 	Team string `protobuf:"bytes,3,opt,name=team,proto3" json:"team,omitempty"`
 	// state is "", one of LinearConversation.state, or "attention" (waiting and failed).
-	State         string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	State string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	// linear_state_type is one column of the board: "" for every issue, an issue's Linear state
+	// type ("triage", "backlog", "unstarted", "started", "completed", "canceled"), or "none" for
+	// the rest — projects, and issues whose state type is unknown.
+	LinearStateType string `protobuf:"bytes,5,opt,name=linear_state_type,json=linearStateType,proto3" json:"linear_state_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ListLinearConversationsRequest) Reset() {
@@ -9881,13 +9885,23 @@ func (x *ListLinearConversationsRequest) GetState() string {
 	return ""
 }
 
+func (x *ListLinearConversationsRequest) GetLinearStateType() string {
+	if x != nil {
+		return x.LinearStateType
+	}
+	return ""
+}
+
 type ListLinearConversationsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Conversations []*LinearConversation  `protobuf:"bytes,1,rep,name=conversations,proto3" json:"conversations,omitempty"`
 	// Empty when there is no further page.
 	NextCursor string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	// teams are the team keys of every conversation the caller may list, for the team filter.
-	Teams         []string `protobuf:"bytes,3,rep,name=teams,proto3" json:"teams,omitempty"`
+	Teams []string `protobuf:"bytes,3,rep,name=teams,proto3" json:"teams,omitempty"`
+	// total is how many conversations the filters match, on the first page (no cursor) only;
+	// 0 on a later page.
+	Total         int32 `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9941,6 +9955,13 @@ func (x *ListLinearConversationsResponse) GetTeams() []string {
 		return x.Teams
 	}
 	return nil
+}
+
+func (x *ListLinearConversationsResponse) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
 }
 
 type ListChatsResponse struct {
@@ -18328,17 +18349,19 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\tlast_text\x18\f \x01(\tR\blastText\x12\x19\n" +
 	"\bcost_usd\x18\r \x01(\x01R\acostUsd\x12\x17\n" +
 	"\amy_role\x18\x0e \x01(\tR\x06myRole\x12\x12\n" +
-	"\x04mine\x18\x0f \x01(\bR\x04mine\"\x89\x01\n" +
+	"\x04mine\x18\x0f \x01(\bR\x04mine\"\xb5\x01\n" +
 	"\x1eListLinearConversationsRequest\x12)\n" +
 	"\x04page\x18\x01 \x01(\v2\x15.podium.agent.v1.PageR\x04page\x12\x12\n" +
 	"\x04mine\x18\x02 \x01(\bR\x04mine\x12\x12\n" +
 	"\x04team\x18\x03 \x01(\tR\x04team\x12\x14\n" +
-	"\x05state\x18\x04 \x01(\tR\x05state\"\xa3\x01\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12*\n" +
+	"\x11linear_state_type\x18\x05 \x01(\tR\x0flinearStateType\"\xb9\x01\n" +
 	"\x1fListLinearConversationsResponse\x12I\n" +
 	"\rconversations\x18\x01 \x03(\v2#.podium.agent.v1.LinearConversationR\rconversations\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
 	"nextCursor\x12\x14\n" +
-	"\x05teams\x18\x03 \x03(\tR\x05teams\"a\n" +
+	"\x05teams\x18\x03 \x03(\tR\x05teams\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x05R\x05total\"a\n" +
 	"\x11ListChatsResponse\x12+\n" +
 	"\x05chats\x18\x01 \x03(\v2\x15.podium.agent.v1.ChatR\x05chats\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +

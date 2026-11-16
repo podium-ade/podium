@@ -1771,6 +1771,10 @@ message ListLinearConversationsRequest {
   string team = 3;
   // state is "", one of LinearConversation.state, or "attention" (waiting and failed).
   string state = 4;
+  // linear_state_type is one column of the board: "" for every issue, an issue's Linear state
+  // type ("triage", "backlog", "unstarted", "started", "completed", "canceled"), or "none" for
+  // the rest — projects, and issues whose state type is unknown.
+  string linear_state_type = 5;
 }
 
 message ListLinearConversationsResponse {
@@ -1779,6 +1783,9 @@ message ListLinearConversationsResponse {
   string next_cursor = 2;
   // teams are the team keys of every conversation the caller may list, for the team filter.
   repeated string teams = 3;
+  // total is how many conversations the filters match, on the first page (no cursor) only;
+  // 0 on a later page.
+  int32 total = 4;
 }
 
 message ListChatsResponse {
