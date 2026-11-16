@@ -65,7 +65,10 @@ function SelectContent({
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
-          position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]",
+          // Never wider than the room there is: an option with a long description otherwise
+          // pushed the list past a phone's edge and cut the description off.
+          position === "popper" &&
+            "w-full min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]",
           className,
         )}
         {...props}
