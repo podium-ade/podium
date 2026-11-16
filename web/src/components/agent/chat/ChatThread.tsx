@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Copy,
   LoaderCircle,
+  Lock,
   Terminal,
   X,
 } from "lucide-react";
@@ -506,6 +507,7 @@ function UserMessage() {
       ) : (
         bubble
       )}
+      <DeliveryNotice items={custom?.undelivered} />
     </MessagePrimitive.Root>
   );
 }
@@ -553,10 +555,16 @@ function AssistantMessage() {
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-xs font-medium text-fg">{botName}</span>
+          {custom?.ranAs ? (
+            <span data-testid="chat-ran-as" className="truncate text-2xs text-muted">
+              ran as {custom.ranAs}
+            </span>
+          ) : null}
           <span className="text-2xs text-faint" title={absolute(ts(createdAt))}>
             {relative(ts(createdAt))}
           </span>
         </div>
+        {custom?.hiddenSteps ? <ForeignSteps steps={custom.hiddenSteps} ranAs={custom.ranAs} /> : null}
         <div data-testid="chat-message" data-role="assistant" className="min-w-0 space-y-3">
           <Parts />
         </div>
@@ -654,6 +662,23 @@ function Trail({ running, steps, children }: { running: boolean; steps: number; 
         <div className="mt-2 ml-1.5 space-y-2 border-l border-hairline pl-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/**
+ * ForeignSteps is the trail of a turn somebody else ran, folded for good: it ran with their
+ * secrets and accounts, so its tool calls and what they returned are theirs and an admin's to
+ * read. The server sent only that each step happened; this says how many, and whose.
+ */
+function ForeignSteps({ steps, ranAs }: { steps: number; ranAs?: string }) {
+  const label = `${steps} ${steps === 1 ? "step" : "steps"}${ranAs ? `, ran as ${ranAs}` : ""}`;
+  return (
+    <Tooltip label="Only the person this turn ran as, and admins, can see its steps.">
+      <div data-testid="chat-foreign-steps" tabIndex={0} className="flex w-fit items-center gap-1.5 py-0.5 text-sm text-muted">
+        <Lock className="size-3.5" aria-hidden />
+        <span>{label}</span>
+      </div>
+    </Tooltip>
   );
 }
 

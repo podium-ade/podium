@@ -63,6 +63,26 @@ export interface MessageCustom {
    * landed, and for a conversation Podium holds itself.
    */
   undelivered?: Undelivered[];
+  /**
+   * ranAs is who the turn that said this ran as, in words: a person's name, or "the routine
+   * Nightly triage". Set in a Linear issue's conversation, where people read turns somebody
+   * else ran with their own secrets and accounts.
+   */
+  ranAs?: string;
+  /**
+   * hiddenSteps is how many steps of somebody else's turn the server withheld from this
+   * reader: its tool calls, thoughts and progress lines. The view counts them, and that is
+   * all there is to show.
+   */
+  hiddenSteps?: number;
+}
+
+/** ranAsLabel is who a bot row's turn ran as, in words, or undefined when the row does not say. */
+export function ranAsLabel(m: ChatMessage): string | undefined {
+  if (m.ranAsRoutine) return `the routine ${m.ranAsRoutine}`;
+  if (m.ranAsName) return m.ranAsName;
+  if (m.ranAs) return m.ranAs;
+  return undefined;
 }
 
 /** Undelivered is one answer's copy that did not reach where it was owed. */
@@ -98,6 +118,8 @@ function userCustom(m: ChatMessage): MessageCustom {
     addressed: m.via ? m.addressed : true,
     edited: m.editedAt !== undefined,
     deleted: m.deleted || undefined,
+    // A person's message in a Linear issue's conversation is owed to the issue as theirs.
+    undelivered: undeliveredOf(m),
   };
 }
 
@@ -130,6 +152,8 @@ interface Assistant {
   tasks: Map<string, TaskBlock>;
   attachments: ChatAttachment[];
   undelivered: Undelivered[];
+  ranAs?: string;
+  hiddenSteps: number;
 }
 
 /**
@@ -205,9 +229,17 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
       tasks: new Map(),
       attachments: [],
       undelivered: [],
+      hiddenSteps: 0,
     };
     current.attachments.push(...m.attachments);
     current.undelivered.push(...undeliveredOf(m));
+    current.ranAs ??= ranAsLabel(m);
+
+    if (m.redacted) {
+      // A step of somebody else's turn: the server sent that it happened and nothing else.
+      current.hiddenSteps++;
+      continue;
+    }
 
     if (m.taskId === "") {
       const part = rowPart(m);
@@ -322,7 +354,12 @@ function finish(a: Assistant, live: boolean): ThreadMessageLike {
       isError: status.type === "incomplete",
     };
   }
-  const custom: MessageCustom = { attachments: a.attachments, undelivered: a.undelivered };
+  const custom: MessageCustom = {
+    attachments: a.attachments,
+    undelivered: a.undelivered,
+    ranAs: a.ranAs,
+    hiddenSteps: a.hiddenSteps || undefined,
+  };
   return {
     id: a.id,
     role: "assistant",

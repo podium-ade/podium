@@ -1,6 +1,7 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   ChevronDown,
+  EyeOff,
   Ellipsis,
   LogOut,
   Monitor,
@@ -62,6 +63,7 @@ import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
+import { TicketState, TicketTitle } from "./chat/Ticket";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
 import { fromFirstTurn, toThread } from "../../lib/chatThread";
@@ -238,6 +240,18 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  // Hiding takes a Linear ticket's conversation out of the rail until something new is said
+  // in it. It stays in the Linear view, so there is nothing to confirm.
+  const hide = useMutation({
+    mutationFn: (chat: Chat) => agent.setChatRailHidden({ chatId: chat.id, hidden: true }),
+    onSuccess: async (_res, chat) => {
+      toast(`${chat.linearIssue?.identifier || chat.title} is hidden until something new is said in it.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      if (active === chat.id) navigate(blank);
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
@@ -329,6 +343,7 @@ export function ChatPanel() {
           onRename={renameChat}
           onDelete={setPendingDelete}
           onLeave={(c) => leave.mutate(c)}
+          onHide={(c) => hide.mutate(c)}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -569,6 +584,7 @@ function ChatRail({
   onRename,
   onDelete,
   onLeave,
+  onHide,
   deletingId,
   viewerLogin,
   voices,
@@ -585,6 +601,7 @@ function ChatRail({
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
+  onHide: (chat: Chat) => void;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -921,6 +938,7 @@ function ChatRail({
                       onRename={onRename}
                       onDelete={onDelete}
                       onLeave={onLeave}
+                      onHide={onHide}
                       deleting={deletingId === c.id}
                       viewerLogin={viewerLogin}
                       routine={c.routineId ? routineByChat.get(c.id) : undefined}
@@ -986,6 +1004,7 @@ function ChatRow({
   onRename,
   onDelete,
   onLeave,
+  onHide,
   deleting,
   viewerLogin,
   routine,
@@ -998,6 +1017,7 @@ function ChatRow({
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
+  onHide: (chat: Chat) => void;
   deleting: boolean;
   viewerLogin: string;
 }) {
@@ -1014,10 +1034,14 @@ function ChatRow({
   const role = roleOf(chat);
   const foreign = role === "" && chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
   const workspaceOnly = chat.accessReason === "workspace";
-  const mayRename = role === "" ? !foreign : canWrite(role) && !workspaceOnly;
-  const mayDelete = role === "" ? !foreign : role === "owner";
-  const mayLeave = !workspaceOnly && (role === "editor" || role === "viewer");
-  const menu = mayRename || mayDelete || mayLeave;
+  // A Linear ticket's conversation is in the rail because the viewer touched the issue: it is
+  // named after the issue, and nobody leaves or deletes it — they hide it until it moves.
+  const ticket = chat.linearIssue;
+  const mayRename = !ticket && (role === "" ? !foreign : canWrite(role) && !workspaceOnly);
+  const mayDelete = !ticket && (role === "" ? !foreign : role === "owner");
+  const mayLeave = !ticket && !workspaceOnly && (role === "editor" || role === "viewer");
+  const mayHide = Boolean(ticket);
+  const menu = mayRename || mayDelete || mayLeave || mayHide;
   const unreadCount = active ? 0 : unread(chat);
   const shared = sharedByLabel(chat);
 
@@ -1155,7 +1179,9 @@ function ChatRow({
                       : "font-medium text-soft group-hover:text-fg",
                 )}
               >
-                {pr && pr[2] ? (
+                {ticket ? (
+                  <TicketTitle ticket={ticket} fallback={chat.title} />
+                ) : pr && pr[2] ? (
                   <>
                     <span className="font-semibold text-muted tabular-nums">#{pr[1]}</span> {pr[2]}
                   </>
@@ -1163,7 +1189,11 @@ function ChatRow({
                   chat.title
                 )}
               </span>
-            {subtitle.length > 0 ? (
+            {ticket ? (
+              <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
+                <TicketState ticket={ticket} />
+              </span>
+            ) : subtitle.length > 0 ? (
               <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
                 {subtitle.map((part, i) => (
                   <Fragment key={i}>
@@ -1253,6 +1283,12 @@ function ChatRow({
             <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
               <Pencil />
               Rename
+            </DropdownMenuItem>
+          ) : null}
+          {mayHide ? (
+            <DropdownMenuItem data-testid="chat-hide" aria-label={`Hide ${chat.title}`} onSelect={() => onHide(chat)}>
+              <EyeOff />
+              Hide
             </DropdownMenuItem>
           ) : null}
           {mayLeave ? (
