@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
