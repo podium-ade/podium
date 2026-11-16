@@ -313,6 +313,25 @@ describe("decodeBrief", () => {
     expect(brief.delegation?.playbooks).toEqual([]);
   });
 
+  it("reads the Linear tickets a person's message named, and refuses a field it does not know", () => {
+    const ticket = {
+      identifier: "EME-6",
+      title: "Fix the thing",
+      url: "https://linear.app/acme/issue/EME-6",
+      team: "EME",
+      state: "In Progress",
+      labels: ["Bug"],
+      description: "It is broken.",
+      comments: [{ author: "Ada", at: "2026-11-15T09:00:00Z", body: "Still broken." }],
+      trimmed: true,
+    };
+    const brief = decodeBrief(encode({ ...minimal, linear_tickets: [ticket] }));
+    expect(brief.linear_tickets?.[0]?.identifier).toBe("EME-6");
+    expect(brief.linear_tickets?.[0]?.comments?.[0]?.body).toBe("Still broken.");
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, secret: "x" }] }))).toThrow(BriefError);
+    expect(() => decodeBrief(encode({ ...minimal, linear_tickets: [{ ...ticket, identifier: "" }] }))).toThrow(BriefError);
+  });
+
   it("reads a run on Linear events with the events it was given", () => {
     const routine = {
       id: "rtn_1",

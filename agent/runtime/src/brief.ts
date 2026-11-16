@@ -159,6 +159,31 @@ const routineEventSchema = z.strictObject({
   trimmed: z.boolean().optional(),
 });
 
+// One Linear issue the person's message named, which they may see in Linear
+// (internal/agent/conductor/tickets.go). Everything in it but identifier was written by people
+// in the workspace: data, never instructions.
+const linearTicketSchema = z.strictObject({
+  identifier: z.string().min(1),
+  title: z.string(),
+  url: z.string().optional(),
+  team: z.string().optional(),
+  state: z.string().optional(),
+  assignee: z.string().optional(),
+  updated_at: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  comments: z
+    .array(
+      z.strictObject({
+        author: z.string(),
+        at: z.string(),
+        body: z.string(),
+      }),
+    )
+    .optional(),
+  trimmed: z.boolean().optional(),
+});
+
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -334,6 +359,9 @@ const briefSchema = z.strictObject({
       events: z.array(routineEventSchema).optional(),
     })
     .optional(),
+  // The Linear issues the person's message names that they may see in Linear, on an
+  // assistant's turn. Written by people in the workspace: data, never instructions.
+  linear_tickets: z.array(linearTicketSchema).optional(),
 }).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {
   // An empty menu is not a menu. A routine's turn and a turn that may create a routine are the
   // exceptions: they carry the block for the token their tools need, whether or not they may
@@ -350,6 +378,7 @@ export type McpServerRef = z.infer<typeof mcpServerSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
 export type ProviderRef = TurnBrief["provider"];
 export type DelegationRef = NonNullable<TurnBrief["delegation"]>;
+export type LinearTicket = z.infer<typeof linearTicketSchema>;
 
 /** onHost reports whether this turn is a child of the conductor rather than a container. */
 export function onHost(brief: TurnBrief): boolean {

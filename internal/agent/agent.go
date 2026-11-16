@@ -40,6 +40,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/routines"
 	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/tickets"
 	"github.com/podium-ade/podium/internal/agent/webhooks"
 	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
@@ -379,6 +380,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"app_id", a.cfg.GitHubAppID, "task_url", a.cfg.TaskURL)
 	}
 
+	// The Linear issues people name in a chat, and the ones the assistant is briefed with,
+	// read for those who could see them in Linear (internal/agent/tickets).
+	ticketReader := tickets.New(tickets.Options{Store: st, App: a.live.ticketApp, Logger: logger})
+
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:                 st,
 		Podium:                a.podium,
@@ -421,6 +426,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		NotifyAwayAfter:    a.cfg.NotifyAway,
 		PublicURL:          a.cfg.PublicURL,
 		Keys:               keyHealth{a},
+		Tickets:            ticketReader.BriefTickets,
 	})
 	if err != nil {
 		st.Close()
@@ -465,6 +471,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Auditor:                    a.podium,
 		Slack:                      slackDir,
 		Linear:                     a.live,
+		LinearIssues:               ticketReader,
 		Connections:                a.live,
 		Logger:                     a.logger,
 	})
