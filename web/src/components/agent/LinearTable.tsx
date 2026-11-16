@@ -35,6 +35,9 @@ const STATE: Record<string, { label: string; tone: Tone }> = {
   new: { label: "not started", tone: "idle" },
 };
 
+/** ITEM is a filter toggle the height of the chat rail's filter, so the two read as one control. */
+const ITEM = "h-9 px-2.5";
+
 type StateFilter = "" | "working" | "attention";
 
 /** linearKey is where one filter's pages of the list are cached. */
@@ -90,8 +93,8 @@ export function LinearTable() {
           onValueChange={(v) => v && setMine(v === "mine")}
           aria-label="Whose issues"
         >
-          <ToggleGroupItem value="all">All I can see</ToggleGroupItem>
-          <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
+          <ToggleGroupItem value="all" className={ITEM}>All I can see</ToggleGroupItem>
+          <ToggleGroupItem value="mine" className={ITEM}>Mine</ToggleGroupItem>
         </ToggleGroup>
         <ToggleGroup
           type="single"
@@ -99,15 +102,15 @@ export function LinearTable() {
           onValueChange={(v) => v && setState(v === "any" ? "" : (v as StateFilter))}
           aria-label="Podium's state"
         >
-          <ToggleGroupItem value="any">Any state</ToggleGroupItem>
-          <ToggleGroupItem value="working">Working</ToggleGroupItem>
-          <ToggleGroupItem value="attention">Needs attention</ToggleGroupItem>
+          <ToggleGroupItem value="any" className={ITEM}>Any state</ToggleGroupItem>
+          <ToggleGroupItem value="working" className={ITEM}>Working</ToggleGroupItem>
+          <ToggleGroupItem value="attention" className={ITEM}>Needs attention</ToggleGroupItem>
         </ToggleGroup>
         {teams.length > 0 || team !== "" ? (
           <Select value={team || ALL_TEAMS} onValueChange={(v) => setTeam(v === ALL_TEAMS ? "" : v)}>
             <SelectTrigger
               size="sm"
-              className="h-[2.125rem] min-h-0 w-[9rem] rounded-lg border-border px-2.5 text-xs font-medium"
+              className="h-[2.625rem] min-h-0 w-[9rem] rounded-lg border-border px-2.5 text-xs font-medium"
               aria-label="Team"
               data-testid="linear-team"
             >
