@@ -70,6 +70,8 @@ export function ChatThread({
   onSend,
   top,
   welcome,
+  loading = false,
+  skeleton,
   history,
   ...ctx
 }: ChatContextValue & {
@@ -79,6 +81,9 @@ export function ChatThread({
   top?: ReactNode;
   /** welcome is drawn in place of an empty transcript. */
   welcome?: ReactNode;
+  /** loading is true while the transcript is on its way; skeleton is drawn for it meanwhile. */
+  loading?: boolean;
+  skeleton?: ReactNode;
   /** history is the conversation before the first message in hand, loaded as the reader
    *  scrolls up. Without it the transcript is all there is. */
   history?: History;
@@ -91,6 +96,11 @@ export function ChatThread({
   // A chat opens on its last message, in place: the view is at the bottom before it is
   // first painted, rather than painted at the top and then scrolled down.
   const hasMessages = messages.length > 0;
+  // A conversation sits on the composer, as a chat does: a short one, and the skeleton drawn
+  // while one connects, at the bottom, where its messages land — not at the top, which drew
+  // the skeleton up there and then the transcript down here, and read as a jump. Only the
+  // welcome of an empty chat keeps the top.
+  const bottomUp = hasMessages || loading;
   useLayoutEffect(() => {
     const vp = viewport.current;
     if (hasMessages && vp) vp.scrollTop = vp.scrollHeight;
@@ -122,13 +132,30 @@ export function ChatThread({
               ref={content}
               className={cn(
                 "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5",
-                // The transcript arrives whole and fades in once, rather than message by message.
-                hasMessages && "animate-in fade-in-0 duration-300",
+                bottomUp && "justify-end",
+                // The transcript arrives whole, where the skeleton was, and settles in once. From
+                // part-way visible, not from nothing: the skeleton is gone the moment it lands, and
+                // a fade from nothing showed an empty frame in between.
+                hasMessages && "animate-in fade-in-40 duration-200",
               )}
             >
               {top}
               {history && hasMessages ? <HistoryEdge history={history} /> : null}
-              <ThreadPrimitive.Empty>{welcome}</ThreadPrimitive.Empty>
+              {/* The skeleton is drawn in the thread's own empty slot, and so goes in the same
+                  render the messages come in: held outside it, it went a render before the
+                  thread drew them, and a blank frame showed in between. */}
+              <ThreadPrimitive.Empty>
+                {loading || hasMessages ? (
+                  // Held to the bottom and clipped at the top, it scrolls nowhere: on a phone it
+                  // is taller than the transcript, and drawn as content it painted a frame from
+                  // the top before anything put the view back at the bottom.
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <div className="absolute inset-x-0 bottom-0">{skeleton}</div>
+                  </div>
+                ) : (
+                  welcome
+                )}
+              </ThreadPrimitive.Empty>
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, SystemMessage }} />
             </div>
             {/* h-0: the footer takes no room in the transcript and the button hangs above it.
@@ -225,8 +252,22 @@ function useScrollAnchor(
     const offsetOf = (el: Element) => el.getBoundingClientRect().top - body.getBoundingClientRect().top;
     const atBottom = () => vp.scrollHeight - vp.scrollTop - vp.clientHeight < 4;
 
+    // pinned is true while the reader is at the bottom, and height is the content's height
+    // when that was last seen. A change of content (another chat drawn in, a page landing,
+    // an answer growing) keeps a pinned reader at the bottom before it is painted. It is the
+    // content's layout height, not the viewport's scroll height: a transform — the Jump to
+    // latest button sliding in as the reader leaves the bottom — stretches the scroll height
+    // for as long as it plays, and read as a change of content it snapped them back.
+    let pinned = true;
+    let height = body.offsetHeight;
+    const pin = () => {
+      vp.scrollTop = vp.scrollHeight;
+    };
+
     const pick = () => {
-      if (chase.current || atBottom()) {
+      height = body.offsetHeight;
+      pinned = !chase.current && atBottom();
+      if (chase.current || pinned) {
         anchor = null;
         return;
       }
@@ -265,28 +306,44 @@ function useScrollAnchor(
     // already be where the change put it.
     const onScroll = () => {
       if (chase.current && atBottom()) chase.current = false;
-      hold();
+      // A scroll that came with a change of content is the browser clamping or shifting the
+      // view for it, not the reader leaving the bottom: a pinned reader stays pinned. Taken
+      // as the reader's, a long chat swapped for a short one let a frame paint off the bottom.
+      // The reader's own hand on it (input within the last half second) is never overruled:
+      // an answer growing under someone starting to scroll up must not pull them back down.
+      const theirs = performance.now() - lastInput < 500;
+      if (pinned && !chase.current && !theirs && body.offsetHeight !== height) pin();
+      else hold();
       pick();
     };
     const onResize = () => {
       // Mid-glide the bottom moved: aim at where it is now.
       if (chase.current) vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
-      hold();
+      else if (pinned) pin();
+      else hold();
       pick();
     };
-    // The reader taking the scroll back ends the glide.
+    // The reader taking the scroll back ends the glide, and marks the scroll as theirs.
+    let lastInput = -Infinity;
     const takeBack = () => {
       chase.current = false;
+      lastInput = performance.now();
     };
 
     const resize = new ResizeObserver(onResize);
     resize.observe(body);
+    // The same, the moment the transcript's DOM changes: in the task that changed it, before
+    // anything can paint or read it. A ResizeObserver alone answers later in the frame, and a
+    // chat drawn in between the two could be seen, for that moment, where it first fell.
+    const mutation = new MutationObserver(onResize);
+    mutation.observe(body, { childList: true, subtree: true, characterData: true });
     vp.addEventListener("scroll", onScroll, { passive: true });
-    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const inputs = ["wheel", "touchstart", "touchmove", "pointerdown", "keydown"] as const;
     for (const e of inputs) vp.addEventListener(e, takeBack, { passive: true });
     pick();
     return () => {
       resize.disconnect();
+      mutation.disconnect();
       vp.removeEventListener("scroll", onScroll);
       for (const e of inputs) vp.removeEventListener(e, takeBack);
     };

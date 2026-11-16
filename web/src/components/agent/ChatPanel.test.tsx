@@ -446,6 +446,7 @@ describe("ChatPanel", () => {
 
     stream.push(message(1, "user", "how many active accounts last month"));
     stream.push(message(2, "assistant", "**4,812** in August."));
+    stream.push(replayed());
 
     const bubbles = await waitFor(() => {
       const found = screen.getAllByTestId("chat-message");
@@ -458,6 +459,25 @@ describe("ChatPanel", () => {
     expect(bubbles[1].querySelector("strong")?.textContent).toBe("4,812");
     // The bot's name labels its run of bubbles. The rail also says Podium.
     expect(bubbles[1].parentElement).toHaveTextContent("Podium");
+  });
+
+  it("draws the history once its replay is in, not row by row as it arrives", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    // Drawn as they came, the rows grew the transcript under the reader after it had
+    // landed. Until the replay is done, the skeleton holds the place.
+    stream.push(message(1, "user", "how many active accounts last month"));
+    stream.push(message(2, "assistant", "**4,812** in August."));
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryAllByTestId("chat-message")).toHaveLength(0);
+
+    stream.push(replayed());
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
+    expect(screen.queryByLabelText("Loading the conversation")).toBeNull();
   });
 
   it("shows the pull requests a turn produced without opening anything", async () => {
@@ -482,6 +502,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "chart it"));
     stream.push(status("started", "task_01xyz"));
@@ -517,6 +539,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "shrink the settings text"));
     stream.push(message(2, "progress", "Delegating this to the podium playbook."));
@@ -535,6 +559,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "twice please"));
     stream.push(message(2, "progress", "first task working", [], "task_01aaa"));
@@ -551,6 +577,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "assistant", "| month | active |\n| --- | --- |\n| Aug | 4,812 |"));
     const table = await screen.findByRole("table");
@@ -654,6 +682,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "assistant", "See report.csv."));
     await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(1));
@@ -883,6 +913,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(
       message(
@@ -1085,6 +1117,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"] }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
@@ -1107,6 +1141,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(
       chatRow({
@@ -1203,6 +1239,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(chatRow({ origin: "web" }));
     stream.push(message(1, "user", "how many active accounts"));
@@ -1235,6 +1273,7 @@ describe("ChatPanel", () => {
     // And it stays once the stream confirms what the list already said.
     stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice"] }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
+    stream.push(replayed());
     await screen.findByTestId("chat-author");
     expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("aren't posted to Slack");
   });
