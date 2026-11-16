@@ -59,6 +59,7 @@ import {
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
+import { LinearMcpHint } from "./LinearMcpHint";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { LinearIssuePanel } from "./LinearIssuePanel";
@@ -1841,26 +1842,32 @@ function Conversation({
             This chat belongs to {owner}.
           </div>
         ) : (
-          <ChatComposer
-            // Never held: what is typed while a send is in flight is queued like anything else
-            // sent while Podium is busy, and a box that disabled itself as each send went out
-            // would take the caret away mid-sentence.
-            disabled={false}
-            running={stream.running && !stream.awaiting}
-            onStop={() => stop.mutate()}
-            queued={queued}
-            queueing={queueing}
-            onInterrupt={() => stop.mutate()}
-            onRemoveQueued={(id) => takeBack.mutate(id)}
-            multiplayer={multiplayer}
-            mirrored={mirrored ? origin : ""}
-            personality={personalityName}
-            agents={agents}
-            assistant={assistant}
-            choice={choice}
-            onChoiceChange={setChoice}
-            onSend={submit}
-          />
+          <>
+            {origin === "linear" ? (
+              // The assistant reaches Linear only through the person's own MCP server.
+              <LinearMcpHint className="mx-auto w-full max-w-3xl px-6 pt-2" />
+            ) : null}
+            <ChatComposer
+              // Never held: what is typed while a send is in flight is queued like anything else
+              // sent while Podium is busy, and a box that disabled itself as each send went out
+              // would take the caret away mid-sentence.
+              disabled={false}
+              running={stream.running && !stream.awaiting}
+              onStop={() => stop.mutate()}
+              queued={queued}
+              queueing={queueing}
+              onInterrupt={() => stop.mutate()}
+              onRemoveQueued={(id) => takeBack.mutate(id)}
+              multiplayer={multiplayer}
+              mirrored={mirrored ? origin : ""}
+              personality={personalityName}
+              agents={agents}
+              assistant={assistant}
+              choice={choice}
+              onChoiceChange={setChoice}
+              onSend={submit}
+            />
+          </>
         )}
       </div>
       {paneTask !== undefined ? (
