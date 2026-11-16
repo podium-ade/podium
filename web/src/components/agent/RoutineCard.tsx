@@ -21,6 +21,7 @@ import {
   money,
   draftOf,
   perTicket,
+  routineByIdKey,
   routineChatPath,
   routineKey,
   routinesKey,
@@ -50,25 +51,37 @@ import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 import { RoutineDialog, SystemBadge } from "./RoutineDialog";
 
-/** CardData is what the card reads for its chat: the routine, and the ticket when the chat is one ticket's. */
-type CardData = { routine: Routine; subjectTitle: string } | null;
+/** CardData is what the card reads: the routine, or null when the chat is no routine's. */
+type CardData = { routine: Routine } | null;
 
 /**
- * RoutineCard sits at the top of a routine's chat: when it runs, how it has been doing, and the
- * controls. Its details — the instruction, the standing notes and their history — open over the
- * chat rather than pushing it down, so the conversation never jumps. A personal routine is its
+ * RoutineCard sits at the top of a routine's chat (chatId), or on the routine's own page
+ * (routineId) when it has no chat — a routine on Linear events that runs in each ticket's
+ * conversation never has one: when it runs, how it has been doing, and the controls. Its details
+ * — the instruction, the standing notes, the recent runs and their history — open over what is
+ * below rather than pushing it down, so the conversation never jumps. A personal routine is its
  * owner's alone; a system routine's card is shown to the admins who run it, marked as such.
  */
-export function RoutineCard({ chatId }: { chatId: string }) {
+export function RoutineCard({
+  chatId,
+  routineId,
+  onDeleted,
+}: {
+  chatId?: string;
+  routineId?: string;
+  onDeleted?: () => void;
+}) {
   const brand = useBrand();
   const qc = useQueryClient();
   const toast = useToast();
+  const key = chatId ? routineKey(chatId) : routineByIdKey(routineId ?? "");
   const routine = useQuery({
-    queryKey: routineKey(chatId),
+    queryKey: key,
     queryFn: async (): Promise<CardData> => {
-      const res = await agent.getRoutine({ chatId });
-      return res.routine ? { routine: res.routine, subjectTitle: res.subjectTitle } : null;
+      const res = await agent.getRoutine(chatId ? { chatId } : { id: routineId ?? "" });
+      return res.routine ? { routine: res.routine } : null;
     },
+    enabled: Boolean(chatId || routineId),
     // The next run and whether one is going move on their own.
     refetchInterval: 20_000,
   });
@@ -78,11 +91,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const refresh = (r?: Routine) => {
-    if (r)
-      qc.setQueryData<CardData>(routineKey(chatId), (prev) => ({
-        routine: r,
-        subjectTitle: prev?.subjectTitle ?? "",
-      }));
+    if (r) qc.setQueryData<CardData>(key, () => ({ routine: r }));
     void qc.invalidateQueries({ queryKey: routinesKey });
   };
   const act = useMutation({
@@ -116,7 +125,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
           "Running now. Its answer appears here if it finds something.",
           "ok",
         );
-        void qc.invalidateQueries({ queryKey: routineKey(chatId) });
+        void qc.invalidateQueries({ queryKey: key });
       }
     },
     onError: (err) => toast(errorMessage(err)),
@@ -127,10 +136,11 @@ export function RoutineCard({ chatId }: { chatId: string }) {
     },
     onSuccess: () => {
       setConfirmDelete(false);
-      qc.setQueryData(routineKey(chatId), null);
+      qc.setQueryData(key, null);
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
       void qc.invalidateQueries({ queryKey: routinesKey });
-      toast("Routine deleted. This chat stays.", "ok");
+      toast(chatId ? "Routine deleted. This chat stays." : "Routine deleted.", "ok");
+      onDeleted?.();
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -168,10 +178,8 @@ export function RoutineCard({ chatId }: { chatId: string }) {
   }, [open]);
 
   const r = routine.data?.routine;
-  // A chat per ticket (a routine on Linear events) is one ticket's: the card says which, and
-  // where the routine's own chat is.
-  const ticketChat = r !== undefined && r.chatId !== chatId;
-  const ticket = routine.data?.subjectTitle ?? "";
+  // On the routine's own page, its chat — when it has one — is a link away.
+  const chatLink = !chatId && r !== undefined && r.chatId !== "";
   const history = useQuery({
     queryKey: ["agent", "routine-revisions", r?.id ?? ""],
     queryFn: async () => (await agent.listRoutineRevisions({ id: r?.id ?? "" })).revisions,
@@ -208,7 +216,7 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                   </span>
                 ) : null}
                 {perTicket(r) ? (
-                  <span className="font-normal text-faint"> · a chat per ticket</span>
+                  <span className="font-normal text-faint"> · in each ticket’s conversation</span>
                 ) : null}
               </span>
               {system ? <SystemBadge className="ml-0.5 shrink-0" /> : null}
@@ -225,15 +233,8 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 : ""}
               {` · ${money(r.spendTodayUsd)} in 24h`}
             </p>
-            {ticketChat ? (
-              <p data-testid="routine-ticket" className="pl-6 text-xs text-muted">
-                {ticket ? (
-                  <>
-                    This chat is for <span className="text-fg">{ticket}</span>.{" "}
-                  </>
-                ) : (
-                  "This chat is for one ticket. "
-                )}
+            {chatLink ? (
+              <p data-testid="routine-chat-link" className="pl-6 text-xs text-muted">
                 <Link
                   to={routineChatPath(r)}
                   className="underline underline-offset-2 hover:text-fg"
@@ -430,8 +431,9 @@ export function RoutineCard({ chatId }: { chatId: string }) {
             <DialogHeader>
               <DialogTitle>Delete {r.name}?</DialogTitle>
               <DialogDescription>
-                It stops running and forgets what it kept. This chat and
-                everything the routine said in it stay.
+                {r.chatId
+                  ? "It stops running and forgets what it kept. Its chat and everything the routine said in it stay."
+                  : "It stops running and forgets what it kept. What its runs said stays in the conversations they ran in."}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -479,8 +481,9 @@ const RUN_WORDS: Record<string, string> = {
 /**
  * RunList is what the routine's last runs did, quiet ones included: when each ran, how it
  * ended, and the line it reported — the run list a reader would otherwise scroll the chat for.
+ * A run in a ticket's conversation links to it.
  */
-function RunList({ routineId }: { routineId: string }) {
+export function RunList({ routineId }: { routineId: string }) {
   const runs = useRecentRuns(routineId);
   return (
     <div data-testid="routine-runs">
@@ -505,6 +508,14 @@ function RunList({ routineId }: { routineId: string }) {
                 {RUN_WORDS[run.status] ?? run.status}
               </span>
               {run.summary ? <span className="min-w-0 truncate text-muted" title={run.summary}>{run.summary}</span> : null}
+              {run.chatId ? (
+                <Link
+                  to={`/agent/chat/${run.chatId}`}
+                  className="ml-auto shrink-0 text-accent underline-offset-2 hover:underline"
+                >
+                  Open
+                </Link>
+              ) : null}
             </li>
           ))}
         </ol>

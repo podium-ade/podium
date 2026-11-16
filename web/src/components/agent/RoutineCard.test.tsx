@@ -149,7 +149,7 @@ describe("RoutineCard", () => {
     await waitFor(() => expect(screen.getByTestId("routine-card")).toHaveAttribute("data-state", "closed"));
   });
 
-  it("names the ticket in a ticket's chat and links the routine's own chat", async () => {
+  it("is a routine's page when it has no chat, and links its chat when it has one", async () => {
     getRoutine.mockResolvedValue({
       routine: routine({
         schedule: "",
@@ -158,29 +158,36 @@ describe("RoutineCard", () => {
         events: ["Issue.create"],
         chatMode: "subject",
         nextRunAt: undefined,
+        chatId: "",
       }),
-      subjectTitle: "ENG-12 Fix login",
     });
-    mount(<RoutineCard chatId="chat_ticket" />);
+    mount(<RoutineCard routineId="rtn_1" />);
 
     expect(await screen.findByText("Runs on Linear: issue created")).toBeInTheDocument();
-    expect(screen.getByText("· a chat per ticket", { exact: false })).toBeInTheDocument();
-    const ticket = screen.getByTestId("routine-ticket");
-    expect(ticket).toHaveTextContent("This chat is for ENG-12 Fix login.");
-    expect(within(ticket).getByRole("link", { name: "Open the routine’s chat" })).toHaveAttribute(
+    expect(getRoutine).toHaveBeenCalledWith({ id: "rtn_1" });
+    expect(screen.getByText("· in each ticket’s conversation", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByTestId("routine-chat-link")).not.toBeInTheDocument();
+  });
+
+  it("links the routine's own chat from its page once it has one", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({ trigger: "linear", scheduleText: "On Linear: issue created", chatMode: "routine" }),
+    });
+    mount(<RoutineCard routineId="rtn_1" />);
+    const link = await screen.findByTestId("routine-chat-link");
+    expect(within(link).getByRole("link", { name: "Open the routine’s chat" })).toHaveAttribute(
       "href",
       "/agent/chat/chat_r",
     );
   });
 
-  it("says nothing of tickets in the routine's own chat", async () => {
+  it("says nothing of its chat at the top of the chat itself", async () => {
     getRoutine.mockResolvedValue({
-      routine: routine({ trigger: "linear", scheduleText: "On Linear: issue created", chatMode: "subject" }),
-      subjectTitle: "",
+      routine: routine({ trigger: "linear", scheduleText: "On Linear: issue created", chatMode: "routine" }),
     });
     mount(<RoutineCard chatId="chat_r" />);
     expect(await screen.findByTestId("routine-card")).toBeInTheDocument();
-    expect(screen.queryByTestId("routine-ticket")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("routine-chat-link")).not.toBeInTheDocument();
   });
 
   it("is nothing for a chat with no routine", async () => {
@@ -236,7 +243,7 @@ describe("RoutineDialog", () => {
     );
   });
 
-  it("offers a chat per ticket for a routine on Linear events, and says what each choice means", async () => {
+  it("offers each ticket's conversation for a routine on Linear events, and says what each choice means", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog open title="Routine"
@@ -253,11 +260,11 @@ describe("RoutineDialog", () => {
     expect(screen.getByText("Runs happen in")).toBeInTheDocument();
     expect(screen.getByTestId("routine-chat-mode-routine")).toHaveAttribute("data-state", "on");
     expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent(
-      "Every run is in one chat, with the whole history in view.",
+      "Every run is in one chat, with the whole history in view. It is opened on the first run.",
     );
     await userEvent.click(screen.getByTestId("routine-chat-mode-subject"));
     expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent(
-      "Each issue or project gets its own chat, so a run sees what was said about that ticket before.",
+      "A run joins the issue’s or project’s one conversation, where delegations, mentions and other routines are, and sees what was done on it before.",
     );
     await userEvent.click(screen.getByTestId("routine-event-Issue.create"));
     await userEvent.click(screen.getByTestId("routine-save"));
@@ -269,7 +276,7 @@ describe("RoutineDialog", () => {
     );
   });
 
-  it("keeps a routine's chat per ticket when editing, and drops it for a schedule", async () => {
+  it("keeps a routine's ticket conversations when editing, and drops them for a schedule", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog open title="Routine"
