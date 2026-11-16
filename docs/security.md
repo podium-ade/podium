@@ -249,7 +249,16 @@ SAML is not implemented.
     them; with no host runtime it runs the `linear: true` playbook.
     Pressing *Stop* in a Linear session is not gated: it ends work and starts none, Linear offers it to
     everybody who can see the session, and refusing it would leave running what somebody asked
-    to end.
+    to end. It ends what that agent session started — its turn, the tasks it delegated, its
+    prompts still queued — and not another session's, or a routine's, on the same issue.
+
+    An issue is **one conversation** however many agent sessions are opened on it, and routines
+    on Linear events may run in it too: each turn still runs as whoever started it — a prompt as
+    its speaker, a routine's run as the routine's owner or, for a system routine, as nobody —
+    never as the conversation's owner, who is only whoever spoke first. A later turn reads the
+    earlier ones and sees the tasks they started, and may add to one of them, whoever started it:
+    a person who may prompt on an issue can steer work somebody else started on it, as in a Slack
+    thread.
   - **Linear's poller: anybody who can assign the bot user a ticket.** Polling with a personal
     API key is the unauthenticated mode. The bot seat is told that an issue was assigned to it
     or commented on, not who could be proven to have done it, so a polled ticket runs as nobody
@@ -511,6 +520,22 @@ know before you write one.
   compensating decision is in `ChatAttachments.tsx`: only raster types are ever rendered or
   handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
   `blob:` URL inherits the app's origin, which is where the bearer token lives.
+- **A Linear issue's conversation is read by those who touched the issue, and by every admin
+  and owner.** Who touched it is recorded as the deliveries arrive — who created it, was assigned
+  it, delegated it to the app, @mentioned the app on it, wrote in one of its agent sessions,
+  commented on it or changed it, and whose routine ran in it — by their Linear account, and turned
+  into a Podium login only through a proven link (`identities`, [Who is
+  who](agent.md#who-is-who)) at the moment somebody reads. An account never linked grants nothing,
+  and one linked later sees what it touched before; nothing is matched by name or email. Touching
+  an issue grants **reading** its conversation; writing in it is still a participant's, somebody
+  who spoke in it from Linear as a Podium person, and an admin or owner reads every one without
+  writing. Two things follow: anybody in the Linear workspace who can comment on an issue can make
+  its Podium conversation readable to themselves once their account is linked, which is no more
+  than the issue itself shows them; and the people a routine's events are about learn nothing
+  from it — a routine's run is visible to its owner and to admins, and to those who touched the
+  issue, who could already read the issue. What a delivery says about an issue (its identifier,
+  title, team and state) is kept in `linear_issues` for the Linear view, for every issue the
+  webhook names, including ones with no conversation.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. That stops an accident and one honest
