@@ -327,13 +327,57 @@ touched the ticket and to admins.
   the server, with what the deliveries said about each issue kept in `linear_issues` (identifier,
   title, link, team, Linear state) and whether it waits on a person (`asked_at`, set on a question,
   cleared by the next thing said from Linear). Issue conversations are left out of `ListChats` and
-  `ListSessions`; the web UI's Work → Linear lists them. The rail does not show issues waiting on
-  the viewer: it would need its own query, and the view's *Needs attention* covers it.
+  `ListSessions`; the web UI's Work → Linear lists them. (The chat rail lists the ones whose
+  people the viewer is one of since *Ticket chats*, below.)
 - **Existing rows.** Nothing is migrated. Chats keyed `linear:session:<id>` stay readable by their
   participants and listed under Sessions; the next prompt on their issue opens the issue's
   conversation. A per-ticket routine's old chats stay ordinary chats of the routine
   (`chats.routine_id`); its next event about the ticket runs in the ticket's conversation. Merging
   them was not worth it for rows that only ever existed on development stacks.
+
+## Ticket chats
+
+Built on `feature/linear-10-ticket-chats`, after issue conversations. What the user asked for: a
+ticket's conversation in the chat rail of the people on it, readable by them without leaking the
+work of turns somebody else ran, and written from Podium as well as from Linear.
+
+- **Who ran a turn, and who sees its work.** A turn runs as whoever prompted it. Every row the bot
+  wrote in a Linear conversation carries `ran_as` (login and name) or `ran_as_routine`, read from
+  `turns.started_by` and the routine run, through `ListChatTurnRunners`: a row with a task id is
+  the turn that ran the task (its own, or one it delegated), and the assistant's own rows the turn
+  that was running when they were said. No column was added; a conversation runs one turn at a
+  time. A reader who is neither the runner nor an admin or owner (`Infra`) gets the prompt and the
+  answer, and every tool call, thought and progress line as a `redacted` row with no text; the
+  answer's task id and attachments are withheld too, and so are a live progress line and a status
+  frame's task id while the turn is somebody else's, and a turn's task in `ListTurns`
+  (`api/runner.go`). A row no turn can be placed on is nobody's: only admins see it. The UI counts
+  the redacted rows into "4 steps, ran as Alice" and says "ran as …" on every answer. **Only Linear
+  conversations:** a shared web chat's or a Slack thread's people chose to share it and have always
+  seen the whole trail.
+- **The rail.** `ListChats` lets back in, from the Linear conversations it leaves out, an issue's
+  conversation whose people the caller is one of: they touched it through a linked Linear account
+  (`linear_people` through `identities`) or spoke in it. Not an admin who did not, not a routine's
+  owner as such, not the dev token, not a project's conversation and not a pre-0048 session's. It
+  carries `linear_issue` (identifier, title, state, `asked_at`, and `waiting_on_me`: asked by the
+  caller's turn, or by nobody's), and is ordered by last activity with the rest. The row reads
+  `EME-6 · title` with a dot for the state and *Waiting on you*. `SetChatRailHidden` hides one
+  (`chat_rail_hidden`, 0049) until something new is said in it; it offers no Rename, Leave or
+  Delete.
+- **Who writes it.** Touching the issue now grants `editor` (`chat_role`, 0049): the rail is the
+  issue's people, and a reply from Podium is what an @mention in Linear would be, as the same
+  person. An admin or owner who did not touch it reads and does not write.
+- **Replies reach Linear** (`conductor/relay.go`). A person's web message in an issue's
+  conversation — addressed to Podium or not — is owed to the issue through the outbox as an
+  `OutRelay`: a comment from the app with `createAsUser` and `displayIconUrl` (their Podium name and
+  picture). The answer of a turn a person started there, its failure or question, and the answers
+  of the tasks it delegated are owed as the app's comment, through the same session-less path the
+  poller's tickets use. Not into an agent session: a web turn has none, and posting into one a
+  Linear person opened would reopen a finished session and put the answer away from the message.
+  A routine's run is not relayed. Both show "not delivered" in the web chat and are retried.
+- **No loop.** The app drops an agent session prompt whose speaker is its own user or that came
+  from a comment it posted as somebody (remembered for `dedupeTTL`), and treats a `Comment` data
+  change by its user or about such a comment as its own (no routine). A transcript reads a comment
+  posted as somebody (`botActor.userDisplayName`) as theirs, not the app's answer.
 
 ## Testing
 
@@ -413,5 +457,14 @@ Across the whole stack, what is still open:
   Postgres, and nothing has been tried with two agent sessions on one real issue. Creator and
   assignee are read from data change payloads Linear does not document, and from an agent
   session's issue only if Linear ever sends them there.
+- **Ticket chats** (`feature/linear-10-ticket-chats`) have unit tests for the visibility rule, the
+  turn index, the rail's issue fields, the relay and the loop guards; the store test for the rail
+  query, the hide and the new `chat_role` (`ticket_chats_integration_test.go`) compiles and has not
+  run against Postgres. `createAsUser`/`displayIconUrl` and how Linear fills `user`, `botActor`
+  and the webhooks for such a comment were written from Linear's documentation, not tried: if
+  Linear makes a relayed comment that starts with a mention into an agent session with a person
+  as its speaker, only the remembered comment id stops it, and that memory is one conductor's and
+  `dedupeTTL` long. Attribution of the assistant's own rows by time assumes one turn at a time per
+  conversation and conductors whose clocks agree.
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.
