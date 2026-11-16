@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, SquareKanban } from "lucide-react";
 import type { LinearConversation } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { money } from "../../lib/routines";
+import { cn } from "../../lib/utils";
 import { Badge, type Tone } from "../Badge";
 import { Empty } from "../Empty";
 import { TableSkeleton } from "../Skeleton";
@@ -71,6 +72,9 @@ export function LinearTable() {
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor || undefined,
     refetchInterval: POLL_MS,
+    // A filter not asked for yet keeps the rows already shown, dimmed, until its own arrive,
+    // rather than swapping the table for a skeleton and back.
+    placeholderData: keepPreviousData,
   });
 
   const rows = list.data?.pages.flatMap((p) => p.conversations) ?? [];
@@ -150,7 +154,10 @@ export function LinearTable() {
       ) : null}
 
       {rows.length > 0 ? (
-        <Table>
+        <Table
+          aria-busy={list.isPlaceholderData}
+          className={cn("transition-opacity duration-150", list.isPlaceholderData && "opacity-60")}
+        >
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Issue</TableHead>
