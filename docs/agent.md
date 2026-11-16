@@ -2246,6 +2246,51 @@ nothing asks Linear per row. A title changed in Linear shows once a delivery nam
 chat rail marks an issue waiting on the viewer; the Linear view's *Needs attention* lists every
 one.
 
+### Tickets in a chat
+
+A Linear issue named in any chat — a person's message or the assistant's answer, as `EME-6` or as a
+`linear.app/<workspace>/issue/EME-6` link — is drawn as a chip: the state's colour, the identifier
+and the title. Resting the pointer on it, or pressing it, opens a card with the title, the state,
+the team, the assignee, when it last changed, **Open in Linear**, and **Continue in ticket** when the
+issue has a conversation in Podium the viewer may read. Text inside code is never a chip.
+
+- **What counts as an issue.** The web UI finds anything shaped like an identifier — an upper-case
+  team key, a hyphen, a number, standing on its own (not inside a word, a path or a version) — and
+  asks the conductor (`GetLinearIssues`, at most 25 at once, batched across a transcript). The
+  conductor keeps only identifiers of a team the workspace has (the app's teams, and every team an
+  issue the webhooks described is in), so `UTF-8` is never asked of Linear. A candidate the
+  conductor says nothing about stays plain text.
+- **Who sees what.** The app's token reads every team, so the conductor shows an issue only to
+  somebody who could see it in Linear: an admin or owner; somebody who touched it (`linear_people`,
+  the same rule that lets them read its conversation); or somebody whose linked Linear account is on
+  the issue's team, which the conductor asks Linear (`user.teams`) and remembers for two minutes. A
+  suspended account, or an account of another workspace, is on no team. Anybody else is answered as
+  if the issue did not exist — no title, and no sign the identifier is real. Without a saved app
+  (the poller, or no Linear) only admins and those who touched an issue see it, from what the
+  webhooks said.
+- **Where it comes from.** A chip is what the webhooks said (`linear_issues`) when they said its
+  title, team and state, and Linear otherwise. The card asks Linear for the issue now, at most once
+  a minute per issue across everyone, and falls back to what the webhooks said.
+- **The assistant is given the ticket.** When a person's own message to the assistant names
+  tickets they may see, by the same rule, the turn's brief carries up to three of them
+  (`linear_tickets`): the title, state, team, assignee, labels, the description (up to 4 KiB) and the
+  five latest comments (up to 1 KiB each), 12 KiB in all. The runtime puts them before the
+  conversation, fenced and called data written by people in the workspace, not instructions, as it
+  does a routine's Linear events. Only a person's words are looked in — not a routine's run, an
+  automatic review or a playbook's own turn — and an issue's own conversation does not brief its own
+  issue again. A turn waits at most five seconds for them and otherwise starts without. Admins are
+  briefed by the same rule as everybody else: the conductor does not know who is an admin, only the
+  API does.
+
+**The issue panel.** An issue's conversation is headed by the issue as Linear has it now
+(`GetLinearIssueConversation`): the state, identifier and title, the state's name, team, assignee,
+when it changed and its labels, and **Open in Linear**. Opened, it lists the pull requests — those
+attached to the issue in Linear and those the conversation produced, each once — the tasks the
+conversation started, and the routine runs that happened in it, newest first, twenty of each. Anybody
+who may read the conversation sees it. It is asked again whenever something is said in the
+conversation, when the window regains focus, and every thirty seconds: a change made in Linear
+reaches Podium as a webhook, which does not move the chat stream.
+
 **What it does not do yet.**
 
 - What a Stop silences is remembered in memory, on every conductor that was running when it was

@@ -3,7 +3,7 @@
 Status: built, by the branches `feature/linear-1-connection` (phase 1), `feature/linear-2-webhooks`
 (phase 2), `feature/linear-3-activities` (phase 3), `feature/linear-4-identity` (phase 4),
 `feature/linear-5-mirror` (phase 5) and `feature/linear-6-routing` (phase 6), each stacked on the
-one before, then delegation routing and [issue conversations](#issue-conversations). Written 2026-11-12. Nothing has been tried against a real Linear workspace with a
+one before, then delegation routing, [issue conversations](#issue-conversations) and [tickets in a chat](#tickets-in-a-chat). Written 2026-11-12. Nothing has been tried against a real Linear workspace with a
 running conductor yet; see [What is left](#what-is-left).
 
 This moves Linear from a polled bot seat to a Linear agent app with webhooks, live
@@ -379,6 +379,37 @@ work of turns somebody else ran, and written from Podium as well as from Linear.
   change by its user or about such a comment as its own (no routine). A transcript reads a comment
   posted as somebody (`botActor.userDisplayName`) as theirs, not the app's answer.
 
+## Tickets in a chat
+
+Built on `feature/linear-11-ticket-chips`, after ticket chats. What the user asked for: a
+Linear issue named in any chat is a chip with a card, the assistant is given the tickets a person
+names, and an issue's conversation shows the issue beside it. See [agent.md, Tickets in a
+chat](agent.md#tickets-in-a-chat).
+
+- **Matching.** `linear.FindIssueRefs` (Go) and `findIssueRefs` (web) find an upper-case
+  identifier standing on its own, or a `linear.app/<workspace>/issue/<ID>` link. The web finds
+  candidates; the conductor keeps those of a team the workspace has (`AppSource.TeamKeys`, the
+  catalog, cached five minutes, and the teams in `linear_issues`).
+- **Who sees an issue** is decided in `internal/agent/tickets` (`MayRead`): an admin or owner,
+  somebody who touched it (`linear_touched`), or somebody whose linked Linear account
+  (`identities`, provider `linear`, of the app's own workspace) Linear says is on its team
+  (`PodiumUserTeams`, cached two minutes, an inactive account on none). Anything else is
+  `ErrNotFound`, the same as an issue that does not exist.
+- **Reading.** `GetLinearIssues(refs, detail)`: a chip (`detail` false) is the `linear_issues` row
+  when it has a title, team and state, else Linear; a card (`detail` true) is Linear now
+  (`PodiumTicket`, cached a minute per issue in `AppSource`), else the row. The answer carries the
+  issue's conversation's chat id only when the caller may read it ("Continue in ticket").
+- **The assistant's brief.** `Brief.LinearTickets` (`linear_tickets`, the runtime's
+  `linearTicketSchema`), filled by `conductor.TicketBriefer` from a person's own words
+  (`RecordText`, else `Text`) on a host turn, not a routine's run or an automatic event: up to three
+  tickets the speaker may see, without the conversation's own issue, trimmed to 12 KiB. The runtime
+  renders them as "Linear tickets this message names", fenced, data not instructions.
+- **The panel.** `GetLinearIssueConversation(chat_id)`, to a reader of the chat: the issue (Linear
+  now, else the row), the session's delegations and the routine runs whose `chat_id` is the chat
+  (twenty each). The web merges Linear's GitHub attachments with the chat's own pull requests.
+  It refetches when the stream's message count changes, on focus, and every thirty seconds.
+- **No migration.** The queries are read-only (`queries/linear_tickets.sql`).
+
 ## Testing
 
 - **Unit:** extend `stub_test.go` to serve the OAuth token endpoint and the agent mutations.
@@ -466,5 +497,15 @@ Across the whole stack, what is still open:
   as its speaker, only the remembered comment id stops it, and that memory is one conductor's and
   `dedupeTTL` long. Attribution of the assistant's own rows by time assumes one turn at a time per
   conversation and conductors whose clocks agree.
+- **Tickets in a chat** (`feature/linear-11-ticket-chips`) have unit tests for the matcher, the
+  rule, the brief's framing and trimming, the Linear queries against the stub, and the web
+  components; `PodiumTicket` and `PodiumUserTeams` were written from Linear's schema and not tried
+  against a workspace (an `issue(id:)` lookup by identifier, `attachments.sourceType` and
+  `user.teams` are what they rely on), and the store's queries have an integration test that has not
+  run against Postgres. The brief's new `linear_tickets` field needs the runtime rebuilt with it:
+  an older runtime refuses a brief that carries it (strict schema), so a turn naming a ticket fails
+  until the runtime image and the chat host's renderer are updated. Team membership is Podium's
+  narrower reading of who sees what (a public team's issues are not shown to non-members).
+  Admins are briefed with tickets by the member rule, since the conductor does not know roles.
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.

@@ -558,6 +558,22 @@ know before you write one.
   nothing: an agent session prompt whose speaker is the app, or that came from a comment the app
   posted, is dropped, and so is a `Comment` data change by the app's user or about such a comment,
   so neither answers itself nor wakes a routine.
+- **A Linear issue named in a chat is shown only to somebody who could see it in Linear.** The
+  Linear app's token reads every team, so `GetLinearIssues` (the chips and cards a chat draws for
+  an identifier or link) answers for an issue only when the caller is an admin or owner, touched the
+  issue (as above), or has a linked Linear account that Linear says is on the issue's team; anybody
+  else is told nothing, exactly as for an identifier no team has. Team membership is read with the
+  app's token and remembered for two minutes, so somebody taken off a team keeps seeing its issues
+  in chips for up to that long. Podium's rule is narrower than Linear's own: a public team's issue
+  that a non-member could open in Linear is still not shown to them here. Whoever may read an issue's
+  conversation sees its panel (the issue now, its pull requests, tasks and routine runs), since the
+  conversation already shows them the issue. **A person's message to the assistant that names
+  tickets they may see briefs the turn with them** — title, description, latest comments — so text
+  anybody in the workspace wrote reaches the model on that person's turn, with that person's
+  secrets and MCP servers. It is fenced and called data, not instructions, as a routine's events are;
+  that is guidance to the model, not a boundary. In a shared conversation (a Slack thread, a shared
+  chat, an issue's conversation) the answer is read by everybody in it, so what the ticket says can
+  reach people who could not see the ticket, as anything else the asker's turn can read can.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. That stops an accident and one honest
