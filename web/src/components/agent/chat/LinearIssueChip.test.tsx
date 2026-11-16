@@ -94,6 +94,18 @@ describe("LinearIssueChip", () => {
     expect(screen.getByTestId("where")).toHaveTextContent("/agent/chat/chat-eme6");
   });
 
+  it("offers no way to continue in the conversation the card is already in", async () => {
+    getLinearIssues.mockImplementation(({ detail }: { detail: boolean }) =>
+      Promise.resolve({ issues: [issue(detail ? { assignee: "Ada Lovelace", chatId: "c1" } : {})] }),
+    );
+    mount();
+    await userEvent.click(await screen.findByTestId("linear-chip"));
+    const card = await screen.findByTestId("linear-card");
+    await waitFor(() => expect(card).toHaveTextContent("Ada Lovelace"));
+    expect(screen.queryByTestId("linear-card-continue")).toBeNull();
+    expect(screen.getByRole("link", { name: /open in linear/i })).toBeInTheDocument();
+  });
+
   it("offers only Linear when the viewer may not read the ticket's conversation", async () => {
     getLinearIssues.mockResolvedValue({ issues: [issue({ assignee: "" })] });
     mount();

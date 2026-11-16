@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { ExternalLink, MessagesSquare } from "lucide-react";
 import type { LinearIssue } from "../../../gen/podium/agent/v1/agent_pb";
 import { absolute, relative } from "../../../lib/format";
@@ -113,6 +113,7 @@ export function LinearIssueChip({ issueRef, children }: { issueRef: string; chil
  */
 function IssueCard({ issueRef, chip, enabled }: { issueRef: string; chip: LinearIssue; enabled: boolean }) {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const detail = useLinearIssue(issueRef, true, enabled);
   const issue = detail.data ?? chip;
   const tone = stateTone(issue.stateType);
@@ -145,7 +146,7 @@ function IssueCard({ issueRef, chip, enabled }: { issueRef: string; chip: Linear
             </a>
           </Button>
         ) : null}
-        {issue.chatId ? (
+        {issue.chatId && !inChat(pathname, issue.chatId) ? (
           <Button
             size="xs"
             variant="outline"
@@ -159,4 +160,10 @@ function IssueCard({ issueRef, chip, enabled }: { issueRef: string; chip: Linear
       </div>
     </div>
   );
+}
+
+/** inChat says whether the page is already the chat a card would continue in. */
+function inChat(pathname: string, chatId: string): boolean {
+  const here = `/agent/chat/${chatId}`;
+  return pathname === here || pathname.startsWith(`${here}/`);
 }
