@@ -3,7 +3,7 @@
 Status: built, by the branches `feature/linear-1-connection` (phase 1), `feature/linear-2-webhooks`
 (phase 2), `feature/linear-3-activities` (phase 3), `feature/linear-4-identity` (phase 4),
 `feature/linear-5-mirror` (phase 5) and `feature/linear-6-routing` (phase 6), each stacked on the
-one before. Written 2026-11-12. Nothing has been tried against a real Linear workspace with a
+one before, then delegation routing and [issue conversations](#issue-conversations). Written 2026-11-12. Nothing has been tried against a real Linear workspace with a
 running conductor yet; see [What is left](#what-is-left).
 
 This moves Linear from a polled bot seat to a Linear agent app with webhooks, live
@@ -35,9 +35,11 @@ a second listener), so that reason no longer holds.
   refresh token. The operator pastes a client id and secret, with no redirect flow, and the
   conductor re-requests on a 401. The fallback is the authorization-code flow with
   `actor=app` (24-hour access tokens, rotating 30-day refresh tokens).
-- **One conversation is one agent session.** The source key is
-  `linear:session:<agentSessionId>`. Earlier sessions on the same issue reach the transcript
-  through the issue's comments.
+- **One conversation is one issue** (since `feature/linear-9-issue-sessions`; it was one agent
+  session, `linear:session:<agentSessionId>`, before). The source key is `linear:<issueId>`, the
+  key the poller already used, and every agent session on the issue is a turn of it; the turn's ref
+  still names its agent session, which is where its replies go. See [Issue
+  conversations](#issue-conversations).
 - **Polling stays, untouched.** The environment key alone runs the poller as it does today.
   A saved connection wins and turns the poller off, so a ticket is never started twice.
 - **An unmatched Linear user is refused.** They get an `error` activity and nothing runs,
@@ -278,6 +280,61 @@ Built after phase 6, on `feature/linear-8-delegation-routing`.
 - **Editor.** The playbook page sets both lists under Routing, with teams and label suggestions
   from `ListLinearCatalog` (the app's `teams` and `issueLabels`), and a line saying when it runs.
 
+## Issue conversations
+
+Built on `feature/linear-9-issue-sessions`, after delegation routing. What the user asked for:
+every ticket has one conversation however it was started, a routine on Linear events leaves no
+empty chat, and hundreds of them are listed somewhere other than the chat rail, to those who
+touched the ticket and to admins.
+
+- **Keys.** `MirrorKey` and `InboundEvent.SourceKey` are `linear:<issueId>`. The ref keeps the
+  agent session as its fourth part, so `Post`, `Edit`, `PostActivity`, `React`, `Attach` and
+  `LinkPullRequests` still reach the session that prompted the turn, and the outbox, a turn's
+  `trigger_ref` and a delegation's `trigger_ref` keep that mapping across a restart. A project is
+  `linear:project:<id>`, for routines.
+- **Threads.** A conversation may hold threads (`conductor.ThreadKeyer`); the app's thread is the
+  agent session (`linear:session:<id>`), and a routine's run is a thread of its own. A prompt is
+  put into a running turn, a parked task or a warm task only from the same person *and* the same
+  thread (`sameAsker`), never across conductors when it has a thread, and never into or from a
+  routine's run.
+- **Stop.** `AppOptions.Stop` takes the issue key and the session's thread key, and the conductor's
+  `CancelThreadTurn` stops only that thread's running turn, the delegations whose `trigger_ref`
+  is that thread's, and its queued prompts (`ListQueuedTurns`, `DeleteQueuedTurn`). The stop is
+  announced by the thread key, which is what `StoppedElsewhere` already read.
+- **Routines.** A routine in per-ticket mode runs an issue's or project's events as a turn of that
+  conversation: the scheduler opens it when needed (`EnsureLinearConversation`: a mirrored chat of
+  origin `linear` and its session), and the web chat starts the run there as the routine's owner,
+  or nobody, with the routine's assistant (`chat.RoutineRun.Conversation`). The brief's routine
+  block, `routine_finish` and the idle hold find the routine by the run, not the chat. The
+  instruction is preceded by `routines.ConversationPreamble`, which tells the run that earlier
+  turns and their tasks are in the conversation and its brief and not to redo or duplicate them.
+  No runtime change. A turn of a routine never falls back to the chat owner's identity
+  (`turnLogin`, `delegate`). `routine_subject_chats` and the 50-chats-a-day guard are gone.
+- **No empty chats.** `routines.chat_id` is nullable (0048). A routine on Linear events gets no
+  chat when it is saved; one in routine mode gets it on its first run (`EnsureRoutineChat`), and so
+  does a per-ticket one the first time an event about a cycle or a label needs it. Moving one to a
+  schedule opens its chat. The Routines page opens a routine with no chat on a page of its own
+  (`/agent/routines/:id`) with its card and its runs, each linking to where it ran
+  (`RoutineRun.chat_id`). A paused routine with no chat gets no inbox notice.
+- **Who reads one.** `linear_people` records who touched an issue as the deliveries arrive — an
+  agent session's creator and prompt speaker, an `Issue` change's creator, assignee and actor, a
+  `Comment`'s author and actor, a routine's owner — keyed by Linear account (`<org>/<user>`), or by
+  login for a routine's owner. `chat_role` and `chat_visible_to` resolve accounts to logins through
+  `identities` when somebody reads (`linear_touched`), so a link made later counts, and grant
+  `viewer`. Admins and owners read every one through the API (`Infra`). Writing is still a
+  participant's.
+- **The Linear view.** `ListLinearConversations`, filtered (mine, team, state) and keyset-paged on
+  the server, with what the deliveries said about each issue kept in `linear_issues` (identifier,
+  title, link, team, Linear state) and whether it waits on a person (`asked_at`, set on a question,
+  cleared by the next thing said from Linear). Issue conversations are left out of `ListChats` and
+  `ListSessions`; the web UI's Work → Linear lists them. The rail does not show issues waiting on
+  the viewer: it would need its own query, and the view's *Needs attention* covers it.
+- **Existing rows.** Nothing is migrated. Chats keyed `linear:session:<id>` stay readable by their
+  participants and listed under Sessions; the next prompt on their issue opens the issue's
+  conversation. A per-ticket routine's old chats stay ordinary chats of the routine
+  (`chats.routine_id`); its next event about the ticket runs in the ticket's conversation. Merging
+  them was not worth it for rows that only ever existed on development stacks.
+
 ## Testing
 
 - **Unit:** extend `stub_test.go` to serve the OAuth token endpoint and the agent mutations.
@@ -349,5 +406,12 @@ Across the whole stack, what is still open:
   named only by id is looked up. No data change was captured from a real workspace, and the
   routine's integration tests have not run against Postgres. See [agent.md, On a Linear
   event](agent.md#on-a-linear-event).
+- **Issue conversations** (`feature/linear-9-issue-sessions`) have unit tests for the keys, the
+  threads, the scheduler and the store's interface; the store, conductor and API integration
+  tests that cover them (`routine_subjects_integration_test.go`, `TestStoppingOneThread…`,
+  `TestARoutineRunsInTheIssuesConversationAsItsOwner`) compile and have not run against
+  Postgres, and nothing has been tried with two agent sessions on one real issue. Creator and
+  assignee are read from data change payloads Linear does not document, and from an agent
+  session's issue only if Linear ever sends them there.
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.

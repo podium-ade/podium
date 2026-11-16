@@ -2065,9 +2065,20 @@ rather than an app, and shows who the app is and in which workspace. No playbook
 `linear: true` for it. The listen address may be the GitHub App's: the conductor then serves
 `/webhooks/github` and `/webhooks/linear` on one listener.
 
-**What starts a turn.** Each agent session is one conversation (`linear:session:<id>`). The app
-says whether it was opened by a delegation or a mention, on every prompt in it, and the conductor
-decides what answers:
+**One conversation per issue.** An issue is one conversation in Podium (`linear:<issue id>`), as
+a pull request is (`github:owner/repo#N`), however it was started: the delegation and every
+@mention on it each open an agent session in Linear, and every one of those is a turn of the
+issue's one conversation — one session, one record, one chat — as is every routine run about the
+issue ([In each ticket's conversation](#in-each-tickets-conversation)). Turns run one at a time,
+so a second delegation or mention waits for the first, and when it runs it reads everything said
+on the issue so far and sees the tasks earlier turns started, still running or finished: the
+assistant decides whether it is the same work, something to add to a task already running, or new.
+What a turn says still goes into the agent session that prompted it — its replies, activities,
+questions and links — since Linear draws each session on its own; the turn's ref names that
+session. A project is a conversation of its own too (`linear:project:<id>`), for routines.
+
+**What starts a turn.** The app says whether an agent session was opened by a delegation or a
+mention, on every prompt in it, and the conductor decides what answers:
 
 | in Linear | with a host runtime | with none |
 |---|---|---|
@@ -2076,7 +2087,7 @@ decides what answers:
 | the app @mentioned in a comment | a turn of the assistant, on the host, with the comment, less the mention, as the question and the issue and its thread as context. It may delegate to any playbook it would be offered in a Slack thread or a chat | a task of the `linear: true` playbook, with the comment as the instruction |
 | a mention that starts `/<playbook>` | that playbook, delegated directly as the conversation's task; the assistant is not asked | a task of that playbook, for that turn |
 | a reply in a session, delegated or mentioned | the assistant's next turn, or the playbook a `/playbook` names. A reply to a delegated task's question is injected into that task | a task of the session's playbook, or of the one a `/playbook` names for that turn. Injected into the task instead when it asked a question, or answered and waits for more, and the reply is from the person whose turn it is and names no playbook |
-| *Stop* on the session | the turn — the assistant's or a task's — and every task the session delegated that is still running are cancelled, and anything queued is dropped. Nothing more is said for any of them, on whichever conductor runs them, and the session closes with one “Stopped.”, or, when nothing was running, says so. Anybody who can see the session may stop it, signed in to Podium or not | the same |
+| *Stop* on the session | what that agent session started is stopped: its turn — the assistant's or a task's — if one is running, every task its turns delegated that is still running, and its prompts still queued. Another session's turn and tasks on the same issue, and a routine's run there, go on. Nothing more is said for what stopped, on whichever conductor runs it, and the session closes with one “Stopped.”, or, when nothing of its own was running, says so. Anybody who can see the session may stop it, signed in to Podium or not | the same |
 
 **Which playbook a delegated issue runs.** A playbook claims a delegated issue with two lists,
 set in its file or on its page under Routing, where the team picker and the label suggestions are
@@ -2164,18 +2175,55 @@ issue where it is, whoever answers it and whatever it delegates: a question in a
 request to move the ticket. Linear sets
 the issue's delegate itself.
 
-**The chat.** Each agent session is a chat in Podium (`linear:session:<id>`, origin `linear`),
-named after the issue (`EME-5 Test issue`) and renamed with it on the next prompt — Linear tells
-an app nothing when an issue is retitled. Every prompt is a message by whoever wrote it, linked to
-the issue; the answers, questions, failures, progress and tool calls are the bot's, as in a
-mirrored Slack thread, and so are the tasks the assistant delegated, shown as a Slack thread's
-chat shows them. The chip in the chat's header opens the session in Linear. The people who
-spoke in the session and are in Podium are its participants, and the first of them owns it; it is
-visible to them and to nobody else unless they share it, and sharing a chat of a private team's
-issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused is recorded, as in Slack,
-and is never a participant; a session only they spoke in is a chat nobody can open. The refusal
-itself is the source's word in Linear and is not recorded, as Slack's 🚫 is not. A ticket the
-poller saw has no chat.
+**The chat.** Each issue is a chat in Podium (`linear:<issue id>`, origin `linear`), named after
+the issue (`EME-5 Test issue`) and renamed with it on the next prompt. Every prompt, from every
+agent session on the issue, is a message by whoever wrote it, linked to the issue; the answers,
+questions, failures, progress and tool calls are the bot's, as in a mirrored Slack thread, and so
+are the tasks the assistant delegated, shown as a Slack thread's chat shows them. A routine's run
+about the issue is in it too, under its `Routine run · …` divider. The chip in the chat's header
+opens the issue in Linear. The people who spoke in it from Linear and are in Podium are its
+participants, who may act in it, and the first of them owns it. It is **read** by everybody who
+touched the issue and has linked their Linear account to Podium — who created it, was assigned
+it, delegated it, @mentioned the app on it, commented on it or changed it, or whose routine ran in
+it — and by every admin and owner ([The Linear view](#the-linear-view)). Sharing a chat of a
+private team's issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused is
+recorded, as in Slack, and is never a participant. The refusal itself is the source's word in
+Linear and is not recorded, as Slack's 🚫 is not. A ticket the poller saw has no chat. Issue
+conversations are not in the chat rail — a company has hundreds — but in the Linear view.
+
+Before this, each agent session was a conversation of its own (`linear:session:<id>`). Chats kept
+under such a key stay readable as they were, by the people in them, and are listed under Sessions;
+nothing is written into them any more, and the next prompt on their issue opens the issue's
+conversation.
+
+### The Linear view
+
+**Work → Linear** (`/agent/linear`) lists every issue conversation the viewer may read, one row
+each, most recently active first: the identifier and title (the identifier opens the issue in
+Linear), the team, where Podium is with it — *working* (a turn or a task it started is running),
+*waiting on someone* (a question was asked in it and nobody has answered; the row names whose turn
+asked), *failed* (its last turn failed), *done*, or *not started* — the issue's state in Linear,
+the last thing said and when, and what its turns and their tasks cost. Filters: **Mine** (issues
+the viewer touched, spoke in, owns or was shared), **Working**, **Needs attention** (waiting or
+failed), and a team. The list is filtered and paged on the server, fifty rows at a time, so a
+workspace with thousands of issues is never read whole. A row opens the issue's conversation,
+read-only as a pull request's is for anybody who is not a participant.
+
+Admins and owners see every issue. Anybody else sees an issue they touched in Linear once their
+Linear account is linked to Podium ([Who is who](#who-is-who)): the conductor records, as the
+deliveries arrive, which Linear accounts created an issue, were assigned it, delegated it,
+@mentioned the app on it, wrote in its agent sessions, commented on it or changed it, and turns an
+account into a login only when somebody reads, through `identities` — so an account linked later
+sees what it touched before, one never linked sees nothing, and nobody is matched by name.
+Creator, assignee, comments and changes are known only from data change webhooks, which need
+*Issues* and *Comments* ticked on the app's webhook ([On a Linear event](#on-a-linear-event));
+without them, a person is recorded only by delegating, mentioning or writing in an agent session.
+
+What a row says about the issue is what the webhooks said, kept in `linear_issues` and updated on
+each delivery that names the issue (an agent session's prompt, an `Issue` or `Comment` change):
+nothing asks Linear per row. A title changed in Linear shows once a delivery names it again. The
+chat rail does not list issues waiting on the viewer; the Linear view's *Needs attention* is where
+to look.
 
 **What it does not do yet.**
 
@@ -2199,6 +2247,17 @@ poller saw has no chat.
   again.
 - Routing by labels reads them from Linear when the delegation arrives, since the webhook does
   not carry them. It has not been checked against a real workspace.
+- A prompt arriving at one conductor while another conductor's task is warm for the same person
+  in the same agent session is queued as a turn of its own rather than put into that task: the
+  lease names the warm task's person and surface, not the agent session, and a prompt put into
+  another session's task would be answered in the wrong session.
+- *Waiting on someone* is set when anything in the issue's conversation asks a question, and
+  cleared by the next thing anybody says on the issue from Linear. A question a task asked and
+  then gave up on without an answer stays until then. Whose turn asked is the latest turn's
+  asker, which for a question from a task an earlier turn delegated may be somebody else.
+- After a restart, work resumed in an issue's conversation is resumed through the source that
+  wrote its ref: a routine's run, or a web message's, through the chat. This has not been tried
+  against a running conductor.
 
 See [linear-agent-plan.md](linear-agent-plan.md).
 
@@ -3266,6 +3325,11 @@ What that decides:
   share target, an @-mention — and a Slack email (which Slack lowercases) are resolved to
   that spelling through the signed-in people's web identities, case-insensitively, before
   they are written or compared (migration 0040).
+- **A linked Linear account reads the issues it touched.** Who created, was assigned, delegated,
+  mentioned the app on, commented on or changed an issue is kept by Linear account, and becomes a
+  Podium login only through the row above, at the moment somebody reads; an issue's conversation
+  is readable by those logins ([The Linear view](#the-linear-view)). An account linked later sees
+  what it touched before.
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
 - **Who spent what.** Every turn records whose it was (`turns.started_by`), and `GetUsage`
@@ -3286,7 +3350,7 @@ What that decides:
 
 ## One record, one transcript
 
-Every conversation — a web chat, a Slack thread, a pull request, a Linear agent session — is
+Every conversation — a web chat, a Slack thread, a pull request, a Linear issue — is
 one record in `chat_messages`, and that record is what a turn is handed, labelled with who
 said what and where: `Dana (slack, not in Podium)`, `Bob (github)`, `Ada (linear)`, `Alvaro`.
 A Slack-, GitHub- or Linear-started turn therefore also sees what was said in Podium beside
@@ -3342,11 +3406,13 @@ task it delegates, and may choose several while answering once.
   started stay — they are the audit of the work, not the transcript. A task still answering
   the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
   is gone immediately. The web UI says so in the confirm before it acts.
-- **Slack threads, pull requests and Linear agent sessions appear for the people in them.** A
-  Slack thread, a pull request or a Linear agent session the bot was in is mirrored into a
-  read-only chat. It is listed — in Chat and in Sessions — for every Podium person who spoke in
-  it, and for nobody else except the dev token; a thread only people outside Podium spoke in
-  stays hidden. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
+- **Slack threads, pull requests and Linear issues appear for the people in them.** A
+  Slack thread, a pull request or a Linear issue the bot was in is mirrored into a
+  read-only chat. A thread or a pull request is listed — in Chat and in Sessions — for every
+  Podium person who spoke in it, and for nobody else except the dev token; a thread only people
+  outside Podium spoke in stays hidden. A Linear issue is listed in the Linear view instead, for
+  the people who spoke in it, everybody who touched the issue with a linked Linear account, and
+  every admin and owner ([The Linear view](#the-linear-view)). A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
@@ -3455,13 +3521,18 @@ its schedule the conductor starts a turn with the routine's instruction, and the
 decides and acts the way it would if the person had asked — delegating playbooks when the work
 needs a machine. Nothing about any one job is written into Podium.
 
-**Every routine has a chat of its own.** It is created with the routine, listed under **Routines** in the
-chat rail (as well as on the Routines page), and is where the routine's history lives. It is an ordinary web chat of its owner's in
+**A routine has a chat of its own.** A routine on a schedule gets it when it is made; it is listed
+under **Routines** in the chat rail (as well as on the Routines page), and is where the routine's
+history lives. A routine on Linear events gets one only when a run needs it: one that runs in each
+ticket's conversation never does, and one that runs in its own chat gets it on its first run, so
+saving one leaves no empty chat behind. A routine with no chat opens on a page of its own from
+the Routines page, with its card, notes, history and recent runs, each run linking to the
+conversation it ran in. It is an ordinary web chat of its owner's in
 every other way — they can write in it, ask "why did you skip #42?", and delete it — except that a
 routine's chat is **never shared**: a run uses its owner's credentials, and nobody else may steer
 what runs as them. Share, general access and links are refused for it. A routine on Linear events
-may also have a **chat per ticket** ([below](#a-chat-per-ticket)); each of those is the routine's
-chat in all these ways, for one ticket.
+may instead run **in each ticket's conversation** ([below](#in-each-tickets-conversation)), which
+is the issue's, not the routine's.
 
 **Two scopes.** A routine runs as a person or as nobody:
 
@@ -3572,7 +3643,8 @@ routine until midnight in its timezone, with the reason on its card, and it resu
 then. Admins may also cap what **one person's routines** spend together in 24 hours (Settings →
 Routines); a person over it has their scheduled runs skipped, not paused, until the 24 hours roll
 on. When Podium or an admin pauses a personal routine, its owner gets a **routine** notice in their
-inbox saying why. A system routine has no owner to tell; its card says why.
+inbox saying why — except for a routine on Linear events that has no chat, since a notice is about
+a chat; its row on the Routines page says why. A system routine has no owner to tell; its card says why.
 
 **History and audit.** Every change to what a routine is told — its instruction, notes, schedule
 or timezone — is a row in `routine_revisions` with who made it and when, shown under **History** in
@@ -3582,7 +3654,7 @@ propose/act switch: a routine that should only report says so in its instruction
 it act by editing that instruction, which the history records. There is no global kill switch;
 pausing is per routine.
 
-The card at the top of a routine's chat shows when it runs next, the last run, how many quiet runs
+The card at the top of a routine's chat — or on its own page, for one with no chat — shows when it runs next, the last run, how many quiet runs
 since its last answer, and what it spent in 24 hours, with Run now (Stop run while one is going; a routine on Linear events has no Run now),
 Pause/Resume, Edit, the note
 the agent suggested as a standing note (Add to notes or Dismiss), and its details: the instruction,
@@ -3654,52 +3726,55 @@ is given nothing. Only a conductor that runs routines keeps events; a delivery t
 that does not is dropped. A delivery the conductor failed to store is logged as lost and is not
 retried: Linear was already answered.
 
-#### A chat per ticket
+#### In each ticket's conversation
 
 Under the teams, **Runs happen in** says where a routine on Linear events runs: **The routine's
-chat** (the default, and every routine made before the choice existed) or **A chat per ticket**
-(`chat_mode` `subject`). It is offered only for Linear events; a routine on a schedule always runs
-in its own chat, and the API refuses the other on one. Changing it affects later runs only: the
-chats already opened stay where they are, and history records the change.
+chat** (the default) or **Each ticket's conversation** (`chat_mode` `subject`). It is offered only
+for Linear events; a routine on a schedule always runs in its own chat, and the API refuses the
+other on one. Changing it affects later runs only, and history records the change.
 
 - **What an event is about.** Each event is given a subject when it is stored. An issue is
   `Issue:<id>`, named by its identifier and title ("ENG-12 Fix login"); a comment is its issue's
   subject (`data.issueId`, or `data.issue.id`), so a ticket and the talk on it are one subject. A
   project is `Project:<id>` and a project update its project's (`data.projectId` or
-  `data.project.id`), named by the project's name. A cycle is `Cycle:<id>`, named by its name or
-  number, and a label `IssueLabel:<id>`, named by its name. Linear documents no exact payloads, so
-  they are read leniently: a field that is missing means no subject, never an error. An event with
-  no subject — a comment on no issue, a payload of another shape — runs in the routine's own chat.
-  The subject is read from the delivery as Linear sent it, before one too large to keep is cut to
-  a stub, and is kept whatever the routine's mode, so a routine switched to a chat per ticket runs
-  the events already waiting in theirs.
-- **Each subject has its own chat**, opened when its first run is about to start (in
-  `routine_subject_chats`, one per routine and subject). It is opened as the routine's own chat
-  was — the same owner, or none for a system routine, the same assistant — belongs to the routine,
-  and is titled "<routine> · ENG-12 Fix login" (the subject's key when Linear sent no name). It is
-  the routine's chat in every way: never shared, read by admins and written by nobody for a system
-  routine, briefed with the routine block, offered `routine_finish`, its runs held and kept quietly
-  when idle. A person's message there is the same as one in the routine's own chat. Its card names
-  the ticket and links to the routine's own chat. The rail lists these chats under **Routines**,
-  most recently active first.
-- **One run at a time.** A tick gives the subject that has waited longest a run with that
-  subject's waiting events (still at most twenty), in that subject's chat. The routine's state is
-  one object every run rewrites, so two runs in two chats would overwrite each other: while a run
-  of the routine is going, in any of its chats, the rest wait for the ticks
-  after it. A subject whose chat is busy — somebody is talking in it, or a turn is running there —
-  is passed over for the next one that is not. **Stop run** on the card
-  stops the run wherever it is going.
-- **At most 50 new chats a day.** A routine that has opened 50 chats per ticket within 24 hours
-  and would open another is paused instead, with that reason on its card and in its owner's
-  inbox, through the same path as the other guards. An event about a ticket that already has a
-  chat runs there whatever the count. The other guards apply as before: a day's wait, 200 waiting, 60 event runs an hour, the spend caps, the owner
-  still a member.
-- **Idle runs.** A run that reports idle is kept quietly in the ticket's chat, as in any routine
-  chat. A ticket's chat that holds only such runs is left out of the chat list and marks nothing
-  unread; it is listed once a run there says something, or somebody writes in it.
-- **Deleting.** Deleting a ticket's chat forgets it for that ticket, and the next event about the
-  ticket opens a fresh chat. Deleting the routine keeps every chat it had, its own and each
-  ticket's, as ordinary chats.
+  `data.project.id`). A cycle is `Cycle:<id>` and a label `IssueLabel:<id>`. Linear documents no
+  exact payloads, so they are read leniently: a field that is missing means no subject, never an
+  error. The subject is read from the delivery as Linear sent it, before one too large to keep is
+  cut to a stub, and is kept whatever the routine's mode.
+- **An issue's events run in the issue's conversation** (`linear:<issue id>`), the one every
+  agent session on the issue is a turn of ([Linear](#the-agent-app)); a project's in the project's
+  (`linear:project:<id>`). The conversation is opened by the run when nothing has opened it yet —
+  a chat of origin `linear`, nobody's until a Podium person speaks in it from Linear — and is the
+  issue's, never the routine's: it has no routine card, is not deleted with the routine, and is
+  listed in the Linear view, not the rail. Events about a cycle, a label or nothing in particular
+  are no conversation, and run in the routine's own chat, opened the first time one does.
+- **The run is still its routine's.** It runs as the routine's owner — their secrets, MCP servers
+  and GitHub account, with the routine's assistant — or as nobody for a system routine, never as
+  the conversation's owner. It is briefed with the routine block and its events, offered
+  `routine_finish`, held while it runs and written in under a `Routine run · …` divider, and kept
+  quietly when idle. A conversation is shared, so it spends the company's model key. The routine's
+  owner is recorded as having touched the issue, which is what lets them read the conversation.
+  Each run is listed on the routine's page with a link to the conversation it ran in.
+- **The run decides whether its events are anything new.** The conversation holds everything said
+  about the issue — delegations, mentions, other routines' runs — and the brief lists the tasks
+  still running in it, whoever started them. The run's instruction is preceded by a line saying it
+  is a turn of the issue's conversation, that earlier turns and their tasks are above and in its
+  brief, and not to redo work that is done or start work already running: finish idle when the
+  events ask for nothing new, and add to a running task rather than start another. Nothing else
+  dedupes: there is no "skip issues the app is working on".
+- **One turn at a time, and one run at a time.** A conversation runs one turn at a time, so a
+  routine's events about an issue whose conversation is busy — a delegation's task, somebody's
+  mention, another routine — wait for it, and the next tick runs the next ticket that is free. The
+  routine's state is one object every run rewrites, so while a run of the routine is going, in any
+  conversation, its other tickets wait for the ticks after it. **Stop run** on the routine's card
+  stops its run and nothing else running in the conversation.
+- The guards apply as before: a day's wait, 200 waiting, 60 event runs an hour, the spend caps,
+  the owner still a member. There is no cap on conversations opened: they are the issues'
+  and fill no one's chat list.
+
+Before this, a routine in this mode opened a chat of its own for each ticket. Those chats stay as
+ordinary chats of the routine; its next event about such a ticket runs in the ticket's
+conversation.
 
 ### Admins: Settings → Routines
 
@@ -3769,6 +3844,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartMcpOAuth`, `CompleteMcpOAuth` | signing in to a server that speaks OAuth: discovery, dynamic client registration and the code exchange. The verifier stays on the conductor; the browser carries a flow id |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
+| `ListLinearConversations` | the Linear view: one row per Linear issue's conversation the caller may read, filtered and paged on the server |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
