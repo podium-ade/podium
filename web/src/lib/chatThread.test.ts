@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChatDeliverySchema, ChatMessageSchema, type ChatMessage } from "../gen/podium/agent/v1/agent_pb";
-import { TASK_TOOL, parseActivity, toThread, type MessageCustom } from "./chatThread";
+import { TASK_TOOL, fromFirstTurn, parseActivity, toThread, type MessageCustom } from "./chatThread";
 
 let seq = 0n;
 function row(role: string, text: string, taskId = ""): ChatMessage {
@@ -254,5 +254,34 @@ describe("undelivered answers", () => {
     const second = thread[3].metadata?.custom as MessageCustom;
     // A first attempt still in flight is not news.
     expect(second.undelivered).toEqual([]);
+  });
+});
+
+describe("fromFirstTurn", () => {
+  const rows = (...roles: string[]) => roles.map((r) => row(r, r === "activity" ? tool("bash") : r));
+
+  it("holds back a part-turn at the top while there is history above it", () => {
+    const tail = rows("activity", "assistant", "user", "assistant");
+    expect(fromFirstTurn(tail, true).map((m) => m.role)).toEqual(["user", "assistant"]);
+    // A routine run starts at its divider, which starts a turn as a question does.
+    expect(fromFirstTurn(rows("assistant", "notice", "assistant"), true).map((m) => m.role)).toEqual([
+      "notice",
+      "assistant",
+    ]);
+  });
+
+  it("draws everything at the start of the conversation, or when the tail has no turn start", () => {
+    const tail = rows("activity", "assistant", "user", "assistant");
+    expect(fromFirstTurn(tail, false)).toBe(tail);
+    const oneLongTurn = rows("activity", "activity", "assistant");
+    expect(fromFirstTurn(oneLongTurn, true)).toBe(oneLongTurn);
+  });
+
+  it("keeps every drawn message's id when the page above lands", () => {
+    const older = rows("user", "activity");
+    const tail = rows("activity", "assistant", "user", "assistant");
+    const before = toThread({ messages: fromFirstTurn(tail, true), busy: false, taskRunning: false }).map((m) => m.id);
+    const after = toThread({ messages: fromFirstTurn([...older, ...tail], false), busy: false, taskRunning: false }).map((m) => m.id);
+    expect(after.slice(-before.length)).toEqual(before);
   });
 });

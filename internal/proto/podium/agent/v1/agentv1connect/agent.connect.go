@@ -188,6 +188,9 @@ const (
 	AgentServiceRetryChatDeliveryProcedure = "/podium.agent.v1.AgentService/RetryChatDelivery"
 	// AgentServiceStreamChatProcedure is the fully-qualified name of the AgentService's StreamChat RPC.
 	AgentServiceStreamChatProcedure = "/podium.agent.v1.AgentService/StreamChat"
+	// AgentServiceListChatMessagesProcedure is the fully-qualified name of the AgentService's
+	// ListChatMessages RPC.
+	AgentServiceListChatMessagesProcedure = "/podium.agent.v1.AgentService/ListChatMessages"
 	// AgentServiceAttachChatPullRequestProcedure is the fully-qualified name of the AgentService's
 	// AttachChatPullRequest RPC.
 	AgentServiceAttachChatPullRequestProcedure = "/podium.agent.v1.AgentService/AttachChatPullRequest"
@@ -475,6 +478,10 @@ type AgentServiceClient interface {
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error)
+	// ListChatMessages pages a chat's history backwards: the newest `limit` messages with a seq
+	// below before_seq, in seq order. It is how a chat opened with StreamChat's tail loads what
+	// came before, as the reader scrolls up.
+	ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error)
 	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
 	// the one a turn never named or a related one a human wants on the conversation. A URL
 	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
@@ -906,6 +913,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
 			connect.WithClientOptions(opts...),
 		),
+		listChatMessages: connect.NewClient[v1.ListChatMessagesRequest, v1.ListChatMessagesResponse](
+			httpClient,
+			baseURL+AgentServiceListChatMessagesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListChatMessages")),
+			connect.WithClientOptions(opts...),
+		),
 		attachChatPullRequest: connect.NewClient[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse](
 			httpClient,
 			baseURL+AgentServiceAttachChatPullRequestProcedure,
@@ -1159,6 +1172,7 @@ type agentServiceClient struct {
 	searchMembers              *connect.Client[v1.SearchMembersRequest, v1.SearchMembersResponse]
 	retryChatDelivery          *connect.Client[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse]
 	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	listChatMessages           *connect.Client[v1.ListChatMessagesRequest, v1.ListChatMessagesResponse]
 	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
 	getChatSharing             *connect.Client[v1.GetChatSharingRequest, v1.GetChatSharingResponse]
@@ -1471,6 +1485,11 @@ func (c *agentServiceClient) RetryChatDelivery(ctx context.Context, req *connect
 // StreamChat calls podium.agent.v1.AgentService.StreamChat.
 func (c *agentServiceClient) StreamChat(ctx context.Context, req *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error) {
 	return c.streamChat.CallServerStream(ctx, req)
+}
+
+// ListChatMessages calls podium.agent.v1.AgentService.ListChatMessages.
+func (c *agentServiceClient) ListChatMessages(ctx context.Context, req *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error) {
+	return c.listChatMessages.CallUnary(ctx, req)
 }
 
 // AttachChatPullRequest calls podium.agent.v1.AgentService.AttachChatPullRequest.
@@ -1825,6 +1844,10 @@ type AgentServiceHandler interface {
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error
+	// ListChatMessages pages a chat's history backwards: the newest `limit` messages with a seq
+	// below before_seq, in seq order. It is how a chat opened with StreamChat's tail loads what
+	// came before, as the reader scrolls up.
+	ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error)
 	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
 	// the one a turn never named or a related one a human wants on the conversation. A URL
 	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
@@ -2252,6 +2275,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListChatMessagesHandler := connect.NewUnaryHandler(
+		AgentServiceListChatMessagesProcedure,
+		svc.ListChatMessages,
+		connect.WithSchema(agentServiceMethods.ByName("ListChatMessages")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceAttachChatPullRequestHandler := connect.NewUnaryHandler(
 		AgentServiceAttachChatPullRequestProcedure,
 		svc.AttachChatPullRequest,
@@ -2558,6 +2587,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceRetryChatDeliveryHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
 			agentServiceStreamChatHandler.ServeHTTP(w, r)
+		case AgentServiceListChatMessagesProcedure:
+			agentServiceListChatMessagesHandler.ServeHTTP(w, r)
 		case AgentServiceAttachChatPullRequestProcedure:
 			agentServiceAttachChatPullRequestHandler.ServeHTTP(w, r)
 		case AgentServiceDetachChatPullRequestProcedure:
@@ -2853,6 +2884,10 @@ func (UnimplementedAgentServiceHandler) RetryChatDelivery(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StreamChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChatMessages is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) AttachChatPullRequest(context.Context, *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error) {

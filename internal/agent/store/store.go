@@ -1235,6 +1235,43 @@ func (s *Store) ListChatMessages(ctx context.Context, chatID string, fromSeq uin
 	return out, nil
 }
 
+// ListChatMessagesBefore returns the newest limit messages of a chat with seq < beforeSeq,
+// in seq order, and whether any older ones remain. beforeSeq 0 means the end of the chat, so
+// (0, n) is the conversation's last n messages: the tail a chat opens on.
+func (s *Store) ListChatMessagesBefore(
+	ctx context.Context, chatID string, beforeSeq uint64, limit int,
+) ([]ChatMessage, bool, error) {
+	if beforeSeq == 0 || beforeSeq > 1<<62 {
+		beforeSeq = 1 << 62
+	}
+	if limit <= 0 {
+		return nil, false, fmt.Errorf("chat %s: limit %d must be positive", chatID, limit)
+	}
+	// One more than asked is how "is there more" is answered without a count.
+	rows, err := s.q.ListChatMessagesBefore(ctx, db.ListChatMessagesBeforeParams{
+		ChatID: chatID, BeforeSeq: int64(beforeSeq), Lim: int32(limit + 1),
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("list messages of chat %s before %d: %w", chatID, beforeSeq, err)
+	}
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	out := make([]ChatMessage, len(rows))
+	for i, r := range rows {
+		msg, err := chatMessageFromRow(r)
+		if err != nil {
+			return nil, false, err
+		}
+		out[len(rows)-1-i] = msg
+	}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return nil, false, err
+	}
+	return out, more, nil
+}
+
 // AttachToLastAssistantMessage adds one file to the newest assistant message of a chat and
 // returns the message as it now stands.
 //

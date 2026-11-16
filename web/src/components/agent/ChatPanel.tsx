@@ -19,6 +19,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   type Assistant,
   type Chat,
+  type ChatMessage,
   type Personality,
   type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
@@ -63,7 +64,7 @@ import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
-import { toThread } from "../../lib/chatThread";
+import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
@@ -1559,8 +1560,11 @@ function Conversation({
   // arrival arrives as navigation state: the chat was created and the message stored
   // before this conversation mounted.
   const seeded = (location.state as { pendingText?: string } | null)?.pendingText;
-  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(
-    seeded ? { text: seeded, before: 0 } : null,
+  // `after` is the newest seq in hand when it was sent: the question is on the stream once a
+  // question with a higher seq is. A count of questions would not do — a page of older
+  // history landing meanwhile adds questions that are not this one.
+  const [pendingUser, setPendingUser] = useState<{ text: string; after: bigint } | null>(
+    seeded ? { text: seeded, after: 0n } : null,
   );
 
   const send = useMutation({
@@ -1580,7 +1584,7 @@ function Conversation({
       if (v.queues) return;
       setPendingUser({
         text: v.text,
-        before: stream.messages.filter((m) => m.role === "user").length,
+        after: stream.messages[stream.messages.length - 1]?.seq ?? 0n,
       });
     },
     onSuccess: (res) => {
@@ -1613,16 +1617,17 @@ function Conversation({
     onError: (err) => toast(errorMessage(err)),
   });
 
-  const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
-  const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  const pendingArrived =
+    pendingUser !== null && stream.messages.some((m) => m.role === "user" && m.seq > pendingUser.after);
+  const pendingVisible = pendingUser !== null && !pendingArrived;
   // The pending question is let go once the stream carries it and a turn has taken it up:
   // running, waiting on a reply, or already answered. Held past that, it kept the chat busy
   // (holdBusy, below) whenever the last row was not an answer, so anybody speaking after the
   // answer brought the waiting row back with nothing running.
   if (
     pendingUser !== null &&
-    userCount > pendingUser.before &&
+    pendingArrived &&
     (stream.running || stream.awaiting || last?.role === "assistant")
   ) {
     setPendingUser(null);
@@ -1648,18 +1653,22 @@ function Conversation({
   // Still loading until the stream says the replay is done: the chat's own frames arrive
   // before its messages, so going by the stream's phase showed the new-chat welcome for a
   // moment on every chat that has history.
-  const connecting =
-    !stream.replayed && stream.messages.length === 0 && !stream.gone && !pendingVisible && !listedEmpty;
-  const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
+  // The transcript is drawn once its replay is in, whole. Drawn row by row as the replay
+  // streamed, it grew under the reader at the bottom and pushed what was there up the screen
+  // — the chat moved after it had landed. The replay stays done across a reconnect, so a
+  // dropped stream does not take the transcript away.
+  const shown = stream.replayed ? stream.messages : NO_MESSAGES;
+  const connecting = !stream.replayed && !stream.gone && !pendingVisible && !listedEmpty;
+  const showWelcome = !connecting && shown.length === 0 && !pendingVisible;
   const thread = useMemo(
     () =>
       toThread({
-        messages: stream.messages,
+        messages: fromFirstTurn(shown, stream.hasOlder),
         busy,
         taskRunning: stream.chat?.taskRunning ?? false,
         pendingUser: pendingVisible ? pendingUser.text : undefined,
       }),
-    [stream.messages, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
+    [shown, stream.hasOlder, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
   );
 
   if (stream.gone) {
@@ -1730,9 +1739,16 @@ function Conversation({
             progress={stream.progress}
             taskId={stream.taskId}
             onSend={(text) => submit(text, choice)}
+            history={{
+              more: stream.hasOlder,
+              loading: stream.loadingOlder,
+              error: stream.olderError,
+              load: stream.loadOlder,
+            }}
+            loading={connecting}
+            skeleton={<TranscriptSkeleton />}
             top={
               <>
-                {connecting ? <TranscriptSkeleton /> : null}
                 {stream.error ? (
                   <Alert variant="warn" title="The chat stream dropped and is reconnecting">
                     {stream.error}. Nothing was lost. The reconnect replays from the last message
@@ -1940,11 +1956,16 @@ function ArrivalWell({
   );
 }
 
+/** NO_MESSAGES is the transcript before its replay is in: one array, so the thread is not
+ *  rebuilt on every frame of the replay. */
+const NO_MESSAGES: ChatMessage[] = [];
+
 /** ThreadLoading is TranscriptSkeleton where ChatThread would draw it, for its Suspense fallback. */
 function ThreadLoading() {
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5">
+      {/* At the bottom, where the transcript will land: see ChatThread's bottomUp. */}
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-end gap-6 px-4 py-8 sm:px-5">
         <TranscriptSkeleton />
       </div>
     </div>
@@ -1972,7 +1993,8 @@ function TranscriptSkeleton() {
       {turns.map((t, i) => (
         <div
           key={i}
-          className="animate-in fade-in-0 slide-in-from-bottom-1 space-y-5 fill-mode-both duration-500"
+          // Fading in only: it sits where the messages will land, and nothing here moves.
+          className="animate-in fade-in-0 space-y-5 fill-mode-both duration-500"
           style={{ animationDelay: `${i * 120}ms` }}
         >
           <div className="flex justify-end">
@@ -1999,10 +2021,14 @@ function TranscriptSkeleton() {
  * view-only note) does not look like a control being taken away.
  */
 function ComposerPlaceholder() {
+  // The composer's own height: its box (the message row and the toolbar under it) and the
+  // note line beneath it, in the note's type. Shorter, the transcript above stood taller
+  // while the chat connected and dropped by the difference when the composer came in.
   return (
     <div aria-hidden className="pt-4">
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
-        <Skeleton className="h-[52px] rounded-3xl opacity-60" />
+        <Skeleton className="h-[98px] rounded-3xl opacity-60" />
+        <p className="mt-1.5 px-2 text-2xs">&nbsp;</p>
       </div>
     </div>
   );

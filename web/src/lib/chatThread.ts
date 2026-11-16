@@ -29,6 +29,9 @@ export { parseActivity, type Activity } from "./activity";
  * speaks again after answering — a follow-up — opens a new block where that happens.
  */
 
+/** PENDING_USER is the id of the question sent from this screen and not yet on the stream. */
+export const PENDING_USER = "pending-user";
+
 /** TASK_TOOL is the tool name a delegated task is drawn under. It is Podium's, not the model's. */
 export const TASK_TOOL = "podium_task";
 
@@ -129,6 +132,20 @@ interface Assistant {
   undelivered: Undelivered[];
 }
 
+/**
+ * fromFirstTurn is the rows to draw while there is history above them: from the first row
+ * that starts a turn — a question, or a divider — on. A page of history can begin halfway
+ * through a turn, and that part-turn is drawn again, under a new id, once the page above
+ * brings its beginning: everything in it was thrown away and re-made, focus with it. Held
+ * back until then, every message drawn keeps its id as pages land. A tail with no turn
+ * start in it at all is drawn whole: nothing would be left to draw.
+ */
+export function fromFirstTurn(messages: readonly ChatMessage[], more: boolean): readonly ChatMessage[] {
+  if (!more) return messages;
+  const at = messages.findIndex((m) => m.role === "user" || m.role === "notice");
+  return at > 0 ? messages.slice(at) : messages;
+}
+
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
   // Messages are finished at the end, not as they close: a task's later rows can still
   // land in a block an earlier message holds.
@@ -226,7 +243,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const thread = out.map((m) => ("role" in m ? m : finish(m, live)));
 
   if (pendingUser !== undefined) {
-    thread.push({ id: "pending-user", role: "user", content: pendingUser });
+    thread.push({ id: PENDING_USER, role: "user", content: pendingUser });
   }
   const tail = thread[thread.length - 1];
   if (busy && tail?.role !== "assistant") {
