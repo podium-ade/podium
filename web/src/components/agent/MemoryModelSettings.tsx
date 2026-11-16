@@ -7,7 +7,6 @@ import { absolute, relative } from "../../lib/format";
 import { Badge } from "../Badge";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
@@ -130,37 +129,45 @@ function MemoryModelForm({
 }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const listId = useId();
+  const fieldId = useId();
+  // Only keys that can be used are offered: the others have nothing to choose.
   const usable = settings.providers.filter((p) => p.available);
-  const unusable = settings.providers.filter((p) => !p.available);
   const [provider, setProvider] = useState(
     settings.provider || (usable[0]?.provider ?? ""),
   );
-  // null is "not typed": the field then shows the provider's default model, so Save works
-  // without knowing a model id by heart.
-  const [typed, setTyped] = useState<string | null>(settings.model || null);
+  // "" is "not picked": the provider's default model stands in, so Save works at once.
+  const [picked, setPicked] = useState(settings.model);
 
-  // The models the agent catalogue already knows for each provider, offered as suggestions.
-  // Any id the provider accepts can still be typed.
+  // The models the agent catalogue knows for each provider, by name, as the chat's picker
+  // shows them.
   const agents = useQuery({
     queryKey: ["agent", "agents"],
     queryFn: () => agent.listAgents({}),
     staleTime: 60_000,
   });
   const catalogue = useMemo(() => {
-    const out = new Map<string, { models: string[]; fallback: string }>();
+    const out = new Map<string, { models: { id: string; name: string }[]; fallback: string }>();
     for (const b of agents.data?.agents ?? []) {
       const entry = out.get(b.provider) ?? { models: [], fallback: b.defaultModel };
-      for (const m of b.models) if (!entry.models.includes(m.id)) entry.models.push(m.id);
+      for (const m of b.models) {
+        if (!entry.models.some((x) => x.id === m.id)) {
+          entry.models.push({ id: m.id, name: m.displayName || m.id });
+        }
+      }
       out.set(b.provider, entry);
     }
     return out;
   }, [agents.data]);
 
-  const model = typed ?? catalogue.get(provider)?.fallback ?? "";
+  const known = catalogue.get(provider);
+  const model = picked || known?.fallback || "";
+  // A saved model this build's catalogue does not list is still offered, so opening the
+  // form never silently changes it.
+  const options = [...(known?.models ?? [])];
+  if (model && !options.some((m) => m.id === model)) options.unshift({ id: model, name: model });
 
   const save = useMutation({
-    mutationFn: () => agent.setMemorySettings({ provider, model: model.trim() }),
+    mutationFn: () => agent.setMemorySettings({ provider, model }),
     onSuccess: (res) => {
       qc.setQueryData(SETTINGS_KEY, res.settings);
       toast("Memory model saved", "ok");
@@ -180,8 +187,6 @@ function MemoryModelForm({
     );
   }
 
-  const suggestions = catalogue.get(provider)?.models ?? [];
-
   return (
     <form
       className="space-y-3 border-t border-hairline pt-3"
@@ -192,67 +197,50 @@ function MemoryModelForm({
     >
       <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
         <div className="space-y-1.5">
-          <Label htmlFor={`${listId}-provider`}>Key</Label>
+          <Label htmlFor={`${fieldId}-provider`}>Key</Label>
           <Select
             value={provider}
             onValueChange={(v) => {
               setProvider(v);
-              setTyped(null);
+              setPicked("");
               save.reset();
             }}
           >
-            <SelectTrigger id={`${listId}-provider`} size="sm" data-testid="memory-model-provider">
+            <SelectTrigger id={`${fieldId}-provider`} size="sm" data-testid="memory-model-provider">
               <SelectValue placeholder="Choose a key" />
             </SelectTrigger>
             <SelectContent>
-              {settings.providers.map((p) => (
-                <SelectItem key={p.provider} value={p.provider} disabled={!p.available} title={p.reason || undefined}>
+              {usable.map((p) => (
+                <SelectItem key={p.provider} value={p.provider}>
                   {p.label}
-                  {p.available ? "" : " (unavailable)"}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor={`${listId}-model`}>Model</Label>
-          <Input
-            id={`${listId}-model`}
-            data-testid="memory-model-input"
-            list={`${listId}-models`}
+          <Label htmlFor={`${fieldId}-model`}>Model</Label>
+          <Select
             value={model}
-            onChange={(e) => {
-              setTyped(e.target.value);
+            onValueChange={(v) => {
+              setPicked(v);
               save.reset();
             }}
-            placeholder="Model id"
-            autoComplete="off"
-            spellCheck={false}
-            className="font-mono"
-          />
-          <datalist id={`${listId}-models`}>
-            {suggestions.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
+            disabled={options.length === 0}
+          >
+            <SelectTrigger id={`${fieldId}-model`} size="sm" data-testid="memory-model-input">
+              <SelectValue placeholder={agents.isPending ? "Loading models…" : "Choose a model"} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-      {unusable.length > 0 ? (
-        // The reasons are written out rather than left in a tooltip on the disabled options: a
-        // tooltip never shows on touch or to the keyboard, and these say what to do.
-        <ul className="space-y-0.5 text-2xs leading-relaxed text-muted" data-testid="memory-model-unavailable">
-          {unusable.map((p) => (
-            <li key={p.provider}>
-              <span className="text-fg">{p.label}</span>: {p.reason}
-            </li>
-          ))}
-          <li>
-            <Link to="/agent/settings/models" className="text-accent hover:underline">
-              Open Models
-            </Link>
-          </li>
-        </ul>
-      ) : null}
       <p className="text-2xs leading-relaxed text-faint">
         Extraction runs after every conversation, so a smaller, cheaper model is usually the
         right call. Saving sends one short test message with this key first.
@@ -267,7 +255,7 @@ function MemoryModelForm({
           type="submit"
           size="sm"
           data-testid="memory-model-save"
-          disabled={save.isPending || provider === "" || model.trim() === ""}
+          disabled={save.isPending || provider === "" || model === ""}
         >
           {save.isPending ? "Trying the model…" : "Save"}
         </Button>

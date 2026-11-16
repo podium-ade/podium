@@ -134,7 +134,10 @@ describe("MemoryPanel", () => {
         {
           provider: "anthropic",
           defaultModel: "claude-sonnet-5-5",
-          models: [{ id: "claude-sonnet-5-5" }, { id: "claude-haiku-5-5" }],
+          models: [
+            { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5" },
+            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5" },
+          ],
         },
         { provider: "openai", defaultModel: "gpt-5-mini", models: [{ id: "gpt-5-mini" }] },
       ],
@@ -359,7 +362,10 @@ describe("Memory model settings", () => {
         {
           provider: "anthropic",
           defaultModel: "claude-sonnet-5-5",
-          models: [{ id: "claude-sonnet-5-5" }, { id: "claude-haiku-5-5" }],
+          models: [
+            { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5" },
+            { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5" },
+          ],
         },
       ],
     });
@@ -386,20 +392,21 @@ describe("Memory model settings", () => {
     expect(within(card).getByText("Not chosen")).toBeInTheDocument();
     expect(within(card).getByText(/Nothing new is being remembered/)).toBeInTheDocument();
 
-    // Why a key cannot be chosen is written out, not left in a tooltip touch never shows.
-    const unavailable = within(card).getByTestId("memory-model-unavailable");
-    expect(unavailable).toHaveTextContent("xAI: No xAI key is saved for everyone.");
-    expect(unavailable).toHaveTextContent("Google: No Google key is saved for everyone.");
-    expect(within(unavailable).getByRole("link", { name: "Open Models" })).toHaveAttribute(
-      "href",
-      "/agent/settings/models",
-    );
+    // Two selectors, as in the chat: only keys that can be used are offered, and the first
+    // one comes preselected with its default model.
+    const key = within(card).getByRole("combobox", { name: "Key" });
+    expect(key).toHaveTextContent("Anthropic");
+    const model = within(card).getByRole("combobox", { name: "Model" });
+    await waitFor(() => expect(model).toHaveTextContent("Claude Sonnet 5.5"));
+    await userEvent.click(key);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual([
+      "Anthropic",
+      "OpenAI",
+    ]);
+    await userEvent.keyboard("{Escape}");
 
-    // The first usable key is preselected and its default model filled in.
-    const input = await within(card).findByTestId("memory-model-input");
-    await waitFor(() => expect(input).toHaveValue("claude-sonnet-5-5"));
-    await userEvent.clear(input);
-    await userEvent.type(input, "claude-haiku-5-5");
+    await userEvent.click(model);
+    await userEvent.click(await screen.findByRole("option", { name: "Claude Haiku 5.5" }));
     await userEvent.click(within(card).getByTestId("memory-model-save"));
 
     await waitFor(() =>
@@ -416,9 +423,8 @@ describe("Memory model settings", () => {
     );
     mount(admin());
     const card = await screen.findByTestId("memory-model");
-    const input = await within(card).findByTestId("memory-model-input");
-    await userEvent.clear(input);
-    await userEvent.type(input, "nope");
+    await userEvent.click(await within(card).findByRole("combobox", { name: "Model" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Claude Haiku 5.5" }));
     await userEvent.click(within(card).getByTestId("memory-model-save"));
     expect(await within(card).findByTestId("memory-model-error")).toHaveTextContent(
       "model nope does not exist",
