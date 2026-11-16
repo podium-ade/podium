@@ -116,6 +116,7 @@ describe("RoutineCard", () => {
     const status = screen.getByTestId("routine-status");
     expect(status).toHaveTextContent("2 events waiting");
     expect(status).not.toHaveTextContent("Next");
+    expect(screen.queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
   });
 
   it("shows why Podium paused it, and the note the agent proposed", async () => {

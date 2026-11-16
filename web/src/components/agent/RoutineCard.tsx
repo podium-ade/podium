@@ -254,7 +254,8 @@ export function RoutineCard({ chatId }: { chatId: string }) {
                 <Square aria-hidden />
                 Stop run
               </Button>
-            ) : (
+            ) : linear ? null : (
+              // A routine on Linear events runs when they arrive; there is nothing to run by hand.
               <Button
                 size="xs"
                 variant="outline"
