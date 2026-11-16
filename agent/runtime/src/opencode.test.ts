@@ -24,6 +24,9 @@ import {
   resolveBrowserURL,
   skillPermission,
   writeConfig,
+  notStartedText,
+  NotInstalledText,
+  start,
 } from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
@@ -548,5 +551,35 @@ describe("endedOnModelTurn", () => {
     expect(endedOnModelTurn("Requests ending with a model turn are not supported.")).toBe(true);
     expect(endedOnModelTurn("credit balance is too low")).toBe(false);
     expect(endedOnModelTurn(undefined)).toBe(false);
+  });
+});
+
+describe("a harness that cannot be started", () => {
+  it("tells the person it is not installed and how to install it, not an exit code", () => {
+    const err = Object.assign(new Error("spawn opencode ENOENT"), { code: "ENOENT", syscall: "spawn opencode" });
+    expect(notStartedText(err)).toBe(NotInstalledText);
+    expect(NotInstalledText).toContain("isn't installed");
+    expect(NotInstalledText).toMatch(/npm install -g opencode-ai@\d+\.\d+\.\d+/);
+    expect(NotInstalledText).not.toMatch(/exited/);
+  });
+
+  it("says permission denied in words", () => {
+    const err = Object.assign(new Error("spawn opencode EACCES"), { code: "EACCES", syscall: "spawn opencode" });
+    expect(notStartedText(err)).toContain("permission denied");
+  });
+
+  it("marks the run as not started when the binary is not on PATH", async () => {
+    resetTakesThinking();
+    const dir = mkdtempSync(join(tmpdir(), "octest-"));
+    const run = start({
+      configDir: dir,
+      workdir: dir,
+      providerID: "anthropic",
+      model: "m",
+      instruction: "hi",
+      env: { PATH: join(dir, "nowhere") },
+    });
+    await new Promise((resolve) => run.child.on("close", resolve));
+    expect(run.notStarted).toBe(NotInstalledText);
   });
 });
