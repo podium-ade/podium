@@ -65,8 +65,8 @@ function SelectContent({
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
-          // Never wider than the room there is: an option with a long description otherwise
-          // pushed the list past a phone's edge and cut the description off.
+          // Never wider than the room there is: a long option otherwise pushed the list past a
+          // phone's edge and cut it off.
           position === "popper" &&
             "w-full min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]",
           className,
@@ -99,11 +99,11 @@ function SelectLabel({ className, ...props }: ComponentProps<typeof SelectPrimit
 function SelectItem({
   className,
   children,
-  description,
+  aside,
   ...props
 }: ComponentProps<typeof SelectPrimitive.Item> & {
-  /** A line under the option in the list only; the closed trigger shows just the children. */
-  description?: ReactNode;
+  /** Shown beside the option in the list only; the closed trigger shows just the children. */
+  aside?: ReactNode;
 }) {
   return (
     <SelectPrimitive.Item
@@ -124,14 +124,8 @@ function SelectItem({
           <Check className="size-3.5 text-accent" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      {description ? (
-        <span className="flex min-w-0 flex-col">
-          <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-          <span className="text-2xs text-muted">{description}</span>
-        </span>
-      ) : (
-        <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-      )}
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {aside ? <span className="ml-auto pl-3 tabular text-2xs text-faint">{aside}</span> : null}
     </SelectPrimitive.Item>
   );
 }

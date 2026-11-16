@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Brain, ChevronLeft, ChevronRight, Search, Trash2 } from "lucide-react";
+import { Brain, ChevronLeft, ChevronRight, RotateCw, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import {
   keepPreviousData,
@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-query";
 import { Code } from "@connectrpc/connect";
 import type { Memory } from "../../gen/podium/agent/v1/agent_pb";
-import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { agent, connectCode, errorMessage, isAgentUnreachable, isMemoryUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
@@ -188,18 +188,22 @@ export function MemoryPanel() {
         ? screen.data.error
         : undefined;
   const failed = (searching ? search.isError : failure != null) && !isAgentUnreachable(failure);
+  // Hindsight not answering is its own state: nothing can be read, and nothing new is being
+  // remembered either, which the model card says too.
+  const memoryDown = failed && isMemoryUnreachable(failure);
+  const retry = () =>
+    void (searching ? search.refetch() : page > 1 ? list.refetch() : screen.refetch());
+  const retrying = searching ? search.isFetching : page > 1 ? list.isFetching : screen.isFetching;
 
   return (
     <div className="space-y-5" ref={top}>
-      <MemoryModelSettings manage={manage} />
+      <MemoryModelSettings manage={manage} down={memoryDown} />
 
       {isAgentUnreachable(searching ? search.error : failure) ? (
         <ConductorDown
           what={searching ? "The search could not run" : "The memory could not be read"}
-          onRetry={() =>
-            void (searching ? search.refetch() : page > 1 ? list.refetch() : screen.refetch())
-          }
-          retrying={searching ? search.isFetching : page > 1 ? list.isFetching : screen.isFetching}
+          onRetry={retry}
+          retrying={retrying}
         />
       ) : null}
 
@@ -230,7 +234,8 @@ export function MemoryPanel() {
                 {items && items.length > 0 ? ", closest first" : ""}
               </>
             )
-          ) : morePending ? (
+          ) : failure != null ? null : morePending ? (
+            // A count beside a failure read as "the memory is empty", not "it can't be read".
             <>Reading the memory…</>
           ) : (
             <>
@@ -243,7 +248,19 @@ export function MemoryPanel() {
 
       {searchPending || morePending ? <MemorySkeleton /> : null}
 
-      {failed ? (
+      {memoryDown ? (
+        <Empty
+          icon={Brain}
+          title="The memory service isn't answering"
+          hint="Nothing can be shown, and nothing new is being remembered until it's back. The memory service (Hindsight) may be stopped or still starting; the conductor's log has the details."
+          action={
+            <Button variant="outline" size="sm" onClick={retry} disabled={retrying}>
+              <RotateCw className={retrying ? "animate-spin" : undefined} />
+              {retrying ? "Trying…" : "Try again"}
+            </Button>
+          }
+        />
+      ) : failed ? (
         <Empty
           icon={Brain}
           title={searching ? "Could not search the memory" : "Could not read the memory"}

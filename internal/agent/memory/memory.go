@@ -49,6 +49,11 @@ const (
 // fixes by editing .env rather than by reading a log.
 var ErrUnauthorized = errors.New("hindsight refused the memory API key")
 
+// ErrUnreachable is Hindsight not answering at all: nothing listening, a timeout, or a
+// gateway in front of it saying the same. It is separated because the Memory page says it in
+// plain words, and because it also means nothing new is being remembered.
+var ErrUnreachable = errors.New("the memory service is not answering")
+
 // ErrNotFound is a 404 for a named memory. Hindsight answers a list of an unknown bank with
 // an empty page rather than a 404, so this only ever means "no such memory".
 var ErrNotFound = errors.New("no such memory")
@@ -353,7 +358,10 @@ func (c *HTTP) do(ctx context.Context, method, path string, query url.Values, in
 
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("memory: %s %s: %w", method, path, err)
+		if ctx.Err() != nil {
+			return fmt.Errorf("memory: %s %s: %w", method, path, err)
+		}
+		return fmt.Errorf("%w (%s %s): %w", ErrUnreachable, method, path, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
@@ -390,6 +398,8 @@ func statusError(method, path string, res *http.Response) error {
 		return fmt.Errorf("%w (%s %s): %s", ErrUnauthorized, method, path, detail)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w (%s %s): %s", ErrNotFound, method, path, detail)
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return fmt.Errorf("%w (%s %s): %s: %s", ErrUnreachable, method, path, res.Status, detail)
 	}
 	return fmt.Errorf("memory: %s %s: %s: %s", method, path, res.Status, detail)
 }
