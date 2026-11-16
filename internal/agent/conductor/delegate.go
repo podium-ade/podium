@@ -16,7 +16,6 @@ package conductor
 // A turn that has already finished is not needed for any of that — it is only what asked.
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -768,7 +767,13 @@ func (c *Conductor) startDelegatedTask(
 	// automatic review, a review command from outside Podium, Linear — falls back to asker,
 	// which is nobody outside a web chat, so a playbook that names personal secrets fails
 	// here, before a task exists.
-	login := cmp.Or(g.login, c.asker(ctx, g.src, sess))
+	//
+	// A routine's run never falls back: it is its owner's, or nobody's, and the chat it runs in
+	// may be a Linear issue's conversation whose owner is somebody else entirely.
+	login := g.login
+	if login == "" && !c.isRoutineTurn(g.turnID) {
+		login = c.asker(ctx, g.src, sess)
+	}
 	persona, err := c.githubPersona(ctx, login, playbook)
 	if err != nil {
 		return nil, err
@@ -1074,7 +1079,10 @@ func (r *delegationRun) run(ctx context.Context) {
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post})
+		c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, true); note != "" {
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: note})
@@ -1254,7 +1262,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 				"delegation_id", dlg.ID, "error", err)
 			continue
 		}
-		src := c.sourceOf(sess.SourceKind)
+		src := c.sourceForRef(ctx, sess.SourceKind, dlg.TriggerRef)
 		c.mu.Lock()
 		_, following := c.liveDelegations[dlg.ID]
 		c.mu.Unlock()

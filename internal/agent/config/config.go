@@ -125,6 +125,11 @@ const DefaultMemoryBank = "podium"
 // not a "which Linear" knob.
 const DefaultLinearURL = "https://api.linear.app/graphql"
 
+// DefaultLinearTokenURL is Linear's OAuth token endpoint, where the agent app's client
+// credentials are exchanged for an access token. Overridable for the same reasons as
+// DefaultLinearURL, and it is not a "which Linear" knob either.
+const DefaultLinearTokenURL = "https://api.linear.app/oauth/token"
+
 // DefaultLinearPollInterval is how often the Linear source asks for issues that changed.
 // Linear bills 2,500 requests an hour against a personal API key, so 30s of one query is
 // two orders of magnitude inside the budget.
@@ -268,15 +273,30 @@ type Config struct {
 	// SENSITIVE: never log it.
 	MemoryLLMToken string
 	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
-	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
-	// turns the Linear source off entirely. SENSITIVE: never log it.
+	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). It is the
+	// poller's, which runs only while no Linear app is saved. Empty turns the poller off.
+	// SENSITIVE: never log it.
 	LinearAPIKey string
 	// LinearURL is PODIUM_AGENT_LINEAR_URL, default DefaultLinearURL.
 	LinearURL string
 	// LinearPollInterval is PODIUM_AGENT_LINEAR_POLL_INTERVAL, default 30s, floor 10s.
-	// Linear is polled and never listened to: the conductor dials out, like every other
-	// thing on this host.
+	// The poller dials out, like every other thing on this host. A saved Linear app is
+	// listened to instead, on its webhook.
 	LinearPollInterval time.Duration
+	// LinearClientID is the Linear agent app's OAuth client id, saved under Settings →
+	// Connections. It is not read from the environment: PODIUM_AGENT_LINEAR_API_KEY is
+	// the poller's key and nothing else. Empty turns the app off.
+	LinearClientID string
+	// LinearClientSecret is that app's client secret, saved with it. SENSITIVE: never log it.
+	LinearClientSecret string
+	// LinearWebhookSecret is the signing secret of the app's webhook, saved with it. Linear
+	// signs each delivery with it. SENSITIVE: never log it.
+	LinearWebhookSecret string
+	// LinearWebhookListen is the host:port the app's webhook handler binds, saved with it.
+	// It may be the GitHub App's address, and then the two share one listener.
+	LinearWebhookListen string
+	// LinearTokenURL is PODIUM_AGENT_LINEAR_TOKEN_URL, default DefaultLinearTokenURL.
+	LinearTokenURL string
 	// GitHubWebhookSecret is the webhook secret saved with the App under Settings →
 	// Connections. Empty turns the review source off even when the App is configured
 	// for clone. SENSITIVE: never log it.
@@ -437,6 +457,7 @@ func FromEnv() Config {
 		MemoryLLMToken:       strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_LLM_TOKEN")),
 		LinearAPIKey:         os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
 		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		LinearTokenURL:       envOr("PODIUM_AGENT_LINEAR_TOKEN_URL", DefaultLinearTokenURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
 		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
@@ -471,9 +492,16 @@ func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
 }
 
-// LinearEnabled reports whether the Linear source should be started. One variable turns it
-// on: an API key belonging to the bot user.
+// LinearEnabled reports whether the poller's key is set: an API key belonging to the bot
+// user. A saved app still wins: the poller runs only while LinearAppEnabled is false.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// LinearAppEnabled reports whether a Linear agent app is saved: a client id and its
+// secret. When it is, the app's webhooks run and the poller does not, whatever
+// LinearEnabled says: the two would start every ticket twice.
+func (c Config) LinearAppEnabled() bool {
+	return c.LinearClientID != "" && c.LinearClientSecret != ""
+}
 
 // GitHubSourceEnabled reports whether the GitHub review source should start: the App is
 // configured (so it can post) and the webhook listener is fully set.
@@ -582,6 +610,9 @@ func (c Config) Validate() error {
 	if err := c.validateGitHubSource(); err != nil {
 		return err
 	}
+	if err := c.validateLinearApp(); err != nil {
+		return err
+	}
 	if err := c.validateHostAndSurface(); err != nil {
 		return err
 	}
@@ -669,6 +700,11 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("linear", c.LinearEnabled()),
 		slog.String("linear_url", c.LinearURL),
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
+		// The client id is public OAuth client metadata, like the xAI and OpenAI ones above.
+		slog.Bool("linear_app", c.LinearAppEnabled()),
+		slog.String("linear_client_id", c.LinearClientID),
+		slog.String("linear_webhook_listen", c.LinearWebhookListen),
+		slog.String("linear_token_url", c.LinearTokenURL),
 		slog.String("ui_url", c.WebURL()),
 		slog.Bool("github_app", c.GitHubAppEnabled()),
 		slog.Bool("github_source", c.GitHubSourceEnabled()),
@@ -786,6 +822,11 @@ func (c Config) validateLinear() error {
 				"URL ending in the GraphQL path (default %s)", c.LinearURL, DefaultLinearURL)
 		}
 	}
+	if c.LinearTokenURL != "" {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_LINEAR_TOKEN_URL", c.LinearTokenURL); err != nil {
+			return err
+		}
+	}
 	switch {
 	case c.LinearPollInterval < 0:
 		// envDuration reports an unparseable value this way, so the name is reported here
@@ -809,6 +850,33 @@ func (c Config) validateLinear() error {
 		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateLinearApp refuses a half-configured Linear app. Settings → Connections saves all
+// four fields together, so a half here is a hand-built Config or a damaged row, and it is
+// cheaper to say so than to run an app that cannot sign in or cannot check a delivery.
+func (c Config) validateLinearApp() error {
+	switch {
+	case c.LinearClientID == "" && c.LinearClientSecret == "" &&
+		c.LinearWebhookSecret == "" && c.LinearWebhookListen == "":
+		return nil
+	case c.LinearClientID == "":
+		return errors.New("the Linear app's client id is missing: the client secret, webhook " +
+			"secret and listen address name no app without it")
+	case c.LinearClientSecret == "":
+		return errors.New("the Linear app's client secret is missing: the client id alone " +
+			"cannot sign in")
+	case c.LinearWebhookSecret == "":
+		return errors.New("the Linear app's webhook signing secret is missing: without it a " +
+			"delivery cannot be told from a forgery")
+	case c.LinearWebhookListen == "":
+		return errors.New("the Linear app's webhook listen address is missing")
+	}
+	if _, _, err := net.SplitHostPort(c.LinearWebhookListen); err != nil {
+		return fmt.Errorf("the Linear app's webhook listen address %q must be host:port, such as "+
+			"0.0.0.0:8091", c.LinearWebhookListen)
 	}
 	return nil
 }

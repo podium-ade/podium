@@ -50,8 +50,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     refetchInterval: 60_000,
   });
 
-  // The conductor's inbox: shares and mentions (phase 5). Polled more often than the rest,
-  // because "Dana shared a chat with you" is the one thing here somebody is waiting on.
+  // The conductor's inbox: shares, mentions, paused routines and questions asked in a Linear
+  // ticket's conversation. Polled more often than the rest, because "Dana shared a chat with
+  // you" and a question are what somebody is waiting on.
   const inbox = useQuery({
     queryKey: ["agent", "notifications"],
     queryFn: () => agent.listNotifications({ unreadOnly: true, limit: 50 }),
@@ -78,11 +79,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       rows.forEach((n) => {
         if (toasted.current?.has(n.id)) return;
         toasted.current?.add(n.id);
+        // A question about the chat on screen is in front of them already.
+        if (n.chatId === open) return;
         const draft = drafts.find((d) => d.key === `inbox:${n.id}`);
         if (draft) toast(draft.title, "ok");
       });
     }
-    const seen = rows.filter((n) => n.chatId === open).map((n) => n.id);
+    // A question is not closed by being looked at: only an answer, from anywhere, closes it.
+    const seen = rows.filter((n) => n.chatId === open && n.kind !== "question").map((n) => n.id);
     if (seen.length === 0 || marking.current) return;
     marking.current = true;
     void agent

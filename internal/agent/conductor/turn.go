@@ -131,7 +131,10 @@ func (r *turnRun) run(ctx context.Context) {
 			"turn_id", r.turn.ID, "task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason(),
 			"error_event", r.errText)
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post})
+		r.c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, false); note != "" {
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: note})

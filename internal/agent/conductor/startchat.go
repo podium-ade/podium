@@ -11,8 +11,9 @@ package conductor
 // sharing the Share dialog does (phase 5) and is audited the same way.
 //
 // What it cannot do is more than a person could. Nobody in Podium behind the turn — an
-// automatic review, Linear, an anonymous review command — means nobody to own a chat, and the
-// tool says so. Sharing names Podium people only. And a turn opens at most
+// automatic review, a ticket the Linear poller saw, an anonymous review command — means nobody
+// to own a chat, and the tool says so. A Linear agent session's turn runs as the person who
+// asked, and opens a chat as anybody's turn does. Sharing names Podium people only. And a turn opens at most
 // MaxChatsStartedPerTurn chats, counted in the database so every conductor agrees.
 
 import (
@@ -169,7 +170,8 @@ func (c *Conductor) StartChat(ctx context.Context, token string, req StartChatRe
 	}
 
 	// Where it came from: the chat this turn's conversation is, web or mirrored. A
-	// conversation with no chat row (a dev source, a Linear issue) has nowhere to link back to.
+	// conversation with no chat row (a dev source, a ticket the Linear poller saw) has nowhere
+	// to link back to.
 	from := c.startedFrom(ctx, g)
 
 	chat, err := c.store.CreateChat(ctx, owner, title)
@@ -274,7 +276,7 @@ func plural(n int, one, many string) string {
 }
 
 // startedFrom is the chat a turn's conversation is: its own web chat, or the chat mirroring
-// its Slack thread or pull request. The zero Chat when it has none.
+// its Slack thread, pull request or Linear agent session. The zero Chat when it has none.
 func (c *Conductor) startedFrom(ctx context.Context, g turnGrant) store.Chat {
 	sess, err := c.store.GetSession(ctx, g.sessionID)
 	if err != nil || sess.SourceKey == "" {

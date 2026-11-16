@@ -67,6 +67,65 @@ beforeEach(() => {
 });
 
 describe("RoutinesPanel", () => {
+  it("shows what waits for a routine on Linear events where a scheduled one shows its next run", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On Linear: issue created, comment created",
+          trigger: "linear",
+          events: ["Issue.create", "Comment.create"],
+          nextRunAt: undefined,
+          pendingEvents: 3,
+          timezone: "Europe/Madrid",
+        }),
+      ],
+    });
+    mount();
+
+    const row = await screen.findByTestId("routine-row");
+    expect(row).toHaveTextContent("Runs on Linear: issue created, comment created");
+    expect(row).not.toHaveTextContent("Europe/Madrid");
+    const status = within(row).getByTestId("routine-row-status");
+    expect(status).toHaveTextContent("Waiting3 events");
+    expect(status).not.toHaveTextContent("Next run");
+    // It runs when its events arrive: there is no run by hand.
+    expect(within(row).queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /pause/i })).toBeInTheDocument();
+  });
+
+  it("says when a routine on Linear events runs in each ticket's conversation, and opens its page when it has no chat", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On Linear: issue created",
+          trigger: "linear",
+          events: ["Issue.create"],
+          chatMode: "subject",
+          nextRunAt: undefined,
+          chatId: "",
+        }),
+        routine({ id: "rtn_2", name: "Digest", chatId: "chat_d" }),
+      ],
+    });
+    mount();
+
+    const rows = await screen.findAllByTestId("routine-row");
+    const triage = rows.find((r) => r.textContent?.includes("PR digest"));
+    const digest = rows.find((r) => r.textContent?.includes("Digest") && r !== triage);
+    expect(triage).toHaveTextContent("Runs on Linear: issue created · in each ticket’s conversation");
+    expect(digest).not.toHaveTextContent("in each ticket’s conversation");
+    expect(within(triage as HTMLElement).getByRole("link", { name: "PR digest" })).toHaveAttribute(
+      "href",
+      "/agent/routines/rtn_1",
+    );
+    expect(within(digest as HTMLElement).getByRole("link", { name: "Digest" })).toHaveAttribute(
+      "href",
+      "/agent/chat/chat_d",
+    );
+  });
+
   it("lists each routine with when it runs, and pauses one", async () => {
     listRoutines.mockResolvedValue({ routines: [routine()] });
     pauseRoutine.mockResolvedValue({ routine: routine({ enabled: false }) });

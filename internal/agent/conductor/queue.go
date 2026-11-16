@@ -34,8 +34,12 @@ package conductor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -68,18 +72,43 @@ func (c *Conductor) askerOf(src Source, ev InboundEvent) (login, kind string) {
 
 // sameAsker reports whether ev is from the person, on the surface, whose turn st last ran.
 // The caller holds c.mu.
+//
+// The same person on the same surface is not enough in a conversation that holds several
+// threads: a Linear issue, where each agent session is drawn on its own. A prompt in another
+// agent session is a turn of its own, whose answer goes to that session. A routine's run is
+// nobody's message, and is never put into a turn that is up, nor anything into it.
 func (c *Conductor) sameAsker(st *sessionState, src Source, ev InboundEvent) bool {
 	login, kind := c.askerOf(src, ev)
-	return st.turnLogin == login && st.turnKind == kind
+	return st.turnLogin == login && st.turnKind == kind && st.turnThread == c.threadOf(src, ev) &&
+		ev.Routine == nil && !isRoutineThread(st.turnThread)
 }
 
-// setTurnAsker records whose turn a session is running, for sameAsker and for the lease's
-// warm task. Called as each turn starts.
-func (c *Conductor) setTurnAsker(sessionID string, src Source, ev InboundEvent) {
+// answersQuestion reports whether ev, said in the web chat of a Linear ticket's conversation,
+// is the answer to the question the task st awaits asked: it is from the person whose turn
+// asked, on any surface the turn began on — a Linear agent session, the web chat, or their
+// routine's run. The answer is the same person's words to the same task, and the task already
+// runs with their credentials; what it says next goes where its turn answers, and the reply
+// itself is posted to the issue as theirs (relay.go). The caller holds c.mu and has checked
+// that st awaits a task.
+func (c *Conductor) answersQuestion(st *sessionState, src Source, ev InboundEvent) bool {
+	if src == nil || src.Kind() != SourceChat || ev.Routine != nil {
+		return false
+	}
+	if kind, _ := store.LinearKind(ev.SourceKey); kind == "" {
+		return false
+	}
+	login, _ := c.askerOf(src, ev)
+	return login != "" && login == st.turnLogin
+}
+
+// setTurnAsker records whose turn a session is running, and of which playbook, for
+// sameAsker and for the lease's warm task. Called as each turn starts.
+func (c *Conductor) setTurnAsker(sessionID string, src Source, ev InboundEvent, playbook string) {
 	login, kind := c.askerOf(src, ev)
+	thread := c.threadOf(src, ev)
 	c.mu.Lock()
 	st := c.state(sessionID)
-	st.turnLogin, st.turnKind = login, kind
+	st.turnLogin, st.turnKind, st.turnPlaybook, st.turnThread = login, kind, playbook, thread
 	c.mu.Unlock()
 }
 
@@ -233,16 +262,27 @@ func (c *Conductor) decodeQueued(ctx context.Context, row store.QueuedTurn) (Inb
 }
 
 // sourceAndJob is the source a queued message answers through, and the job its turn runs.
-// A conversation's job is the assistant whichever surface asked; anything else keeps the
-// job the session was already running.
+// A conversation's job is the assistant whichever surface asked, or the playbook a Linear
+// prompt named for itself (runDirect). Anything else runs the playbook accept chose for it
+// (InboundEvent.Playbook), and a message queued without one keeps the job the session was
+// already running.
 func (c *Conductor) sourceAndJob(ev InboundEvent, src Source, j job) (Source, job) {
 	if ev.SourceKind != "" && (src == nil || src.Kind() != ev.SourceKind) {
 		if s := c.sourceOf(ev.SourceKind); s != nil {
 			src = s
 		}
 	}
-	if src != nil && c.host != nil && aConversation(src.Kind()) {
-		return src, assistantJob(c.profiles.Current().Assistant())
+	profile := c.profiles.Current()
+	pb, chosen := profile.Playbooks[ev.Playbook]
+	chosen = chosen && ev.Playbook != ""
+	if src != nil && c.conversational(src, ev) {
+		if chosen {
+			return src, directJob(pb)
+		}
+		return src, assistantJob(profile.Assistant())
+	}
+	if chosen {
+		return src, playbookJob(pb)
 	}
 	return src, j
 }
@@ -427,6 +467,12 @@ func (c *Conductor) injectIntoOwner(ctx context.Context, src Source, sessionID s
 	if warm.Login != login || warm.Kind != kind {
 		return false
 	}
+	if c.threadOf(src, *ev) != "" {
+		// The lease names the warm task's person and surface, not which thread of the
+		// conversation it answers: a Linear prompt is queued rather than risk putting it into
+		// another agent session's task.
+		return false
+	}
 	c.recordHeld(ctx, src, ev)
 	if err := c.podium.InjectTask(ctx, warm.TaskID, ev.Text); err != nil {
 		c.logger.WarnContext(ctx, "injecting into another conductor's warm task failed; queueing the turn",
@@ -473,6 +519,325 @@ func (c *Conductor) CancelChatTurn(ctx context.Context, chatID string) (bool, er
 		}
 	}
 	return stopped, nil
+}
+
+// How long CancelSessionTurn waits for a turn that is starting to become one it can stop,
+// and how often it looks. A turn's row is written, and then its task created, within a second
+// or two of the turn starting; a Stop pressed in that gap must still stop it.
+const (
+	stopStartingWait = 15 * time.Second
+	stopStartingPoll = 200 * time.Millisecond
+)
+
+// CancelSessionTurn stops the work of one conversation, named by its source key: the turn
+// answering it, every task the conversation delegated that is still running, and every turn
+// queued behind them. It reports whether anything was stopped. It is how a source whose
+// surface has a Stop of its own — a Linear agent session — stops the work: the source holds
+// no conductor and is handed this.
+//
+// It differs from CancelChatTurn in the queue and in the delegated tasks. Stopping a web
+// chat's turn lets the next queued message start and leaves the tasks running; a Stop on a
+// Linear session ends the session's work, and Linear forbids an agent to act in a session
+// after it was stopped, so a follow-up queued before the Stop never runs, and a task the
+// assistant delegated would otherwise go on talking into a session that said "Stopped.".
+//
+// The turn is stopped as every other turn is: a task through the control plane, which does
+// not care which conductor follows it, and a host turn by cancelling it here or asking the
+// conductor that runs it. The run following the turn then records it cancelled and posts what
+// it posts for any cancelled turn; a source that answers a stop itself refuses those posts.
+// The run may be on another conductor, whose source never heard the Stop, so the stop is
+// announced to every conductor's sources first (StopHearer), and the cancellation it posts
+// carries the control plane's cancel reason (Outbound.CancelReason), which outlives a restart.
+// Each delegated task is announced and cancelled the same way. A task parked on a question is
+// released first, so a reply that arrives as it ends is not injected into a task that is
+// going away.
+func (c *Conductor) CancelSessionTurn(ctx context.Context, sourceKey, reason string) (bool, error) {
+	return c.CancelThreadTurn(ctx, sourceKey, "", reason)
+}
+
+// CancelThreadTurn is CancelSessionTurn for one thread of a conversation: what one Linear agent
+// session started in its issue's conversation (ThreadKeyer). An issue is one conversation
+// however many agent sessions are on it, and a routine may run in it too; a Stop pressed in one
+// session stops that session's turn, the tasks its turns delegated and its prompts still queued,
+// and leaves the others' — a turn of another session that is running is not this one's to stop,
+// and is not waited for. The stop is announced by threadKey, which is what the source that
+// answers a stop knows the session by. An empty threadKey is the whole conversation.
+func (c *Conductor) CancelThreadTurn(ctx context.Context, sourceKey, threadKey, reason string) (bool, error) {
+	sess, err := c.store.GetSessionByKey(ctx, sourceKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	announce := sourceKey
+	if threadKey != "" {
+		announce = threadKey
+	}
+	dropped := c.dropQueuedTurns(ctx, sess, threadKey)
+	// The turn first: it is what could delegate another task while the others are stopped.
+	turnStopped, turnErr := c.stopSessionTurn(ctx, sess, announce, threadKey, reason, dropped)
+	tasks, taskErr := c.stopSessionDelegations(ctx, sess, announce, threadKey, reason)
+	return dropped > 0 || turnStopped || tasks > 0, errors.Join(turnErr, taskErr)
+}
+
+// stopSessionTurn stops the session's running turn, if it has one and it is thread's (any turn
+// when thread is empty), and reports whether it did. announce is the key the stop is announced by.
+func (c *Conductor) stopSessionTurn(
+	ctx context.Context, sess store.Session, announce, thread, reason string, dropped int,
+) (bool, error) {
+	turn, ok, err := c.stoppableTurn(ctx, sess)
+	if err != nil || !ok {
+		return false, err
+	}
+	if thread != "" && c.refThread(turn.TriggerRef) != thread {
+		return false, nil
+	}
+	sourceKey := announce
+	if turn.TaskID == "" {
+		if c.CancelHostTurn(turn.TriggerRef) {
+			c.logger.InfoContext(ctx, "stopped a host turn at its conversation's request",
+				"session_id", sess.ID, "turn_id", turn.ID, "dropped_queued", dropped)
+			return true, nil
+		}
+		// No task after the wait, and not a host turn here: a host turn on another
+		// conductor, or a turn that is taking far longer than it should to get its task.
+		if !c.leasing() {
+			return false, fmt.Errorf("conductor: turn %s has no task to cancel", turn.ID)
+		}
+		c.announceStop(ctx, sourceKey, "")
+		if err := c.store.Notify(ctx, store.TurnCancelChannel, turn.TriggerRef); err != nil {
+			return false, fmt.Errorf("conductor: asking the other conductors to stop turn %s: %w", turn.ID, err)
+		}
+		return true, nil
+	}
+	c.clearAwaiting(sess.ID, turn.TaskID)
+	c.clearWarm(sess.ID, turn.TaskID)
+	c.announceStop(ctx, sourceKey, turn.TaskID)
+	if err := c.podium.CancelTask(ctx, turn.TaskID, reason); err != nil {
+		// FailedPrecondition is a task that is already over: stopped by a Stop before this one,
+		// or finishing as it was pressed. Either way nothing of it is running.
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+			return false, fmt.Errorf("conductor: cancelling turn %s: %w", turn.ID, err)
+		}
+	}
+	c.logger.InfoContext(ctx, "stopped a turn at its conversation's request",
+		"session_id", sess.ID, "turn_id", turn.ID, "task_id", turn.TaskID, "dropped_queued", dropped)
+	return true, nil
+}
+
+// stopSessionDelegations stops every task the session delegated that is still running —
+// those of the turn just stopped, and those of earlier turns still working — and reports how
+// many it stopped. Each is announced before it is cancelled, as a turn's task is, so the
+// sources that answer a stop refuse what it says as it dies. A delegation whose task does not
+// exist yet is not one the control plane can cancel, and is left.
+func (c *Conductor) stopSessionDelegations(
+	ctx context.Context, sess store.Session, sourceKey, thread, reason string,
+) (int, error) {
+	running, err := c.store.RunningDelegationsForSession(ctx, sess.ID)
+	if err != nil {
+		return 0, fmt.Errorf("conductor: reading what the conversation delegated: %w", err)
+	}
+	stopped := 0
+	var errs []error
+	for _, dlg := range running {
+		if dlg.TaskID == "" {
+			continue
+		}
+		if thread != "" && c.refThread(dlg.TriggerRef) != thread {
+			// Another agent session's task, or a routine's, on the same issue.
+			continue
+		}
+		c.clearAwaiting(sess.ID, dlg.TaskID)
+		c.announceStop(ctx, sourceKey, dlg.TaskID)
+		if err := c.podium.CancelTask(ctx, dlg.TaskID, reason); err != nil {
+			if connect.CodeOf(err) == connect.CodeFailedPrecondition {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("conductor: cancelling delegation %s: %w", dlg.ID, err))
+			continue
+		}
+		stopped++
+		c.logger.InfoContext(ctx, "stopped a delegated task at its conversation's request",
+			"session_id", sess.ID, "delegation_id", dlg.ID, "task_id", dlg.TaskID, "playbook", dlg.Playbook)
+	}
+	return stopped, errors.Join(errs...)
+}
+
+// stoppableTurn is the session's running turn, once it is one CancelSessionTurn can stop: it
+// has its task, or it is a host turn running here. A turn without either yet is starting, and
+// is waited for, as is a session this conductor is serving whose turn row is not written yet.
+// ok is false when nothing is running. After stopStartingWait the turn is returned as it is.
+func (c *Conductor) stoppableTurn(ctx context.Context, sess store.Session) (store.Turn, bool, error) {
+	deadline := time.Now().Add(stopStartingWait)
+	for {
+		turns, err := c.store.ListTurns(ctx, sess.ID, 1)
+		if err != nil {
+			return store.Turn{}, false, err
+		}
+		var turn store.Turn
+		running := len(turns) > 0 && turns[0].Status == store.TurnRunning
+		if running {
+			turn = turns[0]
+		}
+		c.mu.Lock()
+		serving := c.state(sess.ID).running
+		_, hostHere := c.hostRuns[turn.TriggerRef]
+		c.mu.Unlock()
+		switch {
+		case running && (turn.TaskID != "" || hostHere):
+			return turn, true, nil
+		case !running && !serving:
+			return store.Turn{}, false, nil
+		case time.Now().After(deadline):
+			return turn, running, nil
+		}
+		select {
+		case <-ctx.Done():
+			return store.Turn{}, false, ctx.Err()
+		case <-time.After(stopStartingPoll):
+		}
+	}
+}
+
+// dropQueuedTurns removes every turn waiting in a session, durable and in-process alike, and
+// reports how many there were.
+func (c *Conductor) dropQueuedTurns(ctx context.Context, sess store.Session, thread string) int {
+	if thread != "" {
+		return c.dropThreadTurns(ctx, sess, thread)
+	}
+	n := 0
+	for {
+		_, ok, err := c.store.PopQueuedTurn(ctx, sess.ID)
+		if err != nil {
+			c.logger.WarnContext(ctx, "dropping a stopped session's queued turns failed",
+				"session_id", sess.ID, "error", err)
+			break
+		}
+		if !ok {
+			break
+		}
+		n++
+	}
+	c.mu.Lock()
+	st := c.state(sess.ID)
+	n += len(st.local)
+	st.local = nil
+	c.mu.Unlock()
+	if n > 0 {
+		c.queueChanged(ctx, sess)
+	}
+	return n
+}
+
+// dropThreadTurns drops the session's queued turns that are thread's, here and in the database,
+// and leaves the rest queued.
+func (c *Conductor) dropThreadTurns(ctx context.Context, sess store.Session, thread string) int {
+	n := 0
+	rows, err := c.store.ListQueuedTurns(ctx, sess.ID)
+	if err != nil {
+		c.logger.WarnContext(ctx, "listing a stopped thread's queued turns failed",
+			"session_id", sess.ID, "error", err)
+	}
+	for _, row := range rows {
+		var ev InboundEvent
+		if json.Unmarshal(row.Event, &ev) != nil || c.threadOf(nil, ev) != thread {
+			continue
+		}
+		if ok, err := c.store.DeleteQueuedTurn(ctx, row.ID); err != nil {
+			c.logger.WarnContext(ctx, "dropping a stopped thread's queued turn failed",
+				"session_id", sess.ID, "queued_id", row.ID, "error", err)
+		} else if ok {
+			n++
+		}
+	}
+	c.mu.Lock()
+	st := c.state(sess.ID)
+	kept := st.local[:0]
+	for _, ev := range st.local {
+		if c.threadOf(nil, ev) == thread {
+			n++
+			continue
+		}
+		kept = append(kept, ev)
+	}
+	st.local = kept
+	c.mu.Unlock()
+	if n > 0 {
+		c.queueChanged(ctx, sess)
+	}
+	return n
+}
+
+// StopHearer is the optional half of a Source whose surface answers a stop itself: a Linear
+// agent session, which is closed with "Stopped." by the source that heard the Stop. A turn of
+// that conversation may be running on another conductor, whose source heard nothing, and goes
+// on relaying what the cancelled task says until it dies — after "Stopped.", which Linear
+// shows as the session working again. Every conductor's source is told here, this one's too,
+// since the source that heard the Stop may not know which task was running: it treats the task
+// as one it heard stopped. taskID is the task being cancelled, or empty for a host turn.
+//
+// key is what the stop was announced by: a thread's key (CancelThreadTurn) — a Linear agent
+// session's — or a conversation's source key.
+type StopHearer interface {
+	StoppedElsewhere(key, taskID string)
+}
+
+// stopNotice is a SessionStopChannel payload.
+type stopNotice struct {
+	// From is the conductor that stopped the turn, which told its own sources directly.
+	From   string `json:"from"`
+	Key    string `json:"key"`
+	TaskID string `json:"task_id,omitempty"`
+}
+
+// announceStop tells this conductor's sources, and then the other conductors, that a
+// conversation's turn is being stopped. It is said before the task is cancelled, so it is
+// heard before the task says anything more. A notice that cannot be sent is logged: the task
+// is still cancelled, and the cancellation the run posts is still recognised by its cancel
+// reason.
+func (c *Conductor) announceStop(ctx context.Context, sourceKey, taskID string) {
+	c.tellStop(sourceKey, taskID)
+	if !c.leasing() {
+		return
+	}
+	payload, err := json.Marshal(stopNotice{From: c.replicaID, Key: sourceKey, TaskID: taskID})
+	if err == nil {
+		err = c.store.Notify(ctx, store.SessionStopChannel, string(payload))
+	}
+	if err != nil {
+		c.logger.WarnContext(ctx, "telling the other conductors a turn was stopped failed",
+			"source_key", sourceKey, "task_id", taskID, "error", err)
+	}
+}
+
+// listenStops hands another conductor's stop to this conductor's sources that hear one.
+func (c *Conductor) listenStops(ctx context.Context) {
+	if !c.leasing() {
+		return
+	}
+	_ = c.store.Listen(ctx, store.SessionStopChannel, nil, c.heardStop, func(err error) {
+		c.logger.WarnContext(ctx, "the session-stop listener lost its connection; reconnecting", "error", err)
+	})
+}
+
+// heardStop is a stop another conductor announced. Its own announcement comes back to it too,
+// and is not passed on again: announceStop already told its sources.
+func (c *Conductor) heardStop(payload string) {
+	var n stopNotice
+	if json.Unmarshal([]byte(payload), &n) != nil || n.Key == "" || n.From == c.replicaID {
+		return
+	}
+	c.tellStop(n.Key, n.TaskID)
+}
+
+// tellStop tells every source of this conductor that hears a stop about one.
+func (c *Conductor) tellStop(sourceKey, taskID string) {
+	for _, src := range c.sourceList() {
+		if h, ok := src.(StopHearer); ok {
+			h.StoppedElsewhere(sourceKey, taskID)
+		}
+	}
 }
 
 // listenCancels stops this conductor's host turns that another conductor was asked to stop.

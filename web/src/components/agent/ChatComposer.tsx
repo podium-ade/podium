@@ -88,7 +88,7 @@ export interface ChatComposerProps {
    * mention Podium (or the chat's assistant) to start a turn, and the composer says so.
    */
   multiplayer?: boolean;
-  /** mirrored is where a mirrored conversation lives ("slack", "github"); empty for a web chat. */
+  /** mirrored is where a mirrored conversation lives ("slack", "github", "linear"); empty for a web chat. */
   mirrored?: string;
   /** personality is the chat's personal assistant's name, which also starts a turn. */
   personality?: string;
@@ -519,8 +519,10 @@ export function ChatComposer({
         <p data-testid="chat-composer-note" className="mt-1.5 px-2 text-2xs text-faint">
           {fileError !== ""
             ? fileError
-            : mirrored !== ""
-              ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
+            : mirrored === "linear"
+              ? "Messages here are posted to the Linear issue as yours, and so is Podium's answer."
+              : mirrored !== ""
+                ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
               : running
                 ? multiplayer
                   ? `A message mentioning ${PODIUM_MENTION} is queued until the answer in progress is done. Anything else is posted now.`
@@ -915,6 +917,8 @@ function surfaceLabel(kind: string): string {
       return "Slack";
     case "github":
       return "GitHub";
+    case "linear":
+      return "Linear";
     default:
       return kind;
   }

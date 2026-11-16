@@ -34,6 +34,7 @@ const (
 const (
 	SpeakerSlack  = "slack"
 	SpeakerGitHub = "github"
+	SpeakerLinear = "linear"
 )
 
 // The privacies a source can name in InboundEvent.ChannelPrivacy: the store's, spelled here
@@ -53,6 +54,10 @@ const (
 	OutFailure  = "failure"
 	OutQuestion = "question"
 	OutActivity = "activity"
+	// OutRelay is a person's own words, said in Podium, posted where the conversation lives as
+	// theirs (relay.go): Author and AuthorAvatar say whose. Only a source that implements
+	// PersonPoster is ever handed one.
+	OutRelay = "relay"
 )
 
 // Outbound is one thing the conductor wants said. Text is untrusted content when it came
@@ -65,8 +70,19 @@ type Outbound struct {
 	// footer naming it, and its fallback attachment link points at the task's page. It is
 	// NOT part of Text: whether it is shown at all is the source's decision.
 	TaskID string
+	// CancelReason is why the control plane says the task was cancelled, on the failure that
+	// says a task was cancelled, and empty on everything else. It is the stop's own record,
+	// written by the control plane and read back by whichever conductor follows the task, so
+	// a source whose surface answered a stop itself (a Linear agent session's "Stopped.") can
+	// recognise the turn's "This was cancelled" as its own stop and leave it unsaid — on any
+	// conductor, and on an outbox retry after a restart. It is never shown to anybody.
+	CancelReason string
 	// Speaker is who said it. A source that posts everything the same way ignores it.
 	Speaker
+	// Author and AuthorAvatar are the person an OutRelay is posted as: their display name and
+	// their picture's URL, which may be empty. Empty on everything else.
+	Author       string
+	AuthorAvatar string
 }
 
 // Speaker is the playbook behind one Outbound. The zero Speaker is the assistant, or the
@@ -124,16 +140,24 @@ type InboundEvent struct {
 	//   - Slack sets a CANDIDATE, the workspace email of a user who passed the source's
 	//     account checks, which the conductor keeps only if that login has signed in to
 	//     Podium;
+	//   - the Linear agent app sets a candidate the same way, the email of the person who
+	//     wrote the prompt;
 	//   - GitHub sets nothing: the conductor looks the speaker's numeric id up in the
-	//     identities a GitHub connect wrote.
+	//     identities a GitHub connect wrote;
+	//   - the Linear poller sets nothing and names no account: it proves nobody.
 	//
 	// After resolveSpeaker it is either a person who is in Podium or empty. A turn runs
 	// with this person's credentials, and it is what makes them a participant of the chat.
 	Login string
 	// SpeakerProvider and SpeakerID name the account that spoke, as its source proved it:
-	// store.ProviderSlack and "<team>/<user>", or store.ProviderGitHub and the numeric user
-	// id. Empty for a source that has no accounts (Linear, the dev source) and for the web
-	// chat, whose Login is already the proof.
+	// store.ProviderSlack and "<team>/<user>", store.ProviderGitHub and the numeric user id,
+	// or store.ProviderLinear and "<organization>/<user>". Empty for a source that has no
+	// accounts (the Linear poller, the dev source) and for the web chat, whose Login is
+	// already the proof.
+	//
+	// The Linear app names its provider on every prompt, even one whose speaker it could not
+	// read: a Linear event that names a provider is held to the rule that only a Podium person
+	// starts a turn, and one that names none is the poller's (admit).
 	SpeakerProvider string
 	SpeakerID       string
 	// SpeakerAvatar is the account's picture, when the source had it for free.
@@ -205,13 +229,28 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Playbook is a playbook the source KNOWS is right — Linear's linear: true playbook. It
-	// bypasses every routing rule, a typed /playbook included. Empty means "let the profile's
-	// rules decide", which is what Slack always leaves it as.
+	// Playbook is a playbook the source KNOWS is right — the Linear poller's linear: true
+	// playbook. It bypasses every routing rule, a typed /playbook included. Empty means "let
+	// the profile's rules decide", which is what Slack, the web chat and the Linear agent app
+	// always leave it as: a conversation is answered by the assistant and runs no playbook,
+	// and the app says what happened (Delegated) and lets the conductor route it.
 	//
-	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
-	// by the assistant and runs no playbook at all.
+	// The conductor writes here too, once it has routed an event that waits in the turn
+	// queue: the playbook chosen for it, so the turn runs that playbook when it starts
+	// whatever the turn before it ran.
 	Playbook string
+	// Delegated is a conversation that was handed to Podium as a piece of work rather than
+	// asked a question in: a Linear issue delegated to the agent app. On a conductor with a
+	// host runtime it is a conversation, as a mention is: the playbook its issue's Linear
+	// rules claim runs (DelegatedIssue), or the assistant decides. With no host runtime it
+	// runs the linear: true playbook as a task. False for an @mention, which is a question,
+	// and for every other source. Set on every prompt of the session, not only the first: a
+	// follow-up stays with how the session began.
+	Delegated bool
+	// DelegatedIssue is what a playbook's linear_teams and linear_labels are matched against.
+	// The app sets it on the opening prompt of a delegated session and on no other, so only
+	// the delegation itself is routed by them; its follow-ups go to the assistant.
+	DelegatedIssue *DelegatedIssue `json:",omitempty"`
 	// Role is the speaker's role on what the conversation is about, when the source knows it:
 	// their access to a pull request's repository — read, triage, write, maintain or admin.
 	// A pull request offers a playbook only to a speaker whose role its github_requires
@@ -247,6 +286,18 @@ type InboundEvent struct {
 	PersonalityPrompt string
 }
 
+// DelegatedIssue is the issue a Linear delegation hands over, as its playbook rules see it.
+type DelegatedIssue struct {
+	// Team is the issue's team key ("ENG"), or empty when Linear did not say.
+	Team string
+	// Labels are the names of the labels on the issue.
+	Labels []string
+	// Unknown is an issue whose labels could not be read. No rule claims it, whatever its
+	// team, so a lookup that failed sends the delegation to the assistant rather than to a
+	// playbook that would not have claimed it had the labels been known.
+	Unknown bool
+}
+
 // Attachment is one file the conductor wants put into the conversation. Size is part of
 // the contract because Slack's modern upload flow (getUploadURLExternal) has to declare the
 // length before the bytes move, so a source cannot discover it from the reader.
@@ -266,8 +317,11 @@ type Attachment struct {
 }
 
 // ActivityPoster is a Source that draws what a turn is doing — its tool calls and its
-// reasoning — beside what it says. Only the web chat is one: a Slack thread or a Linear
-// issue would be buried in it, so a source that is not one is told none of it.
+// reasoning — beside what it says. The web chat keeps every one as a row of the chat. A
+// Linear agent session shows each as an ephemeral activity that the next replaces, so it
+// shows what the turn is doing now rather than a trail of it. A Slack thread or a GitHub pull
+// request would be buried in them, since everything said there stays, so a source that is not
+// one is told none of it.
 type ActivityPoster interface {
 	PostActivity(ctx context.Context, ref string, out Outbound) error
 }

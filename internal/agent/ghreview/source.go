@@ -115,6 +115,10 @@ type SourceOptions struct {
 	Reviews ReviewMemory
 	// Filters is read on every delivery. Nil is the default Filters.
 	Filters FilterLookup
+	// Serve, when set, serves the webhook handler on a listener the caller owns: the
+	// conductor's, which puts another app's webhooks on the same address when the two are
+	// configured alike. It blocks until ctx ends, like Run. Nil binds Listen here.
+	Serve func(ctx context.Context, listen, path string, h http.Handler) error
 }
 
 // ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
@@ -129,6 +133,7 @@ type Source struct {
 	logger        *slog.Logger
 	events        chan conductor.InboundEvent
 	listen        string
+	serve         func(ctx context.Context, listen, path string, h http.Handler) error
 	webhookSecret string
 	session       SessionLookup
 	reviews       ReviewMemory
@@ -218,6 +223,7 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		logger:        logger,
 		events:        make(chan conductor.InboundEvent, eventBuffer),
 		listen:        opts.Listen,
+		serve:         opts.Serve,
 		webhookSecret: opts.WebhookSecret,
 		session:       opts.Session,
 		reviews:       opts.Reviews,
@@ -251,6 +257,14 @@ func (s *Source) Run(ctx context.Context) error {
 
 	if err := s.identify(ctx); err != nil {
 		return err
+	}
+
+	if s.serve != nil {
+		s.logger.InfoContext(ctx, "github source connected", "slug", s.slug, "listen", s.listen)
+		if err := s.serve(ctx, s.listen, WebhookPath, s.Handler()); err != nil {
+			return fmt.Errorf("github: serve webhooks: %w", err)
+		}
+		return nil
 	}
 
 	ln, err := netlisten.Listen("tcp", s.listen)

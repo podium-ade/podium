@@ -212,7 +212,7 @@ describe("AgentPage", () => {
     getConnections.mockResolvedValue({
       slack: { configured: false, source: "" },
       github: { configured: false, source: "", appId: "", webhookListen: "" },
-      linear: { available: false, configured: false },
+      linear: { available: true, configured: false, polling: false },
     });
     getProfileFile.mockResolvedValue({
       content: "name: podium\n",
@@ -527,7 +527,7 @@ describe("AgentPage", () => {
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Linear" })).toBeInTheDocument();
   });
 
   it("hides connections from a member and keeps it for an admin and an owner", async () => {

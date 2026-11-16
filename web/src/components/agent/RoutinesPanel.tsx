@@ -1,13 +1,24 @@
 import { useState } from "react";
 import { AlertTriangle, MessageSquare, MoreHorizontal, Pause, Pencil, Play, Plus, Repeat, Trash2, Zap } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Routine } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
-import { draftOf, isSystem, money, routineChatPath, routinesKey, upcoming } from "../../lib/routines";
+import {
+  draftOf,
+  isLinear,
+  perTicket,
+  isSystem,
+  money,
+  routinePath,
+  routinesKey,
+  runsText,
+  upcoming,
+  waitingText,
+} from "../../lib/routines";
 import { Badge } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
@@ -30,7 +41,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { ConductorDown } from "./ConductorDown";
-import { RoutineDialog, SystemBadge } from "./RoutineCard";
+import { RoutineCard, RunList } from "./RoutineCard";
+import { RoutineDialog, SystemBadge } from "./RoutineDialog";
 import { useBrand } from "../../lib/brand";
 
 /**
@@ -83,7 +95,7 @@ export function RoutinesPanel() {
     onSuccess: async (_res, r) => {
       setDeleting(null);
       await refresh();
-      toast(`${r.name} deleted. Its chat stays.`, "ok");
+      toast(r.chatId ? `${r.name} deleted. Its chat stays.` : `${r.name} deleted.`, "ok");
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -142,8 +154,8 @@ export function RoutinesPanel() {
               routine={r}
               owner={r.ownerLogin && r.ownerLogin !== viewerLogin ? r.ownerLogin : ""}
               busy={act.isPending && act.variables?.r.id === r.id}
-              onOpen={() => navigate(routineChatPath(r))}
-              href={routineChatPath(r)}
+              onOpen={() => navigate(routinePath(r))}
+              href={routinePath(r)}
               onRun={() => act.mutate({ r, what: "run" })}
               onToggle={() => act.mutate({ r, what: r.enabled ? "pause" : "resume" })}
               onEdit={() => setEditing(r)}
@@ -159,12 +171,14 @@ export function RoutinesPanel() {
           title="New routine"
           initial={{}}
           canChooseScope={admin}
+          canChooseTrigger={admin}
           onClose={() => setCreating(false)}
           onSave={async (draft, scope) => {
             const res = await agent.createRoutine({ draft, scope });
             setCreating(false);
             await refresh();
-            toast(`${res.routine?.name ?? "Routine"} runs ${res.routine?.scheduleText ?? ""}.`, "ok");
+            const r = res.routine;
+            toast(`${r?.name ?? "Routine"} ${r ? runsText(r).replace(/^Runs/, "runs") : "runs"}.`, "ok");
           }}
         />
       ) : null}
@@ -176,6 +190,7 @@ export function RoutinesPanel() {
           initial={draftOf(editing)}
           lockAssistant
           scope={isSystem(editing) ? "system" : "personal"}
+          canChooseTrigger={admin}
           onClose={() => setEditing(null)}
           onSave={async (draft) => {
             await agent.updateRoutine({ id: editing.id, draft });
@@ -191,7 +206,9 @@ export function RoutinesPanel() {
           <DialogHeader>
             <DialogTitle>Delete {deleting?.name}?</DialogTitle>
             <DialogDescription>
-              It stops running and forgets what it kept. Its chat and everything the routine said in it stay.
+              {deleting?.chatId
+                ? "It stops running and forgets what it kept. Its chat and everything the routine said in it stay."
+                : "It stops running and forgets what it kept. What its runs said stays in the conversations they ran in."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -237,6 +254,7 @@ function RoutineRow({
   const brand = useBrand();
   const flagged = !r.enabled && r.pausedReason !== "";
   const system = isSystem(r);
+  const linear = isLinear(r);
   // An admin's pause says so itself; Podium's own say what Podium saw.
   const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by ${brand}. ${r.pausedReason}`;
   return (
@@ -263,8 +281,9 @@ function RoutineRow({
           {owner && !system ? <span className="text-xs text-faint">{owner}</span> : null}
         </div>
         <p className="text-sm text-muted">
-          Runs {r.scheduleText}
-          {r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {runsText(r)}
+          {!linear && r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {perTicket(r) ? <span className="text-faint"> · in each ticket’s conversation</span> : null}
           {system ? <span className="text-faint"> · as {brand}</span> : null}
         </p>
         {flagged ? (
@@ -280,12 +299,15 @@ function RoutineRow({
         className="m-0 grid grid-cols-3 gap-x-6 text-xs tabular-nums sm:w-max lg:grid-cols-[7.5rem_6.5rem_4rem]"
       >
         <div className="min-w-0">
-          <dt className="text-faint">Next run</dt>
+          {/* A routine on Linear events has no next run: what it has is the events waiting for one. */}
+          <dt className="text-faint">{linear ? "Waiting" : "Next run"}</dt>
           <dd className="m-0 truncate text-fg">
             {r.running
               ? "running now"
               : r.enabled
-                ? upcoming(r.nextRunAt)
+                ? linear
+                  ? waitingText(r.pendingEvents)
+                  : upcoming(r.nextRunAt)
                 : r.pausedUntil
                   ? upcoming(r.pausedUntil)
                   : "paused"}
@@ -304,11 +326,14 @@ function RoutineRow({
       </dl>
 
       <div className="flex items-center gap-1.5 lg:justify-end">
-        <Button size="sm" variant="outline" disabled={busy || r.running} onClick={onRun}>
-          <Zap />
-          Run now
-        </Button>
-        {/* One width for Pause and Resume, so Run now sits in the same place on every row. */}
+        {/* A routine on Linear events runs when they arrive; there is nothing to run by hand. */}
+        {linear ? null : (
+          <Button size="sm" variant="outline" disabled={busy || r.running} onClick={onRun}>
+            <Zap />
+            Run now
+          </Button>
+        )}
+        {/* One width for Pause and Resume, so the buttons line up on every row. */}
         <Button size="sm" variant="outline" disabled={busy} onClick={onToggle} className="w-[6.75rem]">
           {r.enabled ? <Pause /> : <Play />}
           {r.enabled ? "Pause" : "Resume"}
@@ -322,7 +347,7 @@ function RoutineRow({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={onOpen}>
               <MessageSquare />
-              Open chat
+              {r.chatId ? "Open chat" : "Open"}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onEdit}>
               <Pencil />
@@ -340,3 +365,31 @@ function RoutineRow({
   );
 }
 
+
+/**
+ * RoutinePage is a routine that has no chat of its own: one on Linear events that runs in each
+ * ticket's conversation, or one that has not run yet. Its card — when it runs, the controls, its
+ * notes and history — and its recent runs, each linking to the conversation it ran in, are here
+ * instead of at the top of a chat.
+ */
+export function RoutinePage() {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  return (
+    <PageFrame
+      title="Routine"
+      back={{ to: "/agent/routines", label: "Routines" }}
+      lead="A routine on Linear events that runs in each ticket’s conversation has no chat of its own: what each run said is in the conversation it ran in."
+    >
+      <div className="-mx-4 space-y-4 sm:-mx-6">
+        <RoutineCard routineId={id} onDeleted={() => void navigate("/agent/routines")} />
+        <section
+          aria-label="Recent runs"
+          className="mx-4 rounded-lg border border-border bg-panel px-3 py-3 text-xs sm:mx-6"
+        >
+          <RunList routineId={id} />
+        </section>
+      </div>
+    </PageFrame>
+  );
+}

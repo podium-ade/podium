@@ -13,7 +13,8 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
-import { RoutinesPanel } from "../components/agent/RoutinesPanel";
+import { RoutinePage, RoutinesPanel } from "../components/agent/RoutinesPanel";
+import { LinearTable } from "../components/agent/LinearTable";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybookPage, PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillPage, SkillsPanel } from "../components/agent/SkillsPanel";
@@ -37,8 +38,8 @@ import { cn } from "../lib/utils";
 import { canManageInfra } from "../lib/rbac";
 
 /**
- * Tab is one assistant screen. Chat, Sessions, Memory and Assistants are links in the app
- * sidebar, as are Playbooks, Skills, MCP, Channels and each former settings section.
+ * Tab is one assistant screen. Chat, Linear, Sessions, Memory and Assistants are links in the
+ * app sidebar, as are Playbooks, Skills, MCP, Channels and each former settings section.
  *
  * `route` exists only for Chat, whose own screen takes a chat id after the segment.
  *
@@ -55,6 +56,12 @@ type Tab = {
 
 const tabs: Tab[] = [
   { path: "chat", title: "Chat", element: <ChatPanel />, route: "chat/*" },
+  {
+    path: "linear",
+    title: "Linear",
+    lead: "Every Linear issue your assistants work on, one conversation each, however it was started: a delegation, a mention, or a routine.",
+    element: <LinearTable />,
+  },
   {
     path: "sessions",
     title: "Sessions",
@@ -80,6 +87,7 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "mcp", element: <McpPanel /> },
   { path: "channels", element: <ChannelsPanel /> },
   { path: "routines", element: <RoutinesPanel /> },
+  { path: "routines/:id", element: <RoutinePage /> },
   // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.

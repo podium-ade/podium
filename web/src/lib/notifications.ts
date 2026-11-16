@@ -27,6 +27,16 @@ export type AppNotification = {
   createdAt: number;
   readAt?: number;
   resolvedAt?: number;
+  /** reply is set on a question the assistant asked the viewer: the inbox answers it inline,
+   * by sending to the conversation it was asked in. */
+  reply?: NotificationReply;
+};
+
+/** NotificationReply is where an inline answer goes, and the server row it closes. */
+export type NotificationReply = {
+  chatId: string;
+  /** notificationId is the conductor's inbox row, which Dismiss marks read. */
+  notificationId: string;
 };
 
 export type AlertDraft = Omit<AppNotification, "id" | "createdAt" | "readAt" | "resolvedAt">;
@@ -120,9 +130,26 @@ export function alertsFromChats(chats: readonly Chat[], seen: ChatSeen, openChat
 export function alertsFromInbox(rows: readonly Notification[], openChatId: string): AlertDraft[] {
   const drafts: AlertDraft[] = [];
   for (const n of rows) {
-    if (n.read || n.chatId === openChatId) continue;
+    // A question stays while its chat is on screen: it is open until answered, and dropping
+    // it there would resolve it in the history only to bring it back as new on leaving.
+    if (n.read || (n.chatId === openChatId && n.kind !== "question")) continue;
     const chat = `“${n.chatTitle || "a chat"}”`;
     const who = n.actor || "Somebody";
+    if (n.kind === "question") {
+      // The assistant asked them something in a Linear ticket's conversation. It needs them,
+      // and it is answered right here: the reply goes to the conversation as theirs, and the
+      // row closes when the conversation hears from anybody — here, in the chat, or in Linear.
+      drafts.push({
+        key: `inbox:${n.id}`,
+        level: "alert",
+        title: questionTitle(n),
+        body: n.detail || "Open the conversation to see the question.",
+        href: `/agent/chat/${n.chatId}`,
+        action: "Open conversation",
+        reply: { chatId: n.chatId, notificationId: n.id.toString() },
+      });
+      continue;
+    }
     if (n.kind === "routine") {
       // A routine of theirs was paused, by Podium (it kept failing, or reached its spend cap)
       // or by an admin. It needs them: it stays paused until they look and resume it.
@@ -148,6 +175,12 @@ export function alertsFromInbox(rows: readonly Notification[], openChatId: strin
   return drafts;
 }
 
+/** questionTitle names the ticket a question is about: "ENG-12 · Export is slow". */
+export function questionTitle(n: Pick<Notification, "linearIdentifier" | "linearTitle" | "chatTitle">): string {
+  const ticket = [n.linearIdentifier, n.linearTitle].filter(Boolean).join(" · ");
+  return `Podium asks you about ${ticket || `“${n.chatTitle || "a ticket"}”`}`;
+}
+
 /**
  * mergeNotifications folds the live set into the stored log.
  * An open row with the same key stays. A condition that cleared is marked resolved.
@@ -168,6 +201,8 @@ export function mergeNotifications(
       open.body = alert.body;
       open.href = alert.href;
       open.action = alert.action;
+      if (alert.reply) open.reply = alert.reply;
+      else delete open.reply;
       continue;
     }
     next.push({ ...alert, id: `${alert.key}:${now}`, createdAt: now });

@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Globe } from "lucide-react";
 import github from "../../../assets/marks/github.svg";
+import linear from "../../../assets/marks/linear.svg";
 import slack from "../../../assets/marks/slack.svg";
 import { googlePicture } from "../../../lib/avatar";
 import { surfaceName } from "../../../lib/surfaces";
 import { cn } from "../../../lib/utils";
 
-const MARKS: Record<string, string> = { github, slack };
+const MARKS: Record<string, string> = { github, linear, slack };
 
 /**
- * OriginMark is the small badge saying where a message was said: the Slack or GitHub mark,
- * or a globe for the web chat. With a url it is a link to the message there.
+ * OriginMark is the small badge saying where a message was said: the Slack, GitHub or Linear
+ * mark, or a globe for the web chat. With a url it is a link to the message there.
  */
 export function OriginMark({ via, url, className }: { via?: string; url?: string; className?: string }) {
   if (!via || via === "bot") return null;

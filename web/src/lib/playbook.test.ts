@@ -28,6 +28,8 @@ const draft: PlaybookDraft = {
   repos: [],
   slackChannels: [],
   linear: false,
+  linearTeams: ["ENG"],
+  linearLabels: ["bug"],
   github: false,
   githubRepos: [],
   githubRequires: "",
@@ -41,6 +43,28 @@ const draft: PlaybookDraft = {
   runsOn: "",
   sandbox: NO_OVERRIDES,
 };
+
+describe("Linear rules", () => {
+  it("write linear_teams and linear_labels, and read them back", () => {
+    const yaml = draftToYaml(draft);
+    expect(yaml).toContain("linear_teams:");
+    expect(yaml).toContain("linear_labels:");
+    const { doc, problems } = parsePlaybookYaml(yaml);
+    expect(problems).toEqual([]);
+    expect(doc?.linear_teams).toEqual(["ENG"]);
+    expect(doc?.linear_labels).toEqual(["bug"]);
+    expect(docToDraft("reporter", doc!)).toMatchObject({ linearTeams: ["ENG"], linearLabels: ["bug"] });
+  });
+
+  it("leaves them out when a playbook names none", () => {
+    const yaml = draftToYaml({ ...draft, linearTeams: [], linearLabels: [] });
+    expect(yaml).not.toContain("linear_teams");
+    expect(yaml).not.toContain("linear_labels");
+    expect(definitionToYaml(create(PlaybookDefinitionSchema, { name: "x", linearTeams: ["OPS"] }))).toContain(
+      "linear_teams",
+    );
+  });
+});
 
 describe("parsePlaybookYaml", () => {
   it("decodes a playbooks/<name>.yaml", () => {
