@@ -519,8 +519,10 @@ export function ChatComposer({
         <p data-testid="chat-composer-note" className="mt-1.5 px-2 text-2xs text-faint">
           {fileError !== ""
             ? fileError
-            : mirrored !== ""
-              ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
+            : mirrored === "linear"
+              ? "Messages here are posted to the Linear issue as yours, and so is Podium's answer."
+              : mirrored !== ""
+                ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
               : running
                 ? multiplayer
                   ? `A message mentioning ${PODIUM_MENTION} is queued until the answer in progress is done. Anything else is posted now.`
