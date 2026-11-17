@@ -202,4 +202,57 @@ describe("ChannelsPanel", () => {
     await userEvent.type(screen.getByTestId("channel-search"), "nothing-like-this");
     expect(await screen.findByText(/No channels match/)).toBeInTheDocument();
   });
+
+  it("shows when the catalogue was last refreshed and refreshes only on the button", async () => {
+    listSlackChannels.mockResolvedValueOnce({ channels: [channel()], slackConnected: true });
+    let finish: (v: unknown) => void = () => {};
+    mount();
+
+    await screen.findByTestId("slack-channel-row");
+    expect(screen.getByTestId("channel-refreshed")).toHaveTextContent("Not refreshed from Slack yet");
+    expect(listSlackChannels).toHaveBeenCalledTimes(1);
+    expect(listSlackChannels).toHaveBeenLastCalledWith({});
+
+    listSlackChannels.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await userEvent.click(screen.getByTestId("channel-refresh"));
+    expect(listSlackChannels).toHaveBeenLastCalledWith({ refresh: true });
+    // A second click while the first is in flight must not start another slow Slack listing.
+    expect(screen.getByTestId("channel-refresh")).toBeDisabled();
+    expect(screen.getByTestId("channel-refresh")).toHaveTextContent("Refreshing…");
+
+    finish({
+      channels: [channel(), channel({ id: "C2", name: "eng" })],
+      slackConnected: true,
+      refreshedAt: timestampFromDate(new Date()),
+    });
+    await waitFor(() => expect(screen.getAllByTestId("slack-channel-row")).toHaveLength(2));
+    expect(screen.getByTestId("channel-refreshed")).toHaveTextContent(/Refreshed/);
+    expect(screen.getByTestId("channel-refresh")).toBeEnabled();
+    expect(listSlackChannels).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the stored rows on screen when a refresh fails", async () => {
+    listSlackChannels.mockResolvedValueOnce({ channels: [channel()], slackConnected: true });
+    mount();
+    await screen.findByTestId("slack-channel-row");
+
+    listSlackChannels.mockRejectedValueOnce(new Error("slack is down"));
+    await userEvent.click(screen.getByTestId("channel-refresh"));
+
+    expect(await screen.findByText(/slack is down/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("slack-channel-row")).toHaveLength(1);
+    expect(screen.getByTestId("channel-refresh")).toBeEnabled();
+  });
+
+  it("offers no refresh when Slack is not connected", async () => {
+    listSlackChannels.mockResolvedValue({ channels: [channel()], slackConnected: false });
+    mount();
+    await screen.findByTestId("slack-channel-row");
+    expect(screen.queryByTestId("channel-refresh")).toBeNull();
+  });
 });

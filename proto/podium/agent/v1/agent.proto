@@ -260,8 +260,9 @@ service AgentService {
   // MarkNotificationsRead marks some, or all, of the caller's notifications read.
   rpc MarkNotificationsRead(MarkNotificationsReadRequest) returns (MarkNotificationsReadResponse);
   // ListSlackChannels reports every Slack channel this conductor has seen — invited and
-  // mentioned, or listed from Slack on this call — with the operator-authored description
-  // a turn of that channel is briefed with.
+  // mentioned — with the operator-authored description a turn of that channel is briefed
+  // with. It reads the stored catalogue and does not call Slack unless refresh is set (or the
+  // catalogue has never been refreshed), because listing a workspace's channels is slow.
   rpc ListSlackChannels(ListSlackChannelsRequest) returns (ListSlackChannelsResponse);
   // ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
   // Linear app is installed in, for the playbook editor's linear_teams and linear_labels
@@ -2718,13 +2719,19 @@ message SlackChannel {
   google.protobuf.Timestamp updated_at = 4;
 }
 
-message ListSlackChannelsRequest {}
+message ListSlackChannelsRequest {
+  // refresh lists the channels from Slack first and stores them. If Slack cannot be asked the
+  // call fails with unavailable and the stored catalogue is left as it was.
+  bool refresh = 1;
+}
 
 message ListSlackChannelsResponse {
   repeated SlackChannel channels = 1;
   // slack_connected is false when this conductor has no Slack source. The catalogue can
   // still hold rows from an earlier configuration; the UI says so rather than hiding.
   bool slack_connected = 2;
+  // refreshed_at is when the catalogue was last listed from Slack. Unset until the first time.
+  google.protobuf.Timestamp refreshed_at = 3;
 }
 
 message ListLinearCatalogRequest {}
