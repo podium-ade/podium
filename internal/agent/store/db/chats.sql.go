@@ -231,13 +231,11 @@ const createChat = `-- name: CreateChat :one
 
 insert into chats (
   id, title, login, created_at, auto_title, source_key, started_by, origin,
-  personality_id, personality_display, multiplayer
+  personality_id, personality_display
 )
 values (
   $1, $2, $3, $4, $5, $6, $7, $8,
-  $9, $10,
-  -- A mirrored conversation always has other people in it (decision 33).
-  $8::text <> 'web'
+  $9, $10
 )
 returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
@@ -1062,23 +1060,16 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 
 const markChatMultiplayer = `-- name: MarkChatMultiplayer :one
 update chats set multiplayer = true
-where id = $1 and not multiplayer and (
-  $2::bool
-  or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
-)
+where id = $1 and not multiplayer
 returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display, last_seq, multiplayer, general_access, general_role, link_token, deleted_at, channel_privacy, source_url, history_seeded, started_from_chat, started_by_turn, routine_id
 `
 
-type MarkChatMultiplayerParams struct {
-	ID    string
-	Force bool
-}
-
 // MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
-// call is what changed it, so the caller announces the change once. force is a share or a
-// mirrored conversation; otherwise it takes a second Podium person among the participants.
-func (q *Queries) MarkChatMultiplayer(ctx context.Context, arg MarkChatMultiplayerParams) (Chat, error) {
-	row := q.db.QueryRow(ctx, markChatMultiplayer, arg.ID, arg.Force)
+// call is what changed it, so the caller announces the change once. Whether a chat has the
+// second human it takes is store.MarkChatMultiplayer's to decide: it counts the people who
+// are not in Podium, which no query here can.
+func (q *Queries) MarkChatMultiplayer(ctx context.Context, id string) (Chat, error) {
+	row := q.db.QueryRow(ctx, markChatMultiplayer, id)
 	var i Chat
 	err := row.Scan(
 		&i.ID,

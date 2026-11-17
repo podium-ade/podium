@@ -150,7 +150,7 @@ describe("ShareDialog", () => {
     expect(screen.queryByTestId("share-link")).toBeNull();
   });
 
-  it("warns the owner that a first share moves the chat to the company key", async () => {
+  it("warns the owner that a second person moves the chat to the company key", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount();
     expect(await screen.findByTestId("share-key-warning")).toHaveTextContent("company’s model key");
@@ -158,17 +158,17 @@ describe("ShareDialog", () => {
     expect(screen.queryByTestId("share-key-note")).toBeNull();
   });
 
-  it("says a shared chat runs on the company key, without the warning", async () => {
+  it("does not say a chat runs on the company key just because it is shared", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing() });
     mount();
-    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
-    expect(screen.queryByTestId("share-key-warning")).toBeNull();
+    expect(await screen.findByTestId("share-key-warning")).toBeInTheDocument();
+    expect(screen.queryByTestId("share-key-note")).toBeNull();
   });
 
-  it("treats a chat the conductor marked multiplayer as shared", async () => {
+  it("says a chat with more than one person runs on the company key, without the warning", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount(true);
-    expect(await screen.findByTestId("share-key-note")).toBeInTheDocument();
+    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
     expect(screen.queryByTestId("share-key-warning")).toBeNull();
   });
 

@@ -425,3 +425,72 @@ func newStorePair(t *testing.T) (*store.Store, *store.Store) {
 	t.Cleanup(b.Close)
 	return a, b
 }
+
+// A reply nobody tagged Podium in is still put to it while its speaker is the only human in
+// the conversation — a Slack thread with one person and any number of bots — and stops being
+// the moment a second human, in Podium or not, has spoken (EME-8).
+func TestAReplyIsAnsweredUntilASecondHumanSpeaks(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	ask := inbound("C1/1.1", "what is this?")
+	ask.ExternalID = "1.1"
+	require.NoError(t, src.Send(ctx, ask))
+	waitFor(t, 30*time.Second, "the first turn", func() bool {
+		return turnStatus(st, ask.SourceKey) == store.TurnSucceeded
+	})
+
+	reply := func(ext, author string) {
+		ev := inbound("C1/1.1", "and then?")
+		ev.Author = author
+		ev.ExternalID = ext
+		ev.RecordOnly = true
+		ev.AnswerIfAlone = true
+		require.NoError(t, src.Send(ctx, ev))
+	}
+	recorded := func(ext string) (store.ChatMessage, bool) {
+		thread, err := st.ChatBySourceKey(ctx, ask.SourceKey)
+		if err != nil {
+			return store.ChatMessage{}, false
+		}
+		msgs, err := st.ListChatMessages(ctx, thread.ID, 0)
+		if err != nil {
+			return store.ChatMessage{}, false
+		}
+		for _, m := range msgs {
+			if m.ExternalID == ext {
+				return m, true
+			}
+		}
+		return store.ChatMessage{}, false
+	}
+
+	reply("1.2", "alice")
+	waitFor(t, 30*time.Second, "the untagged reply of the only human to start a turn", func() bool {
+		return len(fake.Specs()) == 2
+	})
+	got, ok := recorded("1.2")
+	require.True(t, ok)
+	assert.True(t, got.Addressed, "it was put to Podium")
+
+	// Somebody who never linked an account speaks: two humans, so only a tag is a turn.
+	reply("1.3", "bob")
+	waitFor(t, 10*time.Second, "bob's reply recorded", func() bool { _, ok := recorded("1.3"); return ok })
+	reply("1.4", "alice")
+	waitFor(t, 10*time.Second, "alice's second reply recorded", func() bool { _, ok := recorded("1.4"); return ok })
+	time.Sleep(500 * time.Millisecond) // give a third turn every chance to start
+
+	assert.Len(t, fake.Specs(), 2, "with two humans an untagged reply starts nothing")
+	for _, ext := range []string{"1.3", "1.4"} {
+		got, _ := recorded(ext)
+		assert.False(t, got.Addressed, ext)
+	}
+}

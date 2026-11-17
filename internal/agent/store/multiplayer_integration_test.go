@@ -12,23 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A chat is multiplayer once a second Podium person has taken part, or it is shared (force),
-// or it mirrors a conversation that lives elsewhere — and exactly one caller is told it
-// changed, however many race to make it so.
+// A chat is multiplayer once more than one human has been in it — a Podium person, or an
+// author who never linked an account — and never because of a share, a bot, or the surface it
+// lives on. Exactly one caller is told it changed, however many race to make it so.
 func TestMultiplayerIsStickyAndAnnouncedOnce(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
 	mirrored, err := s.CreateMirrorChat(ctx, "slack:C1:1.1", OriginSlack, "Alice", "t")
 	require.NoError(t, err)
-	assert.True(t, mirrored.Multiplayer, "a mirrored conversation always has other people in it")
+	assert.False(t, mirrored.Multiplayer, "a mirrored conversation is not multiplayer until a second human is in it")
 
 	web, err := s.CreateChat(ctx, "alice", "t")
 	require.NoError(t, err)
 	assert.False(t, web.Multiplayer)
 	_, err = s.AddChatParticipant(ctx, web.ID, "alice", JoinedWeb, time.Now())
 	require.NoError(t, err)
-	_, changed, err := s.MarkChatMultiplayer(ctx, web.ID, false)
+	_, changed, err := s.MarkChatMultiplayer(ctx, web.ID)
 	require.NoError(t, err)
 	assert.False(t, changed, "one person is not multiplayer")
 
@@ -41,7 +41,7 @@ func TestMultiplayerIsStickyAndAnnouncedOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, changed, err := s.MarkChatMultiplayer(ctx, web.ID, false)
+			_, changed, err := s.MarkChatMultiplayer(ctx, web.ID)
 			assert.NoError(t, err)
 			if changed {
 				mu.Lock()
@@ -55,12 +55,75 @@ func TestMultiplayerIsStickyAndAnnouncedOnce(t *testing.T) {
 	got, err := s.GetChat(ctx, web.ID)
 	require.NoError(t, err)
 	assert.True(t, got.Multiplayer)
+}
 
-	shared, err := s.CreateChat(ctx, "alice", "s")
+// Who counts as a second human (EME-8): one person and any number of bots do not make a chat
+// multiplayer, and two people do whether or not each has a Podium account.
+func TestOnlyMoreThanOneHumanMakesAChatMultiplayer(t *testing.T) {
+	ctx := context.Background()
+	say := func(s *Store, chatID, author, login, role string) {
+		t.Helper()
+		_, _, err := s.RecordChatMessage(ctx, ChatMessage{
+			ChatID: chatID, Role: role, Text: "hi", TS: time.Now().UTC(), Author: author,
+			AuthorLogin: login, Via: ViaSlack, ExternalID: author + time.Now().String(),
+		})
+		require.NoError(t, err)
+	}
+	for _, tc := range []struct {
+		name      string
+		linked    []string
+		unlinked  []string
+		botLines  int
+		wantMulti bool
+	}{
+		{name: "one linked human and bots", linked: []string{"alice"}, botLines: 3},
+		{name: "one unlinked human and bots", unlinked: []string{"Carol"}, botLines: 3},
+		{name: "two linked humans", linked: []string{"alice", "bob"}, wantMulti: true},
+		{name: "one linked and one unlinked human", linked: []string{"alice"}, unlinked: []string{"Carol"}, wantMulti: true},
+		{name: "two unlinked humans", unlinked: []string{"Carol", "Dave"}, wantMulti: true},
+		{name: "one unlinked human speaking twice", unlinked: []string{"Carol", "carol"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStore(t)
+			chat, err := s.CreateMirrorChat(ctx, "slack:C1:"+tc.name, OriginSlack, "x", "t")
+			require.NoError(t, err)
+			for _, login := range tc.linked {
+				_, err := s.AddChatParticipant(ctx, chat.ID, login, JoinedSlack, time.Now())
+				require.NoError(t, err)
+				say(s, chat.ID, login, login, RoleUser)
+			}
+			for _, name := range tc.unlinked {
+				say(s, chat.ID, name, "", RoleUser)
+			}
+			for range tc.botLines {
+				say(s, chat.ID, "Podium", "", RoleAssistant)
+			}
+			_, changed, err := s.MarkChatMultiplayer(ctx, chat.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMulti, changed)
+			got, err := s.GetChat(ctx, chat.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMulti, got.Multiplayer)
+		})
+	}
+}
+
+// Sharing a chat is not a second human being in it.
+func TestSharingAChatDoesNotMakeItMultiplayer(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c, err := s.CreateChat(ctx, "alice", "t")
 	require.NoError(t, err)
-	_, changed, err = s.MarkChatMultiplayer(ctx, shared.ID, true)
+	_, err = s.AddChatParticipant(ctx, c.ID, "alice", JoinedWeb, time.Now())
 	require.NoError(t, err)
-	assert.True(t, changed, "a share makes it multiplayer with one person")
+	_, err = s.ShareChat(ctx, c.ID, "bob", RoleEditor, "alice")
+	require.NoError(t, err)
+	_, err = s.SetChatGeneralAccess(ctx, c.ID, AccessLink, RoleViewer)
+	require.NoError(t, err)
+
+	_, changed, err := s.MarkChatMultiplayer(ctx, c.ID)
+	require.NoError(t, err)
+	assert.False(t, changed)
 }
 
 // A chat with somebody else's personal assistant is listed under Podium for a participant
@@ -135,7 +198,7 @@ func TestTheTurnQueue(t *testing.T) {
 }
 
 // TestBecomingMultiplayerNamesTheOwnersEarlierMessages: a single-player chat leaves author
-// empty, so once it is shared the owner's earlier messages are named too, and the thread does
+// empty, so once a second person is in it the owner's earlier messages are named too, and the thread does
 // not show the owner as the one person who said things without a name.
 func TestBecomingMultiplayerNamesTheOwnersEarlierMessages(t *testing.T) {
 	s := newStore(t)
@@ -150,7 +213,11 @@ func TestBecomingMultiplayerNamesTheOwnersEarlierMessages(t *testing.T) {
 	_, err = s.AppendChatMessage(ctx, ChatMessage{ChatID: web.ID, Role: RoleAssistant, Text: "an answer"})
 	require.NoError(t, err)
 
-	_, changed, err := s.MarkChatMultiplayer(ctx, web.ID, true)
+	for _, login := range []string{"alice@acme.test", "bob@acme.test"} {
+		_, err = s.AddChatParticipant(ctx, web.ID, login, JoinedWeb, time.Now())
+		require.NoError(t, err)
+	}
+	_, changed, err := s.MarkChatMultiplayer(ctx, web.ID)
 	require.NoError(t, err)
 	require.True(t, changed)
 

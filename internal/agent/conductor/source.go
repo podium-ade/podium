@@ -185,9 +185,15 @@ type InboundEvent struct {
 	SpeakerHandle string
 	// RecordOnly is a message nobody put to Podium — a reply in a thread it is already in,
 	// a pull-request comment that does not mention it. It is recorded in the conversation's
-	// chat and NEVER starts a turn. It is recorded only into a chat that already exists:
+	// chat and starts no turn (but see AnswerIfAlone). It is recorded only into a chat that already exists:
 	// Podium keeps the whole of a conversation it is part of, and nothing of one it is not.
 	RecordOnly bool
+	// AnswerIfAlone makes a RecordOnly message Podium's to answer all the same when its speaker
+	// is the only human who has spoken in the conversation, linked to Podium or not
+	// (Conductor.soleHumanReply). The source sets it where a reply in a conversation Podium is
+	// in can only be for Podium until somebody else joins; a source whose conversation is
+	// everybody's, a pull request, leaves it false.
+	AnswerIfAlone bool
 	// Change, when set, makes this event an edit (ChangeEdited) or a delete (ChangeDeleted)
 	// of the message named by ExternalID, made on its own surface. Text is the new text of
 	// an edit. A change updates the record and never starts a turn — not even an edit that

@@ -98,11 +98,11 @@ func (f *fakeStore) AddChatParticipant(_ context.Context, chatID, login, _ strin
 	return true, nil
 }
 
-func (f *fakeStore) MarkChatMultiplayer(_ context.Context, chatID string, force bool) (store.Chat, bool, error) {
+func (f *fakeStore) MarkChatMultiplayer(_ context.Context, chatID string) (store.Chat, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.chats[chatID]
-	if !ok || c.Multiplayer || (!force && len(f.participants[chatID]) < 2) {
+	if !ok || c.Multiplayer || len(f.participants[chatID]) < 2 {
 		return store.Chat{}, false, nil
 	}
 	c.Multiplayer = true

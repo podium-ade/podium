@@ -138,8 +138,9 @@ export function ShareButton({
  * ShareDialog is laid out like a document's: add people, the people with access (the owner
  * pinned first), and general access with its link.
  *
- * multiplayer is the chat's own flag. A shared chat runs on the company's model key, for
- * good, so the dialog warns before the first share and says so afterwards.
+ * multiplayer is the chat's own flag, set once a second person is in it. Such a chat runs on the
+ * company's model key, for good, so the dialog warns the owner before they share and says so
+ * afterwards. A share alone does not set it.
  */
 export function ShareDialog({
   chatId,
@@ -186,12 +187,6 @@ export function ShareDialog({
   const s = sharing.data;
   const owner = s?.myRole === "owner";
   const busy = share.isPending || unshare.isPending || update.isPending;
-  // Shared already: the chat says so, or this dialog has just shared it and the chat's own
-  // flag has not come back on the stream yet.
-  const shared =
-    multiplayer ||
-    (s !== undefined && (s.grants.length > 0 || (s.generalAccess !== "" && s.generalAccess !== "restricted")));
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="share-dialog" className="max-w-lg">
@@ -212,9 +207,9 @@ export function ShareDialog({
         ) : null}
 
         {s ? (
-          shared ? (
+          multiplayer ? (
             <Alert role="note" data-testid="share-key-note">
-              This chat is shared, so Podium answers it using the company’s model key.
+              More than one person is in this chat, so Podium answers it using the company’s model key.
               Everyone keeps their own GitHub account, secrets and MCP servers.
             </Alert>
           ) : owner ? (
@@ -222,10 +217,10 @@ export function ShareDialog({
               variant="warn"
               role="note"
               data-testid="share-key-warning"
-              title="Shared chats use the company’s model key"
+              title="A chat with a second person uses the company’s model key"
             >
-              Once shared, Podium’s replies here, yours included, are billed to the company
-              instead of your own key, even if you stop sharing later. Everyone keeps their own
+              Once somebody else speaks in it, Podium’s replies here, yours included, are billed to
+              the company instead of your own key, even if you stop sharing later. Everyone keeps their own
               GitHub account, secrets and MCP servers.
             </Alert>
           ) : null

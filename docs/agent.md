@@ -445,15 +445,16 @@ What is put to Podium while it is answering is **queued** (`turn_queue`) and bec
 own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
-- **A shared conversation spends the company's model key.** Once a chat is multiplayer, and
-  always for a Slack thread, a Linear issue or agent session, or a pull request, every turn and every task it
+- **A shared conversation spends the company's model key.** Once a chat is multiplayer (more
+  than one human has been in it), and always for a Slack thread, a Linear issue or agent session, or a pull request, every turn and every task it
   delegates runs on the company's credential, never on the asker's own
   `model.<provider>.api_key` or Claude sign-in, the owner's included. A shared conversation has one context, so it spends one
   credential: turns from different people then share the provider's prompt cache, which is
   scoped to the credential's workspace, and nobody's own key is spent by somebody else's
   question. Only the model key moves. The asker's secrets, MCP servers and GitHub account
   still apply to what they ask. Multiplayer is sticky, so this holds after a chat is
-  unshared. The share dialog warns the owner before the first share
+  unshared. A share alone is not a second person, so a chat shared with somebody who has not
+  spoken still spends its one speaker's own key. The share dialog warns the owner before they share
   (`conductor.turnCredentialOwner`).
 - **One person's run of messages is one turn**, as it always was: the latest is the instruction
   and the rest are in the transcript. A message from the same person on the same surface still
@@ -472,10 +473,17 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   send** — stop the answer, and the queue goes on in order. In a multiplayer chat only a message
   that mentions Podium is queued; talk between people is recorded at once. A reply to a task's
   question is never queued.
-- **A multiplayer chat answers only a mention.** A web chat becomes multiplayer once a second
-  Podium person is in it or it is shared, and stays so; a Slack thread, a pull request or a
-  Linear agent session always is.
-  A message then has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
+- **A multiplayer chat answers only a mention.** A chat becomes multiplayer once more than one
+  human has been in it, and stays so. Humans are the Podium people who took part and the
+  people who did not link an account (a Slack or Linear user, a GitHub commenter) known by the
+  name on their messages; bots are not counted, and neither is a share on its own. One human
+  and any number of bots is not multiplayer: everything that human says is put to Podium,
+  tagged or not — in a Slack thread too, where an untagged reply is answered while its speaker
+  is the only human who has spoken in it (`InboundEvent.AnswerIfAlone`, `Conductor.soleHumanReply`).
+  A pull request's conversation and a Linear agent session still answer only a mention. Two
+  unlinked people who share a display name count as one. Chats opened before this rule keep
+  the flag they had, which is sticky.
+  Once a chat is multiplayer, a message has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
   would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
 - **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
   conductor runs it — a host turn, a task, or a chat-host turn, including one still waiting for
@@ -510,8 +518,8 @@ write agrees.
   if general access is narrowed later. **Reset link** makes a new 128-bit token: the old link
   stops letting anybody in; people who joined keep access. Narrowing to Restricted stops the
   link working at all. Only the owner is ever shown the link.
-- **Sharing makes a chat multiplayer** (a mention starts a turn), and a share notifies the
-  person in their inbox. A `@`-mention of somebody who can open the chat notifies them too.
+- **Sharing does not make a chat multiplayer** by itself; the second human to speak does. A share
+  notifies the person in their inbox. A `@`-mention of somebody who can open the chat notifies them too.
   Both are toasted once in the web UI and shown in the bell; opening the chat marks them read.
 - **Lists:** Chat and Sessions show *Shared with me* (shared by name or opened from a link,
   wherever it lives) and *Workspace* sections, who shared each one, your role, and unread
@@ -556,7 +564,7 @@ link, which the assistant puts in its reply.
   be shared with people who cannot see the old one. The new chat records where it came from
   (`0041`, `started_from_chat`).
 - **Sharing is the Share dialog's.** Named people are notified, a shared chat is multiplayer
-  from the start, link access gets a fresh token (the returned link carries it), and every
+  once somebody else speaks in it, link access gets a fresh token (the returned link carries it), and every
   step is audited as the asker's — `chat.start`, then `chat.share` and `chat.general_access`
   with `via: assistant`. Somebody who has never signed in is refused by name, and nothing is
   opened.

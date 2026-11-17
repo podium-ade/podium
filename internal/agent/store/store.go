@@ -710,9 +710,9 @@ type Chat struct {
 	// chat, the Slack thread or the pull request for a mirrored one. The API reads the
 	// conversation's surfaces from it.
 	SourceKey string
-	// Multiplayer is sticky (0034): set once a chat has had a second Podium person in it, is
-	// shared, or mirrors a conversation that lives elsewhere. A web message must then tag
-	// Podium to start a turn.
+	// Multiplayer is sticky (0034): set once more than one human has been in a chat, in Podium
+	// or not (MarkChatMultiplayer). Bots do not count, and neither does a share on its own.
+	// A message must then tag Podium to start a turn.
 	Multiplayer bool
 	// GeneralAccess is who beyond the named grants may open it (0035): AccessRestricted,
 	// AccessMembers or AccessLink. GeneralRole is what they get: RoleViewer or RoleEditor.
