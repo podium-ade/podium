@@ -135,6 +135,10 @@ const DefaultLinearTokenURL = "https://api.linear.app/oauth/token"
 // two orders of magnitude inside the budget.
 const DefaultLinearPollInterval = 30 * time.Second
 
+// DefaultWatchdogQuiet is how long a running task may report nothing before the conductor
+// asks its conversation whether to wait, restart it or end it.
+const DefaultWatchdogQuiet = 10 * time.Minute
+
 // MinLinearPollInterval is the floor. Polling harder than this buys nothing a human would
 // notice and spends a quota shared by every key that user owns.
 const MinLinearPollInterval = 10 * time.Second
@@ -392,6 +396,10 @@ type Config struct {
 	// NotifyAway is PODIUM_AGENT_NOTIFY_AWAY: how long a person has said nothing in a
 	// conversation before a task ending there is sent to them. Zero is the conductor's default.
 	NotifyAway time.Duration
+	// WatchdogQuiet is PODIUM_AGENT_WATCHDOG_QUIET: how long a running task may report
+	// nothing before its conversation is asked whether to wait, restart it or end it.
+	// Default DefaultWatchdogQuiet; 0s turns the watchdog off.
+	WatchdogQuiet time.Duration
 	// ReplicaID is PODIUM_AGENT_REPLICA_ID: this conductor's identity among the conductors
 	// that share its database, which its leases on sessions and delegations are held under.
 	// Default ReplicaIDFor(hostname, Listen): stable across this conductor's restarts, so it
@@ -479,6 +487,7 @@ func FromEnv() Config {
 		SMTPURL:               strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
 		SMTPFrom:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
 		NotifyAway:            envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
+		WatchdogQuiet:         envDuration("PODIUM_AGENT_WATCHDOG_QUIET", DefaultWatchdogQuiet),
 		ReplicaID:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
 		SandboxURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
 		SurfaceListen:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
@@ -716,6 +725,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("host_isolation", c.HostIsolation),
 		slog.String("host_memory_max", c.HostMemoryMax),
 		slog.Duration("host_warm", c.HostWarm),
+		slog.Duration("watchdog_quiet", c.WatchdogQuiet),
 		slog.String("chat_host", c.ChatHost),
 		slog.String("chat_host_claude", c.ChatHostClaude),
 		slog.String("public_url", c.PublicURL),
@@ -1037,6 +1047,9 @@ func (c Config) validateHostAndSurface() error {
 	}
 	if c.HostWarm < 0 {
 		return errors.New("PODIUM_AGENT_HOST_WARM must not be negative; 0s turns the warm window off")
+	}
+	if c.WatchdogQuiet < 0 {
+		return errors.New("PODIUM_AGENT_WATCHDOG_QUIET must be a duration such as 10m; 0s turns the watchdog off")
 	}
 	if (c.SMTPURL == "") != (c.SMTPFrom == "") {
 		return errors.New("PODIUM_AGENT_SMTP_URL and PODIUM_AGENT_SMTP_FROM go together")
