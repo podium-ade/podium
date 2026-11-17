@@ -11,7 +11,7 @@
 // a command line cannot carry a system prompt of several kilobytes or an MCP server's
 // bearer token.
 
-import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
+import { execFile, spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lookup as dnsLookupCb } from "node:dns";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -575,6 +575,7 @@ export async function serve(opts: {
   env: NodeJS.ProcessEnv;
   warn: (line: string) => void;
 }): Promise<Server> {
+  await checkHarness(opts.env);
   const port = await freePort();
   const password = randomBytes(24).toString("base64url");
   const child = spawn(Binary, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
@@ -720,6 +721,53 @@ export const NotInstalledText =
   `I couldn't start: the program that runs me (${Binary}) isn't installed on the machine ` +
   `running Podium's conductor. Whoever runs Podium can install it with ` +
   `\`npm install -g @opencode/cli@${HarnessVersion}\`; nothing needs restarting. Then ask me again.`;
+
+/**
+ * HarnessMajor is the opencode major this runtime writes config for and drives. An opencode 1
+ * reads the config, serves, and then refuses `run --server` with its usage text, so a host
+ * whose global npm still holds `opencode-ai` (what Podium asked for before 2.2.5) would fail
+ * every turn after a half-minute wait on an MCP endpoint it does not have.
+ */
+export const HarnessMajor = 2;
+
+/** wrongVersionText is what a turn says when the harness on PATH is the wrong opencode. */
+export function wrongVersionText(found: string): string {
+  return (
+    `I couldn't start: the machine running Podium's conductor has ${Binary} ${found}, and I need ` +
+    `${HarnessVersion}. Whoever runs Podium can replace it with ` +
+    `\`npm uninstall -g opencode-ai && npm install -g @opencode/cli@${HarnessVersion}\`; ` +
+    `nothing needs restarting. Then ask me again.`
+  );
+}
+
+/** harnessMajor is the major version in `opencode --version` output, or undefined. */
+export function harnessMajor(output: string): number | undefined {
+  const m = /(\d+)\.\d+\.\d+/.exec(output);
+  return m ? Number(m[1]) : undefined;
+}
+
+/**
+ * checkHarness rejects with HarnessNotStarted when the opencode on PATH cannot run this turn:
+ * missing, not runnable, or older than HarnessMajor. An output it cannot read is let through;
+ * serve fails on its own if the binary is wrong in some other way.
+ */
+async function checkHarness(env: NodeJS.ProcessEnv): Promise<void> {
+  let out: string;
+  try {
+    out = (await promisify(execFile)(Binary, ["--version"], { env, timeout: 30_000 })).stdout;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.syscall?.startsWith("spawn")) {
+      throw new HarnessNotStarted(notStartedText(e), e);
+    }
+    return;
+  }
+  const major = harnessMajor(out);
+  if (major !== undefined && major < HarnessMajor) {
+    const found = out.trim();
+    throw new HarnessNotStarted(wrongVersionText(found), new Error(`${Binary} --version is ${found}`));
+  }
+}
 
 /**
  * notStartedText is what a turn says when spawning the harness failed with err.
