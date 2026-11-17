@@ -112,6 +112,7 @@ func TestOnlyMoreThanOneHumanMakesAChatMultiplayer(t *testing.T) {
 func TestSharingAChatDoesNotMakeItMultiplayer(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
+	member(t, s, "alice", "bob")
 	c, err := s.CreateChat(ctx, "alice", "t")
 	require.NoError(t, err)
 	_, err = s.AddChatParticipant(ctx, c.ID, "alice", JoinedWeb, time.Now())
