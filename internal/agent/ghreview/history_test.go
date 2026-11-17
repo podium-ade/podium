@@ -63,3 +63,17 @@ func TestRefForKeyNamesThePullRequest(t *testing.T) {
 	_, ok = s.RefForKey("slack:C1:1.1")
 	assert.False(t, ok)
 }
+
+// A bot's earlier comment is seeded into the record flagged as a bot's, and a person's is not.
+func TestHistoryFlagsABotsComments(t *testing.T) {
+	s := &Source{slug: "podium"}
+	t0 := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	items := []historyItem{
+		{KindIssueComment, 1, "coverage 91%", "https://gh/c1", t0, User{Login: "codecov[bot]", Type: "Bot", ID: 9}},
+		{KindIssueComment, 2, "thanks", "https://gh/c2", t0.Add(time.Minute), User{Login: "bob", Type: "User", ID: 2}},
+	}
+	got := s.historyEvents(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42}, items)
+	require.Len(t, got, 2)
+	assert.True(t, got[0].AuthorBot)
+	assert.False(t, got[1].AuthorBot)
+}

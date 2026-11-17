@@ -76,7 +76,7 @@ type Store interface {
 	RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error)
 	ChatRole(ctx context.Context, chatID, viewer string) (string, error)
 	AddChatParticipant(ctx context.Context, chatID, login, via string, at time.Time) (bool, error)
-	MarkChatMultiplayer(ctx context.Context, chatID string, force bool) (store.Chat, bool, error)
+	MarkChatMultiplayer(ctx context.Context, chatID string) (store.Chat, bool, error)
 	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
 }
 
@@ -550,7 +550,7 @@ func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) er
 }
 
 // joined makes the sender a participant of the chat, and the chat multiplayer once a second
-// Podium person is in it. The moment it becomes multiplayer is announced in the thread, once.
+// human is in it. The moment it becomes multiplayer is announced in the thread, once.
 func (s *Source) joined(ctx context.Context, chat store.Chat, login string) {
 	if _, err := s.store.AddChatParticipant(ctx, chat.ID, login, store.JoinedWeb, time.Now().UTC()); err != nil {
 		s.logger.WarnContext(ctx, "recording a chat's participant failed", "chat_id", chat.ID, "error", err)
@@ -559,15 +559,14 @@ func (s *Source) joined(ctx context.Context, chat store.Chat, login string) {
 	if chat.Multiplayer {
 		return
 	}
-	s.Multiplayer(ctx, chat.ID, false, "")
+	s.Multiplayer(ctx, chat.ID, "")
 }
 
-// Multiplayer makes a chat multiplayer, if it is not yet: force for a share (phase 5),
-// otherwise only once a second Podium person has taken part. The call that changes it posts
-// the notice that says so; who, when the caller knows it, is the person whose arrival made
-// it so.
-func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who string) {
-	updated, changed, err := s.store.MarkChatMultiplayer(ctx, chatID, force)
+// Multiplayer makes a chat multiplayer, if it is not yet and has a second human in it (a
+// share alone does not, nor does a bot). The call that changes it posts the notice that says
+// so; who, when the caller knows it, is the person whose arrival made it so.
+func (s *Source) Multiplayer(ctx context.Context, chatID, who string) {
+	updated, changed, err := s.store.MarkChatMultiplayer(ctx, chatID)
 	if err != nil {
 		s.logger.WarnContext(ctx, "marking a chat multiplayer failed", "chat_id", chatID, "error", err)
 		return
@@ -575,12 +574,9 @@ func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who
 	if !changed {
 		return
 	}
-	text := "This chat is shared now — Podium only answers when mentioned."
-	if !force {
-		text = "More than one person is in this chat now — Podium only answers when mentioned."
-		if who != "" {
-			text = who + " is in this chat too now — Podium only answers when mentioned."
-		}
+	text := "More than one person is in this chat now — Podium only answers when mentioned."
+	if who != "" {
+		text = who + " is in this chat too now — Podium only answers when mentioned."
 	}
 	notice, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 		ChatID: chatID,

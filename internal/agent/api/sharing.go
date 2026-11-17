@@ -359,9 +359,6 @@ func (s *AgentService) UpdateChatSharing(
 			s.auditChat(ctx, login, AuditChatLinkReset, row.ID, nil)
 		}
 	}
-	if row.GeneralAccess != store.AccessRestricted {
-		s.chat.Multiplayer(ctx, row.ID, true, "")
-	}
 	s.chat.ChatChanged(ctx, row.ID)
 	out, err := s.sharingToProto(ctx, row, store.RoleOwner)
 	if err != nil {
@@ -405,7 +402,6 @@ func (s *AgentService) ShareChat(
 	s.auditChat(ctx, login, AuditChatShare, row.ID, map[string]any{
 		"login": target, "role": req.Msg.GetRole(), "first": first,
 	})
-	s.chat.Multiplayer(ctx, row.ID, true, "")
 	s.chat.ChatChanged(ctx, row.ID)
 	out, err := s.sharingToProto(ctx, row, store.RoleOwner)
 	if err != nil {
