@@ -313,7 +313,7 @@ func oneLine(s string) string {
 // takeWatchdogReply reports whether ev answers a watchdog question this session is parked
 // on, and if it does, unparks it and returns the task and the choice. The caller holds c.mu.
 func (c *Conductor) takeWatchdogReply(st *sessionState, src Source, ev InboundEvent, same bool) (string, watchdogChoice, bool) {
-	if st.watchdogTaskID == "" || !(same || c.answersQuestion(st, src, ev)) {
+	if st.watchdogTaskID == "" || (!same && !c.answersQuestion(st, src, ev)) {
 		return "", "", false
 	}
 	choice, ok := parseWatchdogChoice(ev.Text)
