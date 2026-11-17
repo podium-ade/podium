@@ -71,6 +71,8 @@ type turnRun struct {
 	warm bool
 	// spoke is set once the turn has said anything, so its first word is timed once.
 	spoke bool
+	// watch is this turn's task as the watchdog sees it (watchdog.go).
+	watch *watch
 }
 
 // noteFirstMessage times the turn's first word, once: the boot a person waited through.
@@ -84,6 +86,10 @@ func (r *turnRun) noteFirstMessage() {
 
 // run relays the task's messages and then records how the turn ended.
 func (r *turnRun) run(ctx context.Context) {
+	// A turn's instruction is not kept anywhere a new task could be started from, so a
+	// wedged one can only be ended; one that is only quiet can still be interrupted.
+	r.watch = &watch{taskID: r.turn.TaskID, sessionID: r.sess.ID, playbook: r.job.playbook.Name, sink: r.sink}
+	defer r.c.startWatch(r.watch)()
 	f := &follower{
 		tasks:       r.c.podium.Tasks,
 		taskID:      r.turn.TaskID,
@@ -273,8 +279,13 @@ func (c *Conductor) linkPullRequests(ctx context.Context, src Source, ref, answe
 // onEvent is the relay. Only MESSAGE events say anything; ERROR is remembered for the log;
 // everything else, log chunks included, is ignored — the conductor is not a log consumer.
 func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
+	r.c.observeWatch(ctx, r.watch, e)
 	switch e.GetKind() {
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:
+		if msg := e.GetMessage(); msg.GetType() == MsgHeartbeat {
+			// Liveness for the watchdog, and nothing anybody should see.
+			return
+		}
 		if msg := e.GetMessage(); msg.GetType() == MsgAccounting {
 			// Deliberately not through the relayed ledger: accounting is never said out
 			// loud, so exactly-once does not apply to it, and leaving its seq unclaimed is

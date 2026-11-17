@@ -172,6 +172,12 @@ type Options struct {
 	// NotifyAwayAfter is how long a person has said nothing before they count as away. Zero
 	// means DefaultNotifyAwayAfter.
 	NotifyAwayAfter time.Duration
+	// WatchdogQuietAfter is how long a running task may report nothing before the watchdog
+	// asks its conversation whether to wait, restart it or end it (watchdog.go). Zero turns
+	// the watchdog off. WatchdogWedgedAfter is how long without a heartbeat it counts as
+	// wedged rather than quiet; zero means DefaultWatchdogWedgedAfter.
+	WatchdogQuietAfter  time.Duration
+	WatchdogWedgedAfter time.Duration
 	// PublicURL is this deployment's web UI, for the link in a notification. Empty sends none.
 	PublicURL string
 	// Keys answers whether a stored model key is being refused, and is told when a turn was
@@ -267,7 +273,10 @@ type Conductor struct {
 	// notifiers, notifyAwayAfter and publicURL are notify.go's.
 	notifiers       []Notifier
 	notifyAwayAfter time.Duration
-	publicURL       string
+	// watchdogQuietAfter and watchdogWedgedAfter are the watchdog's thresholds (watchdog.go).
+	watchdogQuietAfter  time.Duration
+	watchdogWedgedAfter time.Duration
+	publicURL           string
 	// keys is Options.Keys.
 	keys KeyHealth
 	// replicaID, leaseTTL and heldLeases are this conductor's share of the work with the
@@ -320,6 +329,8 @@ type Conductor struct {
 	// The durable half is the delegations table; this is only how a turn asking for
 	// progress finds the last thing its task said.
 	liveDelegations map[string]*delegationRun
+	// watches are the running tasks the watchdog is watching, by task id (watchdog.go).
+	watches map[string]*watch
 	// routineTurns is the scheduled routine runs this conductor is running, by turn id
 	// (routine.go). Guarded by mu.
 	routineTurns map[string]*routineTurn
@@ -369,6 +380,10 @@ type sessionState struct {
 	// warmHost is a host turn that has answered and is still up, waiting for the next
 	// message, which is written into its inbox. See hostwarm.go.
 	warmHost *warmHost
+	// watchdogTaskID is a running task the watchdog asked this conversation about
+	// (watchdog.go). The next reply that reads as wait, restart or end is the answer, and is
+	// not passed to the task.
+	watchdogTaskID string
 	// emptyPops is how many times in a row kick took the lease and found nothing it could
 	// pop while the queue still counted rows (queue.go, retryQueue). Reset by a pop that works.
 	emptyPops int
@@ -439,6 +454,8 @@ func New(opts Options) (*Conductor, error) {
 		chatHostClaude:      opts.ChatHostClaude && opts.ChatHost != nil,
 		notifiers:           opts.Notifiers,
 		notifyAwayAfter:     cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
+		watchdogQuietAfter:  opts.WatchdogQuietAfter,
+		watchdogWedgedAfter: cmp.Or(opts.WatchdogWedgedAfter, DefaultWatchdogWedgedAfter),
 		publicURL:           opts.PublicURL,
 		keys:                opts.Keys,
 		chatSlots:           make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
@@ -511,6 +528,13 @@ func (c *Conductor) Run(ctx context.Context) error {
 		go func() {
 			defer c.wg.Done()
 			c.reapChats(ctx)
+		}()
+	}
+	if c.watchdogQuietAfter > 0 {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.watchQuietTasks(ctx)
 		}()
 	}
 
@@ -667,6 +691,16 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// the person it asked when they give it from the web chat — or from their inbox, which sends
 	// there — whichever surface the turn began on (answersQuestion).
 	answers := !same && !named && st.awaitingTaskID != "" && c.answersQuestion(st, src, ev)
+	// The watchdog asked whether to wait for a quiet task, restart it or end it, and this is
+	// the answer: it is acted on here and never reaches the task.
+	if taskID, choice, ok := c.takeWatchdogReply(st, src, ev, same); ok {
+		c.mu.Unlock()
+		c.recordHeld(ctx, src, &ev)
+		login, _ := c.askerOf(src, ev)
+		c.answerWatchdog(ctx, taskID, choice, login)
+		placed(ev, 0)
+		return
+	}
 	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" && same {
 		// The host turn that answered this conversation is still up: the message goes into
 		// it, and it is working again, so it is no longer a candidate to give its slot up.

@@ -26,9 +26,10 @@ export const MaxMessageBytes = 32 * 1024;
 /**
  * MessageType is what goes in `--type`. The wire's set is open (docs/runner-events.md):
  * `progress` and `final` are read by a human, `accounting` is turn.json for the conductor
- * and is never posted anywhere.
+ * and is never posted anywhere, and neither is `heartbeat`, which only says the process is
+ * alive (heartbeat.ts).
  */
-export type MessageType = "progress" | "final" | "accounting" | "question" | "activity";
+export type MessageType = "progress" | "final" | "accounting" | "question" | "activity" | "heartbeat";
 
 /** RunnerInvoke runs one `podium-runner message` with the text on its stdin. */
 export type RunnerInvoke = (argv: string[], text: string) => Promise<void>;
