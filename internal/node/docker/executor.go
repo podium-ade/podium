@@ -161,7 +161,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 	}
 
 	logger.Info("docker executor ready",
-		"readiness_probe", probeStyle(canDialTaskNetworks(runtime.GOOS, info.OSType)),
+		"readiness_probe", probeStyle(canDialTaskNetworks(runtime.GOOS, info.OSType, info.OperatingSystem)),
 		"allow_privileged_sidecars", opts.AllowPrivilegedSidecars,
 		"runtime", opts.Runtime,
 		"api_version", cli.ClientVersion(),
@@ -179,7 +179,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		serverVersion:           info.ServerVersion,
 		runnerPath:              runnerPath,
 		sockDir:                 sockDir,
-		directDial:              canDialTaskNetworks(runtime.GOOS, info.OSType),
+		directDial:              canDialTaskNetworks(runtime.GOOS, info.OSType, info.OperatingSystem),
 		images:                  NewImageCache(opts.DataDir),
 		allowPrivilegedSidecars: opts.AllowPrivilegedSidecars,
 		runtime:                 opts.Runtime,
@@ -239,8 +239,13 @@ func checkEngine(apiVersion string, info system.Info) error {
 // engine's bridges, which is what makes a direct dial to a container's task-network
 // address work. Only a Linux daemon on a Linux engine does; a darwin or Windows host
 // talks to an engine inside a VM whose bridges it cannot route to at all.
-func canDialTaskNetworks(hostOS, engineOS string) bool {
-	return hostOS == "linux" && engineOS == "linux"
+//
+// Docker Desktop is that VM even when the daemon is Linux too: a node in a WSL distro
+// sees GOOS linux and an engine reporting linux, and still cannot route to 172.x, so
+// every tcp_port probe would time out against a sidecar that is listening. The engine
+// names itself in OperatingSystem, which is the one field that tells the two apart.
+func canDialTaskNetworks(hostOS, engineOS, engineDistro string) bool {
+	return hostOS == "linux" && engineOS == "linux" && engineDistro != "Docker Desktop"
 }
 
 func probeStyle(direct bool) string {
