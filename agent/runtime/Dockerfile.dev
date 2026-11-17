@@ -39,11 +39,17 @@ USER root
 # are all pure Go) and cmd/go turns cgo off by itself when it finds no C compiler. The 188 MB
 # that `gcc libc6-dev` costs would buy `go test -race` and nothing else; add them the day a
 # race run is wanted.
+#
+# procps, because deploy/run-host.sh — what `make stack-up` and skills/podium-stack run — finds,
+# stops and reports its services with pgrep and pkill. Without them `up` records no pid,
+# `down` says nothing is running while the old server keeps its port, and the next `up`
+# talks to that stale process with a fresh token and gets 401 for everything.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends make; \
+    apt-get install -y --no-install-recommends make procps; \
     rm -rf /var/lib/apt/lists/*; \
-    make --version
+    make --version; \
+    pgrep --version
 
 # Go, from the official tarball, at the exact version go.mod's `go` directive names.
 #
