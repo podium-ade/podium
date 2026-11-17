@@ -9,6 +9,8 @@ import { ViewerContext, type Viewer } from "../lib/identity";
 import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
+import { OrgSettingsPage } from "./OrgSettingsPage";
+import { SandboxesPage } from "./SandboxesPage";
 import { ToastHost } from "../components/Toast";
 
 const KEY = "sk-ant-not-a-real-key-abcd";
@@ -80,6 +82,10 @@ vi.mock("../lib/client", async () => {
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
     users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
     sandboxProviders: { listSandboxProviders: (...a: unknown[]) => listSandboxProviders(...a) },
+    organization: {
+      getOrganization: () => Promise.resolve({ organization: { organizationName: "", deploymentName: "" } }),
+      updateOrganization: vi.fn(),
+    },
   };
 });
 
@@ -153,6 +159,8 @@ function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer
           <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/agent/*" element={<AgentPage />} />
+              <Route path="/org/*" element={<OrgSettingsPage />} />
+              <Route path="/sandboxes/*" element={<SandboxesPage />} />
             </Routes>
           </MemoryRouter>
         </ViewerContext>
@@ -204,7 +212,7 @@ describe("AgentPage", () => {
     getConnections.mockResolvedValue({
       slack: { configured: false, source: "" },
       github: { configured: false, source: "", appId: "", webhookListen: "" },
-      linear: { available: false, configured: false },
+      linear: { available: true, configured: false, polling: false },
     });
     getProfileFile.mockResolvedValue({
       content: "name: podium\n",
@@ -277,10 +285,10 @@ describe("AgentPage", () => {
     expect(screen.getByLabelText("Display name")).toHaveValue("Podium");
     expect(screen.getByRole("link", { name: "Identity" })).toHaveAttribute("aria-current", "page");
     expect(sectionLabels()).toEqual(["Identity", "Instructions", "Model", "Reach", "Limits"]);
-    const assistants = screen.getByRole("navigation", { name: "Assistants" });
-    expect(within(assistants).getByRole("link", { name: /Podium/ })).toHaveAttribute("aria-current", "page");
-    expect(within(assistants).getByText("Built-in")).toBeInTheDocument();
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("href", "/agent/assistants/new");
+    expect(screen.getByRole("heading", { name: "Podium" })).toBeInTheDocument();
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    expect(screen.queryByRole("navigation", { name: "Assistants" })).toBeNull();
     expect(screen.queryByLabelText("Name", { selector: "#assistant-name" })).toBeNull();
     expect(screen.getByLabelText("Name", { selector: "#assistant-git-name" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
@@ -302,7 +310,7 @@ describe("AgentPage", () => {
         systemPrompt: "you are Podium",
         agent: "claude",
         model: "claude-opus-5",
-        timeout: "15m0s",
+        timeout: "15m",
         skills: [],
         mcpServers: [],
         maxTurns: 0,
@@ -375,8 +383,7 @@ describe("AgentPage", () => {
     expect(picker).toHaveTextContent("Podium's model");
     await user.click(picker);
     await user.click(await screen.findByText("grok-4.6"));
-    const assistants = screen.getByRole("navigation", { name: "Assistants" });
-    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "New assistant" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Instructions" }));
     await user.type(screen.getByLabelText("Instructions"), "Speak briefly.");
     const save = screen.getByRole("button", { name: "Save" });
@@ -398,15 +405,55 @@ describe("AgentPage", () => {
     );
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-    expect(within(screen.getByRole("navigation", { name: "Assistants" })).getByRole("link", { name: "Night Owl" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(await screen.findByRole("heading", { name: "Night Owl" })).toBeInTheDocument();
   });
 
-  it("sends an unknown personal section back to Podium", async () => {
+  it("lists Podium and your own assistants in a table, each opening its own page", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [
+        { id: "pers_01", name: "night-owl", displayName: "Night Owl", instructions: "Speak briefly.", agent: "grok", model: "grok-4.6", effort: "" },
+      ],
+    });
+    const user = userEvent.setup();
+    mount("/agent/assistants");
+    const rows = await screen.findAllByTestId("assistant-row");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByRole("link", { name: "Podium" })).toHaveAttribute("href", "/agent/assistants/podium");
+    expect(within(rows[0]).getByText("Built-in")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Speak briefly.")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("grok-4.6")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "New assistant" })).toHaveAttribute("href", "/agent/assistants/new");
+    // A side-by-side editor is gone: the list carries no form.
+    expect(screen.queryByLabelText("Display name")).toBeNull();
+
+    await user.click(within(rows[1]).getByText("Speak briefly."));
+    expect(await screen.findByRole("heading", { name: "Night Owl" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Display name")).toHaveValue("Night Owl");
+  });
+
+  it("offers Podium's row Talk but not Delete, and a personal row both", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [{ id: "pers_01", name: "night-owl", displayName: "Night Owl", instructions: "", agent: "", model: "", effort: "" }],
+    });
+    const user = userEvent.setup();
+    mount("/agent/assistants");
+    await user.click(await screen.findByRole("button", { name: "Actions for Podium" }));
+    expect(await screen.findByRole("menuitem", { name: "Talk to it" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete assistant" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Actions for Night Owl" }));
+    expect(await screen.findByRole("menuitem", { name: "Delete assistant" })).toBeInTheDocument();
+  });
+
+  it("invites a first assistant of your own when there is none", async () => {
+    mount("/agent/assistants");
+    expect(await screen.findByText("No assistants of your own yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add one" })).toHaveAttribute("href", "/agent/assistants/new");
+  });
+
+  it("sends an unknown personal section back to the list", async () => {
     mount("/agent/assistants/new/reach");
-    expect(await screen.findByLabelText("Display name")).toHaveValue("Podium");
+    expect(await screen.findAllByTestId("assistant-row")).toHaveLength(1);
   });
 
   it("sends an old source address back to the assistant", async () => {
@@ -430,8 +477,8 @@ describe("AgentPage", () => {
     setRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
     listSandboxProviders.mockResolvedValue({
       providers: [
-        { name: "boat", settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
-        { name: "modal", settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
+        { name: "boat", hasSecret: true, settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
+        { name: "modal", hasSecret: true, settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
       ],
     });
     getProfile.mockResolvedValue({
@@ -439,45 +486,48 @@ describe("AgentPage", () => {
       playbooks: [
         { ...profileResponse.playbooks[0], name: "coder", docker: true },
         { ...profileResponse.playbooks[0], name: "viewer", browser: true },
+        { ...profileResponse.playbooks[0], name: "vmviewer", browser: true, sandbox: { modal: { runtime: "vm" } } },
         { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
       ],
     });
+    // Backend is the Default sandbox section of Sandboxes › Providers now, and its old
+    // address lands there.
     mount("/agent/settings/runs-on");
-    expect(await screen.findByRole("heading", { name: "Backend" })).toBeInTheDocument();
+    const select = await screen.findByRole("combobox", { name: "Default sandbox" });
+    expect(select).toHaveTextContent("Your nodes");
+    const meter = within(await screen.findByTestId("capacity-boat")).getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "1");
+    expect(meter).toHaveAttribute("aria-valuemax", "2");
+    expect(screen.queryByText("These playbooks' sidecars cannot run on the default")).toBeNull();
 
-    const group = screen.getByRole("radiogroup", { name: "Runs on" });
-    expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Your nodes/ })).toBeChecked();
-    expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-
-    await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
-    const dind = (await screen.findByText("These playbooks cannot run in a sandbox")).closest("[data-slot=alert]");
-    expect(dind).toHaveTextContent("coder");
-    expect(dind).not.toHaveTextContent("pinned");
-    expect(screen.queryByText(/need Docker/)).toBeNull();
-
-    await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
-    const gvisor = (await screen.findByText(/need Docker/)).closest("[data-slot=alert]");
-    expect(gvisor).toHaveTextContent("viewer");
-    expect(gvisor).not.toHaveTextContent("coder");
-
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    // Once Modal is the default, a playbook whose sidecars it cannot run is named.
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
+    await userEvent.click(select);
+    await userEvent.click(await screen.findByRole("option", { name: "Modal" }));
     await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+    const alert = (await screen.findByText("These playbooks' sidecars cannot run on the default")).closest(
+      "[data-slot=alert]",
+    );
+    expect(alert).toHaveTextContent("coder: Modal runs sidecars only under the vm runtime");
+    expect(alert).toHaveTextContent("viewer: Modal runs sidecars only under the vm runtime");
+    expect(alert).not.toHaveTextContent("vmviewer");
+    expect(alert).not.toHaveTextContent("pinned");
+    expect(within(screen.getByTestId("provider-modal")).getByText("Default")).toBeInTheDocument();
   });
 
   it("has no Backend page without a conductor", async () => {
+    // With no conductor there are no turns to place, so Sandboxes opens on its providers.
     mount("/agent/settings/runs-on", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Backend" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "Sandbox providers" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Default sandbox" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {
     mount("/agent/settings/connections");
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Linear" })).toBeInTheDocument();
   });
 
   it("hides connections from a member and keeps it for an admin and an owner", async () => {
@@ -496,21 +546,26 @@ describe("AgentPage", () => {
 
     cleanup();
     mount("/agent/settings/connections", human);
-    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     expect(getConnections).not.toHaveBeenCalled();
-    // A member connects their own account here, which is not the App's configuration.
+
+    cleanup();
+    // A member connects their own account on Your account, which is not the App's configuration.
+    mount("/agent/settings/account", human);
+    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /connect github/i })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connections" })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
-    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {
@@ -540,7 +595,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/users");
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Members" })).toBeInTheDocument();
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Permission")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
@@ -641,6 +696,90 @@ describe("AgentPage", () => {
     expect(within(globalCard).getByText("Connected")).toBeInTheDocument();
     expect(within(globalCard).queryByRole("button", { name: "Rotate key" })).toBeNull();
     expect(within(globalCard).queryByTestId("provider-key-remove-anthropic")).toBeNull();
+  });
+
+  it("lets an admin sign a subscription in for everyone", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...notSet,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+    });
+    startProviderOAuth.mockResolvedValue({
+      flowId: "flow-1",
+      userCode: "WDJB-MJHT",
+      verificationUri: "https://accounts.x.ai/device",
+      verificationUriComplete: "",
+      interval: 5,
+      codePaste: false,
+    });
+    pollProviderOAuth.mockResolvedValue({ state: "pending", interval: 5 });
+    mount("/agent/settings/models", admin);
+
+    await userEvent.click(await screen.findByRole("tab", { name: /Global/ }));
+    const global = await screen.findByTestId("models-global");
+    const card = within(global).getByTestId("provider-card-xai");
+    await userEvent.click(await within(card).findByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
+    await userEvent.click(screen.getByTestId("provider-oauth-start-xai"));
+    await waitFor(() =>
+      expect(startProviderOAuth).toHaveBeenCalledWith({ provider: "xai", global: true }),
+    );
+  });
+
+  it("keeps a global Claude subscription on a row of its own beside the key", async () => {
+    const admin: Viewer = {
+      ...viewer,
+      login: "ada@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleAdmin],
+      claimed: true,
+    };
+    getSettings.mockResolvedValue({
+      ...connected,
+      personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
+      claudeSubscription: {
+        provider: "anthropic",
+        keySet: true,
+        authKind: "oauth",
+        account: "team@acme.com",
+        refreshable: true,
+        global: true,
+      },
+    });
+    clearProviderKey.mockResolvedValue({});
+    mount("/agent/settings/models", admin);
+
+    // A person with no Anthropic credential of their own chats on the subscription.
+    const yours = await screen.findByTestId("models-yours");
+    expect(
+      await within(yours).findByTestId("provider-fallback-anthropic"),
+    ).toHaveTextContent("Using the global subscription");
+
+    await userEvent.click(screen.getByRole("tab", { name: /Global, 2 connected/ }));
+    const global = await screen.findByTestId("models-global");
+    const sub = within(global).getByTestId("provider-card-claude-subscription");
+    expect(within(sub).getByText("Connected")).toBeInTheDocument();
+    expect(within(sub).getByText(/team@acme\.com/)).toBeInTheDocument();
+    // The key is still its own row, and the Anthropic key row offers no sign-in.
+    const key = within(global).getByTestId("provider-card-anthropic");
+    expect(within(key).getByText(/abcd/)).toBeInTheDocument();
+
+    await userEvent.click(within(sub).getByRole("button", { name: "Sign out" }));
+    expect(screen.getByText(/go back to the global API key/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(clearProviderKey).toHaveBeenCalledWith({
+        provider: "anthropic",
+        global: true,
+        claudeSubscription: true,
+      }),
+    );
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

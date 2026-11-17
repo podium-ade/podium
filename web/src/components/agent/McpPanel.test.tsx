@@ -581,4 +581,47 @@ describe("McpPanel", () => {
       await screen.findByText(/is shared when someone has no server of this name/),
     ).toBeInTheDocument();
   });
+
+  it("opens on adding a personal Linear server when sent with ?add=linear", async () => {
+    listMcpServers.mockResolvedValue({ servers: [], maxPerPlaybook: 8 });
+    createMcpServer.mockResolvedValue({ server: server({ owner: "ada@acme.com" }) });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ViewerContext.Provider value={person("member")}>
+        <QueryClientProvider client={qc}>
+          <ToastHost>
+            <MemoryRouter initialEntries={["/agent/mcp?add=linear"]}>
+              <McpPanel />
+            </MemoryRouter>
+          </ToastHost>
+        </QueryClientProvider>
+      </ViewerContext.Provider>,
+    );
+    expect(await screen.findByRole("heading", { name: "Add Linear" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("linear");
+    expect(screen.getByLabelText("URL")).toHaveValue("https://mcp.linear.app/mcp");
+    await userEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(createMcpServer).toHaveBeenCalled());
+    const [req] = createMcpServer.mock.calls[0] as [{ server: { name: string }; forBot: boolean }];
+    expect(req.server.name).toBe("linear");
+    expect(req.forBot).toBe(false);
+  });
+
+  it("ignores ?add= for the local token, which has no servers of its own", async () => {
+    listMcpServers.mockResolvedValue({ servers: [], maxPerPlaybook: 8 });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ViewerContext.Provider value={localToken()}>
+        <QueryClientProvider client={qc}>
+          <ToastHost>
+            <MemoryRouter initialEntries={["/agent/mcp?add=linear"]}>
+              <McpPanel />
+            </MemoryRouter>
+          </ToastHost>
+        </QueryClientProvider>
+      </ViewerContext.Provider>,
+    );
+    await waitFor(() => expect(listMcpServers).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Add Linear" })).not.toBeInTheDocument();
+  });
 });

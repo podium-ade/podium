@@ -33,6 +33,8 @@ type Record struct {
 	// Playbook and SourcePlaybook are the Outbound's speaker.
 	Playbook       string `json:"playbook,omitempty"`
 	SourcePlaybook bool   `json:"source_playbook,omitempty"`
+	// CancelReason is the Outbound's: why the control plane says a cancelled task was.
+	CancelReason string `json:"cancel_reason,omitempty"`
 }
 
 // The actions a Record can carry.
@@ -45,6 +47,9 @@ const (
 	ActionLinkPullRequest = "link_pull_request"
 	// ActionAutoTitle is the name a turn gave the conversation. Text is the title.
 	ActionAutoTitle = "auto_title"
+	// ActionStoppedElsewhere is another conductor saying it stopped a turn of one of this
+	// source's conversations. Ref is the source key and Text the task.
+	ActionStoppedElsewhere = "stopped_elsewhere"
 )
 
 // Source is the in-memory source.
@@ -62,13 +67,50 @@ type Source struct {
 	// mirror makes this a source whose conversation lives somewhere else, so the conductor
 	// keeps a readable copy of it. Off by default: the web chat must NOT be mirrored,
 	// because it already stores its own messages and a second writer would double them.
-	mirror  bool
-	seq     int64
-	nextMsg int64
-	closed  bool
+	mirror bool
+	// mirrorKey, when set, is the mirror's key for a ref instead of the Slack-shaped default:
+	// a Linear agent session's ref names its session fourth, not second.
+	mirrorKey func(ref string) (string, bool)
+	// threads, when set, names the thread of the conversation a ref answers into, as the
+	// Linear app names an issue's agent sessions (conductor.ThreadKeyer).
+	threads func(ref string) string
+	// failPosts is how many more answers, failures or questions Post refuses, which is how a
+	// test drives the delivery outbox's retries.
+	failPosts int
+	// history is what History hands back for a ref: what the conversation said before
+	// Podium was in it. fetches counts FetchTranscript calls, so a test can tell a seeded
+	// record from one that still reads the source every turn.
+	history     map[string][]conductor.InboundEvent
+	historyFail bool
+	fetches     int
+	seq         int64
+	nextMsg     int64
+	closed      bool
 }
 
-var _ conductor.Source = (*Source)(nil)
+var (
+	_ conductor.Source      = (*Source)(nil)
+	_ conductor.StopHearer  = (*Source)(nil)
+	_ conductor.ThreadKeyer = (*Source)(nil)
+)
+
+// SetThreads makes the source's conversations hold threads, named by f from a ref.
+func (s *Source) SetThreads(f func(ref string) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.threads = f
+}
+
+// ThreadKey implements conductor.ThreadKeyer: "" unless SetThreads gave the source threads.
+func (s *Source) ThreadKey(ref string) string {
+	s.mu.Lock()
+	f := s.threads
+	s.mu.Unlock()
+	if f == nil {
+		return ""
+	}
+	return f(ref)
+}
 
 // New returns a source announcing itself as kind.
 func New(kind string) *Source {
@@ -129,19 +171,36 @@ func (s *Source) Heard(ref string, entry conductor.BriefEntry) {
 func (s *Source) FetchTranscript(_ context.Context, ref string) ([]conductor.BriefEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.fetches++
 	return append([]conductor.BriefEntry(nil), s.transcript[ref]...), nil
 }
+
+// FailPosts makes the next n answers, failures or questions fail to post. Progress and the
+// placeholder still post: the outbox only owes what a person has to see.
+func (s *Source) FailPosts(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failPosts = n
+}
+
+// ErrPostRefused is what Post returns while FailPosts is in force.
+var ErrPostRefused = errors.New("fakesource: the surface refused the post")
 
 // Post implements conductor.Source. A final joins the transcript; a placeholder and a
 // progress line do not, exactly as the Slack source leaves out its own noise.
 func (s *Source) Post(_ context.Context, ref string, out conductor.Outbound) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.failPosts > 0 && (out.Type == conductor.OutFinal || out.Type == conductor.OutFailure ||
+		out.Type == conductor.OutQuestion) {
+		s.failPosts--
+		return "", ErrPostRefused
+	}
 	s.nextMsg++
 	id := "msg-" + strconv.FormatInt(s.nextMsg, 10)
 	s.record(Record{
 		Action: ActionPost, Ref: ref, Type: out.Type, Text: out.Text, MessageID: id,
-		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
+		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook, CancelReason: out.CancelReason,
 	})
 	if out.Type == conductor.OutFinal {
 		s.transcript[ref] = append(s.transcript[ref], conductor.BriefEntry{
@@ -239,11 +298,63 @@ func (s *Source) RecordsSince(since int64) []Record {
 	return out
 }
 
+// SetHistory is what History returns for ref: the conversation before Podium came in.
+func (s *Source) SetHistory(ref string, events []conductor.InboundEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.history == nil {
+		s.history = map[string][]conductor.InboundEvent{}
+	}
+	s.history[ref] = append([]conductor.InboundEvent(nil), events...)
+}
+
+// History implements the conductor's history half of a mirrored source, the way Slack's
+// and GitHub's do. A ref with no SetHistory has nothing before it.
+func (s *Source) History(_ context.Context, ref string) ([]conductor.InboundEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.historyFail {
+		return nil, errors.New("fakesource: history unavailable")
+	}
+	return append([]conductor.InboundEvent(nil), s.history[ref]...), nil
+}
+
+// FailHistory makes History fail, the way a GitHub outage would at the moment a record opens.
+func (s *Source) FailHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.historyFail = true
+}
+
+// Fetches is how many times FetchTranscript was called.
+func (s *Source) Fetches() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fetches
+}
+
 // Mirrors makes this source one whose conversation lives elsewhere, the way Slack's does.
 func (s *Source) Mirrors() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.mirror = true
+}
+
+// MirrorsAs is Mirrors with the key a ref is mirrored under worked out by key, which is how a
+// test mirrors a source whose refs are not Slack-shaped. A false from key is a ref that is not
+// mirrored, as the Linear app's answer for a ref the poller wrote.
+func (s *Source) MirrorsAs(key func(ref string) (string, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mirror = true
+	s.mirrorKey = key
+}
+
+// StoppedElsewhere implements conductor.StopHearer, by recording what it heard.
+func (s *Source) StoppedElsewhere(sourceKey, taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.record(Record{Action: ActionStoppedElsewhere, Ref: sourceKey, Text: taskID})
 }
 
 // MirrorKey implements the conductor's mirrored-source half: the session key a ref belongs
@@ -254,6 +365,9 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 	defer s.mu.Unlock()
 	if !s.mirror {
 		return "", false
+	}
+	if s.mirrorKey != nil {
+		return s.mirrorKey(ref)
 	}
 	// The same shape a session key has, because that is what the real thing returns: the
 	// channel and the thread, never the triggering message.

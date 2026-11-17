@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastHost } from "../Toast";
-import { PlaybooksPanel } from "./PlaybooksPanel";
+import { PlaybookPage, PlaybooksPanel } from "./PlaybooksPanel";
 
 const getProfile = vi.fn();
 const listSecrets = vi.fn();
@@ -35,15 +35,23 @@ vi.mock("../../lib/client", async () => {
 function playbook(over: Record<string, unknown> = {}) {
   return {
     name: "reporter",
-    image: "podium-agent-runtime:dev",
     systemPrompt: "# The reporter\n\nWrite the weekly report.",
     allowedTools: ["read", "grep"],
     maxTurns: 50,
     timeout: "30m",
-    model: "",
     labels: [],
-    secrets: [],
     repos: [],
+    skills: [],
+    mcpServers: [],
+    secrets: [],
+    userSecrets: [],
+    model: "",
+    agent: "",
+    effort: "",
+    runsOn: "",
+    image: "podium-agent-runtime:dev",
+    origin: "file",
+    shadowed: false,
     slackChannels: [],
     linear: false,
     env: {},
@@ -65,13 +73,17 @@ const baseProfile = {
   updatedBy: "",
 };
 
-function mount() {
+function mount(path = "/agent/playbooks") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ToastHost>
-        <MemoryRouter>
-          <PlaybooksPanel />
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/agent/playbooks" element={<PlaybooksPanel />} />
+            <Route path="/agent/playbooks/new" element={<PlaybookPage />} />
+            <Route path="/agent/playbooks/:name" element={<PlaybookPage />} />
+          </Routes>
         </MemoryRouter>
       </ToastHost>
     </QueryClientProvider>,
@@ -118,11 +130,53 @@ describe("PlaybooksPanel", () => {
     expect(screen.queryByText("Select a playbook, or create one.")).toBeNull();
   });
 
+  it("lists playbooks in a table and opens one on its own page", async () => {
+    mount();
+    const row = await screen.findByTestId("playbook-row");
+    expect(row).toHaveTextContent("Assistant default");
+    await userEvent.click(row);
+    expect(await screen.findByTestId("playbook-editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("playbook-row")).toBeNull();
+    expect(screen.getByRole("link", { name: /Playbooks/ })).toBeInTheDocument();
+  });
+
+  it("has a row menu: view details, copy name, then delete after confirm", async () => {
+    deletePlaybook.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByTestId("playbook-actions"));
+    const items = screen.getAllByRole("menuitem").map((i) => i.textContent);
+    expect(items).toEqual(["View details", "Copy name", "Delete playbook"]);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete playbook" }));
+    expect(deletePlaybook).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("playbook-row-delete-confirm"));
+    expect(deletePlaybook).toHaveBeenCalledWith({ name: "reporter" });
+    // The menu and its dialog never open the row underneath them.
+    expect(screen.queryByTestId("playbook-editor")).toBeNull();
+  });
+
+  it("filters the table", async () => {
+    getProfile.mockResolvedValue({
+      profile: baseProfile,
+      playbooks: [playbook(), playbook({ name: "analyst", systemPrompt: "Crunch numbers." })],
+      staleReason: "",
+    });
+    mount();
+    expect(await screen.findAllByTestId("playbook-row")).toHaveLength(2);
+    await userEvent.type(screen.getByLabelText("Filter playbooks"), "crunch");
+    expect(screen.getAllByTestId("playbook-row")).toHaveLength(1);
+    expect(screen.getByText("/analyst")).toBeInTheDocument();
+  });
+
+  it("says so when the playbook in the address does not exist", async () => {
+    mount("/agent/playbooks/gone");
+    expect(await screen.findByText("No such playbook")).toBeInTheDocument();
+  });
+
   it("offers New playbook and opens the editor", async () => {
     mount();
     expect(await screen.findByTestId("playbook-new")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("playbook-new"));
-    expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("playbook-editor")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create playbook" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "YAML" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Form" })).toBeInTheDocument();
@@ -130,17 +184,16 @@ describe("PlaybooksPanel", () => {
 
   it("opens an existing playbook for edit, not view-only", async () => {
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
-    expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("link", { name: "Edit reporter" }));
+    expect(await screen.findByTestId("playbook-editor")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save playbook" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create playbook" })).toBeNull();
   });
 
   it("deletes the open playbook after confirm, without saving", async () => {
     deletePlaybook.mockResolvedValue({});
-    mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
-    await userEvent.click(screen.getByTestId("playbook-delete"));
+    mount("/agent/playbooks/reporter");
+    await userEvent.click(await screen.findByTestId("playbook-delete"));
     expect(deletePlaybook).not.toHaveBeenCalled();
     expect(updatePlaybook).not.toHaveBeenCalled();
 
@@ -148,6 +201,7 @@ describe("PlaybooksPanel", () => {
     expect(deletePlaybook).toHaveBeenCalledTimes(1);
     expect(deletePlaybook).toHaveBeenCalledWith({ name: "reporter" });
     expect(updatePlaybook).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("playbook-row")).toBeInTheDocument();
   });
 
   it("warns when the conductor is running an older profile than the overrides would produce", async () => {

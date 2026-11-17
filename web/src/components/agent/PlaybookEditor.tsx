@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Link } from "react-router";
 import type { AgentBackend, PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import type { SandboxProvider } from "../../gen/podium/v1/sandbox_pb";
@@ -14,7 +14,13 @@ import {
   type PlaybookDraft,
   type SandboxOverrides,
 } from "../../lib/playbook";
-import { BOAT_TYPES, MODAL_RUNTIMES, RUNS_ON_NODES, SANDBOX_PROVIDERS } from "../../lib/sandboxProviders";
+import {
+  BOAT_TYPES,
+  MODAL_RUNTIMES,
+  RUNS_ON_NODES,
+  SANDBOX_PROVIDERS,
+  sidecarProblem,
+} from "../../lib/sandboxProviders";
 import { problemText } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -80,6 +86,10 @@ export type PlaybookEditorProps = {
   sandboxProviders?: SandboxProvider[];
   /** Where a turn runs when the playbook does not say: the Settings choice. */
   defaultRunsOn?: string;
+  /** The Linear workspace's teams, for the team picker. Undefined or empty takes typed keys only. */
+  linearTeams?: { key: string; name: string }[];
+  /** The Linear workspace's issue labels, for the label picker. teamKey is empty for a workspace label. */
+  linearLabels?: { name: string; teamKey: string }[];
   saving?: boolean;
   deleting?: boolean;
   /**
@@ -95,7 +105,7 @@ export type PlaybookEditorProps = {
   /** Deletes the playbook being edited. Absent while creating: there is nothing to delete. */
   onDelete?: () => void;
   onCancel: () => void;
-  /** Sit in a two-pane layout: no back link, the list is the other pane. */
+  /** Sit under a page bar that already names the playbook and links back: no back link, no heading. */
   embedded?: boolean;
 };
 
@@ -135,6 +145,8 @@ export function PlaybookEditor({
   mcpUnknown,
   sandboxProviders,
   defaultRunsOn,
+  linearTeams: teamCatalog,
+  linearLabels: labelCatalog,
   saving,
   deleting,
   error,
@@ -161,11 +173,15 @@ export function PlaybookEditor({
   const [priority, setPriority] = useState(String(playbook?.priority ?? 0));
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
+  const [linearTeams, setLinearTeams] = useState<string[]>(() => [...(playbook?.linearTeams ?? [])]);
+  const [linearLabels, setLinearLabels] = useState<string[]>(() => [...(playbook?.linearLabels ?? [])]);
   const [github, setGithub] = useState(playbook?.github ?? false);
+  const [githubRepos, setGithubRepos] = useState((playbook?.githubRepos ?? []).join(", "));
   const [githubRequires, setGithubRequires] = useState(playbook?.githubRequires ?? "");
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
   const [browser, setBrowser] = useState(playbook?.browser ?? false);
+  const [desktop, setDesktop] = useState(playbook?.desktop ?? false);
   const [runsOn, setRunsOn] = useState(playbook?.runsOn ?? "");
   const [overrides, setOverrides] = useState<SandboxOverrides>(() => definitionOverrides(playbook));
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
@@ -244,11 +260,15 @@ export function PlaybookEditor({
     git: persona,
     slackChannels: splitList(channels),
     linear,
+    linearTeams,
+    linearLabels,
     github,
-    githubRequires: github ? "" : githubRequires,
+    githubRepos: splitList(githubRepos),
+    githubRequires: github || splitList(githubRepos).length > 0 ? "" : githubRequires,
     interactive,
     docker,
     browser,
+    desktop,
     runsOn,
     sandbox: overrides,
     skills: skillList,
@@ -284,6 +304,7 @@ export function PlaybookEditor({
         submit();
       }}
     >
+      {embedded && !locked ? null : (
       <header className="space-y-3">
         {embedded ? null : (
         <button
@@ -296,9 +317,11 @@ export function PlaybookEditor({
         </button>
         )}
         <div className="min-w-0 space-y-1.5">
+          {embedded ? null : (
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">
             {creating ? "New playbook" : `/${playbook.name}`}
           </h1>
+          )}
           {locked ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted">
                 Defined by <code className="font-mono">playbooks/{playbook?.name}.yaml</code> on the
@@ -307,6 +330,7 @@ export function PlaybookEditor({
             ) : null}
         </div>
       </header>
+      )}
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "form" | "yaml")}>
         <TabsList>
@@ -490,7 +514,7 @@ export function PlaybookEditor({
                     className="tabular"
                   />
                 </Field>
-                <Field id={`${uid}-timeout`} label="Timeout" hint="A Go duration: 30m, 900s, 2h.">
+                <Field id={`${uid}-timeout`} label="Timeout" hint="Minutes or hours, such as 30m or 2h.">
                   <Input
                     id={`${uid}-timeout`}
                     value={timeoutText}
@@ -949,6 +973,37 @@ export function PlaybookEditor({
             />
           </Field>
 
+          <Field
+            id={`${uid}-linear-teams`}
+            label="Linear teams"
+            hint="Team keys. Leave empty for every team."
+          >
+            <TagPicker
+              id={`${uid}-linear-teams`}
+              testId="playbook-linear-teams"
+              values={linearTeams}
+              onChange={setLinearTeams}
+              options={(teamCatalog ?? []).map((t) => ({ value: t.key, label: `${t.key} · ${t.name}` }))}
+              offer
+              mono
+              placeholder={teamCatalog?.length ? "Pick a team or type its key" : "ENG"}
+            />
+          </Field>
+
+          <Field id={`${uid}-linear-labels`} label="Linear labels" hint="Label names, compared without case. Leave empty for any label.">
+            <TagPicker
+              id={`${uid}-linear-labels`}
+              testId="playbook-linear-labels"
+              values={linearLabels}
+              onChange={setLinearLabels}
+              options={labelOptions(labelCatalog ?? [], linearTeams)}
+              placeholder={labelCatalog?.length ? "Pick a label or type one" : "bug"}
+            />
+          </Field>
+          <p data-testid="playbook-linear-rule" className="-mt-2 text-xs leading-relaxed text-muted">
+            {linearRuleText(linearTeams, linearLabels)}
+          </p>
+
           <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
             <Switch
               id={`${uid}-docker`}
@@ -973,7 +1028,10 @@ export function PlaybookEditor({
               id={`${uid}-browser`}
               aria-label="Attach a browser"
               checked={browser}
-              onCheckedChange={setBrowser}
+              onCheckedChange={(on) => {
+                setBrowser(on);
+                if (on) setDesktop(false);
+              }}
               className="mt-0.5"
             />
             <div className="min-w-0 space-y-0.5">
@@ -982,6 +1040,29 @@ export function PlaybookEditor({
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
                 Headless Chrome sidecar and the tools to drive it.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-desktop`}
+              aria-label="Run on a shared desktop"
+              checked={desktop}
+              onCheckedChange={(on) => {
+                setDesktop(on);
+                if (on) setBrowser(false);
+              }}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-desktop`} className="text-fg">
+                Run on a shared desktop
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                A desktop the chat shows live, with the browser the agent drives, and a terminal
+                in its workspace. Needs the desktop image and PODIUM_DESKTOP_URL; the turn waits 30
+                minutes between messages.
               </p>
             </div>
           </div>
@@ -1009,18 +1090,20 @@ export function PlaybookEditor({
           <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
             <Switch
               id={`${uid}-linear`}
-              aria-label="Runs Linear tickets"
+              aria-label="Runs polled Linear tickets"
               checked={linear}
               onCheckedChange={setLinear}
               className="mt-0.5"
             />
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor={`${uid}-linear`} className="text-fg">
-                This is the playbook Linear tickets run
+                This is the playbook polled Linear tickets run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one playbook may set it: a ticket has no channel and no slash prefix to
-                choose with.
+                Every ticket the Linear poller finds assigned to the bot runs it. The Linear app
+                does not use it: an issue delegated to Podium runs the playbook whose teams and
+                labels claim it, and otherwise the assistant picks one. At most one playbook may
+                set it.
               </p>
             </div>
           </div>
@@ -1035,20 +1118,34 @@ export function PlaybookEditor({
             />
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor={`${uid}-github`} className="text-fg">
-                This is the playbook pull-request reviews run
+                This is the default playbook pull-request reviews run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one playbook may set it. Only this playbook&rsquo;s answer becomes the review,
-                and it is always offered on a pull request.
+                At most one playbook may set it. It reviews every repository no playbook names
+                below. Only a review playbook&rsquo;s answer becomes the review, and it is always
+                offered on the pull requests it reviews.
               </p>
             </div>
           </div>
 
-          {github ? null : (
+          <Field
+            id={`${uid}-github-repos`}
+            label="Reviews pull requests in"
+            hint="Repositories, owner/name and comma-separated, whose pull requests this playbook reviews in place of the default one. A repository may be named by one playbook only."
+          >
+            <Input
+              id={`${uid}-github-repos`}
+              value={githubRepos}
+              onChange={(e) => setGithubRepos(e.target.value)}
+              placeholder="acme/api, acme/billing"
+            />
+          </Field>
+
+          {github || splitList(githubRepos).length > 0 ? null : (
             <Field
               id={`${uid}-github-requires`}
               label="Offered on pull requests to"
-              hint="Who may ask for this playbook in a pull-request comment. It shares the review's workspace, so it needs the review playbook's first repository."
+              hint="Who may ask for this playbook in a pull-request comment. It shares the review's workspace, so it is offered where the review playbook has the same first repository."
             >
               <select
                 id={`${uid}-github-requires`}
@@ -1267,6 +1364,142 @@ function Section({
   );
 }
 
+/**
+ * linearRuleText says, in one line, when a delegated Linear issue runs this playbook: the team
+ * AND a label when both are set, and never on its own when neither is.
+ */
+function linearRuleText(teams: string[], labels: string[]): string {
+  if (teams.length === 0 && labels.length === 0) {
+    return "No Linear rule: a delegated issue runs this playbook only when the assistant picks it.";
+  }
+  const where = teams.length > 0 ? ` in ${orList(teams)}` : " in any team";
+  const labelled = labels.length > 0 ? ` labelled ${orList(labels)}` : "";
+  return (
+    `Runs when an issue${where}${labelled} is delegated to Podium in Linear. ` +
+    "If another playbook claims it too, the assistant chooses."
+  );
+}
+
+function orList(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
+/** The labels a team picker's choice can carry: workspace labels, and those of the chosen teams (or all). */
+function labelOptions(catalog: { name: string; teamKey: string }[], teams: string[]) {
+  const chosen = new Set(teams.map((t) => t.toLowerCase()));
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [];
+  for (const l of catalog) {
+    if (chosen.size > 0 && l.teamKey !== "" && !chosen.has(l.teamKey.toLowerCase())) continue;
+    const key = l.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ value: l.name, label: l.teamKey ? `${l.name} · ${l.teamKey}` : l.name });
+  }
+  return out;
+}
+
+/**
+ * TagPicker is a list of short values: chips for what is chosen, and an input that adds one on
+ * Enter, a comma or leaving it. options fill its suggestions; with offer, the ones not yet
+ * chosen are also shown as buttons, which suits a short list such as a workspace's teams.
+ */
+function TagPicker({
+  id,
+  testId,
+  values,
+  onChange,
+  options,
+  offer,
+  mono,
+  placeholder,
+}: {
+  id: string;
+  testId: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  options: { value: string; label: string }[];
+  offer?: boolean;
+  mono?: boolean;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState("");
+  const has = (v: string) => values.some((x) => x.toLowerCase() === v.toLowerCase());
+  const add = (raw: string) => {
+    const v = raw.replace(/,+$/, "").trim();
+    setText("");
+    if (v === "" || has(v)) return;
+    onChange([...values, v]);
+  };
+  const remaining = options.filter((o) => !has(o.value));
+  return (
+    <div data-testid={testId} className="space-y-2">
+      {values.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {values.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-1 rounded-md border border-hairline bg-panel py-0.5 pl-2 pr-1 text-xs text-fg"
+            >
+              <span className={mono ? "font-mono" : undefined}>{v}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${v}`}
+                onClick={() => onChange(values.filter((x) => x !== v))}
+                className="rounded p-0.5 text-faint hover:text-fg"
+              >
+                <X className="size-3" aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <Input
+        id={id}
+        list={`${id}-options`}
+        value={text}
+        placeholder={placeholder}
+        className={cn("text-xs", mono && "font-mono")}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v.includes(",")) add(v);
+          else setText(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add(text);
+          }
+        }}
+        onBlur={() => add(text)}
+      />
+      <datalist id={`${id}-options`}>
+        {remaining.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </datalist>
+      {offer && remaining.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {remaining.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChange([...values, o.value])}
+              className="inline-flex items-center gap-1 rounded-md border border-dashed border-hairline px-2 py-0.5 text-xs text-muted hover:border-fg/40 hover:text-fg"
+            >
+              <Plus className="size-3" aria-hidden />
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Field({
   id,
   label,
@@ -1373,8 +1606,12 @@ function RunsOnFields({
   if (runsOn !== "" && runsOn !== RUNS_ON_NODES && !names.includes(runsOn)) names.push(runsOn);
   const set = [...Object.values(overrides.boat), ...Object.values(overrides.modal)].filter((v) => v !== "").length;
   const effective = runsOn || defaultRunsOn || RUNS_ON_NODES;
-  const modalRuntime =
-    overrides.modal.runtime || providers?.find((p) => p.name === "modal")?.settings.runtime || "gvisor";
+  const problem = sidecarProblem(
+    effective,
+    providers?.find((p) => p.name === effective)?.settings,
+    overrides.modal.runtime,
+    { docker, browser },
+  );
   const boat = (patch: Partial<SandboxOverrides["boat"]>) =>
     onOverrides({ ...overrides, boat: { ...overrides.boat, ...patch } });
   const modal = (patch: Partial<SandboxOverrides["modal"]>) =>
@@ -1412,14 +1649,9 @@ function RunsOnFields({
           ))}
         </select>
       </Field>
-      {effective !== RUNS_ON_NODES && docker ? (
-        <Alert variant="warn" title="A Docker daemon does not run in a sandbox">
-          It is a privileged sidecar, which a cloud sandbox does not run. Run this playbook on your nodes.
-        </Alert>
-      ) : effective === "modal" && browser && modalRuntime !== "vm" ? (
-        <Alert variant="warn" title="Modal's gvisor runtime has no Docker">
-          The browser is a sidecar, which Modal runs only under the vm runtime. Set the runtime to
-          vm below, or on the Modal provider.
+      {problem ? (
+        <Alert variant="warn" title={`Its sidecars cannot run on ${providerName(effective)}`}>
+          {problem}
         </Alert>
       ) : null}
 

@@ -8,28 +8,52 @@ import {
 } from "@assistant-ui/react-markdown";
 import { createHighlighterCore, type HighlighterCore } from "@shikijs/core";
 import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
+import { issueRefOfUrl } from "../../../lib/linearIssues";
+import { LINEAR_REF_ATTR, rehypeLinearRefs } from "../../../lib/rehypeLinearRefs";
+import { LinearIssueChip } from "./LinearIssueChip";
 
 /**
  * MarkdownText is one text part of a message, as GitHub-flavoured markdown.
  *
- * Agent text is untrusted. react-markdown never renders raw HTML (there is no rehype-raw
- * here, and there must never be one) and its URL transform drops `javascript:` and every
- * other non-web scheme, so `<script>` in an answer is text on a page and a hostile link is
- * inert.
+ * Agent text is untrusted. Agents write HTML inside their markdown too — a `<table>` with
+ * cells that need line breaks, `<details>`, `<sub>` — so raw HTML is parsed (rehype-raw),
+ * but only ever followed by rehype-sanitize, which keeps GitHub's allowlist less images:
+ * structural and inline tags only, no `<script>`, `<style>`, `<iframe>`, `<img>` or event
+ * handlers, no `style` attribute, and no URL but a web or mail one. An image would fetch
+ * whatever the agent names the moment the page opens. rehype-raw must never run without it.
+ * react-markdown's URL transform then drops any non-web scheme that remains.
+ *
+ * A Linear issue the text names — "EME-6", or a link to it — becomes a chip once the conductor
+ * says the viewer may see it (LinearIssueChip). The identifiers are marked after sanitizing
+ * (rehypeLinearRefs), and are plain text until then.
  */
 export const MarkdownText = memo(function MarkdownText({ className }: { className?: string }) {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
       className={cn("min-w-0 text-base leading-7 text-fg break-words", className)}
       components={components}
     />
   );
 });
+
+/** rehypePlugins parses raw HTML and then sanitizes it; the order is the safety. */
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img" && t !== "picture" && t !== "source"),
+};
+const rehypePlugins: NonNullable<Parameters<typeof MarkdownTextPrimitive>[0]["rehypePlugins"]> = [
+  rehypeRaw,
+  [rehypeSanitize, sanitizeSchema],
+  rehypeLinearRefs,
+];
 
 /** COPIED_MS is how long the copy button stays in its confirmed state. */
 const COPIED_MS = 1600;
@@ -170,14 +194,26 @@ const components = memoizeMarkdownComponents({
     <h4 className={cn("mt-3 mb-1 text-base font-medium first:mt-0", className)} {...props} />
   ),
   p: ({ className, ...props }) => <p className={cn("my-3 first:mt-0 last:mb-0", className)} {...props} />,
-  a: ({ className, ...props }) => (
-    <a
-      className={cn("text-accent underline underline-offset-2 hover:opacity-80", className)}
-      target="_blank"
-      rel="noreferrer noopener"
-      {...props}
-    />
-  ),
+  a: function Link({ className, ...props }) {
+    const link = (
+      <a
+        className={cn("text-accent underline underline-offset-2 hover:opacity-80", className)}
+        target="_blank"
+        rel="noreferrer noopener"
+        {...props}
+      />
+    );
+    // A link to an issue in Linear is that issue's chip, when the viewer may see it.
+    const issue = issueRefOfUrl(props.href);
+    return issue ? <LinearIssueChip issueRef={issue}>{link}</LinearIssueChip> : link;
+  },
+  span: function Span(props) {
+    const issue = (props as Record<string, unknown>)[LINEAR_REF_ATTR];
+    if (typeof issue === "string" && issue !== "") {
+      return <LinearIssueChip issueRef={issue}>{props.children}</LinearIssueChip>;
+    }
+    return <span {...props} />;
+  },
   blockquote: ({ className, ...props }) => (
     <blockquote className={cn("my-3 border-s-2 border-border ps-4 text-muted", className)} {...props} />
   ),

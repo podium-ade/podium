@@ -121,19 +121,47 @@ func TestAPullRequestOffersPlaybooksByTheSpeakersRole(t *testing.T) {
 		},
 	})}
 	names := func(menu []DelegablePlaybook) []string { return playbookNames(menu) }
-	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "")),
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "github:acme/app#1", "")),
 		"no role, as from Slack: the review alone")
-	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "triage")))
-	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "write")))
-	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "admin")),
+	assert.Equal(t, []string{"coder"}, names(c.menuFor(kindSource{SourceGitHub}, "github:acme/app#1", "triage")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "github:acme/app#1", "write")))
+	assert.Equal(t, []string{"coder", "fixer"}, names(c.menuFor(kindSource{SourceGitHub}, "github:acme/app#1", "admin")),
 		"a playbook that names no role is never offered on a pull request")
-	assert.True(t, c.menuFor(kindSource{SourceGitHub}, "")[0].GitHub)
+	assert.True(t, c.menuFor(kindSource{SourceGitHub}, "github:acme/app#1", "")[0].GitHub)
 
-	assert.Len(t, c.menuFor(kindSource{SourceSlack}, ""), 3)
+	assert.Len(t, c.menuFor(kindSource{SourceSlack}, "", ""), 3)
 
 	assert.Equal(t, Speaker{Playbook: "coder", SourcePlaybook: true}, c.speakerFor(kindSource{SourceGitHub}, "coder"))
 	assert.Equal(t, Speaker{Playbook: "deploy"}, c.speakerFor(kindSource{SourceGitHub}, "deploy"))
 	assert.Equal(t, Speaker{Playbook: "coder"}, c.speakerFor(kindSource{SourceSlack}, "coder"),
 		"only a pull request has a playbook of its own")
 	assert.Equal(t, Speaker{}, c.speakerFor(kindSource{SourceGitHub}, ""), "the assistant runs no playbook")
+}
+
+// A playbook naming a repository in github_repos reviews that repository's pull requests in
+// place of the github: true one, which still reviews every other repository. A pull request's
+// menu carries only its own repository's reviewer, and the github_requires playbooks that
+// work in the same first repository.
+func TestAPullRequestIsReviewedByItsRepositorysPlaybook(t *testing.T) {
+	api := []profiles.Repo{{Name: "api", URL: "https://github.com/acme/api", DefaultBranch: "main"}}
+	web := []profiles.Repo{{Name: "web", URL: "https://github.com/acme/web", DefaultBranch: "main"}}
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name: "podium", Model: "claude-opus-5",
+		Playbooks: map[string]profiles.Playbook{
+			"general":    {Name: "general", GitHub: true, Repos: web},
+			"api-review": {Name: "api-review", GitHubRepos: []string{"Acme/API"}, Repos: api},
+			"api-fixer":  {Name: "api-fixer", GitHubRequires: "write", Repos: api},
+			"web-fixer":  {Name: "web-fixer", GitHubRequires: "write", Repos: web},
+		},
+	})}
+	assert.Equal(t, []string{"api-fixer", "api-review"},
+		playbookNames(c.menuFor(kindSource{SourceGitHub}, "github:acme/api#7", "write")))
+	assert.Equal(t, []string{"general", "web-fixer"},
+		playbookNames(c.menuFor(kindSource{SourceGitHub}, "github:acme/web#3", "write")))
+	assert.Equal(t, []string{"general"},
+		playbookNames(c.menuFor(kindSource{SourceGitHub}, "github:other/thing#1", "read")))
+
+	assert.Equal(t, Speaker{Playbook: "api-review", SourcePlaybook: true},
+		c.speakerFor(kindSource{SourceGitHub}, "api-review"))
+	assert.Equal(t, Speaker{Playbook: "api-fixer"}, c.speakerFor(kindSource{SourceGitHub}, "api-fixer"))
 }

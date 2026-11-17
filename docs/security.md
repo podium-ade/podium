@@ -121,6 +121,12 @@ the task at provisioning, with an error that names the sidecar and the flag and 
 not retryable. That is the whole boundary: whoever configures the machine decides, and a task
 author cannot opt in from a YAML file.
 
+In a cloud sandbox the gate is the provider's: Modal's **Privileged sidecars** setting, under the
+vm runtime only, and off by default. There the privileged sidecar is root on a VM that belongs to
+that one task and holds no Modal credential, so what it can reach is what the task was already
+given: its secrets, its workspace and the agent's token for that run. boat has no such setting,
+because a boat VM keeps the account's own token where root can read it.
+
 Two things this does not do, and one to keep in mind:
 
 - **It does not harden the task container.** The task stays under `CapDrop: ALL`. It reaches the
@@ -225,11 +231,48 @@ SAML is not implemented.
   with that playbook's credentials. Writing a playbook is the decision about what may run, and a
   chat is one of the things that can run it.
 
-- **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
-  credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
-  it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
-  allowlist of users and no roles. A turn gets exactly the secrets its own playbook names, plus the
-  reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
+- **Whoever may ask the bot for something can run code on a worker with that playbook's
+  credentials.** Who that is depends on where they ask:
+  - **Slack, and Linear's agent app: only a person signed in to Podium.** The Slack source offers
+    the confirmed email of a full member of the bot's own workspace; the Linear app offers the
+    email of whoever wrote the prompt — each prompt, not only the one that opened the session —
+    when Linear says they are an active, full member of the app's workspace (not a guest, not
+    an app). The conductor keeps that email only when it is a login that has signed in to
+    Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Anybody else gets 🚫 in Slack
+    or a plain-words error in the Linear session ("sign in to Podium with the same email"), and
+    nothing runs; the message is the same whichever check they failed. The turn runs **as that
+    person**: their personal secrets, their MCP servers, their GitHub account. In a Linear agent
+    session that is **any playbook**, as it is in Slack: a `/playbook` at the start of a prompt
+    names one, and the assistant answering an @mention may delegate to any playbook it is offered,
+    which is all of them. A delegated issue runs the playbook whose `linear_teams` and
+    `linear_labels` claim it, or is answered by the assistant, which may delegate to any of
+    them; with no host runtime it runs the `linear: true` playbook.
+    Pressing *Stop* in a Linear session is not gated: it ends work and starts none, Linear offers it to
+    everybody who can see the session, and refusing it would leave running what somebody asked
+    to end. It ends what that agent session started — its turn, the tasks it delegated, its
+    prompts still queued — and not another session's, or a routine's, on the same issue.
+
+    An issue is **one conversation** however many agent sessions are opened on it, and routines
+    on Linear events may run in it too: each turn still runs as whoever started it — a prompt as
+    its speaker, a routine's run as the routine's owner or, for a system routine, as nobody —
+    never as the conversation's owner, who is only whoever spoke first. A later turn reads the
+    earlier ones and sees the tasks they started, and may add to one of them, whoever started it:
+    a person who may prompt on an issue can steer work somebody else started on it, as in a Slack
+    thread.
+  - **Linear's poller: anybody who can assign the bot user a ticket.** Polling with a personal
+    API key is the unauthenticated mode. The bot seat is told that an issue was assigned to it
+    or commented on, not who could be proven to have done it, so a polled ticket runs as nobody
+    — the company's credentials only — for anybody who can set the assignee on an issue the bot
+    user can see, or comment on one it holds. What it runs is only ever the `linear: true`
+    playbook: a `/word` in a ticket or a comment is not read as a playbook's name, and there is no
+    assistant to delegate. It is the weaker mode. The reason to keep it is
+    that it needs no inbound webhook: the conductor only dials out, so nothing on the internet
+    has to reach it. Prefer the agent app wherever a webhook can reach the conductor; a saved
+    app turns the poller off.
+
+  There is no allowlist beyond that and no roles: any Podium person who can reach the bot can
+  run any playbook that surface reaches. A turn gets exactly the secrets its own playbook
+  names, plus the reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
   credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
   for a `grok` one, `podium.agent.openai_api_key` for an `openai` one, or
   `podium.agent.google_api_key` for a `gemini` one, never two. When the person who started the
@@ -247,10 +290,11 @@ SAML is not implemented.
   the caller's own personal names, and never another login's. The conductor's list is
   globals, plus that one MCP name when it asks about a login.
   No API returns a value.
-  `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person for
-  those, so a playbook that names one fails the turn, and a Slack mention does not use the
-  mentioner's personal secrets. MCP servers are separate: when Slack shares an email that
-  matches their login, the mention uses that person's servers. The server does not check
+  `user_secrets:` on a playbook are the secrets of the person who asked, on whatever surface
+  they asked: a Slack mention or a Linear agent session uses that person's, as a web chat
+  does. A turn with no person — a ticket the Linear poller saw, an automatic review — has
+  none, so a playbook that names one fails that turn. MCP servers follow the same person,
+  and such a turn uses the global list. The server does not check
   that a global name appears on a playbook: which globals a playbook grants is still the
   conductor's rule. A stolen conductor
   token can still mount every global secret.
@@ -279,6 +323,20 @@ SAML is not implemented.
   Said plainly: an attacker who can write a Linear comment on a ticket the bot is assigned, or
   post in a channel the bot is in, can attempt to make it commit code. Everything above makes
   that attempt visible and slow. None of it makes it impossible.
+- **A routine on Linear events is for admins and owners only.** With resource types ticked on
+  the Linear app's webhook, every issue, comment, project … created, updated or removed in any team
+  the app can see reaches the conductor, and a routine on those events is briefed with them. A
+  member's routine would read teams the member is not in, so only an admin or owner may set or
+  change a routine's trigger to Linear events, in either scope, the same check system routines
+  use; the API refuses anybody else, and `create_routine` sets up schedules only. Limiting a
+  routine to teams narrows what it is given and is not an access control: the admin chooses the
+  teams. What an event carries is **untrusted content written by whoever can edit in that
+  workspace** — a title, a description, a comment — and it reaches a model that may delegate
+  playbooks and, as a personal routine, runs with its owner's credentials. The brief fences each
+  event and tells the model it is data from Linear, not instructions; that is guidance, not a
+  control, exactly as for the ticket text above. A change the app made itself never reaches a
+  routine, and more than 60 event runs in an hour pause one, so a routine that edits what it
+  watches cannot run itself without end.
 - **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium
@@ -349,7 +407,11 @@ SAML is not implemented.
   graph, and the row is kept in an archive. No future turn sees it — which is what the operator
   asked for — but the text is still in `podium_memory`, and it is reversible through the memory
   engine's own API. If a memory must be *destroyed*, that is a database operation, not a UI one.
-- **The memory service gets its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
+- **By default the memory service holds no LLM key.** It calls the conductor's `/memory-llm/`
+  route with `PODIUM_AGENT_MEMORY_LLM_TOKEN`, and the conductor spends the global model key an
+  admin chose on the Memory page. That token can spend the key, so it is not the memory API key
+  every turn holds, and the conductor refuses to start if the two are equal. An install that
+  opts out gives it its own key, `PODIUM_MEMORY_LLM_API_KEY`, as a container
   environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
   any compose environment value. It is not stored in Podium's encrypted secret store, because it
   is read before anything Podium controls is running. Three things reduce what that costs
@@ -458,6 +520,96 @@ know before you write one.
   compensating decision is in `ChatAttachments.tsx`: only raster types are ever rendered or
   handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
   `blob:` URL inherits the app's origin, which is where the bearer token lives.
+- **A Linear issue's conversation is read by those who touched the issue, and by every admin
+  and owner.** Who touched it is recorded as the deliveries arrive — who created it, was assigned
+  it, delegated it to the app, @mentioned the app on it, wrote in one of its agent sessions,
+  commented on it or changed it, and whose routine ran in it — by their Linear account, and turned
+  into a Podium login only through a proven link (`identities`, [Who is
+  who](agent.md#who-is-who)) at the moment somebody reads. An account never linked grants nothing,
+  and one linked later sees what it touched before; nothing is matched by name or email. Touching
+  an issue makes somebody one of its conversation's **writers** (0049): it is in their chat rail,
+  and what they send there runs a turn as them and is posted to the issue under their name — no
+  more than an @mention of the app on the issue in Linear, which they can already write. An admin
+  or owner who never touched it reads it and does not write in it. Two things follow: anybody in
+  the Linear workspace who can comment on an issue can make its Podium conversation theirs once
+  their account is linked, which is no more than the issue itself lets them do; and the people a
+  routine's events are about learn nothing from it — a routine's run is visible to its owner and to
+  admins, and to those who touched the issue, who could already read the issue. What a delivery
+  says about an issue (its identifier, title, team and state) is kept in `linear_issues` for the
+  Linear view, for every issue the webhook names, including ones with no conversation.
+- **A turn in a Linear issue's conversation shows its work only to whoever it ran as.** Each turn
+  runs as whoever prompted it — their secrets, their MCP servers, their GitHub account — and the
+  conversation is read by everybody who touched the issue. So every row the bot wrote says whose
+  turn it was (`ran_as`, or the routine whose run it was), and what the turn did on its way — its
+  tool calls with their inputs and outputs, its thoughts and progress lines, the task it ran and
+  the files that task produced — leaves the API (`StreamChat`, its live frames, `ListTurns`) only
+  for that person and for admins and owners. Everybody else gets the prompt and the answer, which
+  the issue shows them anyway, and an empty redacted row per step. A row that cannot be placed on
+  a turn is shown in full only to admins. The rule is applied on the server
+  (`internal/agent/api/runner.go`), not in the UI. It does not cover the control plane: a task's
+  page and logs are guarded by the control plane's own rules, and somebody who learns a task id
+  another way reads what those rules let them. It is not applied to shared web chats or mirrored
+  Slack threads, whose people chose to share them and have always seen their whole trail.
+- **What somebody writes in a Linear issue's conversation in Podium is posted to the issue.** The
+  app posts it as a comment with `createAsUser` (their Podium name) and `displayIconUrl` (their
+  picture), so Linear shows it as theirs while the app is its author, and posts the answer as the
+  app's own comment. Nothing verifies to Linear that the name is the person's: the app vouches for
+  it, as it vouches for the turn. The comments are the app's, and the webhooks they cause start
+  nothing: an agent session prompt whose speaker is the app, or that came from a comment the app
+  posted, is dropped, and so is a `Comment` data change by the app's user or about such a comment,
+  so neither answers itself nor wakes a routine.
+- **A Linear issue named in a chat is shown only to somebody who could see it in Linear.** The
+  Linear app's token reads every team, so `GetLinearIssues` (the chips and cards a chat draws for
+  an identifier or link) answers for an issue only when the caller is an admin or owner, touched the
+  issue (as above), or has a linked Linear account that Linear says is on the issue's team; anybody
+  else is told nothing, exactly as for an identifier no team has. Team membership is read with the
+  app's token and remembered for two minutes, so somebody taken off a team keeps seeing its issues
+  in chips for up to that long. Podium's rule is narrower than Linear's own: a public team's issue
+  that a non-member could open in Linear is still not shown to them here. Whoever may read an issue's
+  conversation sees its panel (the issue now, its pull requests, tasks and routine runs), since the
+  conversation already shows them the issue. **A person's message to the assistant that names
+  tickets they may see briefs the turn with them** — title, description, latest comments — so text
+  anybody in the workspace wrote reaches the model on that person's turn, with that person's
+  secrets and MCP servers. It is fenced and called data, not instructions, as a routine's events are;
+  that is guidance to the model, not a boundary. **A ticket is briefed only when everybody who will
+  read the answer could see it**, because the answer is read by everybody in the conversation and
+  posted wherever it lives (`tickets.BriefTickets`). A web chat only its owner reads briefs every
+  ticket the owner may see. A shared web chat briefs a ticket only when its owner, everybody it is
+  shared with by name and everybody who took part may each see it by the rule above, and briefs
+  nothing when it is open to every member or to its link, has an author who is not a Podium person,
+  or has more than twenty readers. A Linear issue's conversation, whose answer is a comment on the
+  issue, briefs only tickets of the issue's own team, whose issues everybody who can see that issue
+  can see. A Slack thread, a pull request, a Linear project's conversation and anything else whose
+  readers Podium cannot name brief nothing. The tickets left out are counted in the brief
+  (`linear_tickets_withheld`) without naming them, so the assistant says it was not given them
+  rather than guessing. The check is made when the turn starts: somebody added to a chat later
+  reads what was said before they were, as sharing a chat always lets them. Admins and owners of
+  Podium read every chat but are not among the readers checked, since they may see every ticket;
+  one who is a named reader is checked by the member rule, which can only leave a ticket out. This
+  does not stop the asker's turn from reading a ticket some other way (their own Linear MCP server)
+  and quoting it; the brief only stops Podium handing it over unasked.
+- **A question in a Linear issue's conversation goes to the inbox of whoever it is asked of**
+  (0051): the person whose turn asked it, or a routine's owner for its run — never anybody else on
+  the issue, and nobody for a system routine's. The item quotes the question; it shows nothing the
+  person could not already read in the conversation, where they ran the turn. Answering it from
+  the inbox is sending to the conversation: the same `chat_role` check, the same comment on the
+  issue under their name. In the chat, while the issue waits on them, what they send is put to
+  Podium without naming it, and goes into the task that asked whichever surface it began on
+  (a Linear agent session, their routine's run) — their own words to a task already running as
+  them. Somebody else's message is still a turn of its own.
+- **The assistant reads and writes Linear as a person only through that person's own Linear MCP
+  server.** There are no Linear tools of Podium's own: a turn that edits a ticket does it with the
+  `linear` server the assistant (or a playbook) names, which for a person is the one they connected
+  under MCP servers, with their key or sign-in and their permissions in Linear. Nothing stands
+  between the model and those tools — no approval, no allow-list of which tools or which teams —
+  and what the model reads in a turn is written by other people: a ticket's title, description and
+  comments are by anybody in the workspace who can see the ticket. Text in a ticket can therefore
+  steer a turn into acting in Linear **as the person the turn runs as** — commenting, relabelling,
+  moving or closing their tickets, reading issues in teams only they can see and repeating them
+  where others will. Fencing Linear content as data in the brief makes that less likely, not
+  impossible. A person who connects one should know that every turn they start in a ticket's
+  conversation — and every run of a routine of theirs — holds their Linear access, and a Linear
+  key scoped to read, or a sign-in with a narrow scope, is the only real bound.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. That stops an accident and one honest
@@ -592,9 +744,10 @@ What it gives you:
 - **Registering is not granting.** The MCP screen has two lists. Yours is the signed-in person's
   servers. Global is the company list, used in full by a turn that has no person. A person's
   turn uses their own row of that name. A global row fills in only when they have none and an
-  admin has allowed it; a row they turned off is not replaced. A Slack mention does this when
-  Slack shares an email that matches their login, and otherwise uses Global. It is not a Linear
-  agent installation. A member sees only Yours. An admin can edit both, and cannot edit another
+  admin has allowed it; a row they turned off is not replaced. A Slack mention and a Linear
+  agent session do this for the person who asked; a ticket the Linear poller saw has no
+  person and uses Global. A `linear` MCP server is not the Linear agent app, and is granted
+  like any other. A member sees only Yours. An admin can edit both, and cannot edit another
   person's row.
   Only a playbook's `mcp_servers:` decides which names a turn asks for. A missing name fails
   the turn and says which server. A token stored and named by no playbook is spent by nothing.
@@ -837,10 +990,11 @@ is a Podium secret, encrypted under the master key:
 |---|---|
 | A model credential: an API key, or the access token of a subscription sign-in | the provider's own `podium.agent.*` secret |
 | A subscription sign-in's refresh token | `podium.agent.oauth.<provider>.refresh_token` |
+| The global Claude subscription's access token, kept beside the global Anthropic key | `podium.agent.oauth.anthropic.access_token` |
 | A bot MCP server's token | `podium.agent.mcp.<name>_token` |
 | A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
 | A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
-| The GitHub App's key and secrets, and the Slack tokens | `podium.agent.connection.*` |
+| The GitHub App's key and secrets, the Slack tokens, and the Linear app's client secret, webhook signing secret and access token | `podium.agent.connection.*` |
 | A person's connected GitHub account: an access token that lives eight hours, and a refresh token that lives six months and works once | `github.token`, on that person's list |
 | The scoped GitHub tokens issued to a running turn | `podium.agent.git_user_token.<turn>` |
 
@@ -882,6 +1036,14 @@ What else bounds them:
   is stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later
   by a discovery document that has since changed.
 - Signing out deletes them, and so does pasting a key or a token over the sign-in.
+- A Claude subscription sign-in is never the global Anthropic credential. A person's own is on
+  their list; one an admin signs in for everyone is kept beside the global key, under
+  `podium.agent.oauth.`, which no playbook may name. Either way the conductor spends it only
+  through the chat host's model gateway, and only on a conversation
+  whose provider is opencode's `claude-agent`, which runs Claude Code. The token is not in that
+  location's config or in Claude Code's environment: Claude Code is given a placeholder, and the
+  gateway swaps in the token. The PKCE verifier stays on the conductor, so the code a person
+  pastes back is useless to anyone who sees it.
 - A host turn's credential reaches one more place than a task's copy does: the environment of
   the host turn's runtime, and therefore anything on that machine that can read a process's
   environment. A task's credential is equally visible through `docker inspect` on its node; the
@@ -1001,7 +1163,7 @@ Everything below is a real hole, not a hypothetical:
   owner is enforced on the web UI and Connect procedures. The local token and every node still
   do everything, including running code as root on every worker. Members can still CreateTask,
   and a task may name only that member's own personal secrets. A global name is refused unless
-  the conductor attaches it. Slack mentions and Linear assignments are not roles.
+  the conductor attaches it. Slack mentions and Linear delegations and mentions are not roles.
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
 - **The local transport is plaintext**, secret values included.
@@ -1021,8 +1183,13 @@ Everything below is a real hole, not a hypothetical:
   taking ordinary work.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
-- **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
-  conductor has no allowlist and no roles. See *5. The conductor and the bot*.
+- **Text in a Linear ticket can steer a turn that holds a person's Linear MCP server** into
+  acting in Linear as that person. There is no approval step between the model and the server's
+  tools. See *5. The conductor and the bot*.
+- **With Linear's poller, anyone who can assign the bot user a ticket can run code on a worker.**
+  Polling proves nobody, so a polled ticket runs as nobody for whoever assigned it. Slack and
+  Linear's agent app answer only people signed in to Podium, but have no roles beyond that: any
+  of them can run any playbook their surface reaches, which for both is every playbook. See *5. The conductor and the bot*.
 - **The assistant runs a model on the conductor's own machine with no container around it.**
   What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
   environment built from empty — unless `PODIUM_AGENT_HOST_ISOLATION=bwrap` puts each turn in a
@@ -1092,8 +1259,8 @@ Everything below is a real hole, not a hypothetical:
 - **A web chat is partitioned by login, not protected by it.** Another login's chat answers
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **A provider credential can be replaced or removed by an admin**, and the only record of who
-  did it is `set_by` on the current one. That includes signing the bot in to somebody's Grok or
-  ChatGPT subscription, and signing it out again. Members can see whether a key is set.
+  did it is `set_by` on the current one. That includes signing everyone in to somebody's Claude,
+  Grok or ChatGPT subscription, and signing it out again. Members can see whether a key is set.
 - **The conductor can read its own credentials back from the secret store**, to refresh a
   sign-in and to run a host turn. A stolen conductor token reads them too. See
   [What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).

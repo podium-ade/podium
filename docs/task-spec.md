@@ -318,7 +318,8 @@ is almost never what you want for a database.
 
 **How a probe runs.** On a Linux node whose Docker daemon is on the same host, the node
 dials the sidecar's address on the task bridge directly. Everywhere else — Docker Desktop
-on macOS or Windows, where the engine lives in a VM the host cannot route into — the probe
+on macOS or Windows, or a node in a WSL distro talking to Docker Desktop, where the engine
+lives in a VM the host cannot route into — the probe
 runs *inside* the sidecar with `ContainerExec`, using the `nc` and `wget` that busybox-based
 images have. An image with neither fails immediately with a message saying so rather than
 waiting out the timeout; give it a `readiness.command` that uses a binary it does have.
@@ -503,7 +504,7 @@ task's containers up after its command exits and publishes the named ports outsi
 until the `ttl` runs out or somebody releases it.
 
 ```yaml
-image: node:22
+image: node:26
 command: ["sh", "-c", "make build test && (make serve &)"]
 sidecars:
   accounts:     { image: ghcr.io/acme/accounts:dev }

@@ -105,6 +105,10 @@ type Comment struct {
 
 // author is the display name to record for a comment, whoever wrote it.
 func (c Comment) author() string {
+	// A comment an app posted as somebody (createAsUser) is theirs: its user is the app.
+	if c.BotActor != nil && c.BotActor.UserDisplayName != "" {
+		return c.BotActor.UserDisplayName
+	}
 	if name := c.User.label(); name != "" {
 		return name
 	}
@@ -197,6 +201,60 @@ func (c *Client) Viewer(ctx context.Context) (User, error) {
 		return User{}, errors.New("linear: viewer returned no user id")
 	}
 	return out.Viewer, nil
+}
+
+const appIdentityQuery = `query PodiumAppIdentity {
+  viewer { id name displayName app }
+  organization { id name urlKey }
+}`
+
+// AppIdentity is who an OAuth app's token signs in as, and in which workspace.
+type AppIdentity struct {
+	// UserID is the app user, unique to this workspace. It is what an issue is delegated
+	// to and what an @mention names.
+	UserID      string
+	Name        string
+	DisplayName string
+	// App is true for an app user. A personal API key or a user's OAuth token has false.
+	App bool
+	// The workspace. URLKey is the part of linear.app/<urlKey>/ that names it.
+	OrganizationID     string
+	OrganizationName   string
+	OrganizationURLKey string
+}
+
+// AppIdentity reads the viewer and its workspace. Settings → Connections runs it when an
+// app's credentials are saved, so the operator sees what they connected and a user's
+// credentials are refused rather than saved as an app.
+func (c *Client) AppIdentity(ctx context.Context) (AppIdentity, error) {
+	var out struct {
+		Viewer struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+			App         bool   `json:"app"`
+		} `json:"viewer"`
+		Organization struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			URLKey string `json:"urlKey"`
+		} `json:"organization"`
+	}
+	if err := c.do(ctx, "PodiumAppIdentity", appIdentityQuery, nil, &out); err != nil {
+		return AppIdentity{}, err
+	}
+	if out.Viewer.ID == "" {
+		return AppIdentity{}, errors.New("linear: viewer returned no user id")
+	}
+	return AppIdentity{
+		UserID:             out.Viewer.ID,
+		Name:               out.Viewer.Name,
+		DisplayName:        out.Viewer.DisplayName,
+		App:                out.Viewer.App,
+		OrganizationID:     out.Organization.ID,
+		OrganizationName:   out.Organization.Name,
+		OrganizationURLKey: out.Organization.URLKey,
+	}, nil
 }
 
 // assignedIssuesQuery is one tick's page.
@@ -407,6 +465,49 @@ func (c *Client) AddComment(ctx context.Context, issueID, body string) (string, 
 	return id, nil
 }
 
+const commentCreateAsMutation = `mutation PodiumAddCommentAs($input: CommentCreateInput!) {
+  commentCreate(input: $input) {
+    success
+    comment { id }
+  }
+}`
+
+// AddCommentAs posts one comment as the app, shown in Linear under somebody else's name and
+// picture: createAsUser and displayIconUrl, which Linear honours for an app that acts as
+// itself (actor=app) and refuses for a person's own token. It is how what a person says in
+// Podium reaches the issue as theirs while the app is what posted it. icon may be empty.
+func (c *Client) AddCommentAs(ctx context.Context, issueID, body, asUser, icon string) (string, error) {
+	id, err := newUUID()
+	if err != nil {
+		return "", err
+	}
+	input := map[string]any{"id": id, "issueId": issueID, "body": body}
+	if asUser != "" {
+		input["createAsUser"] = asUser
+	}
+	if icon != "" {
+		input["displayIconUrl"] = icon
+	}
+	var out struct {
+		CommentCreate struct {
+			Success bool `json:"success"`
+			Comment struct {
+				ID string `json:"id"`
+			} `json:"comment"`
+		} `json:"commentCreate"`
+	}
+	if err := c.do(ctx, "PodiumAddCommentAs", commentCreateAsMutation, map[string]any{"input": input}, &out); err != nil {
+		return "", err
+	}
+	if !out.CommentCreate.Success {
+		return "", fmt.Errorf("linear: commentCreate on %s reported no success", issueID)
+	}
+	if out.CommentCreate.Comment.ID != "" {
+		return out.CommentCreate.Comment.ID, nil
+	}
+	return id, nil
+}
+
 const commentUpdateMutation = `mutation PodiumEditComment($id: String!, $body: String!) {
   commentUpdate(id: $id, input: { body: $body }) {
     success
@@ -508,4 +609,321 @@ func (c *Client) PrepareUpload(ctx context.Context, filename, contentType string
 		return UploadTarget{}, fmt.Errorf("linear: fileUpload for %s returned no upload target", filename)
 	}
 	return UploadTarget{UploadURL: file.UploadURL, AssetURL: file.AssetURL, Headers: file.Headers}, nil
+}
+
+// The agent activity content types an app posts into a session. Linear derives the
+// session's state from the last one: a response completes it, an error fails it and an
+// elicitation waits for the person.
+const (
+	ActivityThought     = "thought"
+	ActivityAction      = "action"
+	ActivityElicitation = "elicitation"
+	ActivityResponse    = "response"
+	ActivityError       = "error"
+)
+
+// ActivityContent is the content of one agent activity. Every type but an action says what
+// it says in Body; an action says it in Action, Parameter and Result instead.
+type ActivityContent struct {
+	Type string
+	Body string
+	// Action is what the agent is doing, as a verb ("Reading"), Parameter what it is doing it
+	// to (a path, a command), and Result how it went, when there is anything short to say.
+	Action    string
+	Parameter string
+	Result    string
+}
+
+// wire is the content as AgentActivityCreateInput takes it. Linear validates the content
+// against its type, so an action carries no body and anything else carries only a body.
+func (a ActivityContent) wire() map[string]any {
+	if a.Type != ActivityAction {
+		return map[string]any{"type": a.Type, "body": a.Body}
+	}
+	out := map[string]any{"type": a.Type, "action": a.Action, "parameter": a.Parameter}
+	if a.Result != "" {
+		out["result"] = a.Result
+	}
+	return out
+}
+
+const agentActivityCreateMutation = `mutation PodiumAgentActivity($input: AgentActivityCreateInput!) {
+  agentActivityCreate(input: $input) {
+    success
+    agentActivity { id }
+  }
+}`
+
+// CreateAgentActivity posts one activity into an agent session and returns its id. An
+// ephemeral thought or action is replaced by the next activity, which is how a status line
+// is shown without leaving a trail of them; Linear refuses it on any other type.
+func (c *Client) CreateAgentActivity(
+	ctx context.Context, sessionID string, content ActivityContent, ephemeral bool,
+) (string, error) {
+	input := map[string]any{
+		"agentSessionId": sessionID,
+		"content":        content.wire(),
+	}
+	if ephemeral {
+		input["ephemeral"] = true
+	}
+	var out struct {
+		AgentActivityCreate struct {
+			Success       bool `json:"success"`
+			AgentActivity *struct {
+				ID string `json:"id"`
+			} `json:"agentActivity"`
+		} `json:"agentActivityCreate"`
+	}
+	if err := c.do(ctx, "PodiumAgentActivity", agentActivityCreateMutation, map[string]any{"input": input}, &out); err != nil {
+		return "", err
+	}
+	if !out.AgentActivityCreate.Success {
+		return "", fmt.Errorf("linear: agentActivityCreate in session %s reported no success", sessionID)
+	}
+	if a := out.AgentActivityCreate.AgentActivity; a != nil {
+		return a.ID, nil
+	}
+	return "", nil
+}
+
+// ExternalURL is one link on an agent session, drawn beside it in Linear.
+type ExternalURL struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+const agentSessionUpdateMutation = `mutation PodiumAgentSessionUpdate($id: String!, $input: AgentSessionUpdateInput!) {
+  agentSessionUpdate(id: $id, input: $input) {
+    success
+  }
+}`
+
+// AddSessionLinks adds links to an agent session. addedExternalUrls adds to what the session
+// already has, where externalUrls would replace it, so two links added at different moments
+// of a turn — the task, then its pull request — both stay.
+func (c *Client) AddSessionLinks(ctx context.Context, sessionID string, links ...ExternalURL) error {
+	if len(links) == 0 {
+		return nil
+	}
+	var out struct {
+		AgentSessionUpdate struct {
+			Success bool `json:"success"`
+		} `json:"agentSessionUpdate"`
+	}
+	vars := map[string]any{"id": sessionID, "input": map[string]any{"addedExternalUrls": links}}
+	if err := c.do(ctx, "PodiumAgentSessionUpdate", agentSessionUpdateMutation, vars, &out); err != nil {
+		return err
+	}
+	if !out.AgentSessionUpdate.Success {
+		return fmt.Errorf("linear: agentSessionUpdate on session %s reported no success", sessionID)
+	}
+	return nil
+}
+
+const issueStateQuery = `query PodiumIssueState($id: String!) {
+  issue(id: $id) {
+    id
+    state { id name type }
+    team { id key }
+  }
+}`
+
+// IssueState is the workflow state an issue is in now, and its team. It is the cheap half of
+// Issue: no description and no comments, for deciding whether to move it.
+func (c *Client) IssueState(ctx context.Context, id string) (WorkflowState, Team, error) {
+	var out struct {
+		Issue *struct {
+			State WorkflowState `json:"state"`
+			Team  Team          `json:"team"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, "PodiumIssueState", issueStateQuery, map[string]any{"id": id}, &out); err != nil {
+		return WorkflowState{}, Team{}, err
+	}
+	if out.Issue == nil {
+		return WorkflowState{}, Team{}, fmt.Errorf("linear: no issue %s", id)
+	}
+	return out.Issue.State, out.Issue.Team, nil
+}
+
+// userAccountQuery reads what deciding whether a person may be matched to a Podium login needs.
+// `app` is the field AppIdentity reads on the viewer; `active` and `guest` are the User fields
+// Linear's schema declares for a suspended account and for a guest limited to some teams.
+const userAccountQuery = `query PodiumUserAccount($id: String!) {
+  user(id: $id) { id email active guest app }
+}`
+
+// Account is a Linear user as the identity check sees one.
+type Account struct {
+	ID    string
+	Email string
+	// Active is false for a suspended or removed member.
+	Active bool
+	// Guest is a member limited to the teams they were invited to.
+	Guest bool
+	// App is an app user: an agent, or an integration, rather than a person.
+	App bool
+}
+
+// UserAccount reads one user of the app's own workspace. The app's token reads only its own
+// workspace, so a user of any other is an error rather than an account.
+func (c *Client) UserAccount(ctx context.Context, id string) (Account, error) {
+	var out struct {
+		User *struct {
+			ID     string `json:"id"`
+			Email  string `json:"email"`
+			Active bool   `json:"active"`
+			Guest  bool   `json:"guest"`
+			App    bool   `json:"app"`
+		} `json:"user"`
+	}
+	if err := c.do(ctx, "PodiumUserAccount", userAccountQuery, map[string]any{"id": id}, &out); err != nil {
+		return Account{}, err
+	}
+	if out.User == nil || out.User.ID == "" {
+		return Account{}, fmt.Errorf("linear: no user %s", id)
+	}
+	return Account{
+		ID: out.User.ID, Email: out.User.Email, Active: out.User.Active, Guest: out.User.Guest, App: out.User.App,
+	}, nil
+}
+
+// teamPrivacyQuery reads whether a team is private: one that only its members can see, whose
+// issues a Podium user who is not on it must not be shown by somebody sharing a chat.
+const teamPrivacyQuery = `query PodiumTeamPrivacy($id: String!) {
+  team(id: $id) { id private }
+}`
+
+// TeamPrivate reads whether one of the workspace's teams is private.
+func (c *Client) TeamPrivate(ctx context.Context, id string) (bool, error) {
+	var out struct {
+		Team *struct {
+			ID      string `json:"id"`
+			Private bool   `json:"private"`
+		} `json:"team"`
+	}
+	if err := c.do(ctx, "PodiumTeamPrivacy", teamPrivacyQuery, map[string]any{"id": id}, &out); err != nil {
+		return false, err
+	}
+	if out.Team == nil || out.Team.ID == "" {
+		return false, fmt.Errorf("linear: no team %s", id)
+	}
+	return out.Team.Private, nil
+}
+
+const teamKeyQuery = `query PodiumTeamKey($id: String!) {
+  team(id: $id) { id key }
+}`
+
+// TeamKey reads the key of one of the workspace's teams ("ENG").
+func (c *Client) TeamKey(ctx context.Context, id string) (string, error) {
+	var out struct {
+		Team *struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+		} `json:"team"`
+	}
+	if err := c.do(ctx, "PodiumTeamKey", teamKeyQuery, map[string]any{"id": id}, &out); err != nil {
+		return "", err
+	}
+	if out.Team == nil || out.Team.ID == "" {
+		return "", fmt.Errorf("linear: no team %s", id)
+	}
+	return out.Team.Key, nil
+}
+
+// issueRoutingLabels bounds how many of an issue's labels routing reads. An issue with more
+// than this is matched against the first ones Linear returns.
+const issueRoutingLabels = "50"
+
+const issueRoutingQuery = `query PodiumIssueRouting($id: String!) {
+  issue(id: $id) {
+    id
+    team { id key }
+    labels(first: ` + issueRoutingLabels + `) { nodes { name } }
+  }
+}`
+
+// IssueRouting reads what a delegated issue is routed by: its team's key and the names of its
+// labels. An agent session's webhook names the team but not the labels.
+func (c *Client) IssueRouting(ctx context.Context, id string) (team string, labels []string, err error) {
+	var out struct {
+		Issue *struct {
+			ID     string `json:"id"`
+			Team   Team   `json:"team"`
+			Labels struct {
+				Nodes []struct {
+					Name string `json:"name"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, "PodiumIssueRouting", issueRoutingQuery, map[string]any{"id": id}, &out); err != nil {
+		return "", nil, err
+	}
+	if out.Issue == nil || out.Issue.ID == "" {
+		return "", nil, fmt.Errorf("linear: no issue %s", id)
+	}
+	for _, l := range out.Issue.Labels.Nodes {
+		labels = append(labels, l.Name)
+	}
+	return out.Issue.Team.Key, labels, nil
+}
+
+// catalogPageSize bounds the teams and labels the playbook editor is offered. A workspace
+// with more is offered the first ones; a key or label typed by hand still works.
+const catalogPageSize = "250"
+
+const catalogQuery = `query PodiumCatalog {
+  teams(first: ` + catalogPageSize + `) { nodes { id key name } }
+  issueLabels(first: ` + catalogPageSize + `) { nodes { name team { key } } }
+}`
+
+// TeamInfo is a team as the playbook editor offers it.
+type TeamInfo struct {
+	Key  string
+	Name string
+}
+
+// LabelInfo is an issue label as the playbook editor offers it. TeamKey is empty for a
+// workspace label.
+type LabelInfo struct {
+	Name    string
+	TeamKey string
+}
+
+// Catalog reads the workspace's teams and issue labels, for the pickers that fill a
+// playbook's linear_teams and linear_labels.
+func (c *Client) Catalog(ctx context.Context) ([]TeamInfo, []LabelInfo, error) {
+	var out struct {
+		Teams struct {
+			Nodes []struct {
+				Key  string `json:"key"`
+				Name string `json:"name"`
+			} `json:"nodes"`
+		} `json:"teams"`
+		IssueLabels struct {
+			Nodes []struct {
+				Name string `json:"name"`
+				Team *Team  `json:"team"`
+			} `json:"nodes"`
+		} `json:"issueLabels"`
+	}
+	if err := c.do(ctx, "PodiumCatalog", catalogQuery, nil, &out); err != nil {
+		return nil, nil, err
+	}
+	teams := make([]TeamInfo, 0, len(out.Teams.Nodes))
+	for _, t := range out.Teams.Nodes {
+		teams = append(teams, TeamInfo{Key: t.Key, Name: t.Name})
+	}
+	labels := make([]LabelInfo, 0, len(out.IssueLabels.Nodes))
+	for _, l := range out.IssueLabels.Nodes {
+		info := LabelInfo{Name: l.Name}
+		if l.Team != nil {
+			info.TeamKey = l.Team.Key
+		}
+		labels = append(labels, info)
+	}
+	return teams, labels, nil
 }

@@ -80,7 +80,8 @@ type chatTurn struct {
 	delegationToken string
 	// title is what the turn named the chat, through the title tool.
 	title string
-	// login is the person whose own model key the gateway may spend, if they set one.
+	// login is the person whose own model key the gateway spends: the turn's credOwner, or
+	// empty for the company's.
 	login string
 	// session is the turn's opencode session, once it has one; open is true from then until
 	// the turn closes, while a message for the conversation is steered into it rather than
@@ -193,29 +194,35 @@ func (cr chatRun) run(ctx context.Context) {
 		defer c.revokeTurnToken(h.token)
 	}
 
+	// Registered before the turn waits for a slot, not after: a busy host can hold a turn
+	// in line for a while, and Stop pressed meanwhile must stop it rather than find nothing
+	// registered and let it start once a slot frees up.
+	stopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	c.registerHost(r.ref, stop)
+	defer c.unregisterHost(r.ref)
+
 	// The person's slot first, then the host's: a person at their limit waits without
 	// holding one of the host's.
-	releaseUser, ok := c.acquireUserSlot(ctx, h.who)
+	releaseUser, ok := c.acquireUserSlot(stopCtx, h.who)
 	if !ok {
-		h.giveUp(ctx, hostFailedToStart)
+		cr.notStarted(ctx, stopCtx)
 		return
 	}
 	defer releaseUser()
-	release, ok := c.acquireChatSlot(ctx)
+	release, ok := c.acquireChatSlot(stopCtx)
 	if !ok {
-		h.giveUp(ctx, hostFailedToStart)
+		cr.notStarted(ctx, stopCtx)
 		return
 	}
 	defer release()
 
-	runCtx, cancel := context.WithTimeout(ctx, r.job.assistantTimeout())
+	runCtx, cancel := context.WithTimeout(stopCtx, r.job.assistantTimeout())
 	defer cancel()
-	c.registerHost(r.ref, cancel)
-	defer c.unregisterHost(r.ref)
 
-	if _, err := c.host.Credential(runCtx, h.provider.ID); err != nil {
-		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
-			"turn_id", r.turn.ID, "provider", h.provider.ID, "error", err)
+	// A person spending their own credential needs no global one. A turn Claude Code answers
+	// on the global Claude subscription needs that, and not the global key.
+	if h.credOwner == "" && !c.hasGlobalCredential(runCtx, h) {
 		h.giveUp(ctx, hostNoCredential)
 		return
 	}
@@ -243,7 +250,10 @@ func (cr chatRun) run(ctx context.Context) {
 		return
 	}
 
-	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: h.login}
+	// The gateway spends credOwner's key, or the company's when credOwner is empty: the
+	// conductor already decided whose credential this turn spends (turnCredentialOwner), and
+	// a shared conversation spends nobody's own. The asker's login is not a fallback.
+	turn := &chatTurn{id: r.turn.ID, delegationToken: h.token, login: h.credOwner}
 	c.chat.mu.Lock()
 	cv.turn = turn
 	c.chat.mu.Unlock()
@@ -260,11 +270,16 @@ func (cr chatRun) run(ctx context.Context) {
 		return
 	}
 	c.logger.InfoContext(ctx, "chat-host turn started", "turn_id", r.turn.ID, "session_id", r.sess.ID,
-		"source", r.src.Kind(), "provider", h.provider.ID)
+		"source", r.src.Kind(), "provider", cv.provider)
 
+	model := chathost.Model{Provider: h.provider.ID, ID: h.model, Variant: h.effort}
+	if cv.provider == claudeAgentProvider {
+		// Claude Code picks its own effort; a Podium effort level is not a claude-agent variant.
+		model = chathost.Model{Provider: claudeAgentProvider, ID: h.model}
+	}
 	res, err := c.chatHost.Answer(runCtx, chathost.Turn{
 		Location: cv.location,
-		Model:    chathost.Model{Provider: h.provider.ID, ID: h.model, Variant: h.effort},
+		Model:    model,
 		System:   system,
 		Prompt:   h.instruction,
 		Started: func(session string) {
@@ -320,7 +335,11 @@ func (cr chatRun) run(ctx context.Context) {
 			"outcome", res.Outcome, "reason", res.Error)
 	}
 	if !r.said() {
-		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: hostSaidNothing})
+		say := hostSaidNothing
+		if status == store.TurnCancelled {
+			say = chatStopped
+		}
+		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: say})
 	}
 	if status == store.TurnSucceeded && turn.title != "" {
 		if namer, ok := r.src.(autoTitler); ok {
@@ -334,6 +353,26 @@ func (cr chatRun) run(ctx context.Context) {
 	r.finish(done, status)
 }
 
+// notStarted ends a chat-host turn that never got a slot. Stopped while it waited, it is a
+// cancelled turn and says so; the conductor stopping is the old failure to start.
+func (cr chatRun) notStarted(ctx, stopCtx context.Context) {
+	h := cr.h
+	if stopCtx.Err() != nil && ctx.Err() == nil {
+		h.r.c.post(ctx, h.r.src, h.r.ref, Outbound{Type: OutFailure, Text: chatStoppedBeforeStart})
+		h.r.finish(ctx, store.TurnCancelled)
+		return
+	}
+	h.giveUp(ctx, hostFailedToStart)
+}
+
+// chatStoppedBeforeStart is what a conversation is told when it was stopped while its turn was
+// still waiting for room on the chat host.
+const chatStoppedBeforeStart = "Stopped before I started."
+
+// chatStopped is what a conversation is told when it was stopped mid-answer and the answer had
+// not said anything yet.
+const chatStopped = "Stopped."
+
 // chatLocation is the location a turn of cv runs in: its model endpoint and its tools, every
 // URL carrying the conversation's token.
 func (c *Conductor) chatLocation(ctx context.Context, cv *chatConv, h *hostRun) (chathost.Location, error) {
@@ -345,18 +384,33 @@ func (c *Conductor) chatLocation(ctx context.Context, cv *chatConv, h *hostRun) 
 	if upstream == "" {
 		upstream = defaultUpstream(h.provider.ID)
 	}
+	provider := chathost.Provider{
+		ID:      h.provider.ID,
+		BaseURL: base + chatGatewayPath + cv.token,
+		// The gateway takes the conversation from the URL and replaces this.
+		APIKey: "podium",
+	}
+	if c.claudeAgentTurn(h) {
+		// A Claude subscription: Claude Code itself runs the model, through opencode's
+		// claude-agent provider, and reaches Anthropic through the gateway like any other
+		// provider. Claude Code appends /v1/... to its base URL, so the upstream is the host.
+		upstream = strings.TrimSuffix(strings.TrimSuffix(upstream, "/"), "/v1")
+		provider = chathost.Provider{
+			ID:        claudeAgentProvider,
+			Builtin:   true,
+			BaseURL:   provider.BaseURL,
+			AuthToken: "podium",
+			// Declared, so the model can be picked before Claude Code has reported its list.
+			Models: []string{h.model},
+		}
+	}
 	c.chat.mu.Lock()
-	cv.provider, cv.upstream = h.provider.ID, upstream
+	cv.provider, cv.upstream = provider.ID, upstream
 	c.chat.mu.Unlock()
 
 	loc := chathost.Location{
-		Name: cv.location,
-		Providers: []chathost.Provider{{
-			ID:      h.provider.ID,
-			BaseURL: base + chatGatewayPath + cv.token,
-			// The gateway takes the conversation from the URL and replaces this.
-			APIKey: "podium",
-		}},
+		Name:      cv.location,
+		Providers: []chathost.Provider{provider},
 	}
 	mcpURL := func(server string) string { return base + chatMCPPath + cv.token + "/" + server }
 	if h.token != "" {
@@ -365,6 +419,9 @@ func (c *Conductor) chatLocation(ctx context.Context, cv *chatConv, h *hostRun) 
 	loc.MCP = append(loc.MCP, chathost.MCPServer{Name: chatTitleServer, URL: mcpURL(chatTitleServer)})
 	if h.pullRequest {
 		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: PullRequestMCPName, URL: mcpURL(PullRequestMCPName)})
+	}
+	if h.githubRead {
+		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: GitHubReadMCPName, URL: mcpURL(GitHubReadMCPName)})
 	}
 	if h.memoryURL != "" && c.host.MemoryAPIKey != "" {
 		loc.MCP = append(loc.MCP, chathost.MCPServer{Name: "memory", URL: h.memoryURL,
@@ -440,6 +497,49 @@ func (c *Conductor) chatClosing(turn *chatTurn) bool {
 	}
 	turn.open = false
 	return false
+}
+
+// claudeAgentProvider is opencode 2's provider that runs Claude Code with a Claude login.
+const claudeAgentProvider = "claude-agent"
+
+// claudeAgentTurn is whether h spends a Claude subscription sign-in: an Anthropic turn on a
+// chat host that can run Claude Code, whose person signed in with Claude — or who has no
+// Anthropic credential of their own, when an admin signed one in for everyone. A person's
+// own API key still beats the global subscription.
+func (c *Conductor) claudeAgentTurn(h *hostRun) bool {
+	if !c.chatHostClaude || h.provider == nil || h.provider.ID != "anthropic" {
+		return false
+	}
+	if h.credOwner != "" {
+		return c.claudeSignIn(h.credOwner)
+	}
+	return c.globalClaudeSignIn()
+}
+
+// hasGlobalCredential is whether a turn with no credential of its person's own has a global
+// one to spend: the global Claude subscription, for a claude-agent turn that has one, or the
+// provider's global key.
+func (c *Conductor) hasGlobalCredential(ctx context.Context, h *hostRun) bool {
+	if c.claudeAgentTurn(h) {
+		if k, err := c.host.Credential(ctx, claudeAgentProvider); err == nil && k != "" {
+			return true
+		}
+	}
+	if _, err := c.host.Credential(ctx, h.provider.ID); err != nil {
+		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
+			"provider", h.provider.ID, "error", err)
+		return false
+	}
+	return true
+}
+
+// credentialProvider is whose credentials a gateway provider spends: claude-agent is
+// Anthropic's.
+func credentialProvider(provider string) string {
+	if provider == claudeAgentProvider {
+		return "anthropic"
+	}
+	return provider
 }
 
 // defaultUpstream is a provider's API root when the conductor has no opinion about it: the one

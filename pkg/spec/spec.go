@@ -676,7 +676,8 @@ func PersonalMCPSecretName(server string) string { return "mcp." + server + "_to
 const GitHubAccountSecret = "github.token"
 
 // ConnectionSecretPrefix is where the conductor keeps the credentials of its saved
-// connections: the GitHub App's key and secrets, and the Slack tokens.
+// connections: the GitHub App's key and secrets, the Slack tokens, and the Linear app's
+// secrets and access token.
 const ConnectionSecretPrefix = "podium.agent.connection."
 
 // UserGitTokenSecretPrefix is where the conductor keeps the scoped GitHub tokens it issued

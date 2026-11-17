@@ -66,8 +66,37 @@ type fakePodium struct {
 	// vault is the control plane's secret store, so a turn's per-turn secrets — a git
 	// capability, an assistant task's delegation token — land somewhere a test can read.
 	vault *fakeVault
+	audit *fakeAudit
 
 	srv *httptest.Server
+}
+
+// fakeAudit is the control plane's audit log: it keeps every entry the conductor records.
+type fakeAudit struct {
+	mu      sync.Mutex
+	entries []*podiumv1.RecordAuditRequest
+}
+
+func (a *fakeAudit) RecordAudit(
+	_ context.Context, req *connect.Request[podiumv1.RecordAuditRequest],
+) (*connect.Response[podiumv1.RecordAuditResponse], error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.entries = append(a.entries, proto.Clone(req.Msg).(*podiumv1.RecordAuditRequest))
+	return connect.NewResponse(&podiumv1.RecordAuditResponse{}), nil
+}
+
+// Actions is every audit action recorded against subject, in order.
+func (a *fakeAudit) Actions(subject string) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []string
+	for _, e := range a.entries {
+		if e.GetSubject() == subject {
+			out = append(out, e.GetAction())
+		}
+	}
+	return out
 }
 
 type fakeTask struct {
@@ -75,6 +104,9 @@ type fakeTask struct {
 	events   []*podiumv1.TaskEvent
 	done     chan struct{}
 	doneOnce sync.Once
+	// cancelReason is what a CancelTask said, which the real server writes as the task's
+	// failure_reason once it is cancelled.
+	cancelReason string
 }
 
 func newFakePodium(t *testing.T) *fakePodium {
@@ -84,11 +116,13 @@ func newFakePodium(t *testing.T) *fakePodium {
 		blobs:    map[string][]byte{},
 		terminal: podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED,
 		vault:    &fakeVault{values: map[string][]byte{}},
+		audit:    &fakeAudit{},
 	}
 	mux := http.NewServeMux()
 	mux.Handle(podiumv1connect.NewSecretServiceHandler(f.vault))
 	mux.Handle(podiumv1connect.NewTaskServiceHandler(f))
 	mux.Handle(podiumv1connect.NewArtifactServiceHandler(f))
+	mux.Handle(podiumv1connect.NewAuditServiceHandler(f.audit))
 	mux.HandleFunc("/artifacts/", f.download)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -217,6 +251,12 @@ func (f *fakePodium) GetTask(
 		out.Status = terminal
 		out.ExitCode = exit
 		out.FailureReason = reason
+		f.mu.Lock()
+		if ft.cancelReason != "" {
+			// The server's own rule: a stop's reason wins over whatever the exit implied.
+			out.FailureReason = ft.cancelReason
+		}
+		f.mu.Unlock()
 		out.FinishedAt = timestamppb.Now()
 	default:
 		if queued {
@@ -276,6 +316,7 @@ func (f *fakePodium) CancelTask(
 	}
 	f.mu.Lock()
 	ft.task.Status = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	ft.cancelReason = req.Msg.GetReason()
 	f.mu.Unlock()
 	ft.doneOnce.Do(func() { close(ft.done) })
 	return connect.NewResponse(&podiumv1.CancelTaskResponse{}), nil
@@ -307,6 +348,13 @@ func (f *fakePodium) InjectTask(
 		ft.doneOnce.Do(func() { close(ft.done) })
 	}
 	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
+}
+
+// CreateDesktopTicket is the server's: the conductor never asks for a desktop link.
+func (f *fakePodium) CreateDesktopTicket(
+	context.Context, *connect.Request[podiumv1.CreateDesktopTicketRequest],
+) (*connect.Response[podiumv1.CreateDesktopTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
 func (f *fakePodium) ReleasePreview(

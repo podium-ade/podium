@@ -52,25 +52,44 @@ func summaryKey(sessionID string) string { return "session.summary." + sessionID
 // withSummary is entries with the conversation's summary in place of what it covers. Without
 // a summary, or with one that cannot be read, entries are returned as they were.
 func (c *Conductor) withSummary(ctx context.Context, sessionID string, entries []BriefEntry) []BriefEntry {
-	if c.store == nil || sessionID == "" {
+	head, covers, ok := c.summaryFor(ctx, sessionID, entries)
+	if !ok {
 		return entries
+	}
+	return append([]BriefEntry{head}, entries[covers:]...)
+}
+
+// withSummaryLines is withSummary for transcript lines, keeping what the budget needs to know
+// about each. The summary itself is always kept: it is the only trace of what it covers.
+func (c *Conductor) withSummaryLines(ctx context.Context, sessionID string, lines []transcriptLine) []transcriptLine {
+	head, covers, ok := c.summaryFor(ctx, sessionID, entriesOf(lines))
+	if !ok {
+		return lines
+	}
+	return append([]transcriptLine{{BriefEntry: head, keep: true}}, lines[covers:]...)
+}
+
+// summaryFor is the conversation's summary as an entry and how many of entries it stands in
+// for, or false when there is none that lines up with entries.
+func (c *Conductor) summaryFor(ctx context.Context, sessionID string, entries []BriefEntry) (BriefEntry, int, bool) {
+	if c.store == nil || sessionID == "" {
+		return BriefEntry{}, 0, false
 	}
 	var s sessionSummary
 	if err := c.store.GetSetting(ctx, summaryKey(sessionID), &s); err != nil || s.Text == "" || s.Covers <= 0 {
-		return entries
+		return BriefEntry{}, 0, false
 	}
 	// A transcript that no longer lines up with what was summarised — a message deleted or
 	// edited away — is handed whole rather than with a summary of something else.
 	if len(entries) < s.Covers || entries[s.Covers-1].TS != s.ThroughTS {
-		return entries
+		return BriefEntry{}, 0, false
 	}
-	head := BriefEntry{
+	return BriefEntry{
 		Role:   "assistant",
 		Author: "summary",
 		TS:     s.ThroughTS,
 		Text:   "Summary of this conversation up to here: " + s.Text,
-	}
-	return append([]BriefEntry{head}, entries[s.Covers:]...)
+	}, s.Covers, true
 }
 
 // noteChatTurn records where a conversation's history is read from, so it can be summarised
@@ -104,10 +123,18 @@ func (c *Conductor) summarise(ctx context.Context) {
 }
 
 func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
-	entries, err := cv.src.FetchTranscript(ctx, cv.ref)
+	// The same transcript a turn reads, so the count the summary covers lines up with it.
+	sourceKey := ""
+	if c.store != nil {
+		if sess, err := c.store.GetSession(ctx, cv.sessionID); err == nil {
+			sourceKey = sess.SourceKey
+		}
+	}
+	lines, err := c.transcriptFor(ctx, cv.src, cv.ref, sourceKey)
 	if err != nil {
 		return err
 	}
+	entries := entriesOf(lines)
 	if len(entries) < summaryMin {
 		return nil
 	}
@@ -134,9 +161,15 @@ func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
 // chatComplete is one model call on the chat host with no tools, through the gateway, on the
 // assistant's own backend. It is for the conductor's own housekeeping, never a person's turn.
 func (c *Conductor) chatComplete(ctx context.Context, system, prompt string) (string, error) {
+	return c.chatCompleteIn(ctx, summaryLocation, system, prompt)
+}
+
+// chatCompleteIn is chatComplete in a location of its own, so two kinds of housekeeping do not
+// wait on each other's one turn.
+func (c *Conductor) chatCompleteIn(ctx context.Context, location, system, prompt string) (string, error) {
 	choice := c.profiles.Current().ResolveAssistant(profiles.Override{})
 	provider := c.providerFor(choice.Agent, "")
-	cv, err := c.chatConvFor(summaryLocation)
+	cv, err := c.chatConvFor(location)
 	if err != nil {
 		return "", err
 	}

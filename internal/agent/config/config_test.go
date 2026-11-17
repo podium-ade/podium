@@ -138,6 +138,7 @@ func TestFromEnvAppliesTheDefaults(t *testing.T) {
 	assert.Equal(t, DefaultOpenAICodexBaseURL, cfg.OpenAICodexBaseURL)
 	assert.Equal(t, DefaultOpenAIOAuthIssuer, cfg.OpenAIOAuthIssuer)
 	assert.Equal(t, DefaultOpenAIOAuthClientID, cfg.OpenAIOAuthClientID)
+	assert.Equal(t, DefaultLinearTokenURL, cfg.LinearTokenURL)
 	assert.False(t, cfg.DevSource)
 }
 
@@ -190,12 +191,18 @@ func TestLoggingAConfigLeaksNoToken(t *testing.T) {
 	cfg.SlackAppToken = "xapp-secret"
 	cfg.SlackBotToken = "xoxb-secret"
 	cfg.GitHubWebhookSecret = "github-webhook-secret"
+	cfg.LinearClientID = "linear-client-id"
+	cfg.LinearClientSecret = "linear-client-secret"
+	cfg.LinearWebhookSecret = "lin_wh_secret"
 
 	var buf bytes.Buffer
 	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret"} {
+	for _, secret := range []string{
+		"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret",
+		"linear-client-secret", "lin_wh_secret",
+	} {
 		assert.NotContains(t, out, secret)
 	}
 	// And it still says the things an operator needs to see.
@@ -241,6 +248,8 @@ func TestMemoryValidationNamesTheVariableThatIsWrong(t *testing.T) {
 		{"bad scheme", func(c *Config) { c.MemoryURL = "ftp://hindsight" }, "PODIUM_AGENT_MEMORY_URL"},
 		{"relative task url", func(c *Config) { c.MemoryTaskURL = "host.docker.internal:8888" },
 			"PODIUM_AGENT_MEMORY_TASK_URL"},
+		{"relative sandbox url", func(c *Config) { c.MemorySandboxURL = "memory.example.com/memory" },
+			"PODIUM_AGENT_MEMORY_SANDBOX_URL"},
 		// The bank becomes a path segment in the MCP URL every turn is handed.
 		{"empty bank", func(c *Config) { c.MemoryBank = "" }, "PODIUM_AGENT_MEMORY_BANK"},
 		{"bank with a slash", func(c *Config) { c.MemoryBank = "podium/../default" }, "PODIUM_AGENT_MEMORY_BANK"},
@@ -260,6 +269,19 @@ func TestMemoryValidationNamesTheVariableThatIsWrong(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+// A sandbox reaches memory through a public address that often fronts other things too, so
+// Hindsight may sit under a path of its own there.
+func TestTheSandboxMemoryURLMayCarryAPath(t *testing.T) {
+	cfg := valid(t)
+	cfg.MemoryURL = "http://hindsight:8888"
+	cfg.MemoryTaskURL = DefaultMemoryTaskURL
+	cfg.MemoryBank = DefaultMemoryBank
+	cfg.MemoryAPIKey = "memtoken"
+	cfg.MemorySandboxURL = "https://podium.example.com/memory"
+
+	require.NoError(t, cfg.Validate())
 }
 
 // The memory key is full read/write of every memory the organisation has, so it is one more
@@ -442,4 +464,75 @@ func TestTurnSurfaceValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+func TestIDList(t *testing.T) {
+	assert.Equal(t, []string{"T0123", "E0456"}, idList(" t0123, ,E0456,T0123 "))
+	assert.Empty(t, idList(""))
+}
+
+func TestSlackTeamIDsFromTheEnvironment(t *testing.T) {
+	t.Setenv("PODIUM_SLACK_TEAM_IDS", "T1,e2")
+	assert.Equal(t, []string{"T1", "E2"}, FromEnv().SlackTeamIDs)
+}
+
+func TestDomainList(t *testing.T) {
+	assert.Equal(t, []string{"acme.com", "example.org"}, domainList(" Acme.com, ,@example.org "))
+	assert.Empty(t, domainList(""))
+}
+
+// ---------------------------------------------------------------------------
+// the Linear agent app
+// ---------------------------------------------------------------------------
+
+func linearApp(c *Config) {
+	c.LinearClientID = "client-id"
+	c.LinearClientSecret = "client-secret"
+	c.LinearWebhookSecret = "lin_wh_secret"
+	c.LinearWebhookListen = "0.0.0.0:8091"
+}
+
+// The saved app and the poller's key are separate settings. Which of the two runs is decided
+// where the source is built: the app, when one is saved.
+func TestTheLinearAppAndThePollerAreSeparate(t *testing.T) {
+	cfg := valid(t)
+	assert.False(t, cfg.LinearAppEnabled())
+	linearApp(&cfg)
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.LinearAppEnabled())
+	assert.False(t, cfg.LinearEnabled(), "the app is not the poller's key")
+
+	cfg.LinearAPIKey = "lin_api_key"
+	assert.True(t, cfg.LinearEnabled(), "the key is still read; a saved app is what keeps the poller off")
+}
+
+func TestAHalfConfiguredLinearAppIsRefused(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"no client id", func(c *Config) { c.LinearClientID = "" }, "client id"},
+		{"no client secret", func(c *Config) { c.LinearClientSecret = "" }, "client secret"},
+		{"no webhook secret", func(c *Config) { c.LinearWebhookSecret = "" }, "webhook signing secret"},
+		{"no listen", func(c *Config) { c.LinearWebhookListen = "" }, "listen address"},
+		{"listen without a port", func(c *Config) { c.LinearWebhookListen = "8091" }, "host:port"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := valid(t)
+			linearApp(&cfg)
+			tc.mutate(&cfg)
+			require.ErrorContains(t, cfg.ValidateConnectionFields(), tc.want)
+			require.ErrorContains(t, cfg.Validate(), tc.want)
+		})
+	}
+}
+
+func TestTheLinearTokenURLMustBeAbsolute(t *testing.T) {
+	cfg := valid(t)
+	cfg.LinearTokenURL = "/oauth/token"
+	require.ErrorContains(t, cfg.Validate(), "PODIUM_AGENT_LINEAR_TOKEN_URL")
+	cfg.LinearTokenURL = "http://127.0.0.1:9999/oauth/token"
+	require.NoError(t, cfg.Validate())
 }

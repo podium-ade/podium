@@ -8,7 +8,7 @@
 <h1 align="center">Podium</h1>
 
 <p align="center">
-  <b>Your own AI orchestration system. One deployment, every team, on machines you own.</b>
+  <b>Your own AI orchestration system, for everyone who builds. Configured your way, run on your machines or your sandboxes.</b>
 </p>
 
 <p align="center">
@@ -18,8 +18,10 @@
   <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
 </p>
 
-Podium is how an organization puts AI to work on the jobs that actually move the business, and
-then watches it finish them.
+https://github.com/user-attachments/assets/1d03a0d7-98da-4df2-86d1-975f6e38020c
+
+Podium lets anyone in your company hand real work to AI agents: fixing a bug, reviewing a pull
+request, answering a question about the numbers.
 
 A bug lands in Slack or Linear, and Podium reads the code, runs what it needs to run, and posts
 the cause back on the thread. A pull request needs a review, and Podium reads the diff and
@@ -29,13 +31,21 @@ Someone asks what the numbers did last week, and Podium queries the warehouse an
 the same conversation. Those are four jobs. The next one is a playbook you write, for whatever
 part of the organization needs it.
 
+It is not only for engineers. Anybody who can describe a change can ask for one. A product
+manager spots a broken card on the pricing page and says so in a chat. Podium edits the code,
+runs the tests, checks the page in a browser they can watch from the same chat, and opens a pull
+request. They ask for a different button colour and it lands on the same pull request. An
+engineer reviews it and approves the merge. A conversation is shared the way a document is, so
+the person who asked, the person who reviews, and Podium are in one thread.
+
 One deployment covers all of them. Chat, Slack, Linear, and GitHub are doors into the same
 system. Each team gets its own tools, repositories, model, and credentials. When the work needs
-a machine, it runs in a sandbox on a worker you enrolled, and the answer comes back where the
-question started, with the logs and the files to show for it.
+a machine, it runs in a sandbox on a worker you enrolled, or in a cloud sandbox from a provider
+you connect, and the answer comes back where the question started, with the logs and the files
+to show for it.
 
-You run the whole thing. The control plane, the conductor, the secrets, and the workers are
-yours. The model keys are yours.
+You run the whole thing. There is no hosted Podium: the control plane, the conductor, the
+secrets, and the workers are yours, and so are the model keys and the sandbox accounts.
 
 ---
 
@@ -50,24 +60,28 @@ every turn is a task. The [Deploy](#deploy) section says which one a given insta
 
 The jobs are yours to define. Four that the shape is built for:
 
-- **Investigate a bug.** A Slack thread or a Linear ticket hands a playbook the repository
-  and a shell. It reads the code, runs what it needs to run, and posts the findings back on
-  the thread that asked.
+- **Investigate a bug.** An issue delegated to Podium in Linear, or a question in a Slack
+  thread or a Linear comment that needs a machine, hands a playbook the repository and a shell.
+  It reads the code, runs what it needs to run, and posts the findings back where it was asked.
 - **Review code.** A GitHub App you create in your own org turns a pull request you tag into
   a turn, and posts the review as that App. The same review can be asked for from Slack. It
   is one conversation either way.
 - **Write code.** A playbook with write access to a repository, a toolchain, and, when the
   change has a UI, a browser. It edits, runs the tests, opens the pull request, and can
-  check the result before it says it is done. The playbook that develops Podium itself is
-  that job, pointed at this repository: [profile/README.md](profile/README.md).
+  check the result before it says it is done. With `desktop: true` that browser runs on a
+  desktop the person watches live beside the chat. The playbook that develops Podium itself
+  is that job, pointed at this repository: [profile/README.md](profile/README.md).
 - **Answer an analytics question.** A playbook whose image has the warehouse client, and
   whose secret list is that warehouse's credential. The question is answered in the thread.
   That credential is not mounted into any other job.
 
 A playbook's `secrets:` list is what that job receives. The assistant picks the playbook for
-the piece of work in front of it, and may start more than one in a single answer. A thread
-can also name one (`/playbook`), and a Linear assignment runs the playbook that claims
-Linear. [docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
+the piece of work in front of it, and may start more than one in a single answer. An issue
+delegated to Podium in Linear runs the playbook whose `linear_teams` and `linear_labels` claim
+it, and otherwise goes to the assistant, which picks a playbook or asks; an @mention in Linear is
+a question, and the assistant answers it as it answers a chat. A person can name a playbook in
+Linear (`/playbook`), and so can a Slack thread without the host runtime.
+[docs/agent.md](docs/agent.md) is the full account of assistant, playbook, and task.
 
 ## Where it runs
 
@@ -81,6 +95,11 @@ Each task is one container, on one worker, from one image, to one exit code.
   a sidecar the operator allowed on that node.
 - Secrets decrypted by the control plane, delivered onto a tmpfs at `/podium/secrets`, and
   shredded with the container. They are encrypted at rest under a master key you hold.
+
+A task can run in a cloud sandbox instead: a boat.dev VM or a Modal sandbox, made when the
+task is assigned and deleted when it ends. podium-server drives the provider itself, so there is
+nothing to install. Set the default on the **Backend** screen, and pin a playbook to one with
+`runs_on`. [docs/sandboxes.md](docs/sandboxes.md).
 
 Workers dial out. A node opens one stream to the control plane and listens for nothing, so a
 worker on another continent is the same operation as a worker on the same desk. The control
@@ -158,12 +177,8 @@ at `PODIUM_SERVER`. [docs/node-setup.md](docs/node-setup.md).
 
 **A model key** is set in the UI, on purpose, so it lands in the encrypted secret store
 instead of in `docker inspect`. **Shared memory** (Hindsight) comes up with the stack and
-waits for a key of its own:
-
-```sh
-echo 'PODIUM_MEMORY_LLM_API_KEY=...' >> .env
-docker compose up -d
-```
+reuses one of those keys: an admin picks the key and the model on the Memory page, and nothing
+is remembered until they do.
 
 The full walkthrough (the master key, tearing it down, building the images) is
 [docs/quickstart.md](docs/quickstart.md). Tailscale, if you want the control plane on a
@@ -171,12 +186,16 @@ MagicDNS name with no shared token, is [docs/networking.md](docs/networking.md).
 
 Two credentials the conductor does not invent, and both are how the organization reaches it:
 
-- Slack, Linear, and the GitHub App are off until their tokens are set. Each is one group of
-  variables in [deploy/.env.example](deploy/.env.example). The GitHub App is one you create
-  in your own org. Podium does not ship a Marketplace listing.
+- Slack, Linear, and the GitHub App are off until they are set up. The GitHub App and the
+  Linear agent app are saved under Access → Connections; Slack is saved there or set in
+  [deploy/.env.example](deploy/.env.example), where a Linear personal API key can also poll
+  for assigned issues instead of the app. A polled issue always runs the playbook that claims
+  Linear, for anybody who can assign it. Both apps are ones you create in your own org.
+  Podium does not ship a Marketplace listing.
 - The assistant, the process that answers a conversation and delegates machine work,
   runs when the conductor is started with its host runtime. The published `podium-agent`
-  image is a static binary and runs every turn as a task instead. [docs/agent.md](docs/agent.md)
+  image is a static binary and runs every turn as a task instead: a Linear @mention then runs
+  the playbook that claims Linear, and a web chat is refused. [docs/agent.md](docs/agent.md)
   is which one you have, and what each door (chat, Slack, Linear, GitHub) does with it.
 
 The playbook directory the image ships is a starter that holds nothing. Replace it with your
@@ -232,7 +251,7 @@ mention.
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App under Access → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` (Slack), `PODIUM_AGENT_LINEAR_API_KEY` (Linear's poller, off while a Linear app is saved), the GitHub App and the Linear app under Access → Connections, `PODIUM_AGENT_HOST_RUNTIME` (the assistant; without it every turn is a task), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.

@@ -14,7 +14,13 @@ var leaderRetry = 10 * time.Second
 // RunAsLeader runs fn while this server holds the advisory lock named name, and only then. The
 // lock lives on a connection of its own: a server that dies, or loses its database, drops the
 // connection and with it the lock, and another server's next try takes it. fn's context ends
-// when the lock is lost; RunAsLeader returns when ctx ends or fn returns an error.
+// when the lock is lost, and only then does RunAsLeader take another turn at leading.
+//
+// RunAsLeader returns when ctx ends or when fn returns on its own. A nil return means the job
+// is finished, not that it wants to run again: a job that is switched off returns at once
+// (log roll-up with no object store, snapshot retention with no store), and running it again
+// would take a connection and the lock, release both and repeat as fast as Postgres answers —
+// a loop that once opened ~100 connections a second and exhausted the host's ports.
 //
 // It is for work exactly one server should do — rolling task logs up into the object store,
 // pruning snapshots — where two servers would race on the same rows and objects.
@@ -46,6 +52,7 @@ func (s *Store) RunAsLeader(ctx context.Context, name string, fn func(context.Co
 		done := make(chan error, 1)
 		go func() { done <- fn(runCtx) }()
 		var ferr error
+		lost := false
 	held:
 		for {
 			select {
@@ -54,6 +61,7 @@ func (s *Store) RunAsLeader(ctx context.Context, name string, fn func(context.Co
 			case <-time.After(leaderRetry):
 				if err := conn.Ping(ctx); err != nil {
 					// The lock went with the connection; somebody else may hold it already.
+					lost = true
 					cancel()
 					<-done
 					break held
@@ -65,7 +73,7 @@ func (s *Store) RunAsLeader(ctx context.Context, name string, fn func(context.Co
 		if ferr != nil {
 			return fmt.Errorf("leader %s: %w", name, ferr)
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !lost {
 			return nil
 		}
 	}

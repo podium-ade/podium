@@ -159,6 +159,16 @@ func (p *ProcessExecutor) Cancel(taskID string) {
 	}
 }
 
+// sweep ends whatever the task's account still runs once its command has exited, which is
+// what the end of a container does. A task run as the agent's own user has no account to
+// sweep; the runner has already ended its process group.
+func (p *ProcessExecutor) sweep() {
+	if p.o.User == "" {
+		return
+	}
+	_ = p.privileged("pkill", "-KILL", "-U", p.o.User)
+}
+
 func (p *ProcessExecutor) kill(rs *runState, pid int) {
 	rs.once.Do(func() {
 		go func() {
@@ -202,11 +212,6 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	}
 	if len(sp.Sidecars) > 0 && p.o.Sidecars == nil {
 		return Result{}, fmt.Errorf("%w: sidecars need Docker, which this sandbox does not have", errSpec)
-	}
-	for name, sc := range sp.Sidecars {
-		if sc.ShareWorkspace {
-			return Result{}, fmt.Errorf("%w: sidecar %s: share_workspace is not supported for a task run as a process", errSpec, name)
-		}
 	}
 	workdir := sp.WorkingDir
 	if workdir == "" {
@@ -314,6 +319,9 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	argv = append(argv, sp.Command...)
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // the task's own command
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A process the command left behind in a session of its own still holds the output
+	// pipes; past this, Wait stops waiting for them and sweep ends it.
+	cmd.WaitDelay = logDrainTimeout
 	stdout := &logWriter{em: em, stream: StreamStdout}
 	stderr := &logWriter{em: em, stream: StreamStderr}
 	outR, outW := io.Pipe()
@@ -352,7 +360,11 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	case exitCode = <-heldCh:
 		held = true
 	case werr := <-waitCh:
+		if errors.Is(werr, exec.ErrWaitDelay) {
+			werr = nil // the command exited 0; only its pipes outlived it
+		}
 		exitCode = exitCodeOf(werr)
+		p.sweep()
 	}
 	link.stopAccepting()
 	if held {
@@ -506,6 +518,11 @@ func (p *ProcessExecutor) uid() string {
 // the volume. The tar is the task's own work from an earlier run, so it is extracted as the
 // task's user: an entry that reaches outside /workspace has nowhere it may write.
 func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) error {
+	if req.Workspace != nil && req.Workspace.Snapshot != nil {
+		if err := p.adoptWorkspace(); err != nil {
+			return fmt.Errorf("restore workspace: %w", err)
+		}
+	}
 	if req.Workspace == nil || req.Workspace.Restore == nil {
 		return nil
 	}
@@ -523,10 +540,36 @@ func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) err
 	return nil
 }
 
-func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error {
-	if req.Workspace == nil || req.Workspace.Save == nil {
+// adoptWorkspace gives the task's user whatever in /workspace it does not own. A workspace
+// the provider mounted from an image keeps the owners it was snapshotted with, and the task's
+// account need not have the same uid in this sandbox: another image makes it another. Links
+// are changed, never followed, and nothing past /workspace's own filesystem is touched. With
+// the same uid, as on the same image, there is nothing to change.
+func (p *ProcessExecutor) adoptWorkspace() error {
+	if p.o.User == "" {
 		return nil
 	}
+	return p.privileged("find", workspacePath, "-xdev", "!", "-user", p.o.User,
+		"-exec", "chown", "-h", p.o.User+":"+p.o.User, "{}", "+")
+}
+
+func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error {
+	if req.Workspace == nil {
+		return nil
+	}
+	var snapErr error
+	if req.Workspace.Snapshot != nil {
+		if snapErr = req.Workspace.Snapshot(ctx); snapErr != nil {
+			snapErr = fmt.Errorf("snapshot workspace: %w", snapErr)
+		}
+	}
+	if req.Workspace.Save == nil {
+		return snapErr
+	}
+	return errors.Join(snapErr, p.saveWorkspaceTar(ctx, req))
+}
+
+func (p *ProcessExecutor) saveWorkspaceTar(ctx context.Context, req Request) error {
 	f, err := os.CreateTemp("", "podium-ws-"+req.TaskID+"-*.tar")
 	if err != nil {
 		return err

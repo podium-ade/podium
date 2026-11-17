@@ -7,7 +7,8 @@ package conductor
 // gone by the time it answers. Its answer is posted in the chat regardless; this is the
 // nudge that it is there. It goes out only for a conversation whose person has said nothing
 // for NotifyAwayAfter, and only from a source with nobody of its own to notify them — a Slack
-// thread, a pull request and a Linear issue already notify the people in them.
+// thread, a pull request and a Linear agent session already notify the people in them, and a
+// ticket the Linear poller saw has no person to tell.
 
 import (
 	"context"
@@ -36,6 +37,11 @@ func (c *Conductor) notifyAway(ctx context.Context, src Source, ref string, dlg 
 	}
 	sess, err := c.store.GetSession(ctx, dlg.SessionID)
 	if err != nil {
+		return
+	}
+	if store.IsLinearConversation(sess.SourceKey) {
+		// A Linear issue's conversation is nobody's in particular: its chat's owner is whoever
+		// spoke first, and did not ask for what a routine's run, or somebody else, delegated.
 		return
 	}
 	login := c.asker(ctx, src, sess)

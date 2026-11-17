@@ -588,12 +588,23 @@ conductor, and let nodes dial whichever they reach.
 
 Supported. Each conductor leases the work it does — a session's turns, a delegated task, polling
 Linear — and a conductor that stops renewing has its work adopted by another within about a
-minute. Give each its own `PODIUM_AGENT_REPLICA_ID` if two would share a host name and a listen
+minute. Webhooks are not leased: every conductor serves the GitHub App's and the Linear app's,
+and a delivery is handled by whichever one the tunnel sends it to. A delivery retried onto
+another conductor starts nothing twice, because the comment or prompt it carries is recorded
+once in the conversation's chat. Give each its own `PODIUM_AGENT_REPLICA_ID` if two would share a host name and a listen
 address; the default is `<hostname>/<listen>`. See [agent.md](agent.md#more-than-one-conductor).
 
 A conversation's turn runs on the host of the conductor that holds its session. A message that
 reaches another conductor is handed over to that one, so every conversation is reachable from
 every conductor.
+
+Give every conductor on one database the same host runtime setting (`PODIUM_AGENT_HOST_RUNTIME`).
+What answers a Linear @mention or delegation is decided by the conductor the webhook reaches:
+the assistant, or the playbook a delegated issue's Linear rules claim, where there is a host
+runtime, and the `linear: true` playbook as a task where there is none. Two
+conductors that differ answer the same session one way or the other depending on which one the
+tunnel picked. A Stop in a Linear session stops the tasks its assistant delegated too, whichever
+conductor follows them.
 
 ---
 

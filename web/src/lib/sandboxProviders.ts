@@ -53,8 +53,8 @@ export type ProviderSpec = {
   secretHelp: string;
   /** What the concurrency cap means for this provider. */
   maxConcurrentHelp: string;
-  /** A provider that reports no account limit has nothing else bounding it. */
-  requireMaxConcurrent?: boolean;
+  /** Put the secret after the other Access fields rather than first, as Modal's token reads. */
+  secretLast?: boolean;
   fields: ProviderField[];
 };
 
@@ -100,10 +100,9 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     label: "boat.dev",
     blurb: "Every task gets a VM of its own with Docker, from boat's base image or a named snapshot.",
     secretLabel: "API key",
-    secretHelp:
-      "A key with only what Podium uses: boat api-key create podium --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
+    secretHelp: "A boat API key just for Podium. Don't use an admin key.",
     maxConcurrentHelp:
-      "How many tasks run on boat at once. Empty holds them to your account's own limit.",
+      "How many tasks run on boat at once. Empty or 0 holds them to your account's own limit.",
     fields: [
       {
         key: "template",
@@ -135,17 +134,9 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretLabel: "Token secret",
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
     maxConcurrentHelp:
-      "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill.",
-    requireMaxConcurrent: true,
+      "How many tasks run on Modal at once. Modal reports no limit of its own, so this is what bounds the bill. Empty or 0 is no cap.",
+    secretLast: true,
     fields: [
-      { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
-      {
-        key: "environment",
-        label: "Environment",
-        help: "The Modal environment. Empty is the default one.",
-        placeholder: "main",
-        section: "access",
-      },
       {
         key: "app",
         label: "App",
@@ -154,10 +145,25 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         section: "access",
       },
       {
+        key: "environment",
+        label: "Environment",
+        help: "The Modal environment. Empty is the default one.",
+        placeholder: "main",
+        section: "access",
+      },
+      { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…", section: "access" },
+      {
         key: "runtime",
         label: "Runtime",
         help: "gvisor is the default; vm adds Docker and tmpfs, for sidecars.",
         options: MODAL_RUNTIMES,
+        section: "sandboxes",
+      },
+      {
+        key: "privileged_sidecars",
+        label: "Privileged sidecars",
+        help: "Under the vm runtime, let a task have a privileged sidecar, such as a Docker daemon for `docker: true`. It is root on the sandbox, which is a VM of the task's own holding no Modal credential. Empty is off.",
+        options: ["true"],
         section: "sandboxes",
       },
       {
@@ -274,6 +280,17 @@ export function providerLabel(name: string): string {
   return `sandbox.provider=${name}`;
 }
 
+/**
+ * capacityOf is how many sandboxes are up against the lower of the operator's cap and the
+ * account's own limit, and which of the two that is. A limit of 0 is no cap at all.
+ */
+export function capacityOf(p: SandboxProvider): { inUse: number; limit: number; byAccount: boolean } {
+  const cap = p.maxConcurrent > 0 ? p.maxConcurrent : Infinity;
+  const account = p.accountLimit > 0 ? p.accountLimit : Infinity;
+  const limit = Math.min(cap, account);
+  return { inUse: p.inUse, limit: Number.isFinite(limit) ? limit : 0, byAccount: account < cap };
+}
+
 /** capacityText is how many sandboxes are up against what may be. */
 export function capacityText(p: SandboxProvider): string {
   const caps = [
@@ -281,4 +298,29 @@ export function capacityText(p: SandboxProvider): string {
     p.accountLimit > 0 ? `account limit ${p.accountLimit}` : "",
   ].filter(Boolean);
   return caps.length > 0 ? `${p.inUse} of ${caps.join(", ")}` : `${p.inUse}, no cap`;
+}
+
+/**
+ * sidecarProblem is why a turn with these sidecars cannot run on provider, or "" when it can.
+ * A Docker daemon is a privileged sidecar, which only Modal's vm runtime takes, and only when
+ * the operator allowed it; a browser needs Docker in the sandbox, which boat has and Modal
+ * has under vm. On Modal the turn's image must also carry dockerd, which no setting shows.
+ */
+export function sidecarProblem(
+  provider: string,
+  settings: Record<string, string> | undefined,
+  modalRuntime: string,
+  want: { docker: boolean; browser: boolean },
+): string {
+  if (provider === "" || provider === RUNS_ON_NODES || (!want.docker && !want.browser)) return "";
+  if (provider === "modal") {
+    const vm = (modalRuntime || settings?.runtime || "gvisor") === "vm";
+    if (!vm) return "Modal runs sidecars only under the vm runtime. Set it on the provider or on the playbook.";
+    if (want.docker && settings?.privileged_sidecars !== "true") {
+      return "A Docker daemon is a privileged sidecar, which the Modal provider allows only with Privileged sidecars on.";
+    }
+    return "";
+  }
+  if (want.docker) return `A Docker daemon is a privileged sidecar, which ${provider} sandboxes do not run.`;
+  return "";
 }

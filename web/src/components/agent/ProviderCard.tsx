@@ -19,7 +19,7 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
-import { oauthExpired } from "../../lib/providerCredential";
+import { keyRefused, oauthExpired } from "../../lib/providerCredential";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Alert } from "../ui/alert";
@@ -42,11 +42,19 @@ import { BrandTile } from "./BrandIcon";
 /** How many model ids the confirmation card shows before it stops. */
 const MODEL_CHIPS = 6;
 
+// The row's two action slots keep one width whatever their label, so Connect, Rotate key and
+// Sign in again line up down the table, and so do Remove key and Sign out.
+const primaryAction = "min-w-32";
+const removeAction = "min-w-28";
+
 type Result =
   | { tone: "ok"; text: string; models: string[]; note?: string }
   | { tone: "err" | "warn"; text: string; detail?: { label: string; text: string } };
 
-/** Signing is the device-code flow as this card sees it. */
+/**
+ * Signing is a sign-in in flight as this card sees it: a device code the human types on the
+ * provider's site, or — codePaste — a code the provider's site shows that is pasted back here.
+ */
 type Signing = {
   flowID: string;
   userCode: string;
@@ -54,6 +62,7 @@ type Signing = {
   urlComplete: string;
   expiresAt: number;
   interval: number;
+  codePaste: boolean;
 };
 
 export type ProviderCardProps = {
@@ -69,12 +78,18 @@ export type ProviderCardProps = {
   scope?: "personal" | "global";
   /** On a personal row: a global key is set, so chats run on it while this row is unset. */
   fallbackSet?: boolean;
+  /** What the unset row says it runs on instead. "Using the global key" by default. */
+  fallbackLabel?: string;
+  /** A row that is only ever signed in to, never keyed: the global Claude subscription. */
+  subscriptionOnly?: boolean;
+  /** Replaces the sentence the removal dialog opens with: what removing this one means. */
+  clearNote?: string;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
   /** Present only for a provider whose descriptor offers a subscription. */
   onStartOAuth?: () => Promise<StartProviderOAuthResponse>;
-  onPollOAuth?: (flowID: string) => Promise<PollProviderOAuthResponse>;
+  onPollOAuth?: (flowID: string, code?: string) => Promise<PollProviderOAuthResponse>;
   /** Called when a sign-in stored a credential, so the page can re-read the settings. */
   onSignedIn?: () => void;
 };
@@ -99,6 +114,9 @@ export function ProviderCard({
   readOnly,
   scope = "global",
   fallbackSet,
+  fallbackLabel = "Using the global key",
+  subscriptionOnly,
+  clearNote,
   onSave,
   onClear,
   onStartOAuth,
@@ -106,7 +124,9 @@ export function ProviderCard({
   onSignedIn,
 }: ProviderCardProps) {
   const toast = useToast();
-  const [mode, setMode] = useState<"key" | "subscription">("key");
+  const [mode, setMode] = useState<"key" | "subscription">(
+    subscriptionOnly ? "subscription" : "key",
+  );
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,6 +137,7 @@ export function ProviderCard({
   const [open, setOpen] = useState(false);
   const [signing, setSigning] = useState<Signing>();
   const [starting, setStarting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const keySet = settings?.keySet ?? false;
   const hint = settings?.keyHint ?? "";
@@ -124,11 +145,45 @@ export function ProviderCard({
   const stored = keySet && !loading;
   const tid = (name: string) => `${name}-${provider.id}`;
 
+  // ended settles a poll that finished the sign-in one way or the other, and is false when it
+  // is still waiting.
+  const ended = (res: PollProviderOAuthResponse): boolean => {
+    switch (res.state) {
+      case "done":
+        setSigning(undefined);
+        setRotating(false);
+        setResult({
+          tone: "ok",
+          text: res.provider?.account
+            ? `Signed in as ${res.provider.account}. ${provider.models} turns will run.`
+            : `Signed in. ${provider.models} turns will run.`,
+          models: [],
+        });
+        onSignedIn?.();
+        return true;
+      case "denied":
+      case "expired":
+        setSigning(undefined);
+        setResult({
+          tone: res.state === "denied" ? "err" : "warn",
+          text:
+            res.state === "denied"
+              ? "The sign-in was refused."
+              : "The code expired before it was approved.",
+          detail: res.detail ? { label: `${provider.name} said`, text: res.detail } : undefined,
+        });
+        return true;
+      default:
+        return false;
+    }
+  };
+
   // The polling loop. It lives in an effect so that leaving the tab, cancelling, or the
   // component unmounting all stop it — a poll that outlived its card would keep asking the
-  // provider about a sign-in nobody is waiting for.
+  // provider about a sign-in nobody is waiting for. A pasted-code sign-in has nothing to
+  // poll for: it is finished by finishSignIn when the code is pasted.
   useEffect(() => {
-    if (!signing || !onPollOAuth) return;
+    if (!signing || !onPollOAuth || signing.codePaste) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -139,28 +194,9 @@ export function ProviderCard({
         if (!live) return;
         switch (res.state) {
           case "done":
-            setSigning(undefined);
-            setRotating(false);
-            setResult({
-              tone: "ok",
-              text: res.provider?.account
-                ? `Signed in as ${res.provider.account}. ${provider.models} turns will run.`
-                : `Signed in. ${provider.models} turns will run.`,
-              models: [],
-            });
-            onSignedIn?.();
-            return;
           case "denied":
           case "expired":
-            setSigning(undefined);
-            setResult({
-              tone: res.state === "denied" ? "err" : "warn",
-              text:
-                res.state === "denied"
-                  ? "The sign-in was refused."
-                  : "The code expired before it was approved.",
-              detail: res.detail ? { label: `${provider.name} said`, text: res.detail } : undefined,
-            });
+            ended(res);
             return;
           default: {
             // pending and slow_down are the same instruction with a different delay, and
@@ -181,7 +217,29 @@ export function ProviderCard({
       live = false;
       clearTimeout(timer);
     };
+    // ended is rebuilt each render from the same props listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signing, onPollOAuth, onSignedIn, provider]);
+
+  async function finishSignIn(code: string) {
+    if (!signing || !onPollOAuth || finishing || code.trim() === "") return;
+    setFinishing(true);
+    setResult(undefined);
+    try {
+      const res = await onPollOAuth(signing.flowID, code.trim());
+      if (!ended(res)) {
+        setResult({
+          tone: "warn",
+          text: "That code was not accepted yet. Paste the whole code and try again.",
+        });
+      }
+    } catch (err) {
+      setSigning(undefined);
+      setResult(failure(err, provider));
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   async function save() {
     const key = value.trim();
@@ -223,6 +281,7 @@ export function ProviderCard({
         urlComplete: res.verificationUriComplete,
         expiresAt: Number(res.expiresAt?.seconds ?? 0) * 1000,
         interval: Math.max(1, res.interval || 5),
+        codePaste: res.codePaste,
       });
     } catch (err) {
       setResult(failure(err, provider));
@@ -250,6 +309,7 @@ export function ProviderCard({
 
   const subscriptionStored = settings?.authKind === "oauth";
   const expired = oauthExpired(settings);
+  const refused = keyRefused(settings);
   const showWork = !readOnly && !loading && (rotating || (!stored && open) || signing !== undefined);
   const signInAgain = () => {
     setRotating(true);
@@ -277,8 +337,8 @@ export function ProviderCard({
               <Skeleton className="h-4 w-16" />
             </div>
           ) : (
-            <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
-              {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+            <Badge tone={refused ? "err" : expired ? "warn" : keySet ? "ok" : "idle"}>
+              {refused ? "Key refused" : expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
             </Badge>
           )}
         </TableCell>
@@ -292,7 +352,7 @@ export function ProviderCard({
             </span>
           ) : !loading && fallbackSet ? (
             <span data-testid={tid("provider-fallback")} className="text-sm text-muted">
-              Using the global key
+              {fallbackLabel}
             </span>
           ) : (
             <span className="text-muted">—</span>
@@ -302,12 +362,18 @@ export function ProviderCard({
           {loading || readOnly ? null : (
             <div className="flex items-center justify-end gap-2">
               {!stored && !showWork ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={primaryAction}
+                  onClick={() => setOpen(true)}
+                >
                   Connect
                 </Button>
               ) : null}
               {stored && !rotating && !expired ? (
-                <Button variant="outline" size="sm" onClick={signInAgain}>
+                <Button variant="outline" size="sm" className={primaryAction} onClick={signInAgain}>
                   {subscriptionStored ? "Sign in again" : "Rotate key"}
                 </Button>
               ) : null}
@@ -316,12 +382,15 @@ export function ProviderCard({
                   variant="ghost"
                   size="sm"
                   data-testid={tid("provider-key-remove")}
-                  className="text-err hover:bg-err-bg"
+                  className={cn(removeAction, "text-err hover:bg-err-bg")}
                   onClick={() => setConfirming(true)}
                 >
                   {subscriptionStored ? "Sign out" : "Remove key"}
                 </Button>
-              ) : null}
+              ) : (
+                // Holds Remove's place, so every row's first button starts at the same x.
+                <span aria-hidden className={cn(removeAction, "shrink-0")} />
+              )}
             </div>
           )}
         </TableCell>
@@ -379,7 +448,7 @@ export function ProviderCard({
           </DialogHeader>
           {showWork ? (
             <div className="space-y-3">
-              {oauth ? (
+              {oauth && !subscriptionOnly ? (
                 <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
                   {(["key", "subscription"] as const).map((m) => (
                     <button
@@ -403,9 +472,16 @@ export function ProviderCard({
               {oauth && mode === "subscription" ? (
                 <SubscriptionPanel
                   provider={provider}
+                  hint={
+                    scope === "global"
+                      ? (provider.subscription?.globalHint ?? provider.subscription?.hint)
+                      : provider.subscription?.hint
+                  }
                   signing={signing}
                   starting={starting}
+                  finishing={finishing}
                   onStart={() => void startSignIn()}
+                  onFinish={(code) => void finishSignIn(code)}
                   onCancel={() => setSigning(undefined)}
                   tid={tid}
                 />
@@ -515,11 +591,12 @@ export function ProviderCard({
               {subscriptionStored ? "Sign out?" : "Remove key?"}
             </DialogTitle>
             <DialogDescription className="text-base text-soft">
-              {scope === "personal"
-                ? fallbackSet
-                  ? `Your ${provider.models} chats go back to the global key.`
-                  : `${provider.models} chats you start will fail until a credential is set again.`
-                : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`}{" "}
+              {clearNote ??
+                (scope === "personal"
+                  ? fallbackSet
+                    ? `Your ${provider.models} chats go back to the global key.`
+                    : `${provider.models} chats you start will fail until a credential is set again.`
+                  : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`)}{" "}
               Podium deletes the secret; nothing already running is stopped, and every session
               that has already answered keeps its history.
             </DialogDescription>
@@ -590,20 +667,27 @@ function ProviderResult({
 
 function SubscriptionPanel({
   provider,
+  hint,
   signing,
   starting,
+  finishing,
   onStart,
+  onFinish,
   onCancel,
   tid,
 }: {
   provider: Provider;
+  hint?: string;
   signing?: Signing;
   starting: boolean;
+  finishing: boolean;
   onStart: () => void;
+  onFinish: (code: string) => void;
   onCancel: () => void;
   tid: (name: string) => string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState("");
   const left = useCountdown(signing?.expiresAt);
 
   if (!signing) {
@@ -620,11 +704,76 @@ function SubscriptionPanel({
           {starting ? "Asking for a code…" : provider.subscription?.label}
         </Button>
         <p className="text-xs leading-relaxed text-muted">
-          {provider.subscription?.hint} You approve it on {provider.name}&apos;s own site; this
+          {hint} You approve it on {provider.name}&apos;s own site; this
           host never sees your password. The access token it issues is refreshed here in the
           background, so you sign in once.
         </p>
       </div>
+    );
+  }
+
+  if (signing.codePaste) {
+    return (
+      <form
+        data-testid={tid("provider-oauth-panel")}
+        className="space-y-4 rounded-xl border border-line-strong bg-raised p-4 animate-in fade-in-0 duration-200"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onFinish(code);
+        }}
+      >
+        <ol className="space-y-3.5 text-xs">
+          <li className="flex flex-wrap items-center gap-2">
+            <Step n={1} />
+            <span className="text-fg">Approve the sign-in on</span>
+            <a
+              data-testid={tid("provider-oauth-link")}
+              href={signing.urlComplete || signing.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 font-mono text-accent hover:underline"
+            >
+              {hostOf(signing.url)}
+              <ExternalLink aria-hidden className="size-3" />
+            </a>
+          </li>
+          <li className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Step n={2} />
+              <Label htmlFor={tid("provider-oauth-paste")} className="text-xs font-normal text-fg">
+                Paste the code {provider.name} shows you
+              </Label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pl-7">
+              <Input
+                id={tid("provider-oauth-paste")}
+                data-testid={tid("provider-oauth-paste")}
+                autoComplete="off"
+                spellCheck={false}
+                value={code}
+                onChange={(e) => setCode(trimPasted(e.target.value))}
+                placeholder="code#state"
+                className="max-w-sm font-mono text-sm"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                data-testid={tid("provider-oauth-finish")}
+                disabled={code.trim() === "" || finishing}
+              >
+                {finishing ? <Spinner /> : null}
+                {finishing ? `Checking with ${provider.name}…` : "Finish sign-in"}
+              </Button>
+            </div>
+          </li>
+        </ol>
+        <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-3 text-xs">
+          {left ? <span className="tabular text-faint">expires in {left}</span> : null}
+          <Button type="button" variant="ghost" size="xs" className="ml-auto" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </form>
     );
   }
 
@@ -708,6 +857,12 @@ function Connected({ settings, personal }: { settings?: ProviderSettings; person
         ••••{settings.keyHint}
         {settings.setBy && !personal ? ` · set by ${settings.setBy}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
+        {settings.refusedAt ? (
+          <span className="block text-err" title={settings.refusal || undefined}>
+            refused {relative(settings.refusedAt)}
+            {settings.refusal ? `: ${settings.refusal}` : ""}
+          </span>
+        ) : null}
       </>
     );
   }
@@ -782,6 +937,15 @@ function providerMessage(err: unknown): string | undefined {
   if (!(err instanceof ConnectError)) return undefined;
   const [detail] = err.findDetails(ProviderKeyErrorSchema);
   return detail?.providerMessage.trim() || undefined;
+}
+
+/** hostOf is a URL's host, for a link whose full address is too long to show. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** trimPasted strips the whitespace and the matched quotes a paste brings with it. */

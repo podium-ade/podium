@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { errorMessage, identity } from "../lib/client";
 import { authErrorMessage } from "../lib/auth";
 import type { Viewer } from "../lib/identity";
+import { brandName } from "../lib/brand";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -13,7 +14,7 @@ export function SignInShell({ children }: { children: ReactNode }) {
     <div className="grid h-full place-items-center overflow-y-auto bg-background p-6">
       <div className="w-full max-w-sm">
         <div className="mb-7 text-center">
-          <h1 className="text-base font-semibold tracking-tight text-fg">Podium</h1>
+          <h1 className="text-base font-semibold tracking-tight text-fg">{brandName()}</h1>
         </div>
         {children}
       </div>
@@ -27,7 +28,7 @@ export function GoogleSignIn({ claimed, bare = false }: { claimed: boolean; bare
     <div className={bare ? undefined : "rounded-xl border border-border bg-card p-5 shadow-sm"}>
       {claimed ? (
         <p className={bare ? "text-xs leading-relaxed text-muted" : "text-center text-xs leading-relaxed text-muted"}>
-          This instance of Podium is claimed.
+          This instance of {brandName()} is claimed.
           <br />
           <br />
           Sign in with a Google Workspace account from the organization that owns it.
@@ -136,8 +137,8 @@ export function ClaimScreen({ viewer, onClaimed }: { viewer: Viewer; onClaimed: 
       >
         <h2 className="text-sm font-medium text-fg">Claim this instance</h2>
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          Signed in as <code className="font-mono text-fg">{viewer.login}</code>. This Podium has
-          no owner. Type <code className="font-mono text-fg">{domain}</code> to claim it for that
+          Signed in as <code className="font-mono text-fg">{viewer.login}</code>. This{" "}
+          {brandName(viewer)} has no owner. Type <code className="font-mono text-fg">{domain}</code> to claim it for that
           Google Workspace. You will be the owner; later sign-ins from this Workspace will join as
           members.
         </p>

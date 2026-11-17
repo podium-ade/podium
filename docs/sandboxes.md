@@ -20,10 +20,11 @@ Supported providers:
 | `image` tasks run | under Docker inside the VM | as the sandbox itself |
 | `sandbox.snapshot` | a boat named snapshot | a Modal filesystem-snapshot image (`im-…`) |
 | An image Modal holds | — | `image: modal:<name>`, published with Modal's SDK |
-| Sidecars | yes | only with `runtime: vm` |
+| Sidecars | yes; never privileged | with `runtime: vm` and an image carrying `dockerd`; privileged with **Privileged sidecars** on |
 | Secret files on tmpfs | yes | only with `runtime: vm`; otherwise a 0700 directory removed at the end |
 | Resource limits | `resources` picks the machine size; limits apply with systemd | `resources` is the sandbox's CPU and memory |
 | Longest task | no limit | 24 h |
+| A conversation's workspace | a tar in the object store, like a node's | a Modal directory snapshot of `/workspace`; see below |
 
 ## How a task runs
 
@@ -33,7 +34,9 @@ Supported providers:
    starts the agent, and exposes the agent's port through the provider.
 3. It posts the run — spec, resolved secrets, registry logins — to the agent, and streams the
    agent's events into the task exactly as a node streams its own. Artifacts and the workspace
-   tar go through the server, as they do for a node.
+   tar go through the server, as they do for a node. A transfer whose connection breaks
+   partway resumes from the last byte the other side received; it gives up after three
+   attempts in a row that get no further.
 4. When the task ends, the server deletes the sandbox. A held preview keeps it until released.
 
 The agent runs the task one of two ways:
@@ -86,7 +89,8 @@ cap waits in the queue with `sandbox provider <name> is running as many sandboxe
 
 - **boat** reports the account's limit, so the cap is optional; the dialog shows the limit and
   warns when the cap is set above it.
-- **Modal** reports none, so the cap is required: it is what bounds the bill.
+- **Modal** reports none, so the cap is the only thing that bounds the bill. It is optional all
+  the same: left empty or 0, Modal runs with no cap.
 
 Several podium-servers on one database each run every provider, and the cap holds across them.
 
@@ -131,6 +135,69 @@ SDK, publish it by name, and name it `modal:<name>` (or `modal:im-…` by ID) as
 `image`. Nothing is pulled from a registry when the sandbox starts, which is also how a task uses
 an image from a registry Modal cannot reach, such as one on your own network. A task with a
 `modal:` image runs only on Modal. See [agent.md](agent.md#on-modal-an-image-modal-holds).
+
+### Conversation workspaces on Modal
+
+A conversation whose tasks run on Modal keeps its workspace on Modal, never in the object store.
+When a task exits, the server has Modal snapshot `/workspace` (`SnapshotDirectory`) and records
+the image ID. The next task of the conversation mounts that image at `/workspace` before it
+starts. Nothing passes through podium-server, so a large workspace costs no transfer, and the
+snapshot holds only `/workspace`: the agent's token and the task's secrets live elsewhere and are
+never in it. `PODIUM_WORKSPACE_EXCLUDE` does not apply. Dependency trees come back with the rest,
+which is the point.
+
+- A conversation with no image yet — its first task, or one that ran somewhere with a tar before
+  — restores the tar way, from its own tar or the repository's base. Once it has an image, its
+  tar is deleted.
+- A task that publishes a repository base still stores the base as a tar, since any node restores
+  it.
+- The task's account may have another uid in a new image. The agent gives it whatever in the
+  mounted workspace it does not own, before the task starts.
+- An image Modal no longer has makes the conversation start over: the task logs it, and the
+  conversation stops pointing at it.
+
+The **Modal** tab on the **Snapshots** page lists these images, deletes one or a selection, and
+holds their retention policy: delete images not replaced for N days, and keep at most N. Both are
+off until set. They are applied every 10 minutes and when saved, never to a conversation with a
+task still running. Modal is also told to drop each image a day after the age limit on its own,
+in case podium-server is down when it is due. With no age limit, an image never expires on
+Modal. A replaced or deleted image waits in `sandbox_snapshots_retired` until Modal confirms the
+delete, so one that fails is tried again on the next sweep. The server deletes them with the
+Modal credentials saved on the Sandboxes screen. A node configured with credentials only in its
+own file leaves them to Modal's expiry.
+
+### Sidecars on Modal
+
+A task that runs in its own image on Modal can have sidecars, a `docker: true` playbook's Docker
+daemon and a `browser: true` playbook's Chrome among them: they run beside it on an engine the
+sandbox starts itself, as they would beside a container on a node. It needs three things, none
+of them on by default:
+
+1. **The vm runtime**, on the provider or as the playbook's `sandbox: {modal: {runtime: vm}}`.
+2. **Privileged sidecars** on the Modal provider, for the daemon: it is root on the sandbox. The
+   sandbox is a VM of the turn's own and holds no Modal credential, so root there reaches only
+   what the turn was already given; it is still an operator's decision, and it stays off unless
+   one turns it on.
+3. **An image with a Docker engine in it.** The agent runtime image carries only the client.
+   [`examples/modal/docker-engine.Dockerfile`](../examples/modal/docker-engine.Dockerfile) adds
+   Docker's static engine to any Debian or Ubuntu image, and `examples/modal/publish_image.py`
+   publishes the result to Modal, taking a private base with a login it hands Modal for that build
+   only:
+
+   ```sh
+   REGISTRY_PASSWORD=$(gcloud auth print-access-token) python examples/modal/publish_image.py \
+       examples/modal/docker-engine.Dockerfile --context examples/modal \
+       --build-arg BASE=us-docker.pkg.dev/<project>/<repo>/<agent-image>:<tag> \
+       --registry-username oauth2accesstoken --name <agent-image>-docker:<tag>
+   ```
+
+   and name it `image: modal:<agent-image>-docker:<tag>`.
+
+Everything else is as on a node: the daemon shares `/workspace` (a bind mount of the sandbox's),
+the turn reaches its sidecars as `dind` and `chrome`, and they reach the turn as `task`, so
+`http://task:3000` is the turn's own server. When the turn's command exits, what it left running
+ends with it. A sandbox is sized by the playbook's `resources` alone, and the sidecars share it,
+so give it room for them.
 
 ### A pool of ready sandboxes
 

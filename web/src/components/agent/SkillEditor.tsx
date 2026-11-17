@@ -1,5 +1,13 @@
 import { useRef, useState } from "react";
 import { ChevronLeft, FolderOpen, Paperclip, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog"
 import { bundleSkillFolders, readDirectoryFiles, type SkillBundle } from "../../lib/skillZip";
 import { Button } from "../ui/button";
 import { YamlEditor } from "../yaml/YamlEditor";
@@ -13,6 +21,9 @@ description: Use when reviewing a pull request.
 `
 
 export type SkillFile = { name: string; markdown: string }
+
+const SKILL_DELETE_TEXT =
+  "Its directory and every file in it go. A playbook that still names it fails its next turn until the name is removed. There is no undo."
 
 /**
  * SkillEditor writes one SKILL.md, or a whole skill folder.
@@ -29,6 +40,7 @@ export function SkillEditor({
   onSubmitBundles,
   onDelete,
   onCancel,
+  embedded,
 }: {
   existing?: { name: string; markdown: string; fileCount: number; files?: Record<string, string> }
   saving: boolean
@@ -39,6 +51,8 @@ export function SkillEditor({
   onSubmitBundles: (bundles: SkillBundle[]) => void
   onDelete?: () => void
   onCancel: () => void
+  /** Sit under a page bar that already names the skill and links back: no back link, no heading. */
+  embedded?: boolean
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const dirRef = useRef<HTMLInputElement>(null)
@@ -46,6 +60,7 @@ export function SkillEditor({
   const [filename, setFilename] = useState("SKILL.md")
   const [tried, setTried] = useState(false)
   const [pickError, setPickError] = useState("")
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const creating = !existing
   // Saving the text installs a directory that holds only SKILL.md.
   const folderLocked = (existing?.fileCount ?? 1) > 1
@@ -96,15 +111,18 @@ export function SkillEditor({
   }
 
   return (
+    <>
     <form
       data-testid="skill-editor"
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault()
+        if (confirmingDelete) return
         submit()
       }}
     >
       <header className="space-y-3">
+        {embedded ? null : (
         <button
           type="button"
           onClick={onCancel}
@@ -113,10 +131,13 @@ export function SkillEditor({
           <ChevronLeft className="size-3.5" />
           Skills
         </button>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        )}
+        <div className={embedded ? "flex flex-wrap items-start justify-end gap-3" : "flex flex-wrap items-start justify-between gap-3"}>
+          {embedded ? null : (
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">
             {creating ? "New skill" : existing.name}
           </h1>
+          )}
           <div className="flex items-center gap-2">
             <input
               ref={fileRef}
@@ -217,8 +238,9 @@ export function SkillEditor({
             variant="danger"
             size="sm"
             className="ml-auto"
+            data-testid="skill-delete"
             disabled={saving || deleting}
-            onClick={onDelete}
+            onClick={() => setConfirmingDelete(true)}
           >
             <Trash2 />
             {deleting ? "Deleting…" : "Delete"}
@@ -226,6 +248,37 @@ export function SkillEditor({
         ) : null}
       </div>
     </form>
+
+    {/* Sibling of the form: a confirm button inside it would submit a save. */}
+    {onDelete && existing ? (
+      <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {existing.name}?</DialogTitle>
+            <DialogDescription>{SKILL_DELETE_TEXT}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingDelete(false)}>
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="skill-delete-confirm"
+              disabled={deleting}
+              onClick={() => {
+                setConfirmingDelete(false)
+                onDelete()
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete skill"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    ) : null}
+    </>
   )
 }
 

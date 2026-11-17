@@ -67,6 +67,15 @@ export { TitleServer };
 /** DelegateURLFlag matches UrlFlag in mcp.ts. */
 export const DelegateURLFlag = "--url";
 
+/** DelegateRoutineFlag matches RoutineFlag in mcp.ts. */
+export const DelegateRoutineFlag = "--routine";
+
+/** DelegateCreateRoutineFlag matches CreateRoutineFlag in mcp.ts. */
+export const DelegateCreateRoutineFlag = "--create-routine";
+
+/** DelegateNoPlaybooksFlag matches NoPlaybooksFlag in mcp.ts. */
+export const DelegateNoPlaybooksFlag = "--no-playbooks";
+
 /**
  * resolveBrowserURL turns the sidecar's name into its address, because Chrome will not
  * answer to a name.
@@ -190,7 +199,9 @@ export interface Config {
    * shape as the browser, and for the same reason: what speaks MCP runs here, and what it
    * drives is somewhere else.
    */
-  delegation?: { url: string; entry: string };
+  /** routine adds routine_finish to the delegation server: the turn is in a routine's chat.
+   * createRoutine adds create_routine. noPlaybooks leaves the delegation tools out. */
+  delegation?: { url: string; entry: string; routine?: boolean; createRoutine?: boolean; noPlaybooks?: boolean };
   /** mcpServers is the playbook's own MCP servers, already resolved by the conductor. */
   mcpServers?: McpServerRef[];
   /**
@@ -399,7 +410,15 @@ export function writeConfig(cfg: Config): string {
     // process list.
     mcp[DelegateServer] = mcpServer({
       type: "local",
-      command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
+      command: [
+        process.execPath,
+        cfg.delegation.entry,
+        DelegateURLFlag,
+        cfg.delegation.url,
+        ...(cfg.delegation.routine ? [DelegateRoutineFlag] : []),
+        ...(cfg.delegation.createRoutine ? [DelegateCreateRoutineFlag] : []),
+        ...(cfg.delegation.noPlaybooks ? [DelegateNoPlaybooksFlag] : []),
+      ],
     });
   }
   if (cfg.interactive) {
@@ -573,7 +592,10 @@ export async function serve(opts: {
   const server: Server = { url, password, child, stop: () => child.kill("SIGTERM") };
   const exited = new Promise<never>((_, reject) => {
     child.once("exit", (code) => reject(new Error(`${Binary} serve exited ${code} before it was ready`)));
-    child.once("error", (err) => reject(err));
+    child.once("error", (err) => {
+      const e = err as NodeJS.ErrnoException;
+      reject(e.syscall?.startsWith("spawn") ? new HarnessNotStarted(notStartedText(e), e) : e);
+    });
   });
   exited.catch(() => {});
   try {
@@ -652,8 +674,20 @@ function freePort(): Promise<number> {
 
 function spawnError(err: Error): string {
   return (err as NodeJS.ErrnoException).code === "ENOENT"
-    ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs (@opencode/cli).`
+    ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs: npm install -g @opencode/cli@${HarnessVersion}`
     : err.message;
+}
+
+/**
+ * HarnessNotStarted is what serve rejects with when the harness could not be started at all.
+ * The server is the first thing a turn starts, so this, not a run, is where a missing binary
+ * shows; text is what the person who asked is told (see Run.notStarted).
+ */
+export class HarnessNotStarted extends Error {
+  constructor(readonly text: string, cause: Error) {
+    super(cause.message, { cause });
+    this.name = "HarnessNotStarted";
+  }
 }
 
 /**
@@ -666,6 +700,45 @@ export type Child = ChildProcessByStdio<null, Readable, Readable>;
 export interface Run {
   child: Child;
   argv: string[];
+  /**
+   * notStarted is set when the harness could not be started at all, to what the person who
+   * asked is told instead of an exit code: it is their chat the failure lands in, and
+   * "the harness exited -2" tells them nothing.
+   */
+  notStarted?: string;
+}
+
+/** HarnessVersion is the @opencode/cli the runtime image installs, and a host should too. */
+export const HarnessVersion = "2.2.5";
+
+/**
+ * NotInstalledText is what a turn says when the harness is not installed where it runs — a
+ * HOST turn on a machine nobody installed it on, since the image always has it. It says what
+ * is wrong in plain words and what fixes it, for the person to pass to whoever runs Podium.
+ */
+export const NotInstalledText =
+  `I couldn't start: the program that runs me (${Binary}) isn't installed on the machine ` +
+  `running Podium's conductor. Whoever runs Podium can install it with ` +
+  `\`npm install -g @opencode/cli@${HarnessVersion}\`; nothing needs restarting. Then ask me again.`;
+
+/**
+ * notStartedText is what a turn says when spawning the harness failed with err.
+ */
+export function notStartedText(err: NodeJS.ErrnoException): string {
+  if (err.code === "ENOENT") {
+    return NotInstalledText;
+  }
+  if (err.code === "EACCES") {
+    return (
+      `I couldn't start: the program that runs me (${Binary}) is installed but can't be run ` +
+      `on the machine running Podium's conductor (permission denied). Whoever runs Podium ` +
+      `should check how it was installed. Then ask me again.`
+    );
+  }
+  return (
+    `I couldn't start: the program that runs me (${Binary}) failed to launch on the machine ` +
+    `running Podium's conductor (${err.message}). Whoever runs Podium can look into it; then ask me again.`
+  );
 }
 
 /**
@@ -689,13 +762,19 @@ export function start(opts: {
 }): Run {
   const { argv, cwd, env } = invocation({ ...opts, thinking: takesThinking(opts.env) });
   const child = spawn(Binary, argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const run: Run = { child, argv };
   // ENOENT is an 'error' event, not a non-zero exit. Without a listener Node treats it as
   // unhandled and kills THIS process with status 1 — before main can emit a final — which
-  // is how a host turn ends as "said nothing at all".
+  // is how a host turn ends as "said nothing at all". The event comes before 'close', so
+  // notStarted is set by the time the caller has the exit code.
   child.on("error", (err) => {
-    process.stderr.write(`podium-agent: ${spawnError(err)}\n`);
+    const e = err as NodeJS.ErrnoException;
+    process.stderr.write(`podium-agent: ${spawnError(e)}\n`);
+    if (e.syscall?.startsWith("spawn")) {
+      run.notStarted = notStartedText(e);
+    }
   });
-  return { child, argv };
+  return run;
 }
 
 let thinks: boolean | undefined;
@@ -829,6 +908,27 @@ const networkError =
 /** lostToNetwork reports whether a harness error is a connection lost before the model answered. */
 export function lostToNetwork(reason: string | undefined): boolean {
   return networkError.test(reason ?? "");
+}
+
+// What each provider says when it does not accept the credential at all: Anthropic's
+// "invalid x-api-key" and authentication_error, OpenAI's "Incorrect API key" and
+// invalid_api_key, Google's "API key not valid" and "API key expired", xAI's
+// "Incorrect API key". A rate limit, an overload or a refusal of the request is not one.
+const credentialError =
+  /invalid x-api-key|authentication_error|invalid[ _]api[ _]key|incorrect api key|api key not valid|api key expired|api_key_invalid/i;
+
+/**
+ * CredentialRefusedText is the whole answer of a turn whose credential the provider refused.
+ * The provider's own words stay in the log: they mean something to an operator and nothing
+ * to the person on a pull request, and the conductor recognises this sentence to re-check
+ * the key and tell whoever set it (internal/agent/conductor/keyhealth.go).
+ */
+export const CredentialRefusedText =
+  "I could not answer: the model provider refused this bot's API key. An operator needs to replace it.";
+
+/** credentialRefused reports whether a harness error is the provider refusing the credential. */
+export function credentialRefused(reason: string | undefined): boolean {
+  return credentialError.test(reason ?? "");
 }
 
 /** errorOf is the reason an error event gives, or undefined for any other event. */

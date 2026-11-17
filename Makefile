@@ -20,7 +20,7 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed sandbox-agent-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
+.PHONY: build runner-embed sandbox-agent-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-desktop agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -123,6 +123,15 @@ agent-runtime:
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
 		-t $(AGENT_RUNTIME)-dev:dev -f agent/runtime/Dockerfile.dev agent/runtime
+
+# The desktop image: the base runtime plus a desktop a turn and a person share (Xvfb, XFCE,
+# Chromium, voxl), for desktop-mode playbooks. Separate from `agent-runtime` because it is
+# large and compiles voxl, and because it is GPL-2+ as built (see
+# agent/runtime/desktop/THIRD_PARTY.md): it is built here, never published by `make`.
+agent-runtime-desktop:
+	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
+		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
+		-t $(AGENT_RUNTIME)-desktop:dev -f agent/runtime/Dockerfile.desktop agent/runtime
 
 # The runtime built for THIS HOST, which is what PODIUM_AGENT_HOST_RUNTIME points at: the
 # assistant answers a conversation by running dist/main.js as a child of podium-agent, with

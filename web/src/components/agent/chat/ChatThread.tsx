@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import {
   ArrowDown,
   Bot,
@@ -7,6 +16,7 @@ import {
   ChevronRight,
   Copy,
   LoaderCircle,
+  Lock,
   Terminal,
   X,
 } from "lucide-react";
@@ -24,7 +34,7 @@ import {
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import { toolSummary } from "../../../lib/activity";
-import { TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
+import { PENDING_USER, TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
 import { absolute, relative } from "../../../lib/format";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
@@ -33,6 +43,9 @@ import { Tooltip } from "../../ui/tooltip";
 import { ToolCallRow } from "../../activity/ToolCallRow";
 import { ChatAttachments } from "../ChatAttachments";
 import { MarkdownText } from "./MarkdownText";
+import { surfaceName } from "../../../lib/surfaces";
+import { Avatar, OriginMark } from "./Origin";
+import { DeliveryNotice } from "./Delivery";
 
 interface ChatContextValue {
   botName: string;
@@ -58,6 +71,9 @@ export function ChatThread({
   onSend,
   top,
   welcome,
+  loading = false,
+  skeleton,
+  history,
   ...ctx
 }: ChatContextValue & {
   messages: ThreadMessageLike[];
@@ -66,7 +82,31 @@ export function ChatThread({
   top?: ReactNode;
   /** welcome is drawn in place of an empty transcript. */
   welcome?: ReactNode;
+  /** loading is true while the transcript is on its way; skeleton is drawn for it meanwhile. */
+  loading?: boolean;
+  skeleton?: ReactNode;
+  /** history is the conversation before the first message in hand, loaded as the reader
+   *  scrolls up. Without it the transcript is all there is. */
+  history?: History;
 }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const sending = messages.some((m) => m.id === PENDING_USER);
+  useScrollAnchor(viewport, content, sending);
+  useLoadOnTop(viewport, history, messages.length);
+  // A chat opens on its last message, in place: the view is at the bottom before it is
+  // first painted, rather than painted at the top and then scrolled down.
+  const hasMessages = messages.length > 0;
+  // A conversation sits on the composer, as a chat does: a short one, and the skeleton drawn
+  // while one connects, at the bottom, where its messages land — not at the top, which drew
+  // the skeleton up there and then the transcript down here, and read as a jump. Only the
+  // welcome of an empty chat keeps the top.
+  const bottomUp = hasMessages || loading;
+  useLayoutEffect(() => {
+    const vp = viewport.current;
+    if (hasMessages && vp) vp.scrollTop = vp.scrollHeight;
+  }, [hasMessages]);
+
   const runtime = useExternalStoreRuntime<ThreadMessageLike>({
     messages,
     isRunning: ctx.busy,
@@ -82,15 +122,47 @@ export function ChatThread({
       <ChatContext.Provider value={ctx}>
         <ThreadPrimitive.Root className="relative min-h-0 flex-1">
           <ThreadPrimitive.Viewport
+            ref={viewport}
+            scrollToBottomOnRunStart={false}
             data-testid="chat-scroller"
-            className="absolute inset-0 flex flex-col overflow-y-auto"
+            // useScrollAnchor holds the view in place itself; the browser's own anchoring
+            // would correct the same change a second time.
+            className="absolute inset-0 flex flex-col overflow-y-auto [overflow-anchor:none]"
           >
-            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5">
+            <div
+              ref={content}
+              className={cn(
+                "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5",
+                bottomUp && "justify-end",
+                // The transcript arrives whole, where the skeleton was, and settles in once. From
+                // part-way visible, not from nothing: the skeleton is gone the moment it lands, and
+                // a fade from nothing showed an empty frame in between.
+                hasMessages && "animate-in fade-in-40 duration-200",
+              )}
+            >
               {top}
-              <ThreadPrimitive.Empty>{welcome}</ThreadPrimitive.Empty>
-              <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+              {history && hasMessages ? <HistoryEdge history={history} /> : null}
+              {/* The skeleton is drawn in the thread's own empty slot, and so goes in the same
+                  render the messages come in: held outside it, it went a render before the
+                  thread drew them, and a blank frame showed in between. */}
+              <ThreadPrimitive.Empty>
+                {loading || hasMessages ? (
+                  // Held to the bottom and clipped at the top, it scrolls nowhere: on a phone it
+                  // is taller than the transcript, and drawn as content it painted a frame from
+                  // the top before anything put the view back at the bottom.
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <div className="absolute inset-x-0 bottom-0">{skeleton}</div>
+                  </div>
+                ) : (
+                  welcome
+                )}
+              </ThreadPrimitive.Empty>
+              <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, SystemMessage }} />
             </div>
-            <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex justify-center">
+            {/* h-0: the footer takes no room in the transcript and the button hangs above it.
+                With height, the transcript grew by a button's height whenever the button showed
+                and shrank again when it hid at the bottom, which jumped the conversation. */}
+            <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex h-0 items-end justify-center">
               <ThreadPrimitive.ScrollToBottom asChild>
                 <Button
                   type="button"
@@ -110,36 +182,332 @@ export function ChatThread({
   );
 }
 
+/** History is the part of a conversation not yet loaded, before its first message in hand. */
+export interface History {
+  /** more is true while there is history before the first message. */
+  more: boolean;
+  loading: boolean;
+  error?: string;
+  load: () => void;
+}
+
+/** LOAD_AHEAD_PX is how far from the top a page of history starts loading, so that a reader
+ *  scrolling up at reading speed meets messages rather than a spinner. */
+const LOAD_AHEAD_PX = 1200;
+
+/**
+ * useLoadOnTop asks for the page before the first message once the view is within
+ * LOAD_AHEAD_PX of the top — on scroll, and again whenever a page lands, so a short page
+ * that leaves the view still near the top loads the next one without the reader moving.
+ */
+function useLoadOnTop(viewport: RefObject<HTMLDivElement | null>, history: History | undefined, count: number) {
+  const more = history?.more ?? false;
+  const loading = history?.loading ?? false;
+  const failed = history?.error !== undefined;
+  const load = useRef(history?.load);
+  useEffect(() => {
+    load.current = history?.load;
+  });
+  useEffect(() => {
+    const vp = viewport.current;
+    if (!vp || !more || loading || failed || count === 0) return;
+    const check = () => {
+      if (vp.scrollTop < LOAD_AHEAD_PX) load.current?.();
+    };
+    check();
+    vp.addEventListener("scroll", check, { passive: true });
+    return () => vp.removeEventListener("scroll", check);
+  }, [viewport, more, loading, failed, count]);
+}
+
+/**
+ * useScrollAnchor keeps what the reader is looking at where it is when the transcript
+ * changes above it — a page of history landing, a message re-drawn as its earlier rows
+ * arrive. It remembers the first message in view and where it sits in the content; when
+ * the content changes (before the browser paints) it scrolls by however far that message
+ * moved. Should that message have been replaced, the distance from the bottom is kept
+ * instead, which is right for anything added above. At the bottom it does nothing:
+ * following the newest message is the viewport's own job.
+ *
+ * The reader's own question is the one thing that moves them: wherever they were reading,
+ * they glide to the bottom to see it, re-aimed as the answer grows under them, until they
+ * get there or take the scroll back themselves. Anybody else's message, or a turn starting,
+ * leaves them where they are — the viewport's own scroll on a turn starting yanked a reader
+ * out of the history in one frame whenever somebody else spoke, so it is turned off.
+ */
+function useScrollAnchor(
+  viewport: RefObject<HTMLDivElement | null>,
+  content: RefObject<HTMLDivElement | null>,
+  sending: boolean,
+) {
+  // chase is true while gliding to the reader's own question.
+  const chase = useRef(false);
+
+  useLayoutEffect(() => {
+    const vp = viewport.current;
+    const body = content.current;
+    if (!vp || !body) return;
+    // The anchor's offset is measured from the top of the content, not the view, so that
+    // the reader's own scrolling — which moves both alike — is never taken for a change.
+    let anchor: { el: Element | null; offset: number; height: number } | null = null;
+    const offsetOf = (el: Element) => el.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    const atBottom = () => vp.scrollHeight - vp.scrollTop - vp.clientHeight < 4;
+
+    // pinned is true while the reader is at the bottom, and height is the content's height
+    // when that was last seen. A change of content (another chat drawn in, a page landing,
+    // an answer growing) keeps a pinned reader at the bottom before it is painted. It is the
+    // content's layout height, not the viewport's scroll height: a transform — the Jump to
+    // latest button sliding in as the reader leaves the bottom — stretches the scroll height
+    // for as long as it plays, and read as a change of content it snapped them back.
+    let pinned = true;
+    let height = body.offsetHeight;
+    const pin = () => {
+      vp.scrollTop = vp.scrollHeight;
+    };
+
+    const pick = () => {
+      height = body.offsetHeight;
+      pinned = !chase.current && atBottom();
+      if (chase.current || pinned) {
+        anchor = null;
+        return;
+      }
+      const viewTop = vp.getBoundingClientRect().top;
+      const items = body.querySelectorAll("[data-chat-row]");
+      // The rows are in order down the page: the first one whose bottom is below the top
+      // of the view is the one being read.
+      let lo = 0;
+      let hi = items.length - 1;
+      let found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (items[mid].getBoundingClientRect().bottom > viewTop) {
+          found = mid;
+          hi = mid - 1;
+        } else lo = mid + 1;
+      }
+      const el = found >= 0 ? items[found] : null;
+      anchor = { el, offset: el ? offsetOf(el) : 0, height: vp.scrollHeight };
+    };
+
+    const hold = () => {
+      if (!anchor) return;
+      const shift =
+        anchor.el && anchor.el.isConnected
+          ? offsetOf(anchor.el) - anchor.offset
+          : // The row was replaced: whatever changed was above it, so keep the distance
+            // from the bottom.
+            vp.scrollHeight - anchor.height;
+      if (Math.abs(shift) >= 1) vp.scrollTop += shift;
+    };
+
+    // A browser dispatches the scroll event a change of content causes before it tells the
+    // ResizeObserver, so a scroll can be the first to see the new layout: whichever comes
+    // first holds the view, and only then is the anchor taken again — taken first, it would
+    // already be where the change put it.
+    const onScroll = () => {
+      if (chase.current && atBottom()) chase.current = false;
+      // A scroll that came with a change of content is the browser clamping or shifting the
+      // view for it, not the reader leaving the bottom: a pinned reader stays pinned. Taken
+      // as the reader's, a long chat swapped for a short one let a frame paint off the bottom.
+      // The reader's own hand on it (input within the last half second) is never overruled:
+      // an answer growing under someone starting to scroll up must not pull them back down.
+      const theirs = performance.now() - lastInput < 500;
+      if (pinned && !chase.current && !theirs && body.offsetHeight !== height) pin();
+      else hold();
+      pick();
+    };
+    const onResize = () => {
+      // Mid-glide the bottom moved: aim at where it is now.
+      if (chase.current) vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
+      else if (pinned) pin();
+      else hold();
+      pick();
+    };
+    // The reader taking the scroll back ends the glide, and marks the scroll as theirs.
+    let lastInput = -Infinity;
+    const takeBack = () => {
+      chase.current = false;
+      lastInput = performance.now();
+    };
+
+    const resize = new ResizeObserver(onResize);
+    resize.observe(body);
+    // The same, the moment the transcript's DOM changes: in the task that changed it, before
+    // anything can paint or read it. A ResizeObserver alone answers later in the frame, and a
+    // chat drawn in between the two could be seen, for that moment, where it first fell.
+    const mutation = new MutationObserver(onResize);
+    mutation.observe(body, { childList: true, subtree: true, characterData: true });
+    vp.addEventListener("scroll", onScroll, { passive: true });
+    const inputs = ["wheel", "touchstart", "touchmove", "pointerdown", "keydown"] as const;
+    for (const e of inputs) vp.addEventListener(e, takeBack, { passive: true });
+    pick();
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+      vp.removeEventListener("scroll", onScroll);
+      for (const e of inputs) vp.removeEventListener(e, takeBack);
+    };
+  }, [viewport, content]);
+
+  useLayoutEffect(() => {
+    const vp = viewport.current;
+    if (!sending || !vp) return;
+    chase.current = true;
+    vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
+  }, [viewport, sending]);
+}
+
+/**
+ * HistoryEdge is the top of the loaded transcript. While there is more it holds a row's
+ * height — the spinner shows in it while a page loads, so nothing shifts when it does —
+ * and at the start of the conversation it says so, quietly.
+ */
+function HistoryEdge({ history }: { history: History }) {
+  if (!history.more) {
+    return (
+      <p data-testid="chat-history-start" className="text-center text-2xs text-faint">
+        Start of the conversation
+      </p>
+    );
+  }
+  return (
+    <div data-testid="chat-history" className="flex h-6 items-center justify-center text-xs text-muted">
+      {history.error ? (
+        <span className="flex items-center gap-2">
+          Earlier messages did not load
+          <Button type="button" variant="ghost" size="xs" onClick={history.load}>
+            Retry
+          </Button>
+        </span>
+      ) : history.loading ? (
+        <span role="status" className="flex animate-in items-center gap-2 fade-in-0 duration-200">
+          <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+          Loading earlier messages
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * useEnters is whether a message fades in: only one that arrives as the newest. Decided
+ * once, when it mounts, so a message that stops being the newest does not lose its fade
+ * halfway — and an older one, loaded above the reader or re-drawn, simply is there.
+ */
+function useEnters() {
+  const isLast = useAuiState((s) => s.message.isLast);
+  const [enters] = useState(isLast);
+  return enters;
+}
+
 /** ts turns a message's Date back into the Timestamp lib/format reads. */
 const ts = (d?: Date) => (d ? timestampFromDate(d) : undefined);
 
 const useCustom = () => useAuiState((s) => s.message.metadata.custom as MessageCustom);
 
 /**
- * UserMessage is a question: short, scanned for, so a bubble on the right. The asker's name
- * is shown only when the message carries one — a mirrored thread, with more than one person
- * in it. In a web chat the only person asking is the person reading.
+ * SystemMessage is Podium saying something about the chat rather than in it — that it is
+ * multiplayer now, and answers only when mentioned. A quiet divider across the thread.
+ */
+function SystemMessage() {
+  return (
+    <MessagePrimitive.Root
+      data-testid="chat-notice"
+      data-chat-row=""
+      className="flex items-center gap-3 py-1 text-2xs text-faint"
+    >
+      <span aria-hidden className="h-px flex-1 bg-border" />
+      <span className="max-w-[80%] text-center">
+        <MessagePrimitive.Parts components={{ Text: ({ text }) => <>{text}</> }} />
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-border" />
+    </MessagePrimitive.Root>
+  );
+}
+
+/**
+ * UserMessage is a question: short, scanned for, so a bubble on the right. The asker is
+ * shown only when the message carries one — a mirrored thread, with more than one person in
+ * it — and then with where they said it (a Slack or GitHub mark, linking to the message) and
+ * whether they are in Podium at all. In a web chat with one person the only person asking
+ * is the person reading.
+ *
+ * What nobody put to Podium is the conversation around it, and is drawn quieter: dimmed,
+ * with a tooltip saying it did not reach Podium. A message deleted where it was said keeps
+ * its place and says so.
  */
 function UserMessage() {
   const custom = useCustom();
   const createdAt = useAuiState((s) => s.message.createdAt);
-  return (
-    <MessagePrimitive.Root className="flex flex-col items-end gap-1">
-      {custom?.author ? (
-        <span data-testid="chat-author" className="pr-1 text-xs font-medium text-muted">
-          {custom.author}
+  const where = surfaceName(custom?.via);
+  const unaddressed = custom?.addressed === false;
+  const enters = useEnters();
+  const external = Boolean(custom?.author) && !custom?.authorLogin && custom?.via !== "web";
+  const bubble = (
+    <div
+      data-testid="chat-message"
+      data-role="user"
+      data-author={custom?.author}
+      data-addressed={unaddressed ? "false" : "true"}
+      title={unaddressed ? undefined : absolute(ts(createdAt))}
+      className={cn(
+        "min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-run-bg px-4 py-2.5",
+        unaddressed && "opacity-60",
+        custom?.deleted && "border border-dashed border-border bg-transparent",
+      )}
+    >
+      {custom?.deleted ? (
+        <span data-testid="chat-deleted" className="text-sm italic text-muted">
+          Message deleted on {where}
         </span>
+      ) : (
+        <>
+          <MessagePrimitive.Parts components={{ Text: () => <MarkdownText /> }} />
+          <ChatAttachments attachments={custom?.attachments ?? []} />
+        </>
+      )}
+    </div>
+  );
+  return (
+    <MessagePrimitive.Root
+      data-chat-row=""
+      className={cn("flex flex-col items-end gap-1", enters && "animate-in fade-in-0 duration-300")}
+    >
+      {custom?.author ? (
+        <div className="flex items-center gap-1.5 pr-1">
+          <OriginMark via={custom.via} url={custom.externalUrl} />
+          <Avatar name={custom.author} src={custom.authorAvatar} login={custom.authorLogin} className="size-5" />
+          <span data-testid="chat-author" className="text-xs font-medium text-muted">
+            {custom.author}
+          </span>
+          {custom.authorHandle && custom.authorHandle !== custom.author ? (
+            <span className="text-2xs text-faint">@{custom.authorHandle}</span>
+          ) : null}
+          {external ? (
+            <span
+              data-testid="chat-external"
+              title={`Not in Podium · ${where}`}
+              className="rounded-sm border border-border px-1 text-2xs leading-4 text-faint"
+            >
+              External
+            </span>
+          ) : null}
+          {custom.edited && !custom.deleted ? (
+            <span data-testid="chat-edited" className="text-2xs text-faint">
+              (edited)
+            </span>
+          ) : null}
+        </div>
       ) : null}
-      <div
-        data-testid="chat-message"
-        data-role="user"
-        data-author={custom?.author}
-        title={absolute(ts(createdAt))}
-        className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-run-bg px-4 py-2.5"
-      >
-        <MessagePrimitive.Parts components={{ Text: () => <MarkdownText /> }} />
-        <ChatAttachments attachments={custom?.attachments ?? []} />
-      </div>
+      {unaddressed ? (
+        <Tooltip label={`Not sent to Podium — said in ${where} without mentioning it`} side="left">
+          {bubble}
+        </Tooltip>
+      ) : (
+        bubble
+      )}
+      <DeliveryNotice items={custom?.undelivered} />
     </MessagePrimitive.Root>
   );
 }
@@ -165,6 +533,7 @@ function AssistantMessage() {
   const { botName } = useContext(ChatContext);
   const custom = useCustom();
   const createdAt = useAuiState((s) => s.message.createdAt);
+  const enters = useEnters();
   const text = useAuiState((s) =>
     s.message.parts
       .map((p) => (p.type === "text" ? p.text : ""))
@@ -173,7 +542,10 @@ function AssistantMessage() {
   );
 
   return (
-    <MessagePrimitive.Root className="group/turn flex gap-3">
+    <MessagePrimitive.Root
+      data-chat-row=""
+      className={cn("group/turn flex gap-3", enters && "animate-in fade-in-0 duration-300")}
+    >
       <span
         aria-hidden
         className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-border bg-panel text-accent"
@@ -183,14 +555,21 @@ function AssistantMessage() {
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-baseline gap-2">
           <span className="text-xs font-medium text-fg">{botName}</span>
+          {custom?.ranAs ? (
+            <span data-testid="chat-ran-as" className="truncate text-2xs text-muted">
+              ran as {custom.ranAs}
+            </span>
+          ) : null}
           <span className="text-2xs text-faint" title={absolute(ts(createdAt))}>
             {relative(ts(createdAt))}
           </span>
         </div>
+        {custom?.hiddenSteps ? <ForeignSteps steps={custom.hiddenSteps} ranAs={custom.ranAs} /> : null}
         <div data-testid="chat-message" data-role="assistant" className="min-w-0 space-y-3">
           <Parts />
         </div>
         <ChatAttachments attachments={custom?.attachments ?? []} />
+        <DeliveryNotice items={custom?.undelivered} />
         <CopyMessage text={text} />
       </div>
     </MessagePrimitive.Root>
@@ -283,6 +662,23 @@ function Trail({ running, steps, children }: { running: boolean; steps: number; 
         <div className="mt-2 ml-1.5 space-y-2 border-l border-hairline pl-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/**
+ * ForeignSteps is the trail of a turn somebody else ran, folded for good: it ran with their
+ * secrets and accounts, so its tool calls and what they returned are theirs and an admin's to
+ * read. The server sent only that each step happened; this says how many, and whose.
+ */
+function ForeignSteps({ steps, ranAs }: { steps: number; ranAs?: string }) {
+  const label = `${steps} ${steps === 1 ? "step" : "steps"}${ranAs ? `, ran as ${ranAs}` : ""}`;
+  return (
+    <Tooltip label="Only the person this turn ran as, and admins, can see its steps.">
+      <div data-testid="chat-foreign-steps" tabIndex={0} className="flex w-fit items-center gap-1.5 py-0.5 text-sm text-muted">
+        <Lock className="size-3.5" aria-hidden />
+        <span>{label}</span>
+      </div>
+    </Tooltip>
   );
 }
 

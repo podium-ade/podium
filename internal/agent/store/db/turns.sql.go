@@ -12,10 +12,11 @@ import (
 
 const createTurn = `-- name: CreateTurn :one
 insert into turns (id, session_id, task_id, trigger_ref, status, started_at,
-                   agent, model, effort, provider)
+                   agent, model, effort, provider, started_by)
 values ($1, $2, $3, $4, $5, $6,
-        nullif($7::text, ''), nullif($8::text, ''), nullif($9::text, ''), nullif($10::text, ''))
-returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider
+        nullif($7::text, ''), nullif($8::text, ''), nullif($9::text, ''), nullif($10::text, ''),
+        $11)
+returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id
 `
 
 type CreateTurnParams struct {
@@ -29,6 +30,7 @@ type CreateTurnParams struct {
 	Model      string
 	Effort     string
 	Provider   string
+	StartedBy  string
 }
 
 func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, error) {
@@ -43,6 +45,7 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, e
 		arg.Model,
 		arg.Effort,
 		arg.Provider,
+		arg.StartedBy,
 	)
 	var i Turn
 	err := row.Scan(
@@ -60,6 +63,8 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, e
 		&i.Model,
 		&i.Effort,
 		&i.Provider,
+		&i.StartedBy,
+		&i.RoutineRunID,
 	)
 	return i, err
 }
@@ -96,7 +101,7 @@ func (q *Queries) FinishTurn(ctx context.Context, arg FinishTurnParams) error {
 }
 
 const getTurn = `-- name: GetTurn :one
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns where id = $1
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where id = $1
 `
 
 func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
@@ -117,12 +122,75 @@ func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
 		&i.Model,
 		&i.Effort,
 		&i.Provider,
+		&i.StartedBy,
+		&i.RoutineRunID,
 	)
 	return i, err
 }
 
+const listChatTurnRunners = `-- name: ListChatTurnRunners :many
+select t.id, coalesce(t.task_id, '')::text as task_id, t.started_by, t.started_at,
+       coalesce(r.name, '')::text as routine_name,
+       coalesce(r.scope = 'system', false)::bool as routine_system,
+       coalesce(r.owner_login, '')::text as routine_owner,
+       coalesce((select array_agg(d.task_id order by d.created_at) from delegations d
+                  where d.turn_id = t.id and d.task_id is not null), '{}')::text[] as delegated
+  from turns t
+  join sessions s on s.id = t.session_id
+  left join routine_runs rr on rr.id = t.routine_run_id
+  left join routines r on r.id = rr.routine_id
+ where s.source_key = (select c.source_key from chats c where c.id = $1)
+ order by t.started_at, t.id
+`
+
+type ListChatTurnRunnersRow struct {
+	ID            string
+	TaskID        string
+	StartedBy     string
+	StartedAt     time.Time
+	RoutineName   string
+	RoutineSystem bool
+	RoutineOwner  string
+	Delegated     []string
+}
+
+// ListChatTurnRunners is every turn of the conversation a chat records, oldest first, with who
+// it ran as and the tasks it ran: its own (a playbook's turn) and every one it delegated. It is
+// what tells a reader of a Linear issue's conversation which of its rows are somebody else's
+// work (0049, api/runner.go): a row with a task id belongs to the turn that ran that task, and
+// the assistant's own rows to the turn that was running when they were said — a conversation
+// runs one turn at a time. routine_name and routine_system name a routine's run.
+func (q *Queries) ListChatTurnRunners(ctx context.Context, chatID string) ([]ListChatTurnRunnersRow, error) {
+	rows, err := q.db.Query(ctx, listChatTurnRunners, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatTurnRunnersRow{}
+	for rows.Next() {
+		var i ListChatTurnRunnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.StartedBy,
+			&i.StartedAt,
+			&i.RoutineName,
+			&i.RoutineSystem,
+			&i.RoutineOwner,
+			&i.Delegated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningTurns = `-- name: ListRunningTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns where status = 'running' order by started_at
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where status = 'running' order by started_at
 `
 
 func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
@@ -149,6 +217,8 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.StartedBy,
+			&i.RoutineRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -163,16 +233,17 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 const listTurnCosts = `-- name: ListTurnCosts :many
 select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
        t.num_turns, t.cost_usd, t.agent, t.model, t.effort, t.provider,
-       s.source_kind, s.source_key, s.playbook, s.profile
+       s.source_kind, s.source_key, s.playbook, s.profile, t.started_by
 from turns t
 join sessions s on s.id = t.session_id
 where t.started_at >= $2 and t.started_at < $3
 union all
 select d.id, coalesce(d.task_id, '')::text, d.session_id, d.status, d.created_at, d.finished_at,
        d.num_turns, d.cost_usd, d.agent, d.model, d.effort, d.provider,
-       s.source_kind, s.source_key, d.playbook, s.profile
+       s.source_kind, s.source_key, d.playbook, s.profile, coalesce(pt.started_by, '')::text
 from delegations d
 join sessions s on s.id = d.session_id
+left join turns pt on pt.id = d.turn_id
 where d.created_at >= $2 and d.created_at < $3
 order by started_at desc, id desc
 limit $1::int
@@ -201,6 +272,7 @@ type ListTurnCostsRow struct {
 	SourceKey  string
 	Playbook   string
 	Profile    string
+	StartedBy  string
 }
 
 // ListTurnCosts is one row per unit of spend in the range — a turn, or a task a turn
@@ -238,6 +310,7 @@ func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([
 			&i.SourceKey,
 			&i.Playbook,
 			&i.Profile,
+			&i.StartedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -250,7 +323,7 @@ func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([
 }
 
 const listTurns = `-- name: ListTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns
 where session_id = $1
 order by started_at desc, id desc
 limit $2::int
@@ -285,6 +358,8 @@ func (q *Queries) ListTurns(ctx context.Context, arg ListTurnsParams) ([]Turn, e
 			&i.Model,
 			&i.Effort,
 			&i.Provider,
+			&i.StartedBy,
+			&i.RoutineRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -436,6 +511,68 @@ func (q *Queries) UsageByDay(ctx context.Context, arg UsageByDayParams) ([]Usage
 		var i UsageByDayRow
 		if err := rows.Scan(
 			&i.Day,
+			&i.CostUsd,
+			&i.Turns,
+			&i.ModelTurns,
+			&i.Unpriced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageByPerson = `-- name: UsageByPerson :many
+select r.started_by::text                               as started_by,
+       coalesce(sum(r.cost_usd), 0)::float8             as cost_usd,
+       count(*)::int                                    as turns,
+       coalesce(sum(r.num_turns), 0)::int               as model_turns,
+       count(*) filter (where r.cost_usd is null)::int  as unpriced
+from (
+  select t.started_by, t.cost_usd, t.num_turns from turns t
+   where t.started_at >= $1 and t.started_at < $2
+  union all
+  select coalesce(pt.started_by, '') as started_by, d.cost_usd, d.num_turns from delegations d
+    left join turns pt on pt.id = d.turn_id
+   where d.created_at >= $1 and d.created_at < $2
+) r
+group by r.started_by
+order by cost_usd desc, turns desc
+`
+
+type UsageByPersonParams struct {
+	FromTime time.Time
+	ToTime   time.Time
+}
+
+type UsageByPersonRow struct {
+	StartedBy  string
+	CostUsd    float64
+	Turns      int32
+	ModelTurns int32
+	Unpriced   int32
+}
+
+// UsageByPerson is spend grouped by whose turn it was: the login the turn started for, and
+// for a delegation the login of the turn that delegated it, because the person who asked is
+// the person the work was for. Empty is a turn from before turns.started_by, or one with no
+// person; 'github-app' is a review nobody in Podium asked for. A multiplayer chat is many
+// people's turns in one conversation, and this is the only place they come apart again.
+func (q *Queries) UsageByPerson(ctx context.Context, arg UsageByPersonParams) ([]UsageByPersonRow, error) {
+	rows, err := q.db.Query(ctx, usageByPerson, arg.FromTime, arg.ToTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByPersonRow{}
+	for rows.Next() {
+		var i UsageByPersonRow
+		if err := rows.Scan(
+			&i.StartedBy,
 			&i.CostUsd,
 			&i.Turns,
 			&i.ModelTurns,

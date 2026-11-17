@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -71,4 +73,68 @@ func TestPromptHintIsOneCappedLine(t *testing.T) {
 	long := strings.Repeat("é", maxPlaybookHintChars+40)
 	// Capped on a rune boundary: a hint cut mid-character renders as a replacement glyph.
 	assert.Equal(t, strings.Repeat("é", maxPlaybookHintChars)+"…", promptHint(long))
+}
+
+// The playbook editor's flags survive a save and a read: one dropped on the way is a playbook
+// that silently stops being what its file says.
+func TestAPlaybooksDesktopFlagSurvivesTheEditor(t *testing.T) {
+	pb, err := protoToPlaybook(&agentv1.PlaybookDefinition{
+		Name: "desk", SystemPrompt: "work on the desktop", AllowedTools: []string{"read"}, Desktop: true,
+	})
+	require.NoError(t, err)
+	require.True(t, pb.Desktop)
+	require.True(t, playbookToProto(pb).GetDesktop())
+	require.False(t, playbookToProto(profiles.Playbook{}).GetDesktop())
+}
+
+// A playbook's Linear rules survive the editor both ways, as its Slack channels do.
+func TestAPlaybooksLinearRulesSurviveTheEditor(t *testing.T) {
+	pb, err := protoToPlaybook(&agentv1.PlaybookDefinition{
+		Name: "bugs", LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug", "regression"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ENG"}, pb.LinearTeams)
+	assert.Equal(t, []string{"bug", "regression"}, pb.LinearLabels)
+	back := playbookToProto(pb)
+	assert.Equal(t, []string{"ENG"}, back.GetLinearTeams())
+	assert.Equal(t, []string{"bug", "regression"}, back.GetLinearLabels())
+}
+
+type fakeLinearDirectory struct {
+	teams     []LinearTeam
+	labels    []LinearLabel
+	connected bool
+	err       error
+}
+
+func (f fakeLinearDirectory) LinearCatalog(context.Context) ([]LinearTeam, []LinearLabel, bool, error) {
+	return f.teams, f.labels, f.connected, f.err
+}
+
+// The pickers are filled from the running Linear app; with none, or when Linear cannot be
+// asked, the response says so and the editor takes typed values.
+func TestListLinearCatalog(t *testing.T) {
+	ctx := t.Context()
+	svc := NewAgentService(AgentServiceOptions{Linear: fakeLinearDirectory{
+		teams:     []LinearTeam{{Key: "ENG", Name: "Engineering"}},
+		labels:    []LinearLabel{{Name: "bug"}, {Name: "infra", TeamKey: "ENG"}},
+		connected: true,
+	}})
+	res, err := svc.ListLinearCatalog(ctx, connect.NewRequest(&agentv1.ListLinearCatalogRequest{}))
+	require.NoError(t, err)
+	assert.True(t, res.Msg.GetLinearConnected())
+	require.Len(t, res.Msg.GetTeams(), 1)
+	assert.Equal(t, "ENG", res.Msg.GetTeams()[0].GetKey())
+	require.Len(t, res.Msg.GetLabels(), 2)
+	assert.Equal(t, "ENG", res.Msg.GetLabels()[1].GetTeamKey())
+
+	res, err = NewAgentService(AgentServiceOptions{}).ListLinearCatalog(ctx, connect.NewRequest(&agentv1.ListLinearCatalogRequest{}))
+	require.NoError(t, err)
+	assert.False(t, res.Msg.GetLinearConnected())
+
+	svc = NewAgentService(AgentServiceOptions{Linear: fakeLinearDirectory{connected: true, err: errors.New("boom")}})
+	res, err = svc.ListLinearCatalog(ctx, connect.NewRequest(&agentv1.ListLinearCatalogRequest{}))
+	require.NoError(t, err, "the editor works without the list")
+	assert.True(t, res.Msg.GetLinearConnected())
+	assert.Contains(t, res.Msg.GetError(), "boom")
 }
