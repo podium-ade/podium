@@ -424,6 +424,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		ChatHostMaxPerUser: a.cfg.ChatHostMaxPerUser,
 		Notifiers:          notifiers,
 		NotifyAwayAfter:    a.cfg.NotifyAway,
+		WatchdogQuietAfter: a.cfg.WatchdogQuiet,
 		PublicURL:          a.cfg.PublicURL,
 		Keys:               keyHealth{a},
 		Tickets:            ticketReader.BriefTickets,

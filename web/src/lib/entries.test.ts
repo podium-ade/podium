@@ -65,6 +65,11 @@ describe("EntryStream", () => {
     expect(entries(...events()).map((e) => e.key)).toEqual(entries(...events()).map((e) => e.key));
   });
 
+  it("leaves out the runtime's heartbeat, which is for the conductor and says nothing", () => {
+    const es = entries(messageEvent(1, "progress", "working"), messageEvent(2, "heartbeat", '{"v":1}'), messageEvent(3, "final", "done"));
+    expect(es.map((e) => e.message?.type)).toEqual(["progress", "final"]);
+  });
+
   it("names a sidecar's lines by the sidecar", () => {
     const [e] = entries(sidecarLogEvent(1, "db", "ready\n"));
     expect(e.source).toBe("sidecar:db");
