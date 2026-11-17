@@ -79,12 +79,18 @@ seed "playbook inventory-reorder" CreatePlaybook '{"playbook":{
              {"name":"fernhill.warehouse_db_password","target":"env","key":"WAREHOUSE_DB_PASSWORD"}]}}'
 seed "playbook refund-review" CreatePlaybook "$(jq -n --arg p "$(printf 'Review each refund request against the returns policy: within 30 days, unused, original packaging; damaged-in-transit claims need a photo. %.0s' 1 2 3 4 5 6)Escalate anything over CA\$500 to finance." \
   '{playbook:{name:"refund-review",image:"podium-agent-runtime:dev",system_prompt:$p,allowed_tools:["read","bash"],max_turns:40,timeout:"30m"}}')"
+# Only files a turn's final message names are attached, so the prompt makes it repeat the list
+# the command prints — every name, exactly, including the 120-character one.
+charts_prompt='You make Fernhill Cycle Co. charts. Run exactly this command with bash, once: node -e "$CHARTS_JS" — it prints the files it wrote, one per line. Then reply with one short sentence followed by every one of those file names, exactly as printed, one per line. Only files you name are attached, so name every one. Do nothing else.'
 # The playbook the attachments conversation delegates to: a real turn in the branch's runtime
 # image that writes three PNG charts of different shapes and a CSV as its artifacts.
-seed "playbook sales-charts" CreatePlaybook "$(jq -n --rawfile js "$skill/charts.js" '{playbook:{
+seed "playbook sales-charts" CreatePlaybook "$(jq -n --rawfile js "$skill/charts.js" --arg prompt "$charts_prompt" '{playbook:{
   name:"sales-charts", image:"podium-agent-runtime:dev",
-  system_prompt:"You make Fernhill Cycle Co.'"'"'s weekly sales charts. Run exactly this command with bash, once: node -e \"$CHARTS_JS\" — then reply with one short sentence that names all four files it wrote, by exact file name: sales-by-day.png, top-skus.png, refunds-trend.png and weekly-summary.csv. Only files you name are attached, so name every one. Do nothing else.",
-  allowed_tools:["bash"], max_turns:6, timeout:"10m", env:{CHARTS_JS:$js}}}')"
+  system_prompt:$prompt, allowed_tools:["bash"], max_turns:6, timeout:"10m", env:{CHARTS_JS:$js}}}')"
+seed "playbook quarterly-charts" CreatePlaybook "$(jq -n --rawfile js "$skill/charts.js" --arg prompt "$charts_prompt" '{playbook:{
+  name:"quarterly-charts", image:"podium-agent-runtime:dev",
+  system_prompt:$prompt, allowed_tools:["bash"], max_turns:6, timeout:"10m",
+  env:{CHARTS_JS:$js, CHARTS_PACK:"quarterly"}}}')"
 
 echo "routines"
 routine_id() { agent ListRoutines '{}' 2>/dev/null | jq -r --arg n "$1" '.routines[]? | select(.name==$n) | .id' | head -1; }
@@ -127,6 +133,10 @@ else
   # a CSV; the conductor attaches them to the reply. The answer arrives a minute or two later.
   converse "Weekly sales charts" \
     "Delegate this to the sales-charts playbook: make this week's sales charts."
+  # Many images: eight shapes, a 120-character name and a .png that is not an image — what a
+  # gallery, its lightbox and its broken-image fallback have to survive.
+  converse "Quarterly chart pack" \
+    "Delegate this to the quarterly-charts playbook: make the quarterly chart pack."
   date -u +%FT%TZ >"$chats"
 fi
 
