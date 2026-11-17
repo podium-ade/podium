@@ -71,7 +71,7 @@ export function ChatImageGallery({ images }: { images: GalleryImage[] }) {
         aria-label={many ? `${total} images` : "Image"}
         data-testid="chat-gallery"
         onKeyDown={onKeyDown}
-        className="w-full max-w-120 space-y-1.5"
+        className="w-120 max-w-full space-y-1.5"
       >
         <button
           ref={stage}
@@ -127,7 +127,7 @@ export function ChatImageGallery({ images }: { images: GalleryImage[] }) {
             ref={strip}
             role="group"
             aria-label="Thumbnails"
-            className="relative flex gap-1.5 overflow-x-auto pb-1"
+            className="-mx-0.5 flex gap-1.5 overflow-x-auto px-0.5 py-0.5"
           >
             {images.map((img, i) => (
               <button
