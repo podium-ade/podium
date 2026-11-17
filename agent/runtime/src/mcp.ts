@@ -146,7 +146,9 @@ export const tools: ToolDefinition[] = [
     name: "cancel_delegation",
     description:
       "Stop a delegated task. Use it when the work is no longer wanted or is plainly stuck — " +
-      "a task nobody is waiting for still holds a machine and still costs money.",
+      "a task nobody is waiting for still holds a machine and still costs money. A task that has " +
+      "already answered and is only waiting for a follow-up is told to stop waiting instead: it " +
+      "ends as finished, and its answer stands.",
     inputSchema: {
       type: "object",
       properties: {
