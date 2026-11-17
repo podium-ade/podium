@@ -29,10 +29,12 @@ import {
 } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
+import { startHeartbeat } from "./heartbeat.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { installRequestedBy } from "./requestedby.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
+import { TurnInput } from "./turninput.js";
 import { nextInboxLine, warmMillis } from "./warm.js";
 import {
   CloneError,
@@ -358,13 +360,16 @@ async function main(): Promise<number> {
     onHost(brief) && !process.env[InboxSockEnv]
       ? undefined
       : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
-  let pendingInject: Promise<IteratorResult<InboxItem>> | undefined;
+  const input = new TurnInput<{ event: oc.Event; raw: string }, InboxItem>(inboxIter);
 
   let steps = 0;
   let resumes = 0;
   let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
+  // From here until the turn ends the conductor hears from this process every minute, so a
+  // turn that stops reaching its event loop is told apart from one in a long tool call.
+  const stopHeartbeat = startHeartbeat(invoke);
   try {
     for (;;) {
       const run = oc.start({
@@ -387,25 +392,13 @@ async function main(): Promise<number> {
       run.child.stderr?.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
 
       const eventIter = oc.events(run.child)[Symbol.asyncIterator]();
-      let pendingEvent: ReturnType<typeof eventIter.next> | undefined;
+      input.resetEvents();
       let steered: string | undefined;
 
       for (;;) {
-        pendingEvent ??= eventIter.next();
-        const waiters: Promise<
-          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<InboxItem> }
-        >[] = [pendingEvent.then((r) => ({ kind: "event" as const, r }))];
-        if (inboxIter) {
-          pendingInject ??= inboxIter.next();
-          waiters.push(pendingInject.then((r) => ({ kind: "inject" as const, r })));
-        }
-        const winner = await Promise.race(waiters);
+        const winner = await input.next(eventIter);
         if (winner.kind === "inject") {
-          pendingInject = undefined;
-          if (winner.r.done) {
-            continue;
-          }
-          const text = winner.r.value;
+          const text = winner.value;
           // A turn still working has not answered, so there is no wait to end.
           if (text === EndWait || hub.tryDeliver(text)) {
             continue;
@@ -414,7 +407,6 @@ async function main(): Promise<number> {
           run.child.kill("SIGTERM");
           break;
         }
-        pendingEvent = undefined;
         if (winner.r.done) {
           break;
         }
@@ -555,8 +547,13 @@ async function main(): Promise<number> {
       const warmMs = warmMillis(process.env);
       if (warmMs > 0 && !cancelled && summary.code === ExitOK && inboxIter) {
         await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
-        const waited = await nextInboxLine(() => inboxIter.next(), pendingInject, warmMs, controller.signal);
-        pendingInject = waited.pending;
+        const waited = await nextInboxLine(
+          () => inboxIter.next(),
+          input.takePendingInject(),
+          warmMs,
+          controller.signal,
+        );
+        input.givePendingInject(waited.pending);
         // EndWait falls through to the idle exit: the answer is already reported, and
         // exiting 0 lets the node store the workspace for the task that asked for it.
         if (waited.text !== undefined && waited.text !== EndWait && !controller.signal.aborted) {
@@ -581,6 +578,7 @@ async function main(): Promise<number> {
         : `The turn failed before I could answer: ${why}`;
     }
   } finally {
+    stopHeartbeat();
     stopHub();
   }
 

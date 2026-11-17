@@ -168,7 +168,8 @@ func (e *env) noteLine(msg string) {
 // The text is untrusted content from an untrusted process — it is relayed, never
 // interpreted — so it is printed as it arrived, one indented line at a time.
 func (e *env) noteMessage(m *podiumv1.Message) {
-	if m == nil {
+	// A heartbeat only says the runtime is alive, once a minute; it is for the conductor.
+	if m == nil || m.GetType() == "heartbeat" {
 		return
 	}
 	lines := strings.Split(m.GetText(), "\n")

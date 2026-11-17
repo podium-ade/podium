@@ -152,3 +152,21 @@ func (c *Conductor) CheckRoutineDelegationsForTest(ctx context.Context, token st
 	}
 	return c.checkRoutineDelegations(ctx, g)
 }
+
+// CheckQuietTasksForTest is one look by the watchdog, at now.
+func (c *Conductor) CheckQuietTasksForTest(ctx context.Context, now time.Time) {
+	c.checkQuietTasks(ctx, now)
+}
+
+// HeardHeartbeatForTest reports whether the watchdog has seen taskID's heartbeat.
+func (c *Conductor) HeardHeartbeatForTest(taskID string) bool {
+	c.mu.Lock()
+	w := c.watches[taskID]
+	c.mu.Unlock()
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return !w.lastHeartbeat.IsZero()
+}

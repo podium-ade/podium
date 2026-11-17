@@ -500,6 +500,10 @@ func (h *hostRun) run(ctx context.Context) {
 			r.readAccounting(ctx, acctFromMessage, []byte(ev.Text))
 			continue
 		}
+		if ev.Type == MsgHeartbeat {
+			// The watchdog watches tasks; a host turn's liveness is this socket.
+			continue
+		}
 		r.noteFirstMessage()
 		r.deliver(ctx, ev.Type, ev.Text, ev.Attachments)
 		if inbox != nil && ev.Type == OutFinal {

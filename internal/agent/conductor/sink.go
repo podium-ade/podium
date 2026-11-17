@@ -104,6 +104,10 @@ func (s *sink) relay(ctx context.Context, e *podiumv1.TaskEvent) {
 // host (host.go). Everything about progress throttling, joining an answer split over 32 KiB
 // and remembering what it asked to attach lives here, once.
 func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []string) {
+	if msgType == MsgHeartbeat {
+		// Liveness for the watchdog (watchdog.go), never said to anybody.
+		return
+	}
 	s.c.metrics.RelayedMessages.WithLabelValues(msgType).Inc()
 
 	if msgType == OutQuestion || msgType == MsgQuestion {

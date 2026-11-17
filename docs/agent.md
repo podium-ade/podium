@@ -576,6 +576,42 @@ opening a pull request nobody was told about — giving up on the stream gives u
 The 90 seconds are counted from the disconnection, not from the last event, so a task that says
 nothing while its node pulls a large image is not a task anyone gives up on.
 
+### A task that goes quiet
+
+A task that has started and then reports nothing for `PODIUM_AGENT_WATCHDOG_QUIET` (default
+`10m`) gets a question in its conversation, on whatever surface that is:
+
+> The `podium-dev` task has reported nothing for 12 minutes. The last thing it finished was
+> `go test ./...`. Its runtime is still alive, so it is most likely inside a long step, such
+> as a test run, that has not finished yet.
+>
+> Reply **wait** to leave it, **restart** to interrupt it and have it carry on from where it
+> was, or **end** to stop it.
+
+The watchdog never acts on its own: a question nobody answers leaves the task running to its
+own timeout, as it would have anyway. A reply that is exactly one of the choices (`wait` /
+`keep waiting`, `restart` / `retry`, `end` / `stop` / `cancel`) is the answer and never reaches
+the task; anything else is a message like any other. If the task speaks before anyone answers,
+the conversation is told it is moving again and the question lapses.
+
+Quiet is told apart from wedged by a **heartbeat**: the runtime sends a `heartbeat` message every
+minute from a timer, so it stops exactly when the runtime stops reaching its event loop. It is
+never relayed, and the web UI and the CLI do not show it.
+
+- **Quiet** — heartbeats arriving, no work reported. The harness reports a tool only once it has
+  finished, so this is usually a long test run. **restart** is an inject: the runtime interrupts
+  the harness and carries on in the same session, so nothing it knew is lost.
+- **Wedged** — no heartbeat for three minutes. Nothing inside the task can read an inject, so
+  **restart** cancels it and, for a delegated task, starts a new one with the same playbook and
+  instruction (told the workspace may hold its predecessor's unfinished work). A playbook turn's
+  task cannot be started again from what the conductor keeps; it is ended and the person is
+  asked to send their message again.
+
+**wait** asks again only after another full quiet interval. A task parked on a question of its
+own, or one that has answered and is waiting for a follow-up, is quiet because it should be and
+is never asked about. The watch is in memory: a conductor that restarts, or adopts a task from
+another, starts watching it again from the events it replays.
+
 ---
 
 ## Configuration
@@ -608,6 +644,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_PUBLIC_URL` | no | none | the web UI's address, for the link to the chat in a notification |
 | `PODIUM_AGENT_SMTP_URL` | no | none | `smtp://user:password@host:port`. Set, a person whose delegated task ended after they left the web chat is emailed, when Slack cannot reach them. Needs `PODIUM_AGENT_SMTP_FROM` |
 | `PODIUM_AGENT_SMTP_FROM` | with the above | — | the address that email comes from |
+| `PODIUM_AGENT_WATCHDOG_QUIET` | no | `10m` | how long a running task may report nothing before its conversation is asked whether to wait, restart it or end it (see [A task that goes quiet](#a-task-that-goes-quiet)). `0s` turns the watchdog off |
 | `PODIUM_AGENT_NOTIFY_AWAY` | no | `10m` | how long a person has said nothing in a web chat before a task ending there is sent to them — by Slack direct message while Slack is connected, else by email |
 | `PODIUM_AGENT_HOST_WARM` | no | `0s` | how long a host turn stays up after it answers, for the next message of its conversation. A warm turn holds its slot while it waits and gives it up to a conversation with work |
 | `PODIUM_AGENT_SANDBOX_URL` | for a provider | `PODIUM_AGENT_TASK_URL` | this conductor's turn surface as a cloud **sandbox** reaches it: where a playbook in one mints a clone token |
@@ -697,6 +734,8 @@ through it. That is deliberate: a bot with no memory is a worse bot, not a broke
 Metrics: `podium_agent_turns_total{source,playbook,status}`,
 `podium_agent_turn_duration_seconds{playbook}`, `podium_agent_relayed_messages_total{type}`,
 `podium_agent_source_events_total{source}`, `podium_agent_follow_reconnects_total`,
+`podium_agent_watchdog_questions_total{kind}` (`quiet`, `wedged`),
+`podium_agent_watchdog_answers_total{choice}` (`wait`, `restart`, `end`),
 `podium_agent_turns_without_accounting_total`,
 `podium_agent_memory_retain_total{result}` (`ok`, `error`, `redacted`).
 
