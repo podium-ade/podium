@@ -57,9 +57,9 @@ State, logs and the `.env` are in `/workspace/.stack/`. Everything dies with the
 | Model | this turn's Anthropic key; seeded turns use `claude-haiku-5-5` (`STACK_MODEL` to change) |
 | Secrets | `fernhill.shop_api_token`, `.supplier_api_key`, `.warehouse_db_password`, `.slack_webhook` — placeholders |
 | Personalities | `fern` (support), `ledger` (finance) |
-| Playbooks | `order-triage`, `inventory-reorder`, `refund-review` (a long prompt), `sales-charts` (writes 3 PNGs + a CSV) |
+| Playbooks | `order-triage`, `inventory-reorder`, `refund-review` (a long prompt), `sales-charts` (3 PNGs + a CSV), `quarterly-charts` (8 PNGs, a non-image `.png`, a CSV) |
 | Routines | *Morning order triage* (enabled), *Weekly inventory reorder* (paused, with a note) |
-| Conversations | *Black Friday email*, *Late order from Kelowna*, *Weekly sales charts* — the last delegates to `sales-charts`, so its reply carries **three image attachments of different shapes and a CSV**; it arrives a minute or two after the seed |
+| Conversations | *Black Friday email*, *Late order from Kelowna*, and two that delegate, so their replies carry real attachments a few minutes after the seed: *Weekly sales charts* (**three images of different shapes and a CSV**) and *Quarterly chart pack* (**eight images** from a 48px icon to 2400×1600 and a 300×1200 tall one, a **120-character file name**, `forecast-q4.png` that is **not an image**, and a CSV) |
 | Tasks | succeeds with two artifacts, fails (exit 3), env vars, a 400-line log, running for 6 h, cancelled |
 
 Conversations are answered asynchronously. Wait for them (`$PODIUM_CLI tasks`, or the chat in
