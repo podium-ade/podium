@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { ChatAttachmentSchema } from "../../gen/podium/agent/v1/agent_pb";
@@ -86,11 +86,10 @@ describe("ChatAttachments", () => {
     const img = await waitFor(() => screen.getByRole("img"));
     expect(img).toHaveAttribute("src", "blob:artifact");
     expect(img).toHaveAttribute("alt", "trend.png");
-    // Clicking opens the blob in a new tab; there is no lightbox.
-    const link = screen.getByTestId("chat-attachment");
-    expect(link).toHaveAttribute("href", "blob:artifact");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    // One image is the gallery without its controls.
+    expect(screen.getByTestId("chat-attachment")).toHaveAccessibleName("Open trend.png full size");
+    expect(screen.queryByRole("button", { name: "Next image" })).toBeNull();
+    expect(screen.queryByText(/ \/ /)).toBeNull();
   });
 
   it("renders anything else as a download chip with its size", async () => {
@@ -176,5 +175,111 @@ describe("ChatAttachments", () => {
     const img = await waitFor(() => screen.getByRole("img"));
     expect(img).toHaveAttribute("src", "blob:artifact");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("ChatAttachments gallery", () => {
+  const shots = ["a", "b", "c"].map((n) =>
+    create(ChatAttachmentSchema, {
+      artifactId: `art_shot_${n}`,
+      name: `shot-${n}.png`,
+      contentType: "image/png",
+      sizeBytes: 2048n,
+    }),
+  );
+
+  /** The picture in the stage, not a thumbnail: thumbnails carry an empty alt. */
+  const stageImage = () => screen.getByRole("img", { name: /shot-/ });
+
+  it("shows one image at a time with a counter and a thumbnail for each", async () => {
+    mount(shots);
+    await waitFor(() => expect(stageImage()).toHaveAttribute("alt", "shot-a.png"));
+    expect(screen.getByText(/1 \/ 3/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Show image/ })).toHaveLength(3);
+    // The thumbnails are not <img role=img> with names of their own: one named image only.
+    expect(screen.getAllByRole("img", { name: /shot-/ })).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Next image" }));
+    expect(stageImage()).toHaveAttribute("alt", "shot-b.png");
+    expect(screen.getByText(/2 \/ 3/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Show image 3 of 3/ }));
+    expect(stageImage()).toHaveAttribute("alt", "shot-c.png");
+    expect(screen.getByRole("button", { name: /Show image 3 of 3/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    // The ends do not wrap, and say so to assistive technology rather than vanishing.
+    expect(screen.getByRole("button", { name: "Next image" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Next image" }));
+    expect(stageImage()).toHaveAttribute("alt", "shot-c.png");
+  });
+
+  it("steps with the arrow keys from inside the gallery", async () => {
+    mount(shots);
+    await waitFor(() => expect(stageImage()).toBeInTheDocument());
+    screen.getByTestId("chat-attachment").focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(stageImage()).toHaveAttribute("alt", "shot-c.png");
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(stageImage()).toHaveAttribute("alt", "shot-b.png");
+  });
+
+  it("opens a lightbox, steps once per arrow key, and closes on Escape with focus back", async () => {
+    mount(shots);
+    await waitFor(() => expect(stageImage()).toBeInTheDocument());
+    const stage = screen.getByTestId("chat-attachment");
+    await userEvent.click(stage);
+
+    const box = await screen.findByRole("dialog");
+    expect(box).toHaveAccessibleName("shot-a.png");
+    expect(within(box).getByText(/1 \/ 3/)).toBeInTheDocument();
+    // Focus is inside the dialog, not left behind on the page.
+    expect(box).toContainElement(document.activeElement as HTMLElement);
+
+    // The lightbox renders in a portal but React still bubbles its keys to ancestors:
+    // one press must be one step, not two.
+    await userEvent.keyboard("{ArrowRight}");
+    expect(within(box).getByRole("img")).toHaveAttribute("alt", "shot-b.png");
+    expect(within(box).getByText(/2 \/ 3/)).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(within(box).getByRole("img")).toHaveAttribute("alt", "shot-a.png");
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(stage).toHaveFocus();
+    // And the gallery behind it is where the reader left it.
+    expect(stageImage()).toHaveAttribute("alt", "shot-a.png");
+  });
+
+  it("keeps focus inside the lightbox when Tab runs off the end", async () => {
+    mount(shots);
+    await waitFor(() => expect(stageImage()).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("chat-attachment"));
+    const box = await screen.findByRole("dialog");
+    for (let i = 0; i < 8; i++) {
+      await userEvent.tab();
+      expect(box).toContainElement(document.activeElement as HTMLElement);
+    }
+  });
+
+  it("offers a failed image as a chip and leaves the rest in the gallery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith("art_shot_b")
+            ? new Response("gone", { status: 404 })
+            : new Response(new Blob([new Uint8Array([137, 80, 78, 71])]), { status: 200 }),
+        ),
+      ),
+    );
+    mount(shots);
+    await waitFor(() => expect(screen.getByText(/1 \/ 2/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Download shot-b.png" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Show image/ })).toHaveLength(2);
   });
 });
