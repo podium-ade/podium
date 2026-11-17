@@ -212,7 +212,7 @@ func TestLinkSharing(t *testing.T) {
 	require.Contains(t, listed, chatID, "opening by link keeps it in her list")
 	assert.Equal(t, store.RoleEditor, listed[chatID].GetMyRole())
 	assert.Equal(t, store.GrantedByLink, listed[chatID].GetSharedBy())
-	assert.True(t, listed[chatID].GetMultiplayer(), "a shared chat is multiplayer")
+	assert.False(t, listed[chatID].GetMultiplayer(), "sharing alone puts no second human in the chat")
 
 	sh, err := f.clientAs("dana").GetChatSharing(ctx, connect.NewRequest(&agentv1.GetChatSharingRequest{ChatId: chatID}))
 	require.NoError(t, err)

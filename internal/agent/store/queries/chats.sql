@@ -13,13 +13,11 @@
 -- name: CreateChat :one
 insert into chats (
   id, title, login, created_at, auto_title, source_key, started_by, origin,
-  personality_id, personality_display, multiplayer
+  personality_id, personality_display
 )
 values (
   @id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin,
-  sqlc.narg('personality_id'), @personality_display,
-  -- A mirrored conversation always has other people in it (decision 33).
-  @origin::text <> 'web'
+  sqlc.narg('personality_id'), @personality_display
 )
 returning *;
 
@@ -391,14 +389,12 @@ where chat_id = @chat_id and role = 'user' and via = 'web' and author = ''
   and coalesce(author_login, '') <> '';
 
 -- MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
--- call is what changed it, so the caller announces the change once. force is a share or a
--- mirrored conversation; otherwise it takes a second Podium person among the participants.
+-- call is what changed it, so the caller announces the change once. Whether a chat has the
+-- second human it takes is store.MarkChatMultiplayer's to decide: it counts the people who
+-- are not in Podium, which no query here can.
 -- name: MarkChatMultiplayer :one
 update chats set multiplayer = true
-where id = @id and not multiplayer and (
-  @force::bool
-  or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
-)
+where id = @id and not multiplayer
 returning *;
 
 -- SetChatStartedFrom records that a chat was opened by a turn of another conversation.

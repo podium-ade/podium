@@ -134,6 +134,7 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, evp *InboundEve
 		c.seedHistory(ctx, src, chat, ev)
 	}
 	row, fresh := c.mirrorRecord(ctx, src, chat.ID, ev, !ev.RecordOnly)
+	c.noteHumans(ctx, chat)
 	if fresh && row.Seq != 0 {
 		// The message in the record this event is, for the turn queue: the person who asked
 		// takes their queued turn back by it, and the chat shows whose turns are waiting.
@@ -205,6 +206,53 @@ func (c *Conductor) mirrorRecordOnly(ctx context.Context, src Source, ev Inbound
 	c.recordParticipant(ctx, chat, ev)
 	c.mirrorRetitle(ctx, chat, ev)
 	_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
+	c.noteHumans(ctx, chat)
+}
+
+// soleHumanReply reports whether a reply nobody tagged Podium in is put to it anyway: it is
+// the only human who has spoken in a conversation Podium is part of, so there is nobody else
+// the reply could be for and Podium answers it as it would a mention. The moment a second
+// human is in the thread, linked to Podium or not, only a mention is put to Podium again.
+//
+// Only a source that says so (InboundEvent.AnswerIfAlone) is judged: a pull request is
+// everybody's, and its comments are not assumed to be for the bot. Any doubt — a record that
+// cannot be read — is a reply nobody tagged Podium in, which is what it was before.
+func (c *Conductor) soleHumanReply(ctx context.Context, src Source, ev InboundEvent) bool {
+	if !ev.AnswerIfAlone || c.store == nil {
+		return false
+	}
+	key, ok := c.mirrorKey(src, ev.Ref)
+	if !ok {
+		return false
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, key)
+	if err != nil || chat.Multiplayer {
+		return false
+	}
+	people, err := c.store.ChatParticipants(ctx, chat.ID)
+	if err != nil {
+		return false
+	}
+	for _, p := range people {
+		sameLogin := p.Login != "" && strings.EqualFold(p.Login, ev.Login)
+		sameName := p.Name != "" && strings.EqualFold(p.Name, ev.Author)
+		if !sameLogin && !sameName {
+			return false
+		}
+	}
+	return true
+}
+
+// noteHumans makes a mirrored chat multiplayer once a record has more than one human in it,
+// people who never linked a Podium account included, and says so in the chat. A chat that
+// already is, or a conductor with no web chat to say it in, has nothing to do.
+func (c *Conductor) noteHumans(ctx context.Context, chat store.Chat) {
+	if chat.Multiplayer {
+		return
+	}
+	if pub, ok := c.mirror.(chatPublisher); ok {
+		pub.Multiplayer(ctx, chat.ID, "")
+	}
 }
 
 // mirrorChanged applies an edit or a delete made on the message's own surface. It never
@@ -281,6 +329,7 @@ func (c *Conductor) seedHistory(ctx context.Context, src Source, chat store.Chat
 		c.recordParticipant(ctx, chat, ev)
 		_, _ = c.mirrorRecord(ctx, src, chat.ID, ev, false)
 	}
+	c.noteHumans(ctx, chat)
 	// Only once the history is in: a chat whose seed failed keeps its turns reading the
 	// source's earlier history in front of the record (transcript.go), as before.
 	if err := c.store.SetChatHistorySeeded(ctx, chat.ID); err != nil {

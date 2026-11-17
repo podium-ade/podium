@@ -38,9 +38,8 @@ type ChatSource interface {
 	Awaiting(chatID string) bool
 	AttachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
-	// Multiplayer marks a chat multiplayer, force for a share; ChatChanged shows a chat's row
-	// to every screen watching it after its sharing changed (phase 5).
-	Multiplayer(ctx context.Context, chatID string, force bool, who string)
+	// ChatChanged shows a chat's row to every screen watching it after its sharing changed
+	// (phase 5).
 	ChatChanged(ctx context.Context, chatID string)
 }
 
