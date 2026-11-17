@@ -162,6 +162,11 @@ type InboundEvent struct {
 	SpeakerID       string
 	// SpeakerAvatar is the account's picture, when the source had it for free.
 	SpeakerAvatar string
+	// AuthorBot is a speaker the source knows to be a bot account, not a person: GitHub's
+	// dependabot[bot]. The mirror records what it said, and it does not count towards the
+	// humans a chat needs more than one of to be multiplayer. A source that cannot tell, or
+	// drops its bots before they get here (Slack), leaves it false.
+	AuthorBot bool
 	// Mentioned is true when the speaker addressed the bot explicitly — an @mention, a DM,
 	// a review command — rather than a reply the source decided to treat as one. Only a
 	// mentioned message is answered with ReactionRefused: reacting to a reply nobody

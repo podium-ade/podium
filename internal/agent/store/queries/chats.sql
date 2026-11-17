@@ -192,11 +192,11 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       sqlc.narg('external_id'), @external_url, @addressed, @mentions::text[]
+       sqlc.narg('external_id'), @external_url, @addressed, @mentions::text[], @author_bot
   from next
 returning *;
 
@@ -212,11 +212,11 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       @external_id::text, @external_url, @addressed, @mentions::text[]
+       @external_id::text, @external_url, @addressed, @mentions::text[], @author_bot
   from next
 on conflict (chat_id, via, external_id) where external_id is not null do nothing
 returning *;
@@ -371,12 +371,15 @@ select * from chats where source_key = @source_key;
 --
 -- via and avatar are the surface and picture of the author's first message, which is what
 -- the header draws beside a name that has no Podium identity behind it.
+--
+-- A bot account's messages are not counted: it is not a human, and the record carries no
+-- one it could be speaking for (author_bot, set by the source that could tell).
 -- name: ChatAuthors :many
 select author,
        (array_agg(via order by seq))[1]::text           as via,
        (array_agg(author_avatar order by seq))[1]::text as avatar
   from chat_messages
- where chat_id = @chat_id and role = 'user' and author <> ''
+ where chat_id = @chat_id and role = 'user' and author <> '' and not author_bot
  group by author
  order by min(seq);
 

@@ -773,6 +773,9 @@ type ChatMessage struct {
 	AuthorLogin  string
 	AuthorHandle string
 	AuthorAvatar string
+	// AuthorBot is a message from a bot account on its surface, not a person. It stays in the
+	// record, and does not make anybody a human in the chat (ChatAuthors).
+	AuthorBot bool
 	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaLinear,
 	// ViaBot).
 	// Empty on a write means ViaWeb for a user message and ViaBot for anything else.
@@ -1095,6 +1098,7 @@ func (s *Store) appendChatMessage(ctx context.Context, msg ChatMessage, addresse
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    addressed,
 		Mentions:     nonNilStrings(msg.Mentions),
+		AuthorBot:    msg.AuthorBot,
 	})
 	if noRows(err) {
 		return ChatMessage{}, fmt.Errorf("%w: chat %s", ErrNotFound, msg.ChatID)
@@ -1141,6 +1145,7 @@ func (s *Store) RecordChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    msg.Addressed,
 		Mentions:     nonNilStrings(msg.Mentions),
+		AuthorBot:    msg.AuthorBot,
 	})
 	if noRows(err) {
 		// Either the message is already here, or the chat is not. The chat is the caller's
@@ -1682,6 +1687,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Via:          r.Via,
 		ExternalURL:  r.ExternalUrl,
 		Addressed:    r.Addressed,
+		AuthorBot:    r.AuthorBot,
 		EditedAt:     utcPtr(r.EditedAt),
 		DeletedAt:    utcPtr(r.DeletedAt),
 		Mentions:     r.Mentions,

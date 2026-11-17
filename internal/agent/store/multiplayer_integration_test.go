@@ -228,3 +228,54 @@ func TestBecomingMultiplayerNamesTheOwnersEarlierMessages(t *testing.T) {
 	assert.Equal(t, "alice@acme.test", msgs[0].Author, "the owner's message is named")
 	assert.Empty(t, msgs[1].Author, "the assistant's is not a person's")
 }
+
+// A bot account's messages (GitHub's dependabot[bot], flagged by the source) are in the
+// record and are not humans in it: one person and a bot is not multiplayer, two people and a
+// bot are, and a row recorded before the flag existed is the person it always was.
+func TestABotAuthorIsNotAHumanInTheChat(t *testing.T) {
+	ctx := context.Background()
+	say := func(s *Store, chatID, author string, bot bool) {
+		t.Helper()
+		_, _, err := s.RecordChatMessage(ctx, ChatMessage{
+			ChatID: chatID, Role: RoleUser, Text: "hi", TS: time.Now().UTC(), Author: author,
+			Via: ViaGitHub, ExternalID: "issue_comment:" + author + time.Now().String(), AuthorBot: bot,
+		})
+		require.NoError(t, err)
+	}
+	for _, tc := range []struct {
+		name      string
+		humans    []string
+		bots      []string
+		wantMulti bool
+		wantNames []string
+	}{
+		{name: "one human and a bot", humans: []string{"alice"}, bots: []string{"dependabot[bot]"}, wantNames: []string{"alice"}},
+		{name: "two bots only", bots: []string{"dependabot[bot]", "renovate[bot]"}},
+		{
+			name: "two humans and a bot", humans: []string{"alice", "bob"}, bots: []string{"dependabot[bot]"},
+			wantMulti: true, wantNames: []string{"alice", "bob"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStore(t)
+			chat, err := s.CreateMirrorChat(ctx, "github:o/r#1:"+tc.name, OriginGitHub, "x", "t")
+			require.NoError(t, err)
+			for _, b := range tc.bots {
+				say(s, chat.ID, b, true)
+			}
+			for _, h := range tc.humans {
+				say(s, chat.ID, h, false)
+			}
+			people, err := s.ChatParticipants(ctx, chat.ID)
+			require.NoError(t, err)
+			var names []string
+			for _, p := range people {
+				names = append(names, p.Name)
+			}
+			assert.ElementsMatch(t, tc.wantNames, names)
+			_, changed, err := s.MarkChatMultiplayer(ctx, chat.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMulti, changed)
+		})
+	}
+}

@@ -122,6 +122,7 @@ func (s *Source) historyEvents(p Parsed, items []historyItem) []conductor.Inboun
 			SpeakerID:       speakerID,
 			SpeakerAvatar:   it.user.AvatarURL,
 			SpeakerHandle:   it.user.Login,
+			AuthorBot:       isBot(it.user),
 			ExternalID:      it.kind + ":" + strconv.FormatInt(it.id, 10),
 			ExternalURL:     it.url,
 			RecordText:      body,

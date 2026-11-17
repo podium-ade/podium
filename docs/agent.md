@@ -476,7 +476,11 @@ account — worked out again when the turn starts. Nothing is refused for a turn
 - **A multiplayer chat answers only a mention.** A chat becomes multiplayer once more than one
   human has been in it, and stays so. Humans are the Podium people who took part and the
   people who did not link an account (a Slack or Linear user, a GitHub commenter) known by the
-  name on their messages; bots are not counted, and neither is a share on its own. One human
+  name on their messages; bots are not counted, and neither is a share on its own. Slack drops
+  its bots before they get here; on GitHub a comment from an App's bot user (type `Bot`, or a
+  login ending in `[bot]`, such as dependabot) is recorded with `InboundEvent.AuthorBot` and
+  `chat_messages.author_bot`, and is left out of the count. A machine user, which GitHub reports
+  as an ordinary `User`, cannot be told from a person and counts as one. One human
   and any number of bots is not multiplayer: everything that human says is put to Podium,
   tagged or not — in a Slack thread too, where an untagged reply is answered while its speaker
   is the only human who has spoken in it (`InboundEvent.AnswerIfAlone`, `Conductor.soleHumanReply`).
