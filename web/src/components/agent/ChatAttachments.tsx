@@ -4,9 +4,7 @@ import type { ChatAttachment } from "../../gen/podium/agent/v1/agent_pb";
 import { cachedImageURL, fetchArtifact } from "../../lib/artifactCache";
 import { humanBytes } from "../../lib/format";
 import { useToast } from "../Toast";
-
-/** MAX_IMAGE_PX is how wide an inline image is allowed to render. */
-const MAX_IMAGE_PX = 480;
+import { ChatImageGallery } from "./ChatImageGallery";
 
 /**
  * RASTER_IMAGE is the fallback for deciding what to show inline.
@@ -62,8 +60,8 @@ function imageMIME(a: ChatAttachment): string {
 }
 
 /**
- * ChatAttachments renders the files a turn produced: images inline, everything else as a
- * download chip.
+ * ChatAttachments renders the files a turn produced: images in one compact gallery,
+ * everything else as a download chip.
  *
  * `GET /artifacts/{id}` sits behind the same identity middleware as every RPC, and an
  * `<img src>` cannot carry an Authorization header — so an image is fetched with the bearer
@@ -71,69 +69,68 @@ function imageMIME(a: ChatAttachment): string {
  * under the local transport it would be a 401 and a broken-image icon.
  */
 export function ChatAttachments({ attachments }: { attachments: ChatAttachment[] }) {
+  const images = attachments.filter(inlineImage);
+  const loaded = useImageURLs(images);
   if (attachments.length === 0) return null;
+
+  // An image whose bytes could not be read is a chip: a broken-image icon says nothing,
+  // while the chip names the file and can retry the download.
+  const shown = images.filter((a) => !loaded[a.artifactId]?.error);
+  const chips = attachments.filter((a) => !inlineImage(a) || loaded[a.artifactId]?.error);
+
   return (
-    <div className="mt-2.5 flex flex-wrap items-start gap-2">
-      {attachments.map((a) =>
-        inlineImage(a) ? (
-          <InlineImage key={a.artifactId} attachment={a} />
-        ) : (
-          <FileChip key={a.artifactId} attachment={a} />
-        ),
-      )}
+    <div className="mt-2.5 space-y-2">
+      {shown.length > 0 ? (
+        <ChatImageGallery
+          images={shown.map((attachment) => ({
+            attachment,
+            url: loaded[attachment.artifactId]?.url,
+          }))}
+        />
+      ) : null}
+      {chips.length > 0 ? (
+        <div className="flex flex-wrap items-start gap-2">
+          {chips.map((a) => (
+            <FileChip key={a.artifactId} attachment={a} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function InlineImage({ attachment }: { attachment: ChatAttachment }) {
-  const [url, setUrl] = useState<string>();
-  const [error, setError] = useState<string>();
-  // The two things the fetch needs, pulled out so the effect depends on values rather than
-  // on a message object that is replaced whenever the turn republishes it.
-  const { artifactId } = attachment;
-  const mime = imageMIME(attachment);
+type Loaded = Record<string, { url?: string; error?: string }>;
+
+/**
+ * useImageURLs fetches every image of a message up front, so the gallery can show the
+ * counter and thumbnails for all of them and a failed one can drop out as a chip.
+ */
+function useImageURLs(images: ChatAttachment[]): Loaded {
+  const [loaded, setLoaded] = useState<Loaded>({});
+  // The effect depends on this string rather than on the attachments: a message object is
+  // replaced whenever the turn republishes it, and that must not refetch.
+  const key = JSON.stringify(images.map((a) => [a.artifactId, imageMIME(a)]));
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const objectURL = await cachedImageURL(artifactId, mime);
-        if (!cancelled) setUrl(objectURL);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
+    const wanted = JSON.parse(key) as [string, string][];
+    for (const [artifactId, mime] of wanted) {
+      void (async () => {
+        let next: Loaded[string];
+        try {
+          next = { url: await cachedImageURL(artifactId, mime) };
+        } catch (err) {
+          next = { error: err instanceof Error ? err.message : String(err) };
+        }
+        if (!cancelled) setLoaded((prev) => ({ ...prev, [artifactId]: next }));
+      })();
+    }
     return () => {
       cancelled = true;
     };
-  }, [artifactId, mime]);
+  }, [key]);
 
-  if (error) return <FileChip attachment={attachment} />;
-  if (!url) {
-    return (
-      <div
-        data-testid="chat-attachment"
-        className="h-24 w-full max-w-120 animate-shimmer rounded-lg border border-border bg-raised"
-      />
-    );
-  }
-  return (
-    <a
-      data-testid="chat-attachment"
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      title={`${attachment.name} · ${humanBytes(attachment.sizeBytes)}`}
-      className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
-      <img
-        src={url}
-        alt={attachment.name}
-        style={{ maxWidth: MAX_IMAGE_PX }}
-        className="rounded-lg border border-border"
-      />
-    </a>
-  );
+  return loaded;
 }
 
 function FileChip({ attachment }: { attachment: ChatAttachment }) {
