@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Hash, Pencil, RefreshCw, Search } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SlackChannel } from "../../gen/podium/agent/v1/agent_pb";
@@ -71,6 +71,9 @@ export function ChannelsPanel() {
   const [described, setDescribed] = useState<Described>("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [page, setPage] = useState(1);
+  // isPending only turns true after a render, so two clicks in the same tick would both reach
+  // Slack. A ref closes that gap, and keeps a later press from starting a second listing.
+  const refreshing = useRef(false);
 
   const list = useQuery({
     queryKey: ["agent", "slack-channels"],
@@ -169,10 +172,20 @@ export function ChannelsPanel() {
                 variant="outline"
                 size="sm"
                 data-testid="channel-refresh"
-                disabled={refresh.isPending}
+                // aria-disabled, not disabled: a disabled button drops keyboard focus to the page while
+                // the refresh runs, and the onClick guard already ignores presses.
+                aria-disabled={refresh.isPending}
                 aria-busy={refresh.isPending}
                 title="List the channels from Slack again. This can take a while."
-                onClick={() => refresh.mutate()}
+                onClick={() => {
+                  if (refreshing.current) return;
+                  refreshing.current = true;
+                  refresh.mutate(undefined, {
+                    onSettled: () => {
+                      refreshing.current = false;
+                    },
+                  });
+                }}
               >
                 <RefreshCw className={refresh.isPending ? "animate-spin" : undefined} />
                 {refresh.isPending ? "Refreshing…" : "Refresh"}
