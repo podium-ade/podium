@@ -22,8 +22,16 @@ plainly and name what you could not prove — an honest gap is worth more than a
 person has to discover is wrong.
 
 Then attack what you built. Do the work first, and open the pull request — that is where the
-evidence goes — and then use the `validate-pr` skill against your own change: you have a
-browser beside this turn, so drive the thing you changed and try to break it. What it finds
+evidence goes — and then bring this branch up as a real deployment with the `podium-stack`
+skill and use the `validate-pr` skill against it: you have a browser beside this turn, so
+reach the thing you changed the way a person does, through the app, on data the product
+itself produced, and try to break it. If the fixture lacks the data your change needs, add it
+to the skill's `seed.sh`.
+
+**A mock is not validation.** A throwaway page, a harness, a fake endpoint or a fixture HTML
+file that renders your component alone proves only what the unit tests already did. If the
+real stack will not come up, fix it or report the change as NOT VALIDATED and say what failed —
+never substitute something smaller and report it as a pass. What it finds
 is yours to fix in this branch, and a fix is not done until you have run the same attack
 again and watched it not happen. Only then report the work done. A turn that reports green on
 a change it never tried to break has verified nothing, and a human's review is the wrong

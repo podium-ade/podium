@@ -13,6 +13,7 @@ playbook has to name a skill by name before any turn of it can load one.
 | | |
 |---|---|
 | [`validate-pr`](validate-pr/SKILL.md) | attack a change you have just made, in a browser, before reporting the work done |
+| [`podium-stack`](podium-stack/SKILL.md) | run the branch as a real, seeded Podium inside the turn — server, conductor and node here, Postgres, object store and tasks in the dind sidecar — so `validate-pr` attacks the real thing, not a mock |
 
 `validate-pr` is a **developer tool for working on Podium**, and not only this bot's own: it is
 what the `podium` playbook's prompt reaches for after opening its pull request, and setting
