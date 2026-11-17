@@ -54,11 +54,34 @@ const png = (w, h, bars, [r, g, b]) => {
   ]);
 };
 
-fs.writeFileSync(`${dir}/sales-by-day.png`, png(800, 400, [0.4, 0.55, 0.7, 0.5, 0.9, 0.8, 0.3], [46, 125, 50]));
-fs.writeFileSync(`${dir}/top-skus.png`, png(400, 600, [0.9, 0.7, 0.5, 0.35, 0.2], [21, 101, 192]));
-fs.writeFileSync(`${dir}/refunds-trend.png`, png(1200, 300, [0.2, 0.25, 0.15, 0.3, 0.1, 0.05, 0.12, 0.08], [198, 40, 40]));
-fs.writeFileSync(
-  `${dir}/weekly-summary.csv`,
-  "day,orders,total_cad\nMon,41,3120.50\nTue,38,2890.10\nWed,52,4011.75\nThu,47,3560.00\nFri,63,5122.40\n",
-);
-console.log("wrote sales-by-day.png, top-skus.png, refunds-trend.png and weekly-summary.csv");
+// CHARTS_PACK=quarterly is the many-images case: eight images of very different shapes
+// (a 48px icon, 2400×1600, 300×1200), a 120-character file name, and a file named .png that
+// is not an image — what a gallery, a lightbox and a broken-image fallback have to survive.
+const files = [];
+const out = (name, bytes) => {
+  fs.writeFileSync(`${dir}/${name}`, bytes);
+  files.push(name);
+};
+if (process.env.CHARTS_PACK === "quarterly") {
+  const longName = `${"q3-revenue-by-region-and-channel-including-wholesale-and-direct-".repeat(2).slice(0, 116)}.png`;
+  out("q3-revenue.png", png(1600, 900, [0.5, 0.6, 0.8, 0.7], [46, 125, 50]));
+  out("q3-margin.png", png(2400, 1600, [0.3, 0.4, 0.35, 0.5, 0.45], [21, 101, 192]));
+  out("returns-by-week.png", png(300, 1200, [0.6, 0.4, 0.8], [198, 40, 40]));
+  out("icon-48.png", png(48, 48, [0.5, 1], [255, 143, 0]));
+  out("stock-cover.png", png(1000, 1000, [0.2, 0.9, 0.5, 0.7, 0.3, 0.6], [106, 27, 154]));
+  out("supplier-lead-times.png", png(1800, 400, [0.9, 0.2, 0.4, 0.6, 0.3, 0.8, 0.5, 0.7, 0.1], [0, 121, 107]));
+  out("basket-size.png", png(640, 480, [0.4, 0.7, 0.55], [93, 64, 55]));
+  out(longName, png(900, 500, [0.3, 0.6, 0.9, 0.5], [55, 71, 79]));
+  out("forecast-q4.png", Buffer.from("forecast pending: the supplier feed was down, no chart this week\n"));
+  out("quarterly-summary.csv", "quarter,orders,total_cad\nQ1,1840,141220.10\nQ2,2110,163905.55\nQ3,2388,187410.80\n");
+} else {
+  out("sales-by-day.png", png(800, 400, [0.4, 0.55, 0.7, 0.5, 0.9, 0.8, 0.3], [46, 125, 50]));
+  out("top-skus.png", png(400, 600, [0.9, 0.7, 0.5, 0.35, 0.2], [21, 101, 192]));
+  out("refunds-trend.png", png(1200, 300, [0.2, 0.25, 0.15, 0.3, 0.1, 0.05, 0.12, 0.08], [198, 40, 40]));
+  out(
+    "weekly-summary.csv",
+    "day,orders,total_cad\nMon,41,3120.50\nTue,38,2890.10\nWed,52,4011.75\nThu,47,3560.00\nFri,63,5122.40\n",
+  );
+}
+// One name per line, so the turn can repeat them exactly: only files its reply names are attached.
+console.log(files.join("\n"));
