@@ -54,6 +54,7 @@ export function parseActivity(text: string): Activity | undefined {
  */
 const SUMMARY_FIELD: Record<string, readonly string[]> = {
   bash: ["command"],
+  shell: ["command"],
   read: ["filePath", "path"],
   edit: ["filePath", "path"],
   write: ["filePath", "path"],
@@ -63,6 +64,7 @@ const SUMMARY_FIELD: Record<string, readonly string[]> = {
   glob: ["pattern"],
   webfetch: ["url"],
   task: ["description"],
+  subagent: ["description"],
 };
 
 /** toolSummary is the one line a tool call is scanned by. */
