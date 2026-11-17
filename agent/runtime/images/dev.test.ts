@@ -81,6 +81,7 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
       echo "GO: $(go version)"
       echo "LINT: $(golangci-lint --version)"
       echo "MAKE: $(make --version | head -1)"
+      echo "PGREP: $(pgrep --version)"
       echo "GIT: $(git --version)"
       echo "NODE: $(node --version)"
       echo "PNPM: $(pnpm --version)"
@@ -96,6 +97,8 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     expect(golangciVersion, "no golangci-lint version found in .github/workflows/ci-go.yml").toBeTruthy();
     expect(run.stdout).toContain(`LINT: golangci-lint has version ${golangciVersion} `);
     expect(run.stdout).toContain("MAKE: GNU Make");
+    // deploy/run-host.sh finds and stops its services with pgrep/pkill.
+    expect(run.stdout).toContain("PGREP: pgrep from procps");
     expect(run.stdout).toMatch(/GIT: git version \d/);
     expect(run.stdout).toMatch(/NODE: v2[6-9]\./);
     expect(run.stdout).toMatch(/PNPM: 12\./);
