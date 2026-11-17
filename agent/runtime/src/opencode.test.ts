@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,8 @@ import {
   type Rule,
   notStartedText,
   HarnessNotStarted,
+  harnessMajor,
+  wrongVersionText,
   NotInstalledText,
   serve,
 } from "./opencode.js";
@@ -550,6 +552,27 @@ describe("a harness that cannot be started", () => {
   it("says permission denied in words", () => {
     const err = Object.assign(new Error("spawn opencode EACCES"), { code: "EACCES", syscall: "spawn opencode" });
     expect(notStartedText(err)).toContain("permission denied");
+  });
+
+  it("reads the major from either release's --version", () => {
+    expect(harnessMajor("opencode v2.2.5\n")).toBe(2);
+    expect(harnessMajor("1.19.5\n")).toBe(1);
+    expect(harnessMajor("dev")).toBeUndefined();
+  });
+
+  it("refuses an opencode 1 left on PATH, and says how to replace it", async () => {
+    // A host that followed the opencode 1 instructions still has opencode-ai in its global npm,
+    // and the conductor puts that first on PATH. It serves, then refuses run --server.
+    const dir = mkdtempSync(join(tmpdir(), "octest-"));
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "opencode"), "#!/bin/sh\necho 1.19.5\n", { mode: 0o755 });
+    const err = await serve({ configDir: dir, workdir: dir, env: { PATH: `${bin}:/usr/bin:/bin` }, warn: () => {} }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(HarnessNotStarted);
+    expect((err as HarnessNotStarted).text).toBe(wrongVersionText("1.19.5"));
+    expect((err as HarnessNotStarted).text).toContain("npm uninstall -g opencode-ai");
   });
 
   it("says so when the binary is not on PATH, from the server a turn starts first", async () => {

@@ -1584,6 +1584,13 @@ is also written with Code Mode off, so its tools are plain `<server>_<tool>` cal
 rather than JavaScript inside opencode's `execute` tool. `execute` and opencode's `question` tool
 are denied to every turn.
 
+A host turn runs whatever `opencode` the conductor's machine has, and the global npm's comes
+first on its PATH. A machine set up for opencode 1 still has `opencode-ai` there, and npm will
+not install `@opencode/cli` over it, so remove it first:
+`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`. Until then every host turn
+answers, at once, that it found opencode 1 and needs 2.2.5, with that same command, rather than
+failing with an exit code.
+
 It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
 Messages API and only that; pointed at xAI's Anthropic-compatible endpoint it failed on the
 first request, because it sends a `system`-role entry inside `messages[]` that xAI rejects
