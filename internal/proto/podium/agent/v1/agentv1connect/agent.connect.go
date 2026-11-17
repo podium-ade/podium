@@ -566,8 +566,9 @@ type AgentServiceClient interface {
 	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
 	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
-	// mentioned, or listed from Slack on this call — with the operator-authored description
-	// a turn of that channel is briefed with.
+	// mentioned — with the operator-authored description a turn of that channel is briefed
+	// with. It reads the stored catalogue and does not call Slack unless refresh is set (or the
+	// catalogue has never been refreshed), because listing a workspace's channels is slow.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
 	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
 	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
@@ -2078,8 +2079,9 @@ type AgentServiceHandler interface {
 	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
 	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
-	// mentioned, or listed from Slack on this call — with the operator-authored description
-	// a turn of that channel is briefed with.
+	// mentioned — with the operator-authored description a turn of that channel is briefed
+	// with. It reads the stored catalogue and does not call Slack unless refresh is set (or the
+	// catalogue has never been refreshed), because listing a workspace's channels is slow.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
 	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
 	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
