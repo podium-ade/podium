@@ -100,7 +100,7 @@ type StartedChat struct {
 // it; it is reached through Options.Mirror, which is that same source.
 type chatPublisher interface {
 	URL(chatID string) string
-	Multiplayer(ctx context.Context, chatID string, force bool, who string)
+	Multiplayer(ctx context.Context, chatID, who string)
 	ChatChanged(ctx context.Context, chatID string)
 }
 
@@ -220,7 +220,6 @@ func (c *Conductor) StartChat(ctx context.Context, token string, req StartChatRe
 		})
 	}
 	if pub != nil && (len(share) > 0 || access != store.AccessRestricted) {
-		pub.Multiplayer(ctx, chat.ID, true, "")
 		pub.ChatChanged(ctx, chat.ID)
 	}
 	if fresh, err := c.store.GetChat(ctx, chat.ID); err == nil {

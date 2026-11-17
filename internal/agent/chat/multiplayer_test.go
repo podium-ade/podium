@@ -162,3 +162,30 @@ func TestQueueChangedPublishesTheQueue(t *testing.T) {
 	require.Len(t, f.Queue, 1)
 	assert.Equal(t, "bob", f.Queue[0].Login)
 }
+
+// A share on its own puts nobody else in the chat: while only one human has spoken in it,
+// everything that human says is put to Podium, tagged or not (EME-8). The second human to
+// speak makes it multiplayer, and from then on only a tag is.
+func TestASharedChatWithOneHumanAnswersEveryMessage(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	st.viewers = map[string][]string{"chat_1": {"bob"}} // shared with bob, who has not spoken
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	res, err := src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "no tag needed"})
+	require.NoError(t, err)
+	assert.True(t, res.Addressed)
+	chat, _ := st.GetChat(ctx, "chat_1")
+	assert.False(t, chat.Multiplayer, "one human, shared or not")
+
+	st.participants["chat_1"] = []string{"alice", "bob"} // bob speaks
+	_, err = src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "bob", Text: "hello"})
+	require.NoError(t, err)
+	chat, _ = st.GetChat(ctx, "chat_1")
+	assert.True(t, chat.Multiplayer, "two humans")
+
+	res, err = src.SendMessage(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "no tag now"})
+	require.NoError(t, err)
+	assert.False(t, res.Addressed, "with two humans only a tag is put to Podium")
+}

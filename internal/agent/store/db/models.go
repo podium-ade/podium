@@ -64,6 +64,7 @@ type ChatMessage struct {
 	EditedAt     *time.Time
 	DeletedAt    *time.Time
 	Mentions     []string
+	AuthorBot    bool
 }
 
 type ChatOutbox struct {

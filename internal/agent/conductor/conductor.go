@@ -575,6 +575,11 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.rememberSlackChannel(ctx, ev)
 	// Who said it.
 	c.resolveSpeaker(ctx, src, &ev)
+	// A reply nobody tagged Podium in is still put to it when its speaker is the only human in
+	// the conversation (soleHumanReply).
+	if ev.RecordOnly && c.soleHumanReply(ctx, src, ev) {
+		ev.RecordOnly = false
+	}
 	// An edit, a delete, or chatter nobody put to Podium is recorded and is never a turn.
 	switch {
 	case ev.Change != "":

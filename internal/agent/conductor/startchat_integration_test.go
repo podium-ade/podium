@@ -78,7 +78,7 @@ func TestATurnOpensASharedChatAndHandsBackTheLink(t *testing.T) {
 	assert.Equal(t, testSpeaker, c.Login, "the chat is the asker's")
 	assert.Equal(t, "Triage: the login outage", c.Title)
 	assert.Equal(t, f.origin.ID, c.StartedFromChat)
-	assert.True(t, c.Multiplayer, "a shared chat is multiplayer from the start")
+	assert.False(t, c.Multiplayer, "sharing alone puts no second human in the chat")
 	assert.Equal(t, store.AccessLink, c.GeneralAccess)
 	require.NotEmpty(t, c.LinkToken)
 	assert.Equal(t, "https://podium.example/agent/chat/"+c.ID+"?k="+c.LinkToken, started.URL)

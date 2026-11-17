@@ -247,6 +247,7 @@ func (s *Source) inbound(c classified, text string) conductor.InboundEvent {
 		URL:             PRURL(c.owner, c.repo, c.number),
 		Title:           ChatTitle(c.number, c.title),
 		BriefKind:       conductor.SourceGitHub,
+		AuthorBot:       c.authorBot,
 	}
 	if c.change != "" {
 		// An edit's text is the comment's new body. A change carries no instruction.
@@ -334,6 +335,8 @@ type classified struct {
 	// login. Zero when GitHub did not say.
 	authorID     int64
 	authorAvatar string
+	// authorBot is whether that account is a bot: see isBot.
+	authorBot bool
 	// change is an edit (conductor.ChangeEdited) or a delete (conductor.ChangeDeleted) of
 	// the comment or review commentID names, and empty for something newly said.
 	change string
@@ -357,8 +360,19 @@ func (c classified) externalID() string {
 	return ""
 }
 
+// isBot reports whether a GitHub account is a bot: an App's bot user (type Bot, login ending
+// in [bot]), such as dependabot. The conversation keeps what it said, but it is not a human in
+// it. A machine user, an ordinary account somebody scripts, is type User and cannot be told
+// from a person here, so it counts as one.
+func isBot(u User) bool {
+	return strings.EqualFold(u.Type, "Bot") || strings.HasSuffix(strings.ToLower(u.Login), "[bot]")
+}
+
 // speaker records the account a comment or review came from, when the payload carries it.
 func (c *classified) speaker(u User) {
+	if u.Login != "" {
+		c.authorBot = isBot(u)
+	}
 	if u.ID != 0 {
 		c.authorID = u.ID
 		c.authorAvatar = u.AvatarURL
@@ -418,6 +432,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		// a pull request event; a comment or review overrides it with its own user below.
 		authorID:     env.Sender.ID,
 		authorAvatar: env.Sender.AvatarURL,
+		authorBot:    isBot(env.Sender),
 	}
 	if base.owner == "" || base.repo == "" {
 		base.reason = "unhandled"
@@ -840,6 +855,7 @@ func (s *Source) handlePush(ctx context.Context, event, delivery string, c class
 			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID, Kind: KindPullRequest,
 		}),
 		Author:    c.author,
+		AuthorBot: c.authorBot,
 		Text:      followUpInstruction("Podium pushed new commits to "+prURL+" to address the review.", commit, head),
 		TS:        c.ts,
 		URL:       prURL,

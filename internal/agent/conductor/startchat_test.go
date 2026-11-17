@@ -62,8 +62,8 @@ func (u fixedURL) URL(id string) string {
 	}
 	return string(u) + "/agent/chat/" + id
 }
-func (fixedURL) Multiplayer(_ ctxT, _ string, _ bool, _ string) {}
-func (fixedURL) ChatChanged(_ ctxT, _ string)                   {}
+func (fixedURL) Multiplayer(_ ctxT, _, _ string) {}
+func (fixedURL) ChatChanged(_ ctxT, _ string)    {}
 
 func TestAChatLinkCarriesItsLinkTokenOnlyWhenSharedByLink(t *testing.T) {
 	pub := fixedURL("https://podium.example")
