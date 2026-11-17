@@ -21,6 +21,8 @@ type Metrics struct {
 	OutboxDeliveries        *prometheus.CounterVec
 	MirrorRecords           *prometheus.CounterVec
 	FollowReconnects        prometheus.Counter
+	WatchdogQuestions       *prometheus.CounterVec
+	WatchdogAnswers         *prometheus.CounterVec
 	MemoryRetains           *prometheus.CounterVec
 	MemoryExtractionsFailed prometheus.Gauge
 }
@@ -107,6 +109,15 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "podium_agent_follow_reconnects_total",
 			Help: "Reconnects of the task event stream.",
 		}),
+		WatchdogQuestions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_watchdog_questions_total",
+			Help: "Questions the watchdog put to a conversation about a task, by kind: quiet " +
+				"(its runtime is alive but it has reported nothing) or wedged (its heartbeat stopped).",
+		}, []string{"kind"}),
+		WatchdogAnswers: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_watchdog_answers_total",
+			Help: "Answers to the watchdog's questions, by choice: wait, restart or end.",
+		}, []string{"choice"}),
 		MemoryRetains: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_memory_retain_total",
 			Help: "End-of-turn hand-offs to the shared memory, by result: accepted, error or " +
@@ -126,7 +137,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
 			m.HostWarmEvictions, m.WarmInjects, m.TurnFirstMessage, m.GatewayRequests, m.Notifications,
 			m.Delegations, m.RelayedMessages,
-			m.SourceEvents, m.GateDecisions, m.OutboxDeliveries, m.MirrorRecords, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
+			m.SourceEvents, m.GateDecisions, m.OutboxDeliveries, m.MirrorRecords, m.FollowReconnects,
+			m.WatchdogQuestions, m.WatchdogAnswers, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m
 }
