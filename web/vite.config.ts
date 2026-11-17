@@ -58,6 +58,18 @@ export default defineConfig({
           });
         },
       },
+      // GET /artifacts/{id}: every attachment and artifact download. Not under podium.* —
+      // it is plain HTTP so an <img> can use it — and without this Vite's SPA fallback
+      // answered it with index.html, so every chat image rendered broken under `pnpm dev`.
+      "^/artifacts/": {
+        target,
+        changeOrigin: false,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            if (devToken) proxyReq.setHeader("authorization", `Bearer ${devToken}`);
+          });
+        },
+      },
       // Google start/callback/status/logout. Do not inject the local token: after a claim
       // the server refuses it from a browser, and /auth/status is public.
       "^/auth": {
