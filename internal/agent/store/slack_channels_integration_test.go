@@ -63,3 +63,22 @@ func TestSetChatChannel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "support", got.Channel)
 }
+
+func TestSlackChannelsRefreshedAt(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	at, err := s.SlackChannelsRefreshedAt(ctx)
+	require.NoError(t, err)
+	assert.True(t, at.IsZero(), "a catalogue filled only by mentions has never been refreshed")
+
+	require.NoError(t, s.MarkSlackChannelsRefreshed(ctx))
+	first, err := s.SlackChannelsRefreshedAt(ctx)
+	require.NoError(t, err)
+	assert.False(t, first.IsZero())
+
+	require.NoError(t, s.MarkSlackChannelsRefreshed(ctx))
+	second, err := s.SlackChannelsRefreshedAt(ctx)
+	require.NoError(t, err)
+	assert.False(t, second.Before(first), "marking twice keeps one row and moves it forward")
+}

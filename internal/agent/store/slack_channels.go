@@ -36,6 +36,27 @@ func (s *Store) ListSlackChannels(ctx context.Context) ([]SlackChannel, error) {
 	return out, nil
 }
 
+// SlackChannelsRefreshedAt is when the catalogue was last filled from Slack's channel list.
+// The zero time means it never has been: every row so far came from a mention.
+func (s *Store) SlackChannelsRefreshedAt(ctx context.Context) (time.Time, error) {
+	at, err := s.q.GetSlackChannelsRefreshedAt(ctx)
+	if noRows(err) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get slack channels refreshed at: %w", err)
+	}
+	return at.UTC(), nil
+}
+
+// MarkSlackChannelsRefreshed records that the catalogue was just filled from Slack's list.
+func (s *Store) MarkSlackChannelsRefreshed(ctx context.Context) error {
+	if err := s.q.SetSlackChannelsRefreshedAt(ctx, time.Now().UTC()); err != nil {
+		return fmt.Errorf("mark slack channels refreshed: %w", err)
+	}
+	return nil
+}
+
 // SlackChannel reads one. ErrNotFound means this conductor has never seen it.
 func (s *Store) SlackChannel(ctx context.Context, id string) (SlackChannel, error) {
 	if id == "" {

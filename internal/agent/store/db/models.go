@@ -335,6 +335,11 @@ type SlackChannel struct {
 	UpdatedAt   time.Time
 }
 
+type SlackChannelSync struct {
+	ID          bool
+	RefreshedAt time.Time
+}
+
 type Turn struct {
 	ID           string
 	SessionID    string
