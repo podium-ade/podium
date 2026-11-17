@@ -28,6 +28,17 @@ func (q *Queries) GetSlackChannel(ctx context.Context, id string) (SlackChannel,
 	return i, err
 }
 
+const getSlackChannelsRefreshedAt = `-- name: GetSlackChannelsRefreshedAt :one
+select refreshed_at from slack_channel_sync
+`
+
+func (q *Queries) GetSlackChannelsRefreshedAt(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, getSlackChannelsRefreshedAt)
+	var refreshed_at time.Time
+	err := row.Scan(&refreshed_at)
+	return refreshed_at, err
+}
+
 const listSlackChannels = `-- name: ListSlackChannels :many
 select id, name, description, updated_at
 from slack_channels
@@ -133,6 +144,17 @@ func (q *Queries) SetSlackChannelDescription(ctx context.Context, arg SetSlackCh
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setSlackChannelsRefreshedAt = `-- name: SetSlackChannelsRefreshedAt :exec
+insert into slack_channel_sync (id, refreshed_at)
+values (true, $1)
+on conflict (id) do update set refreshed_at = excluded.refreshed_at
+`
+
+func (q *Queries) SetSlackChannelsRefreshedAt(ctx context.Context, refreshedAt time.Time) error {
+	_, err := q.db.Exec(ctx, setSlackChannelsRefreshedAt, refreshedAt)
+	return err
 }
 
 const upsertSlackChannelName = `-- name: UpsertSlackChannelName :exec

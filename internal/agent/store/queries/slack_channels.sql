@@ -21,6 +21,14 @@ on conflict (id) do update
  where excluded.name <> ''
    and slack_channels.name is distinct from excluded.name;
 
+-- name: GetSlackChannelsRefreshedAt :one
+select refreshed_at from slack_channel_sync;
+
+-- name: SetSlackChannelsRefreshedAt :exec
+insert into slack_channel_sync (id, refreshed_at)
+values (true, @refreshed_at)
+on conflict (id) do update set refreshed_at = excluded.refreshed_at;
+
 -- name: SetSlackChannelDescription :execrows
 update slack_channels
 set description = @description,

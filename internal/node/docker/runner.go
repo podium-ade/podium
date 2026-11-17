@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -152,6 +154,11 @@ const (
 	runnerKindMessage  = "message"
 )
 
+// acceptDrainGrace is how long serve keeps accepting after stopAccepting, to take the
+// connections already queued on the socket. serve sets it just before its own Accept, and
+// queued connections are accepted at once, so it only has to cover that call.
+const acceptDrainGrace = 50 * time.Millisecond
+
 // runnerLink is the executor's end of one task's event socket: a listener that stays open
 // for the whole run and decodes every line anything inside the container sends it.
 //
@@ -167,6 +174,10 @@ type runnerLink struct {
 	stopped chan struct{}
 	once    sync.Once
 	conns   sync.WaitGroup
+	// draining is set by stopAccepting: serve finishes the backlog and then stops.
+	draining atomic.Bool
+	// accepting is closed when serve stops accepting, for whatever reason.
+	accepting chan struct{}
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -207,6 +218,8 @@ func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 		events:  make(chan runnerEvent, 32),
 		stopped: make(chan struct{}),
 		ln:      ln,
+
+		accepting: make(chan struct{}),
 	}
 	go l.serve(taskID, ln)
 	return l, nil
@@ -217,12 +230,29 @@ func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 // reader learns there is nothing more coming.
 func (l *runnerLink) serve(taskID string, ln net.Listener) {
 	defer func() {
+		close(l.accepting)
 		l.conns.Wait()
 		close(l.events)
 	}()
+	drainingBacklog := false
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			if l.draining.Load() && errors.Is(err, os.ErrDeadlineExceeded) {
+				if !drainingBacklog {
+					// stopAccepting cut the wait short. A connection the kernel queued
+					// before the container exited may not have been accepted yet — an
+					// `artifact add` that wrote its line and returned is one — so take
+					// whatever is still in the backlog before letting go of it.
+					drainingBacklog = true
+					if ul, ok := ln.(*net.UnixListener); ok {
+						_ = ul.SetDeadline(time.Now().Add(acceptDrainGrace))
+					}
+					continue
+				}
+				_ = ln.Close()
+				return
+			}
 			if !l.isClosed() {
 				l.log.Debug("runner event socket stopped accepting", "task", taskID, "error", err)
 			}
@@ -364,17 +394,37 @@ func (l *runnerLink) close() {
 // open, so the run can wait for the events still in flight and then see the channel close.
 // It leaves the socket file on disk: the container is still there to be copied out of, and
 // the file is the bind-mount source that copy depends on. See listenRunner.
+//
+// Closing the listener outright would drop any connection still waiting in its backlog:
+// a short-lived `artifact add` can connect, write its line and exit, and the container
+// exit right after it, before serve has accepted it. So serve is woken instead, accepts
+// what is queued and closes the listener, and stopAccepting returns once it has. Nothing
+// new can arrive, because the container is gone.
 func (l *runnerLink) stopAccepting() {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
 	ln := l.ln
+	l.mu.Unlock()
+	if ln == nil {
+		return
+	}
+	if ul, ok := ln.(*net.UnixListener); ok {
+		l.draining.Store(true)
+		if err := ul.SetDeadline(time.Now()); err == nil {
+			select {
+			case <-l.accepting:
+				return
+			case <-time.After(time.Second):
+				// serve is wedged somewhere other than Accept; stop waiting for it.
+			}
+		}
+	}
+	l.mu.Lock()
 	l.ln = nil
 	l.mu.Unlock()
-	if ln != nil {
-		_ = ln.Close()
-	}
+	_ = ln.Close()
 }
 
 // hangUp closes the connections still open, for a container that is not going to exit and

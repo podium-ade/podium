@@ -1976,6 +1976,13 @@ This message is in Slack channel #support.
 This channel is for: customer complaints.
 ```
 
+The list is a mirror, not a live call: listing a workspace's channels from Slack is slow and the
+set rarely changes, so **Channels** reads the stored rows and shows when they were last
+refreshed. The **Refresh** button asks Slack again and stores the result; if Slack cannot be
+reached the stored rows stay and the screen says it failed. The first time a conductor has
+nothing stored it fills the mirror once by itself. A channel the bot has left stays in the
+mirror, because a refresh only adds and renames.
+
 The description is operator-authored, like `profile.yaml`. Slack's own channel purpose is
 **not** imported: anyone who can set a purpose would then instruct the model. On a mention,
 that note is a playbook preference: the assistant follows it when the message does not name a

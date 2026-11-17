@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Hash, Pencil, Search } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Hash, Pencil, RefreshCw, Search } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SlackChannel } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -71,12 +71,27 @@ export function ChannelsPanel() {
   const [described, setDescribed] = useState<Described>("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [page, setPage] = useState(1);
+  // isPending only turns true after a render, so two clicks in the same tick would both reach
+  // Slack. A ref closes that gap, and keeps a later press from starting a second listing.
+  const refreshing = useRef(false);
 
   const list = useQuery({
     queryKey: ["agent", "slack-channels"],
     queryFn: () => agent.listSlackChannels({}),
   });
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "slack-channels"] });
+
+  // The list query reads the conductor's stored catalogue. Only this asks Slack, which is
+  // slow, so it is a button and not a refetch interval or a refetch on mount. Its result goes
+  // straight into the query cache; a failure leaves the stored rows on screen.
+  const refresh = useMutation({
+    mutationFn: () => agent.listSlackChannels({ refresh: true }),
+    onSuccess: (res) => {
+      qc.setQueryData(["agent", "slack-channels"], res);
+      toast("Channels refreshed from Slack.", "ok");
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
 
   const save = useMutation({
     mutationFn: (v: { id: string; description: string }) =>
@@ -142,11 +157,51 @@ export function ChannelsPanel() {
       title="Channels"
       lead="The Slack channels your assistants listen and reply in, and what each channel is about."
     >
-      {channels.length > 0 ? (
-        <Chip className="tabular">
-          {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
-          {channels.length === 1 ? "channel" : "channels"}
-        </Chip>
+      {channels.length > 0 || connected ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {channels.length > 0 ? (
+            <Chip className="tabular">
+              {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
+              {channels.length === 1 ? "channel" : "channels"}
+            </Chip>
+          ) : null}
+          {connected ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="channel-refresh"
+                // aria-disabled, not disabled: a disabled button drops keyboard focus to the page while
+                // the refresh runs, and the onClick guard already ignores presses.
+                aria-disabled={refresh.isPending}
+                aria-busy={refresh.isPending}
+                title="List the channels from Slack again. This can take a while."
+                onClick={() => {
+                  if (refreshing.current) return;
+                  refreshing.current = true;
+                  refresh.mutate(undefined, {
+                    onSettled: () => {
+                      refreshing.current = false;
+                    },
+                  });
+                }}
+              >
+                <RefreshCw className={refresh.isPending ? "animate-spin" : undefined} />
+                {refresh.isPending ? "Refreshing…" : "Refresh"}
+              </Button>
+              <span
+                className="text-2xs text-faint"
+                data-testid="channel-refreshed"
+                title={absolute(list.data?.refreshedAt)}
+              >
+                {list.data?.refreshedAt
+                  ? `Refreshed ${relative(list.data.refreshedAt)}`
+                  : "Not refreshed from Slack yet"}
+              </span>
+            </>
+          ) : null}
+        </div>
       ) : null}
 
       {list.isError && isAgentUnreachable(list.error) ? (
