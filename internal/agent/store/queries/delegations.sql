@@ -50,3 +50,8 @@ where session_id = @session_id and status <> 'running' and task_id is not null
   and finished_at > @since
 order by finished_at desc
 limit @max_rows;
+
+-- SetDelegationAnswered records that a running delegated task has answered and is waiting for
+-- a follow-up, or (with null) that a follow-up set it working again.
+-- name: SetDelegationAnswered :exec
+update delegations set answered_at = @answered_at where id = @id and status = 'running';
