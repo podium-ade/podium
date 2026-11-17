@@ -356,6 +356,7 @@ func (c *Conductor) mirrorRecord(ctx context.Context, src Source, chatID string,
 		ExternalID:   ev.ExternalID,
 		ExternalURL:  ev.ExternalURL,
 		Addressed:    addressed,
+		AuthorBot:    ev.AuthorBot,
 	}
 	row, fresh, err := c.store.RecordChatMessage(ctx, msg)
 	if err != nil {

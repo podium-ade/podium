@@ -17,13 +17,13 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
        $8, $9, $10, $11,
-       $12, $13, $14, $15::text[]
+       $12, $13, $14, $15::text[], $16
   from next
-returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot
 `
 
 type AppendChatMessageParams struct {
@@ -42,6 +42,7 @@ type AppendChatMessageParams struct {
 	ExternalUrl  string
 	Addressed    bool
 	Mentions     []string
+	AuthorBot    bool
 }
 
 // AppendChatMessage takes the next seq for the chat by bumping chats.last_seq (0032). The
@@ -65,6 +66,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		arg.ExternalUrl,
 		arg.Addressed,
 		arg.Mentions,
+		arg.AuthorBot,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -86,6 +88,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -138,7 +141,7 @@ select author,
        (array_agg(via order by seq))[1]::text           as via,
        (array_agg(author_avatar order by seq))[1]::text as avatar
   from chat_messages
- where chat_id = $1 and role = 'user' and author <> ''
+ where chat_id = $1 and role = 'user' and author <> '' and not author_bot
  group by author
  order by min(seq)
 `
@@ -156,6 +159,9 @@ type ChatAuthorsRow struct {
 //
 // via and avatar are the surface and picture of the author's first message, which is what
 // the header draws beside a name that has no Podium identity behind it.
+//
+// A bot account's messages are not counted: it is not a human, and the record carries no
+// one it could be speaking for (author_bot, set by the source that could tell).
 func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]ChatAuthorsRow, error) {
 	rows, err := q.db.Query(ctx, chatAuthors, chatID)
 	if err != nil {
@@ -337,7 +343,7 @@ func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, 
 const deleteChatMessageByExternal = `-- name: DeleteChatMessageByExternal :one
 update chat_messages set deleted_at = coalesce(deleted_at, $1)
 where chat_id = $2 and via = $3 and external_id = $4::text
-returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot
 `
 
 type DeleteChatMessageByExternalParams struct {
@@ -376,6 +382,7 @@ func (q *Queries) DeleteChatMessageByExternal(ctx context.Context, arg DeleteCha
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -404,7 +411,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 const editChatMessageByExternal = `-- name: EditChatMessageByExternal :one
 update chat_messages set text = $1, edited_at = $2
 where chat_id = $3 and via = $4 and external_id = $5::text
-returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot
 `
 
 type EditChatMessageByExternalParams struct {
@@ -446,6 +453,7 @@ func (q *Queries) EditChatMessageByExternal(ctx context.Context, arg EditChatMes
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -530,7 +538,7 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
-select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages where chat_id = $1 and seq = $2
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot from chat_messages where chat_id = $1 and seq = $2
 `
 
 type GetChatMessageParams struct {
@@ -562,6 +570,7 @@ func (q *Queries) GetChatMessage(ctx context.Context, arg GetChatMessageParams) 
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -585,7 +594,7 @@ func (q *Queries) HideChatFromRail(ctx context.Context, arg HideChatFromRailPara
 }
 
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
-select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot from chat_messages
 where chat_id = $1 and role = 'assistant'
 order by seq desc limit 1
 `
@@ -612,6 +621,7 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -653,7 +663,7 @@ func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullReque
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot from chat_messages
 where chat_id = $1 and seq > $2::bigint
 order by seq
 `
@@ -691,6 +701,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.EditedAt,
 			&i.DeletedAt,
 			&i.Mentions,
+			&i.AuthorBot,
 		); err != nil {
 			return nil, err
 		}
@@ -703,7 +714,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot from chat_messages
 where chat_id = $1 and seq < $2::bigint
 order by seq desc
 limit $3::int
@@ -745,6 +756,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.EditedAt,
 			&i.DeletedAt,
 			&i.Mentions,
+			&i.AuthorBot,
 		); err != nil {
 			return nil, err
 		}
@@ -1123,14 +1135,14 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select $1, next.last_seq, $2, $3, $4, $5, $6, $7,
        $8, $9, $10, $11,
-       $12::text, $13, $14, $15::text[]
+       $12::text, $13, $14, $15::text[], $16
   from next
 on conflict (chat_id, via, external_id) where external_id is not null do nothing
-returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot
 `
 
 type RecordChatMessageParams struct {
@@ -1149,6 +1161,7 @@ type RecordChatMessageParams struct {
 	ExternalUrl  string
 	Addressed    bool
 	Mentions     []string
+	AuthorBot    bool
 }
 
 // RecordChatMessage is AppendChatMessage for a message that has an identity on its own
@@ -1173,6 +1186,7 @@ func (q *Queries) RecordChatMessage(ctx context.Context, arg RecordChatMessagePa
 		arg.ExternalUrl,
 		arg.Addressed,
 		arg.Mentions,
+		arg.AuthorBot,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -1194,6 +1208,7 @@ func (q *Queries) RecordChatMessage(ctx context.Context, arg RecordChatMessagePa
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
@@ -1327,7 +1342,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
-returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions
+returning chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot
 `
 
 type SetChatMessageAttachmentsParams struct {
@@ -1358,6 +1373,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.EditedAt,
 		&i.DeletedAt,
 		&i.Mentions,
+		&i.AuthorBot,
 	)
 	return i, err
 }
