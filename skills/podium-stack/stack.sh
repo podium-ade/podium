@@ -24,7 +24,7 @@ skill=$(cd "$(dirname "$0")" && pwd)
 # Under /workspace on purpose: the node bind-mounts paths under its data dir into every task
 # BY PATH, and the dind daemon resolves those in its own filesystem. /workspace is the one
 # directory the turn and its dind sidecar both see at the same path.
-state=${PODIUM_STACK_DIR:-/workspace/.stack}
+state=${STACK_DIR:-/workspace/.stack}
 envf=$state/.env
 action=${1:-}
 
