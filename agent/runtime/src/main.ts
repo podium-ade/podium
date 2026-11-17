@@ -29,6 +29,7 @@ import {
 } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { installHelper, mint, refreshGhToken } from "./gitcred.js";
+import { startHeartbeat } from "./heartbeat.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { installRequestedBy } from "./requestedby.js";
@@ -366,6 +367,9 @@ async function main(): Promise<number> {
   let networkResumes = 0;
   let instruction = brief.instruction;
   let sessionID: string | undefined;
+  // From here until the turn ends the conductor hears from this process every minute, so a
+  // turn that stops reaching its event loop is told apart from one in a long tool call.
+  const stopHeartbeat = startHeartbeat(invoke);
   try {
     for (;;) {
       const run = oc.start({
@@ -574,6 +578,7 @@ async function main(): Promise<number> {
         : `The turn failed before I could answer: ${why}`;
     }
   } finally {
+    stopHeartbeat();
     stopHub();
   }
 

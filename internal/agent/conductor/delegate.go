@@ -1004,6 +1004,9 @@ type delegationRun struct {
 	releasedAt atomic.Int64
 	cancelled  atomic.Bool
 
+	// watch is this task as the watchdog sees it (watchdog.go).
+	watch *watch
+
 	mu       sync.Mutex
 	progress string
 	// acct is what the task said it cost, nil until it says so. Unlike a turn's there is no
@@ -1026,6 +1029,19 @@ func (r *delegationRun) readAccounting(ctx context.Context, raw []byte) {
 
 func (r *delegationRun) run(ctx context.Context) {
 	c := r.c
+	dlg := r.dlg
+	r.watch = &watch{
+		taskID: dlg.TaskID, sessionID: dlg.SessionID, playbook: dlg.Playbook, sink: r.sink,
+		// A wedged task cannot be interrupted, only replaced: the same playbook and
+		// instruction, in the same conversation, once the old one has let the workspace go.
+		restart: func(ctx context.Context) error {
+			g := turnGrant{turnID: dlg.TurnID, sessionID: dlg.SessionID, ref: dlg.TriggerRef, src: r.src}
+			_, err := c.delegate(ctx, g, dlg.Playbook, restartedInstruction(dlg.Instruction),
+				DelegateOptions{ReadOnly: dlg.ReadOnly, Wait: true})
+			return err
+		},
+	}
+	defer c.startWatch(r.watch)()
 	f := &follower{
 		tasks:       c.podium.Tasks,
 		taskID:      r.dlg.TaskID,
@@ -1098,11 +1114,12 @@ func (r *delegationRun) run(ctx context.Context) {
 // chat asks for. The cost went to a Debug log line — which is off — and from there nowhere.
 // The row carries it now, and the usage screen reads it beside a turn's.
 func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
+	r.c.observeWatch(ctx, r.watch, e)
 	if e.GetKind() != podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE {
 		return
 	}
 	msg := e.GetMessage()
-	if msg == nil {
+	if msg == nil || msg.GetType() == MsgHeartbeat {
 		return
 	}
 	if msg.GetType() == MsgAccounting {
