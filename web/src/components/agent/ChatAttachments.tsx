@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, Loader2 } from "lucide-react";
 import type { ChatAttachment } from "../../gen/podium/agent/v1/agent_pb";
 import { cachedImageURL, fetchArtifact } from "../../lib/artifactCache";
@@ -71,12 +71,21 @@ function imageMIME(a: ChatAttachment): string {
 export function ChatAttachments({ attachments }: { attachments: ChatAttachment[] }) {
   const images = attachments.filter(inlineImage);
   const loaded = useImageURLs(images);
+  // Fetching the bytes can succeed and decoding still fail: a file named .png that is not one.
+  // The browser reports that on the <img>, and by then the gallery has counted it.
+  const [undecodable, setUndecodable] = useState<ReadonlySet<string>>(new Set());
+  const markUndecodable = useCallback(
+    (id: string) => setUndecodable((prev) => (prev.has(id) ? prev : new Set(prev).add(id))),
+    [],
+  );
   if (attachments.length === 0) return null;
 
-  // An image whose bytes could not be read is a chip: a broken-image icon says nothing,
+  // An image whose bytes could not be read or decoded is a chip: a broken-image icon says nothing,
   // while the chip names the file and can retry the download.
-  const shown = images.filter((a) => !loaded[a.artifactId]?.error);
-  const chips = attachments.filter((a) => !inlineImage(a) || loaded[a.artifactId]?.error);
+  const failed = (a: ChatAttachment) =>
+    loaded[a.artifactId]?.error || undecodable.has(a.artifactId);
+  const shown = images.filter((a) => !failed(a));
+  const chips = attachments.filter((a) => !inlineImage(a) || failed(a));
 
   return (
     <div className="mt-2.5 space-y-2">
@@ -86,6 +95,7 @@ export function ChatAttachments({ attachments }: { attachments: ChatAttachment[]
             attachment,
             url: loaded[attachment.artifactId]?.url,
           }))}
+          onBroken={markUndecodable}
         />
       ) : null}
       {chips.length > 0 ? (

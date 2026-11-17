@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { ChatAttachmentSchema } from "../../gen/podium/agent/v1/agent_pb";
@@ -280,6 +280,16 @@ describe("ChatAttachments gallery", () => {
     mount(shots);
     await waitFor(() => expect(screen.getByText(/1 \/ 2/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Download shot-b.png" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Show image/ })).toHaveLength(2);
+  });
+
+  it("turns an image the browser cannot decode into a chip, once its bytes have loaded", async () => {
+    mount(shots);
+    await waitFor(() => expect(screen.getByText(/1 \/ 3/)).toBeInTheDocument());
+    // Fetching succeeded, so the gallery counted it; the <img> is what reports a bad file.
+    fireEvent.error(stageImage());
+    await waitFor(() => expect(screen.getByText(/1 \/ 2/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Download shot-a.png" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Show image/ })).toHaveLength(2);
   });
 });
