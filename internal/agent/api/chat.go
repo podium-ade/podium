@@ -735,7 +735,7 @@ func (s *AgentService) StreamChat(
 
 	// Who each turn ran as, and what of somebody else's turn this reader may see (runner.go).
 	view := s.newRunnerView(ctx, row, login)
-	lastSeq, err := s.replay(ctx, stream, view, chatID, req.Msg.GetFromSeq(), req.Msg.GetTail())
+	lastSeq, err := s.replay(ctx, stream, view, chatID, login, req.Msg.GetFromSeq(), req.Msg.GetTail())
 	if err != nil {
 		return err
 	}
@@ -835,8 +835,13 @@ func (s *AgentService) stillReadable(ctx context.Context, chatID, login string) 
 // replay sends everything stored after fromSeq and returns the highest seq it sent. A first
 // open (fromSeq 0) with a tail sends only the newest tail messages: a long conversation opens
 // on its end, and the client pages back with ListChatMessages as the reader scrolls up.
+//
+// Access is checked again once the messages are read. The check at open came before them, and
+// a message stored after somebody's access was taken away would otherwise be replayed to them:
+// everything read here was stored before this check, so a reader who has lost access by now
+// is sent none of it.
 func (s *AgentService) replay(
-	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], view *runnerView, chatID string,
+	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], view *runnerView, chatID, login string,
 	fromSeq uint64, tail uint32,
 ) (uint64, error) {
 	var msgs []store.ChatMessage
@@ -848,6 +853,11 @@ func (s *AgentService) replay(
 	}
 	if err != nil {
 		return 0, storeError(err)
+	}
+	if len(msgs) > 0 {
+		if err := s.stillReadable(ctx, chatID, login); err != nil {
+			return 0, err
+		}
 	}
 	last := fromSeq
 	for _, m := range msgs {
