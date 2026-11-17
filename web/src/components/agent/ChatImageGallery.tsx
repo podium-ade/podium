@@ -25,7 +25,13 @@ const navButton =
  * The box height is fixed rather than capped on purpose: a capped box resizes as you step
  * between a wide screenshot and a tall one, and the thread jumps under the reader's cursor.
  */
-export function ChatImageGallery({ images }: { images: GalleryImage[] }) {
+export function ChatImageGallery({
+  images,
+  onBroken,
+}: {
+  images: GalleryImage[];
+  onBroken: (artifactId: string) => void;
+}) {
   const [requested, setIndex] = useState(0);
   const [open, setOpen] = useState(false);
   const stage = useRef<HTMLButtonElement>(null);
@@ -84,7 +90,12 @@ export function ChatImageGallery({ images }: { images: GalleryImage[] }) {
           className="grid h-56 w-full cursor-zoom-in place-items-center overflow-hidden rounded-lg border border-border bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           {url ? (
-            <img src={url} alt={attachment.name} className="max-h-full max-w-full object-contain" />
+            <img
+              src={url}
+              alt={attachment.name}
+              className="max-h-full max-w-full object-contain"
+              onError={() => onBroken(attachment.artifactId)}
+            />
           ) : (
             <span aria-hidden className="size-full animate-shimmer" />
           )}
@@ -146,7 +157,12 @@ export function ChatImageGallery({ images }: { images: GalleryImage[] }) {
               >
                 {img.url ? (
                   // The button's label names the image; a second alt would be read twice.
-                  <img src={img.url} alt="" className="size-full object-cover" />
+                  <img
+                    src={img.url}
+                    alt=""
+                    className="size-full object-cover"
+                    onError={() => onBroken(img.attachment.artifactId)}
+                  />
                 ) : (
                   <span aria-hidden className="size-full animate-shimmer" />
                 )}
