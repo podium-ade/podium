@@ -904,3 +904,154 @@ func TestStartupRecoveryLeavesThisProcesssDelegationsAlone(t *testing.T) {
 	require.Len(t, running, 1, "a delegation this process just recorded is still running")
 	assert.Equal(t, dlg.ID, running[0].ID)
 }
+
+// resumedDelegation records a delegation of session key's conversation whose task is running
+// on the fake, then starts a conductor that resumes following it, as one does after a
+// restart. It returns the conductor, the delegation, and a token for the turn that started it.
+func resumedDelegation(
+	t *testing.T, st *store.Store, fake *fakePodium, src *fakesource.Source, thread string, answered bool,
+) (*running, store.Delegation, string) {
+	t.Helper()
+	ctx := context.Background()
+	sess, err := st.UpsertSession(ctx, store.Session{
+		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:" + thread, Profile: "podium", Playbook: "general",
+	})
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, "C1/"+thread, testBackend())
+	require.NoError(t, err)
+	// The host turn that delegated is over; only its task is still up.
+	require.NoError(t, st.FinishTurn(ctx, turn.ID, store.TurnSucceeded, nil, nil, "started a task"))
+	task := fakeTaskID(t, fake)
+	dlg, err := st.CreateDelegation(ctx, store.NewDelegation{
+		SessionID: sess.ID, TurnID: turn.ID, TriggerRef: "C1/" + thread,
+		Playbook: "dogfood", Instruction: "why is it racy?", ReadOnly: true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, st.SetDelegationTask(ctx, dlg.ID, task))
+	if answered {
+		require.NoError(t, st.SetDelegationAnswered(ctx, dlg.ID, true))
+	}
+	dlg, err = st.GetDelegation(ctx, dlg.ID)
+	require.NoError(t, err)
+
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+	token, err := r.cond.MintTurnTokenForTest(sess.ID, turn.ID, "")
+	require.NoError(t, err)
+	return r, dlg, token
+}
+
+func delegationStatus(st *store.Store, id string) string {
+	got, err := st.GetDelegation(context.Background(), id)
+	if err != nil {
+		return ""
+	}
+	return got.Status
+}
+
+// TestCancellingADelegatedTaskThatHasAnsweredReleasesIt: a task that has given its answer
+// and is only waiting for a follow-up is told to stop waiting rather than cancelled, so it
+// ends succeeded and the conversation is not told, under its answer, that it was cancelled.
+func TestCancellingADelegatedTaskThatHasAnsweredReleasesIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "Short answer: no.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r, dlg, token := resumedDelegation(t, st, fake, src, "50.1", false)
+	ctx := context.Background()
+	waitFor(t, 30*time.Second, "the answer to be recorded on the row", func() bool {
+		got, err := st.GetDelegation(ctx, dlg.ID)
+		return err == nil && got.AnsweredAt != nil
+	})
+
+	_, err := r.cond.CancelDelegation(ctx, token, dlg.ID, "answered; the change goes to a writable task")
+	require.NoError(t, err)
+	waitFor(t, 30*time.Second, "the delegation to end", func() bool {
+		return delegationStatus(st, dlg.ID) != store.TurnRunning
+	})
+	assert.Equal(t, store.TurnSucceeded, delegationStatus(st, dlg.ID))
+	assert.Equal(t, []string{dlg.TaskID}, endWaits(fake.Injects()), "it was told to stop waiting")
+	assert.Empty(t, fake.Cancels(), "and not cancelled")
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure), "and nothing says it was cancelled")
+}
+
+// TestAnAnsweredDelegationIsStillReleasedAfterARestart: a conductor that restarts after the
+// answer was relayed resumes past it, so only the row tells it the task is waiting.
+func TestAnAnsweredDelegationIsStillReleasedAfterARestart(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r, dlg, token := resumedDelegation(t, st, fake, src, "51.1", true)
+	ctx := context.Background()
+	_, err := r.cond.CancelDelegation(ctx, token, dlg.ID, "")
+	require.NoError(t, err)
+	waitFor(t, 30*time.Second, "the delegation to end", func() bool {
+		return delegationStatus(st, dlg.ID) != store.TurnRunning
+	})
+	assert.Equal(t, store.TurnSucceeded, delegationStatus(st, dlg.ID))
+	assert.Equal(t, []string{dlg.TaskID}, endWaits(fake.Injects()))
+	assert.Empty(t, fake.Cancels())
+	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
+}
+
+// TestCancellingADelegatedTaskStillWorkingCancelsIt: a task that has not answered is
+// cancelled, and the conversation is told.
+func TestCancellingADelegatedTaskStillWorkingCancelsIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r, dlg, token := resumedDelegation(t, st, fake, src, "52.1", false)
+	ctx := context.Background()
+	_, err := r.cond.CancelDelegation(ctx, token, dlg.ID, "not needed any more")
+	require.NoError(t, err)
+	waitFor(t, 30*time.Second, "the delegation to end", func() bool {
+		return delegationStatus(st, dlg.ID) != store.TurnRunning
+	})
+	assert.Equal(t, store.TurnCancelled, delegationStatus(st, dlg.ID))
+	assert.Empty(t, endWaits(fake.Injects()))
+	require.Len(t, fake.Cancels(), 1)
+	assert.Equal(t, "not needed any more", fake.Cancels()[0].GetReason())
+}
+
+// TestAFollowUpSetsAnAnsweredDelegationWorkingAgain: once something is injected the task is
+// working on it, so cancelling it then is a real cancel, after a restart too.
+func TestAFollowUpSetsAnAnsweredDelegationWorkingAgain(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r, dlg, token := resumedDelegation(t, st, fake, src, "53.1", true)
+	ctx := context.Background()
+	_, err := r.cond.InjectDelegation(ctx, token, dlg.ID, "now check the GitHub path too")
+	require.NoError(t, err)
+	got, err := st.GetDelegation(ctx, dlg.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.AnsweredAt, "a follow-up is new work")
+
+	_, err = r.cond.CancelDelegation(ctx, token, dlg.ID, "")
+	require.NoError(t, err)
+	waitFor(t, 30*time.Second, "the delegation to end", func() bool {
+		return delegationStatus(st, dlg.ID) != store.TurnRunning
+	})
+	assert.Equal(t, store.TurnCancelled, delegationStatus(st, dlg.ID))
+	assert.Empty(t, endWaits(fake.Injects()))
+	assert.Len(t, fake.Cancels(), 1)
+}

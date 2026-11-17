@@ -134,6 +134,7 @@ type Delegation struct {
 	Effort      *string
 	Provider    *string
 	ReadOnly    bool
+	AnsweredAt  *time.Time
 }
 
 type GithubAccount struct {
