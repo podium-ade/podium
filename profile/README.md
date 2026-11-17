@@ -134,6 +134,7 @@ cannot pull; find those on a typo fix rather than on work you needed.
 | `playbooks/podium.yaml` | the environment: the image, the daemon, the browser, 8 GB, the token, the repo |
 | `prompts/podium.md` | the instructions: verify with `make`, open a draft PR with its full URL, then attack it |
 | [`../skills/validate-pr`](../skills/validate-pr/SKILL.md) | the procedure that last paragraph reaches for, granted by the `skills:` line |
+| [`../skills/podium-stack`](../skills/podium-stack/SKILL.md) | what it attacks: the branch running as a real, seeded deployment inside the turn, UI at `http://task:5173` |
 | `ghcr.io/podium-ade/podium-agent-runtime-dev` | the image: Go, make, pnpm, golangci-lint, the Docker **client**, the browser's MCP client |
 
 The split between the last two is the one worth knowing. A **skill is a procedure** — how to

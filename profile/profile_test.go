@@ -83,7 +83,7 @@ func TestThePodiumPlaybookCanRunTheStackAndLookAtIt(t *testing.T) {
 
 	require.True(t, dogfood.Docker, "the playbook exists to run Podium's own container tests")
 	require.True(t, dogfood.Browser, "the prompt tells the turn to drive what it built in a browser")
-	require.Equal(t, []string{"validate-pr"}, dogfood.Skills)
+	require.Equal(t, []string{"validate-pr", "podium-stack"}, dogfood.Skills)
 
 	// Podium places on labels alone and knows nothing about which nodes allow privilege, so
 	// the label and --allow-privileged-sidecars are a pair an operator sets together. The
@@ -163,14 +163,16 @@ func TestEverySkillInTheDirectoryLoads(t *testing.T) {
 // read-only files on the task spec, and one that grows past MaxBytes has to fail here, where
 // the number is visible, and not on the turn that asked for it.
 func TestTheSkillFitsOnATaskSpec(t *testing.T) {
-	b, err := skills.Load(skillsDir, "validate-pr")
-	require.NoError(t, err)
+	for _, name := range []string{"validate-pr", "podium-stack"} {
+		b, err := skills.Load(skillsDir, name)
+		require.NoError(t, err)
 
-	require.LessOrEqual(t, b.Size(), skills.MaxBytes)
-	require.NoError(t, (&spec.TaskSpec{
-		Image: "x", Timeout: 1, MaxAttempts: 1, Mounts: []spec.FileMount{b.Mount()},
-	}).Validate())
-	t.Logf("validate-pr: %d files, %d bytes, sha256 %s", len(b.Files), b.Size(), b.SHA256)
+		require.LessOrEqual(t, b.Size(), skills.MaxBytes)
+		require.NoError(t, (&spec.TaskSpec{
+			Image: "x", Timeout: 1, MaxAttempts: 1, Mounts: []spec.FileMount{b.Mount()},
+		}).Validate())
+		t.Logf("%s: %d files, %d bytes, sha256 %s", name, len(b.Files), b.Size(), b.SHA256)
+	}
 }
 
 // Routing on the profile a human actually deploys, and the case the worked example cannot
