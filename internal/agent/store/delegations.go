@@ -39,6 +39,9 @@ type Delegation struct {
 	CostUSD  *float64
 	// ReadOnly is a task that restores the conversation's workspace and stores nothing back.
 	ReadOnly bool
+	// AnsweredAt is when a running task gave its answer and began waiting for a follow-up,
+	// nil while it is working.
+	AnsweredAt *time.Time
 }
 
 // NewDelegation is what a caller has to know to record one.
@@ -85,6 +88,22 @@ func (s *Store) CreateDelegation(ctx context.Context, want NewDelegation) (Deleg
 func (s *Store) SetDelegationTask(ctx context.Context, id, taskID string) error {
 	if err := s.q.SetDelegationTask(ctx, db.SetDelegationTaskParams{TaskID: &taskID, ID: id}); err != nil {
 		return fmt.Errorf("set task %s on delegation %s: %w", taskID, id, err)
+	}
+	return nil
+}
+
+// SetDelegationAnswered records that a running delegated task has answered and is only
+// waiting for a follow-up (answered true), or that a follow-up set it working again (false).
+// It survives a conductor restart, which is what lets the next one still end the task as a
+// release rather than a cancel.
+func (s *Store) SetDelegationAnswered(ctx context.Context, id string, answered bool) error {
+	var at *time.Time
+	if answered {
+		now := time.Now().UTC()
+		at = &now
+	}
+	if err := s.q.SetDelegationAnswered(ctx, db.SetDelegationAnsweredParams{AnsweredAt: at, ID: id}); err != nil {
+		return fmt.Errorf("set answered on delegation %s: %w", id, err)
 	}
 	return nil
 }
@@ -208,9 +227,10 @@ func delegationFromRow(r db.Delegation) Delegation {
 			Effort:   deref(r.Effort),
 			Provider: deref(r.Provider),
 		},
-		NumTurns: intPtr(r.NumTurns),
-		CostUSD:  r.CostUsd,
-		ReadOnly: r.ReadOnly,
+		NumTurns:   intPtr(r.NumTurns),
+		CostUSD:    r.CostUsd,
+		ReadOnly:   r.ReadOnly,
+		AnsweredAt: utcPtr(r.AnsweredAt),
 	}
 }
 
