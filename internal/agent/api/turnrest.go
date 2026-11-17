@@ -23,8 +23,12 @@ import (
 //	POST   /v1/delegations/{id}/cancel      stop it                    {reason}
 //	POST   /v1/delegations/{id}/messages    tell its task something    {text}
 //	DELETE /v1/delegations/{id}/preview     release its preview
+//	POST   /v1/chats                        open a new chat            {title, opening, shareWith, access, role}
+//	POST   /v1/routine-runs/finish          end a routine run          {status, summary, stateJson, proposeNote}
+//	POST   /v1/routines                     open a routine for the asker  {name, instruction, schedule, timezone, notes}
 //	POST   /v1/git-tokens                   redeem the turn's capability for a GitHub token
 //	       /v1/mcp/pull-request             the pull-request reader (MCP)
+//	       /v1/mcp/github-read              a routine's GitHub reader (MCP), as its owner
 //
 // Every call carries the turn's credential as `Authorization: Bearer <token>`. Bodies and
 // answers are the TurnService and GitCredentialService messages in protobuf's JSON mapping
@@ -76,6 +80,27 @@ func NewTurnREST(turns *TurnService, gitcred *GitCredentialService, prMCP http.H
 		mux.HandleFunc("DELETE /v1/delegations/{id}/preview", func(w http.ResponseWriter, r *http.Request) {
 			serveTurnREST(w, r, http.StatusOK, &agentv1.ReleasePreviewRequest{Id: r.PathValue("id")}, turns.ReleasePreview)
 		})
+		mux.HandleFunc("POST /v1/chats", func(w http.ResponseWriter, r *http.Request) {
+			in := &agentv1.StartChatRequest{}
+			if !readBody(w, r, in) {
+				return
+			}
+			serveTurnREST(w, r, http.StatusCreated, in, turns.StartChat)
+		})
+		mux.HandleFunc("POST /v1/routine-runs/finish", func(w http.ResponseWriter, r *http.Request) {
+			in := &agentv1.FinishRoutineRequest{}
+			if !readBody(w, r, in) {
+				return
+			}
+			serveTurnREST(w, r, http.StatusOK, in, turns.FinishRoutine)
+		})
+		mux.HandleFunc("POST /v1/routines", func(w http.ResponseWriter, r *http.Request) {
+			in := &agentv1.TurnServiceCreateRoutineRequest{}
+			if !readBody(w, r, in) {
+				return
+			}
+			serveTurnREST(w, r, http.StatusCreated, in, turns.CreateRoutine)
+		})
 	}
 	if gitcred != nil {
 		mux.HandleFunc("POST /v1/git-tokens", func(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +115,9 @@ func NewTurnREST(turns *TurnService, gitcred *GitCredentialService, prMCP http.H
 
 // PullRequestMCPRESTPath is the pull-request reader among the resources.
 const PullRequestMCPRESTPath = "/v1/mcp/pull-request"
+
+// GitHubReadMCPRESTPath is the GitHub reader a routine's turn gets (conductor/githubread.go).
+const GitHubReadMCPRESTPath = "/v1/mcp/github-read"
 
 // readBody decodes an optional JSON body into msg. An empty body is an empty message.
 func readBody(w http.ResponseWriter, r *http.Request, msg proto.Message) bool {

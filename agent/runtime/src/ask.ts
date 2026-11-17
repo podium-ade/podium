@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { emitMessage, runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { HumanServer } from "./opencode.js";
 import { RPCError, serve, type Handler } from "./mcp.js";
+import { isEntrypoint } from "./entry.js";
 
 /** InboxSockEnv is where the node bind-mounts the inbox, and DefaultInboxSock is that
  * path inside the container. */
@@ -308,6 +309,6 @@ async function main(): Promise<number> {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url)) {
   process.exit(await main());
 }

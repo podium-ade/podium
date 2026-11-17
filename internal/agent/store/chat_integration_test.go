@@ -294,7 +294,7 @@ func TestAMessageForAChatThatIsNotThereIsRefused(t *testing.T) {
 	_, err := s.AppendChatMessage(context.Background(), ChatMessage{
 		ChatID: "chat_nope", Role: RoleUser, Text: "hello",
 	})
-	assert.ErrorContains(t, err, "chat_messages_chat_id_fkey")
+	assert.ErrorIs(t, err, ErrNotFound, "the seq comes from the chat row, so no chat is no message")
 }
 
 func TestAChatMayBeRenamed(t *testing.T) {
@@ -629,10 +629,10 @@ func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
 	chat, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "one")
 	require.NoError(t, err)
 	for _, m := range []ChatMessage{
-		{Role: RoleUser, Author: "alice", Text: "one"},
+		{Role: RoleUser, Author: "alice", Text: "one", Via: ViaSlack, AuthorAvatar: "https://a/alice.png"},
 		{Role: RoleAssistant, Author: "Podium", Text: "answer"},
-		{Role: RoleUser, Author: "bob", Text: "two"},
-		{Role: RoleUser, Author: "alice", Text: "three"},
+		{Role: RoleUser, Author: "bob", Text: "two", Via: ViaSlack},
+		{Role: RoleUser, Author: "alice", Text: "three", Via: ViaSlack},
 		{Role: RoleUser, Author: "", Text: "from nobody in particular"},
 	} {
 		m.ChatID = chat.ID
@@ -642,7 +642,10 @@ func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
 
 	people, err := s.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, people)
+	assert.Equal(t, []ChatParticipant{
+		{Name: "alice", Via: ViaSlack, Avatar: "https://a/alice.png"},
+		{Name: "bob", Via: ViaSlack},
+	}, people, "nobody here is in Podium, so each is known by name, surface and first picture")
 }
 
 func TestAMessageRemembersWhoSaidIt(t *testing.T) {
@@ -725,9 +728,13 @@ func TestOnlyTheDevTokenMayRenameOrDeleteAMirroredChat(t *testing.T) {
 
 	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "bob", false), ErrNotFound)
 	require.NoError(t, s.DeleteChat(ctx, thread.ID, "local", true))
-	_, err = s.ChatBySourceKey(ctx, slackKey)
-	require.ErrorIs(t, err, ErrNotFound, "the key is free for the thread's next message to reopen")
-	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "local", true), ErrNotFound)
+	// Deleted, not removed (0036): the key still finds the chat, so the thread's next message
+	// is recorded into it rather than opening a new one, and deleting it again is a no-op.
+	kept, err := s.ChatBySourceKey(ctx, slackKey)
+	require.NoError(t, err)
+	assert.Equal(t, thread.ID, kept.ID)
+	assert.NotNil(t, kept.DeletedAt)
+	require.NoError(t, s.DeleteChat(ctx, thread.ID, "local", true))
 }
 
 // The running flag follows the session that owns the conversation, whatever shape its key
@@ -804,6 +811,14 @@ func TestTheChatListReportsARunningDelegatedTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, running, "a delegated task does not hold the composer")
 
+	// A chat read on its own (the stream's chat frames) says the same as the list.
+	taskRunning, err := s.ChatTaskRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.True(t, taskRunning, "the open chat sees the delegated task running too")
+
 	require.NoError(t, s.FinishDelegation(ctx, dlg.ID, TurnSucceeded, "4,812.", nil, nil))
 	assert.False(t, listed().TaskRunning)
+	taskRunning, err = s.ChatTaskRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.False(t, taskRunning)
 }

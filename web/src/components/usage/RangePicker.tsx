@@ -4,6 +4,7 @@ import {
   PRESETS,
   customRange,
   dayKey,
+  lastDay,
   parseDayKey,
   rangeFor,
   type Range,
@@ -66,7 +67,7 @@ function CustomRange({
   // Seeded from the active range so opening the popover on a preset offers that preset's
   // dates to adjust rather than two empty fields.
   const [from, setFrom] = useState(() => dayKey(range.from));
-  const [to, setTo] = useState(() => dayKey(new Date(range.to.getTime() - 86_400_000)));
+  const [to, setTo] = useState(() => dayKey(lastDay(range)));
 
   const custom = range.id === "custom";
   const valid = from !== "" && to !== "";
@@ -78,7 +79,7 @@ function CustomRange({
         // Re-seed on every open: the active range may have changed via a preset since.
         if (o) {
           setFrom(dayKey(range.from));
-          setTo(dayKey(new Date(range.to.getTime() - 86_400_000)));
+          setTo(dayKey(lastDay(range)));
         }
         setOpen(o);
       }}

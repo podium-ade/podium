@@ -28,13 +28,14 @@ var catalog = map[string]string{
 	podiumv1connect.UserServiceListUsersProcedure:   store.RoleMember,
 	podiumv1connect.UserServiceSetUserRoleProcedure: store.RoleOwner,
 
-	podiumv1connect.TaskServiceCreateTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceGetTaskProcedure:          store.RoleMember,
-	podiumv1connect.TaskServiceListTasksProcedure:        store.RoleMember,
-	podiumv1connect.TaskServiceCancelTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceInjectTaskProcedure:       store.RoleMember,
-	podiumv1connect.TaskServiceReleasePreviewProcedure:   store.RoleMember,
-	podiumv1connect.TaskServiceStreamTaskEventsProcedure: store.RoleMember,
+	podiumv1connect.TaskServiceCreateTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceGetTaskProcedure:             store.RoleMember,
+	podiumv1connect.TaskServiceListTasksProcedure:           store.RoleMember,
+	podiumv1connect.TaskServiceCancelTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceInjectTaskProcedure:          store.RoleMember,
+	podiumv1connect.TaskServiceReleasePreviewProcedure:      store.RoleMember,
+	podiumv1connect.TaskServiceCreateDesktopTicketProcedure: store.RoleMember,
+	podiumv1connect.TaskServiceStreamTaskEventsProcedure:    store.RoleMember,
 
 	podiumv1connect.ArtifactServiceListArtifactsProcedure:  store.RoleMember,
 	podiumv1connect.ArtifactServiceGetArtifactURLProcedure: store.RoleMember,
@@ -55,6 +56,8 @@ var catalog = map[string]string{
 	podiumv1connect.NodeServiceUploadArtifactProcedure:            store.RoleAdmin,
 	podiumv1connect.NodeServiceUploadWorkspaceSnapshotProcedure:   store.RoleAdmin,
 	podiumv1connect.NodeServiceDownloadWorkspaceSnapshotProcedure: store.RoleAdmin,
+	podiumv1connect.NodeServiceGetSandboxSnapshotProcedure:        store.RoleAdmin,
+	podiumv1connect.NodeServicePutSandboxSnapshotProcedure:        store.RoleAdmin,
 
 	// Set and Delete are member so a person can write their own secret. The handler
 	// refuses a global write from anyone who is not an admin. KindAgent and the dev
@@ -64,50 +67,114 @@ var catalog = map[string]string{
 	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleMember,
 	// The handler refuses everyone but the conductor, which skips this table.
 	podiumv1connect.SecretServiceReadSecretProcedure: store.RoleOwner,
+	// The conductor writing a person's sharing decisions to audit_log. The handler refuses
+	// everyone but the conductor, which skips this table; the owner role only keeps a person
+	// from even reaching it.
+	podiumv1connect.AuditServiceRecordAuditProcedure: store.RoleOwner,
 
 	podiumv1connect.RegistryServiceListRegistriesProcedure: store.RoleMember,
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
 	podiumv1connect.RegistryServiceDeleteRegistryProcedure: store.RoleAdmin,
 
-	podiumv1connect.SnapshotServiceListSnapshotsProcedure:        store.RoleMember,
-	podiumv1connect.SnapshotServiceDeleteSnapshotProcedure:       store.RoleAdmin,
-	podiumv1connect.SnapshotServiceSetSnapshotRetentionProcedure: store.RoleAdmin,
+	podiumv1connect.SnapshotServiceListSnapshotsProcedure:               store.RoleMember,
+	podiumv1connect.SnapshotServiceDeleteSnapshotProcedure:              store.RoleAdmin,
+	podiumv1connect.SnapshotServiceSetSnapshotRetentionProcedure:        store.RoleAdmin,
+	podiumv1connect.SnapshotServiceListSandboxSnapshotsProcedure:        store.RoleMember,
+	podiumv1connect.SnapshotServiceDeleteSandboxSnapshotsProcedure:      store.RoleAdmin,
+	podiumv1connect.SnapshotServiceSetSandboxSnapshotRetentionProcedure: store.RoleAdmin,
 
 	podiumv1connect.SandboxProviderServiceListSandboxProvidersProcedure:  store.RoleMember,
 	podiumv1connect.SandboxProviderServiceSetSandboxProviderProcedure:    store.RoleAdmin,
 	podiumv1connect.SandboxProviderServiceDeleteSandboxProviderProcedure: store.RoleAdmin,
 
-	agentv1connect.AgentServiceListSessionsProcedure:   store.RoleMember,
-	agentv1connect.AgentServiceGetSessionProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceListTurnsProcedure:      store.RoleMember,
-	agentv1connect.AgentServiceGetUsageProcedure:       store.RoleMember,
-	agentv1connect.AgentServiceGetSettingsProcedure:    store.RoleMember,
-	agentv1connect.AgentServiceGetRunsOnProcedure:      store.RoleMember,
-	agentv1connect.AgentServiceListAgentsProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceListMemoriesProcedure:   store.RoleMember,
-	agentv1connect.AgentServiceSearchMemoriesProcedure: store.RoleMember,
-	agentv1connect.AgentServiceListPlaybooksProcedure:  store.RoleMember,
-	agentv1connect.AgentServiceGetProfileProcedure:     store.RoleMember,
+	podiumv1connect.OrganizationServiceGetOrganizationProcedure:    store.RoleMember,
+	podiumv1connect.OrganizationServiceUpdateOrganizationProcedure: store.RoleAdmin,
+
+	agentv1connect.AgentServiceListSessionsProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceGetSessionProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceListTurnsProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceGetUsageProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceGetSettingsProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceGetRunsOnProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceListAgentsProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceListMemoriesProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceSearchMemoriesProcedure:    store.RoleMember,
+	agentv1connect.AgentServiceGetMemorySettingsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListPlaybooksProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceGetProfileProcedure:        store.RoleMember,
 	// The raw file is the Assistant source editor. Members keep GetProfile because the
 	// playbook screen reads it; they do not get the file, and they do not see the page.
 	agentv1connect.AgentServiceGetProfileFileProcedure:    store.RoleAdmin,
 	agentv1connect.AgentServiceListSkillsProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListMcpServersProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceListSlackChannelsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListLinearCatalogProcedure: store.RoleMember,
 	agentv1connect.AgentServiceCreateChatProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
+	// The Linear view: the conductor lists a member only the issues they touched, and an admin
+	// or owner (X-Podium-Infra) every one.
+	agentv1connect.AgentServiceListLinearConversationsProcedure: store.RoleMember,
+	// A chat's ticket chips and an issue conversation's panel: the conductor shows a member an
+	// issue only when they could see it in Linear, and the panel only to a reader of the chat.
+	agentv1connect.AgentServiceGetLinearIssuesProcedure:            store.RoleMember,
+	agentv1connect.AgentServiceGetLinearIssueConversationProcedure: store.RoleMember,
 	// A personality is one member's voice. The handler refuses a row whose login is
 	// not the caller, so member is the gate and ownership is the check.
-	agentv1connect.AgentServiceListPersonalitiesProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceCreatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceUpdatePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceDeletePersonalityProcedure:     store.RoleMember,
-	agentv1connect.AgentServiceRenameChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceDeleteChatProcedure:            store.RoleMember,
-	agentv1connect.AgentServiceSendChatMessageProcedure:       store.RoleMember,
+	agentv1connect.AgentServiceListPersonalitiesProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCreatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceUpdatePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceDeletePersonalityProcedure: store.RoleMember,
+	agentv1connect.AgentServiceRenameChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteChatProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceSendChatMessageProcedure:   store.RoleMember,
+	// Retrying a delivery re-sends what the bot already said, where it was owed; the
+	// conductor checks the caller can read the chat.
+	agentv1connect.AgentServiceRetryChatDeliveryProcedure: store.RoleMember,
+	// Phase 4: a member takes back their own queued turn (the store matches the login),
+	// stops the answer in a chat they may write (the handler checks), and looks people up
+	// for the composer's @-mention list.
+	agentv1connect.AgentServiceCancelQueuedTurnProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelChatTurnProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceSearchMembersProcedure:    store.RoleMember,
+	// Phase 5: sharing. Any member may share a chat they own, leave one they are in, keep
+	// their own read marks and read their own inbox; the conductor answers who owns what
+	// (chat_role), so the member role here is only "a signed-in person".
+	agentv1connect.AgentServiceGetChatSharingProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateChatSharingProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceShareChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceUnshareChatProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceLeaveChatProcedure:             store.RoleMember,
+	agentv1connect.AgentServiceMarkChatReadProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceSetChatRailHiddenProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceListNotificationsProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceMarkNotificationsReadProcedure: store.RoleMember,
 	agentv1connect.AgentServiceStreamChatProcedure:            store.RoleMember,
+	// Paging back through a chat's history is reading it, as StreamChat is: member is the
+	// gate, and the conductor checks the caller may read that chat.
+	agentv1connect.AgentServiceListChatMessagesProcedure:      store.RoleMember,
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
+	// Routines: any member keeps their own, and the conductor answers only for routines the
+	// caller owns (another person's is not found), so member is the gate and ownership is the
+	// check, as for personalities. A system routine is the conductor's to refuse: it checks
+	// the infra header the proxy sets for admins and owners.
+	agentv1connect.AgentServiceListRoutinesProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceCreateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceUpdateRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDeleteRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServicePauseRoutineProcedure:         store.RoleMember,
+	agentv1connect.AgentServiceResumeRoutineProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceRunRoutineNowProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceResetRoutineStateProcedure:    store.RoleMember,
+	agentv1connect.AgentServiceResolveRoutineNoteProcedure:   store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRunsProcedure:      store.RoleMember,
+	agentv1connect.AgentServiceListRoutineRevisionsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceCancelRoutineRunProcedure:     store.RoleMember,
+	agentv1connect.AgentServiceGetRoutineLimitsProcedure:     store.RoleMember,
+	// Every person's routines as metadata, and the per-person limits: admins.
+	agentv1connect.AgentServiceListMemberRoutinesProcedure: store.RoleAdmin,
+	agentv1connect.AgentServiceSetRoutineLimitsProcedure:   store.RoleAdmin,
 
 	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
 	// A member saves their own model credential; the handler refuses a global write from
@@ -117,6 +184,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceStartProviderOAuthProcedure:         store.RoleMember,
 	agentv1connect.AgentServicePollProviderOAuthProcedure:          store.RoleMember,
 	agentv1connect.AgentServiceDeleteMemoryProcedure:               store.RoleAdmin,
+	agentv1connect.AgentServiceSetMemorySettingsProcedure:          store.RoleAdmin,
 	agentv1connect.AgentServiceUpdateProfileProcedure:              store.RoleAdmin,
 	agentv1connect.AgentServiceUpdateProfileFileProcedure:          store.RoleAdmin,
 	agentv1connect.AgentServiceReloadProfileDirProcedure:           store.RoleAdmin,
@@ -139,13 +207,15 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceDisconnectGitHubAccountProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceSetSlackChannelDescriptionProcedure: store.RoleAdmin,
 
-	// GitHub and Slack live under Settings → Connections. Hints are still credentials.
+	// GitHub, Slack and Linear live under Settings → Connections. Hints are still credentials.
 	agentv1connect.AgentServiceGetConnectionsProcedure:          store.RoleAdmin,
 	agentv1connect.AgentServiceSetSlackConnectionProcedure:      store.RoleAdmin,
 	agentv1connect.AgentServiceClearSlackConnectionProcedure:    store.RoleAdmin,
 	agentv1connect.AgentServiceSetGitHubConnectionProcedure:     store.RoleAdmin,
 	agentv1connect.AgentServiceClearGitHubConnectionProcedure:   store.RoleAdmin,
 	agentv1connect.AgentServiceSetGitHubWebhookFiltersProcedure: store.RoleAdmin,
+	agentv1connect.AgentServiceSetLinearConnectionProcedure:     store.RoleAdmin,
+	agentv1connect.AgentServiceClearLinearConnectionProcedure:   store.RoleAdmin,
 }
 
 // RestrictRBAC forbids a KindUser from procedures their role cannot call, once the

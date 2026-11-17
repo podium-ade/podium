@@ -49,6 +49,9 @@ type job struct {
 	playbook profiles.Playbook
 	// onHost is true for the assistant: this turn is a child of the conductor.
 	onHost bool
+	// direct is a playbook somebody named in a conversation the assistant answers: the turn
+	// delegates it as the conversation's task and asks no model anything (runDirect).
+	direct bool
 }
 
 // AssistantName is what a turn the conductor answers a conversation with is called. It is a
@@ -67,6 +70,14 @@ func playbookJob(p profiles.Playbook) job {
 		mcpServers:   p.MCPServers,
 		playbook:     p,
 	}
+}
+
+// directJob is a turn that delegates p itself, in a conversation the assistant otherwise
+// answers: a Linear prompt that named p with a /playbook prefix.
+func directJob(p profiles.Playbook) job {
+	j := playbookJob(p)
+	j.direct = true
+	return j
 }
 
 // assistantJob is the turn that answers a conversation, run here.

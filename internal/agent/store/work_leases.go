@@ -79,9 +79,16 @@ func (s *Store) TakePending(ctx context.Context, key, owner string) ([]byte, err
 }
 
 // SetWarmTask records owner's task for key that is waiting for a follow-up, so another
-// conductor can inject into it. Empty clears it.
-func (s *Store) SetWarmTask(ctx context.Context, key, owner, taskID string) error {
-	if err := s.q.SetWarmTask(ctx, db.SetWarmTaskParams{WarmTaskID: taskID, Key: key, Owner: owner}); err != nil {
+// conductor can inject into it. Empty clears it. w.Login and w.Kind are whose turn the task
+// is answering and on which surface: another conductor injects only a message from the same
+// person on the same surface, and queues anything else as a turn of its own.
+func (s *Store) SetWarmTask(ctx context.Context, key, owner string, w WarmTask) error {
+	if w.TaskID == "" {
+		w = WarmTask{}
+	}
+	if err := s.q.SetWarmTask(ctx, db.SetWarmTaskParams{
+		WarmTaskID: w.TaskID, WarmLogin: w.Login, WarmKind: w.Kind, Key: key, Owner: owner,
+	}); err != nil {
 		return fmt.Errorf("record %s's warm task: %w", key, err)
 	}
 	return nil

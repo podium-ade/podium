@@ -224,13 +224,15 @@ func TestSignInIsRefusedWithNoOAuthClientConfigured(t *testing.T) {
 	assert.Contains(t, err.Error(), "PODIUM_AGENT_XAI_OAUTH_CLIENT_ID")
 }
 
-func TestAnthropicOffersNoSubscriptionSignIn(t *testing.T) {
+// A Claude subscription is only spent by the chat host's Claude Code, so without one the
+// sign-in is not offered, and the refusal names both knobs.
+func TestAClaudeSignInNeedsTheChatHostsClaudeCode(t *testing.T) {
 	f := newXAIFixture(t, newFakeIDP(t))
 	_, err := f.svc.StartProviderOAuth(loginCtx("alice"), connect.NewRequest(
 		&agentv1.StartProviderOAuthRequest{Provider: ProviderAnthropic}))
 	require.Error(t, err)
-	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), "takes an API key")
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "PODIUM_AGENT_CHAT_HOST_CLAUDE")
 }
 
 // The background pass is the only thing keeping a signed-in provider working past its first
@@ -527,4 +529,39 @@ func TestOnlyTheStarterCanFinishASignIn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, OAuthExpired, res.Msg.GetState())
 	assert.Empty(t, f.secrets.set)
+}
+
+// An admin can sign a subscription in for everyone. It is the global credential, on the
+// global list, refreshed like any other.
+func TestAnAdminCanSignInAGlobalSubscription(t *testing.T) {
+	idp := newFakeIDP(t)
+	idp.approved.Store(true)
+	f := newXAIFixture(t, idp)
+
+	_, err := f.svc.StartProviderOAuth(loginCtx("bob"), connect.NewRequest(
+		&agentv1.StartProviderOAuthRequest{Provider: ProviderXAI, Global: true}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "a member cannot")
+
+	ctx := adminCtx("admin")
+	start, err := f.svc.StartProviderOAuth(ctx, connect.NewRequest(
+		&agentv1.StartProviderOAuthRequest{Provider: ProviderXAI, Global: true}))
+	require.NoError(t, err)
+	res, err := f.svc.PollProviderOAuth(ctx, connect.NewRequest(&agentv1.PollProviderOAuthRequest{
+		Provider: ProviderXAI, FlowId: start.Msg.GetFlowId(),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, OAuthDone, res.Msg.GetState())
+	assert.True(t, res.Msg.GetProvider().GetGlobal())
+	assert.Equal(t, "access-1", string(f.secrets.set[profiles.XAIKeySecret]))
+	assert.Empty(t, f.secrets.owners[profiles.XAIKeySecret])
+
+	settings, err := f.svc.GetSettings(loginCtx("bob"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	require.NoError(t, err)
+	for _, p := range settings.Msg.GetProviders() {
+		if p.GetProvider() == ProviderXAI {
+			assert.Equal(t, AuthOAuth, p.GetAuthKind())
+			assert.True(t, p.GetRefreshable())
+		}
+	}
 }

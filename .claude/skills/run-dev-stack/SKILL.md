@@ -28,7 +28,7 @@ relay the loopback listener with `socat` or an SSH forward.
 
 ## Prerequisites
 
-Go 1.27+, Docker with cgroup v2, Node 22+, pnpm.
+Go 1.27+, Docker with cgroup v2, Node 26+, pnpm.
 
 ```sh
 make build                                   # bin/podium{,-server,-node,-agent}

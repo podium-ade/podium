@@ -41,7 +41,7 @@ func TestUIHandlerServesTheBundle(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Equal(t, immutableCache, res.Header.Get("Cache-Control"),
 		"hashed assets are immutable; index.html never is")
-	require.Equal(t, contentSecurityPolicy(""), res.Header.Get("Content-Security-Policy"),
+	require.Equal(t, contentSecurityPolicy("", ""), res.Header.Get("Content-Security-Policy"),
 		"hashed assets do not mint a style nonce; they cannot inject a <style> tag")
 }
 
@@ -90,7 +90,7 @@ func TestUIHandlerRejectsWrites(t *testing.T) {
 }
 
 func TestUIHandlerWithoutAssetsSaysSo(t *testing.T) {
-	h := newUIHandler(fstest.MapFS{}, slog.New(slog.DiscardHandler))
+	h := newUIHandler(fstest.MapFS{}, slog.New(slog.DiscardHandler), "")
 	res := get(t, h, "/")
 	require.Equal(t, http.StatusNotFound, res.StatusCode)
 }
@@ -107,4 +107,37 @@ func requireCSPNonce(t *testing.T, csp string, body []byte) string {
 	nonce := m[1]
 	require.Contains(t, string(body), `meta name="`+cspNonceMetaName+`" content="`+nonce+`"`)
 	return nonce
+}
+
+func TestUIHandlerMayFrameOnlyTheDesktopOrigin(t *testing.T) {
+	plain := get(t, &uiHandler{assets: testAssets()}, "/")
+	require.NotContains(t, plain.Header.Get("Content-Security-Policy"), "frame-src",
+		"with desktops off, default-src 'self' frames nothing but this origin")
+
+	res := get(t, &uiHandler{assets: testAssets(), frameSrc: "https://podium-desktop.example.com"}, "/")
+	csp := res.Header.Get("Content-Security-Policy")
+	require.Contains(t, csp, "frame-src https://podium-desktop.example.com;")
+	require.Contains(t, csp, "frame-ancestors 'none'", "framing the desktop is not being framed")
+}
+
+func TestIndexIsNamedAfterTheDeployment(t *testing.T) {
+	t.Parallel()
+	h := &uiHandler{assets: testAssets(), brand: func(*http.Request) string { return `Acme "AI" & Co` }}
+	res := get(t, h, "/org/settings")
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	// Escaped, because an admin typed it and it lands in HTML.
+	require.Contains(t, string(body), "<title>Acme &#34;AI&#34; &amp; Co</title>")
+	require.Contains(t, string(body), `<meta name="`+brandMetaName+`" content="Acme &#34;AI&#34; &amp; Co">`)
+	requireCSPNonce(t, res.Header.Get("Content-Security-Policy"), body)
+}
+
+func TestIndexKeepsItsNameWhenNoneIsSet(t *testing.T) {
+	t.Parallel()
+	h := &uiHandler{assets: testAssets(), brand: func(*http.Request) string { return "  " }}
+	body, err := io.ReadAll(get(t, h, "/").Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "<title>Podium</title>")
+	require.NotContains(t, string(body), brandMetaName)
 }

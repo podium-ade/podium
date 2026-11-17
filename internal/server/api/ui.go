@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -31,12 +32,20 @@ import (
 // reach — a blob's bytes came from a request this policy already permitted — it only lets
 // the page display bytes it already has. Without it the browser blocks the image and the
 // chat shows an empty box, which is how this was found.
-func contentSecurityPolicy(styleNonce string) string {
+//
+// frame-src names the desktop origin (PODIUM_DESKTOP_URL) when desktops are on: the chat's
+// desktop panel is an iframe of it. It is the only page this one frames, and it is not this
+// origin: the desktop's page is voxl's JavaScript, kept off the UI's origin on purpose.
+func contentSecurityPolicy(styleNonce, frameSrc string) string {
 	styleSrc := "style-src 'self'"
 	if styleNonce != "" {
 		styleSrc += " 'nonce-" + styleNonce + "'"
 	}
-	return "default-src 'self'; " +
+	frames := ""
+	if frameSrc != "" {
+		frames = "frame-src " + frameSrc + "; "
+	}
+	return "default-src 'self'; " + frames +
 		"script-src 'self'; " +
 		styleSrc + "; " +
 		"img-src 'self' data: blob:; " +
@@ -66,16 +75,26 @@ const (
 //
 // A binary built with `-tags noui`, or one built before `make web` ever ran, has no index.html;
 // it gets a handler that says so instead of a confusing 404.
-func NewUIHandler(logger *slog.Logger) http.Handler {
+//
+// frameSrc is the one origin the page may frame (the desktop origin), or empty for none.
+//
+// brand, when not nil, is the deployment's name (OrganizationService) or empty for none set.
+// index.html carries it in its <title> and a <meta> so a renamed deployment is named
+// before anybody signs in: WhoAmI, which carries it otherwise, needs a credential.
+func NewUIHandler(logger *slog.Logger, frameSrc string, brand func(*http.Request) string) http.Handler {
 	assets, err := web.FS()
 	if err != nil {
 		logger.Warn("web ui: asset tree unavailable", "error", err)
 		return missingUI()
 	}
-	return newUIHandler(assets, logger)
+	h := newUIHandler(assets, logger, frameSrc)
+	if u, ok := h.(*uiHandler); ok {
+		u.brand = brand
+	}
+	return h
 }
 
-func newUIHandler(assets fs.FS, logger *slog.Logger) http.Handler {
+func newUIHandler(assets fs.FS, logger *slog.Logger, frameSrc string) http.Handler {
 	if _, err := fs.Stat(assets, indexFile); err != nil {
 		if !web.Enabled {
 			logger.Info("web ui: built with -tags noui, serving the API only")
@@ -84,7 +103,7 @@ func newUIHandler(assets fs.FS, logger *slog.Logger) http.Handler {
 		}
 		return missingUI()
 	}
-	return &uiHandler{assets: assets}
+	return &uiHandler{assets: assets, frameSrc: frameSrc}
 }
 
 func missingUI() http.Handler {
@@ -96,7 +115,11 @@ func missingUI() http.Handler {
 	})
 }
 
-type uiHandler struct{ assets fs.FS }
+type uiHandler struct {
+	assets   fs.FS
+	frameSrc string
+	brand    func(*http.Request) string
+}
 
 func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -116,13 +139,13 @@ func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	info, err := fs.Stat(h.assets, name)
 	switch {
 	case err == nil && !info.IsDir():
-		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy("", h.frameSrc))
 		w.Header().Set("Cache-Control", cacheFor(name))
 		http.ServeFileFS(w, r, h.assets, name)
 	case strings.HasPrefix(name, assetsDir):
 		// A missing hashed asset is a real 404: answering it with index.html would hand the
 		// browser HTML where it asked for JavaScript.
-		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy("", h.frameSrc))
 		http.NotFound(w, r)
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -143,7 +166,10 @@ func (h *uiHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := injectStyleNonce(raw, nonce)
-	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
+	if h.brand != nil {
+		body = injectBrand(body, h.brand(r))
+	}
+	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce, h.frameSrc))
 	w.Header().Set("Cache-Control", indexCache)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -174,6 +200,33 @@ func injectStyleNonce(html []byte, nonce string) []byte {
 	out = append(out, '\n')
 	out = append(out, meta...)
 	out = append(out, html[i:]...)
+	return out
+}
+
+// brandMetaName is the <meta> the web UI reads the deployment name from before WhoAmI.
+const brandMetaName = "podium-deployment-name"
+
+// injectBrand names the page after the deployment: its <title>, and a <meta> the bundle
+// reads. An empty name leaves the page as built.
+func injectBrand(page []byte, name string) []byte {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return page
+	}
+	escaped := html.EscapeString(name)
+	page = bytes.Replace(page, []byte("<title>Podium</title>"), []byte("<title>"+escaped+"</title>"), 1)
+	meta := []byte(`<meta name="` + brandMetaName + `" content="` + escaped + `">`)
+	const head = "<head>"
+	i := bytes.Index(page, []byte(head))
+	if i < 0 {
+		return page
+	}
+	i += len(head)
+	out := make([]byte, 0, len(page)+len(meta)+1)
+	out = append(out, page[:i]...)
+	out = append(out, '\n')
+	out = append(out, meta...)
+	out = append(out, page[i:]...)
 	return out
 }
 

@@ -17,6 +17,33 @@ const (
 	ReactionDone     Reaction = "done"
 	ReactionFailed   Reaction = "failed"
 	ReactionAwaiting Reaction = "awaiting"
+	// ReactionRefused is "I heard you, and I will not act on it": somebody who is not in
+	// Podium asked for something. Slack shows 🚫, GitHub a confused reaction. Nothing runs,
+	// so no other reaction follows it.
+	ReactionRefused Reaction = "refused"
+)
+
+// The changes an InboundEvent can carry instead of a new message.
+const (
+	ChangeEdited  = "edited"
+	ChangeDeleted = "deleted"
+)
+
+// The account providers a source can name in InboundEvent.SpeakerProvider. They are the
+// store's identity providers, spelled here so a source never imports the store.
+const (
+	SpeakerSlack  = "slack"
+	SpeakerGitHub = "github"
+	SpeakerLinear = "linear"
+)
+
+// The privacies a source can name in InboundEvent.ChannelPrivacy: the store's, spelled here
+// for the same reason.
+const (
+	ChannelPublic  = "public"
+	ChannelPrivate = "private"
+	ChannelIM      = "im"
+	ChannelMPIM    = "mpim"
 )
 
 // Outbound types. Type is what the source may use to style a post; nothing branches on it
@@ -27,6 +54,10 @@ const (
 	OutFailure  = "failure"
 	OutQuestion = "question"
 	OutActivity = "activity"
+	// OutRelay is a person's own words, said in Podium, posted where the conversation lives as
+	// theirs (relay.go): Author and AuthorAvatar say whose. Only a source that implements
+	// PersonPoster is ever handed one.
+	OutRelay = "relay"
 )
 
 // Outbound is one thing the conductor wants said. Text is untrusted content when it came
@@ -39,8 +70,19 @@ type Outbound struct {
 	// footer naming it, and its fallback attachment link points at the task's page. It is
 	// NOT part of Text: whether it is shown at all is the source's decision.
 	TaskID string
+	// CancelReason is why the control plane says the task was cancelled, on the failure that
+	// says a task was cancelled, and empty on everything else. It is the stop's own record,
+	// written by the control plane and read back by whichever conductor follows the task, so
+	// a source whose surface answered a stop itself (a Linear agent session's "Stopped.") can
+	// recognise the turn's "This was cancelled" as its own stop and leave it unsaid — on any
+	// conductor, and on an outbox retry after a restart. It is never shown to anybody.
+	CancelReason string
 	// Speaker is who said it. A source that posts everything the same way ignores it.
 	Speaker
+	// Author and AuthorAvatar are the person an OutRelay is posted as: their display name and
+	// their picture's URL, which may be empty. Empty on everything else.
+	Author       string
+	AuthorAvatar string
 }
 
 // Speaker is the playbook behind one Outbound. The zero Speaker is the assistant, or the
@@ -74,13 +116,112 @@ type InboundEvent struct {
 	// has no name, or when Slack has not resolved one yet. Display and briefing only —
 	// routing still uses Channel.
 	ChannelName string
+	// ThreadURL is a link to the whole conversation where it lives, when the source can make
+	// one and URL is a link to this message instead: a Slack thread's permalink. The mirror
+	// records it so the chat's surface chip opens the thread.
+	ThreadURL string
+	// Title is the name the source gives the whole conversation — a pull request's number
+	// and title — when it has a better one than the first thing said in it. The
+	// mirror names a new chat with it, and renames one it named itself when it changes (a
+	// pull request retitled). A shorter name the chat's title already starts with does not
+	// replace it, so a source that knows only part of the name cannot undo a fuller one.
+	// Empty leaves the chat named from its first message.
+	Title string
+	// ChannelPrivacy is whether Channel is public, as the source knows it: store.ChannelPublic,
+	// ChannelPrivate, ChannelIM or ChannelMPIM. Empty is not known. The mirror records it so
+	// sharing a chat of a private conversation is warned about with the source's own word.
+	ChannelPrivacy string
 	// Author is the display name of the human who spoke.
 	Author string
-	// Login is a Podium login the source could infer for this speaker. Slack sets it
-	// from the workspace email when the bot can read one. Empty means the turn has no
-	// person for MCP purposes and uses the global list. It is not a secret and it is
-	// not written onto a mirrored chat: those stay unowned so the workspace can see them.
+	// Login is the Podium login of the speaker. Who may set it differs, and the conductor
+	// is the last word on all of them (resolveSpeaker):
+	//
+	//   - the web chat sets the signed-in caller, which podium-server already proved;
+	//   - Slack sets a CANDIDATE, the workspace email of a user who passed the source's
+	//     account checks, which the conductor keeps only if that login has signed in to
+	//     Podium;
+	//   - the Linear agent app sets a candidate the same way, the email of the person who
+	//     wrote the prompt;
+	//   - GitHub sets nothing: the conductor looks the speaker's numeric id up in the
+	//     identities a GitHub connect wrote;
+	//   - the Linear poller sets nothing and names no account: it proves nobody.
+	//
+	// After resolveSpeaker it is either a person who is in Podium or empty. A turn runs
+	// with this person's credentials, and it is what makes them a participant of the chat.
 	Login string
+	// SpeakerProvider and SpeakerID name the account that spoke, as its source proved it:
+	// store.ProviderSlack and "<team>/<user>", store.ProviderGitHub and the numeric user id,
+	// or store.ProviderLinear and "<organization>/<user>". Empty for a source that has no
+	// accounts (the Linear poller, the dev source) and for the web chat, whose Login is
+	// already the proof.
+	//
+	// The Linear app names its provider on every prompt, even one whose speaker it could not
+	// read: a Linear event that names a provider is held to the rule that only a Podium person
+	// starts a turn, and one that names none is the poller's (admit).
+	SpeakerProvider string
+	SpeakerID       string
+	// SpeakerAvatar is the account's picture, when the source had it for free.
+	SpeakerAvatar string
+	// Mentioned is true when the speaker addressed the bot explicitly — an @mention, a DM,
+	// a review command — rather than a reply the source decided to treat as one. Only a
+	// mentioned message is answered with ReactionRefused: reacting to a reply nobody
+	// addressed to the bot would be noise.
+	Mentioned bool
+	// ReviewRequest is set on a GitHub review command (`@podium review [note]`, `/review
+	// [note]`): the instruction to run INSTEAD of Text when the speaker is not in Podium. It
+	// is built from nothing the speaker controls but a sanitized, injection-checked note, so
+	// it is safe to hand the review playbook on the App's credentials. Empty for anything
+	// else, and ignored for a speaker who is in Podium, who gets the full comment.
+	ReviewRequest string
+	// ExternalID is the message's identity on its own surface — a Slack ts, or a GitHub
+	// comment, review or delivery id with its kind in front — and ExternalURL is the link to
+	// it. The mirror records one row per ExternalID however many times the event arrives, and
+	// only the arrival that wrote the row goes on to start a turn. Empty means the source
+	// cannot name the message, and then nothing dedupes it here.
+	ExternalID  string
+	ExternalURL string
+	// SpeakerHandle is the account's handle where the surface has one distinct from its
+	// display name: a GitHub login. Empty for Slack.
+	SpeakerHandle string
+	// RecordOnly is a message nobody put to Podium — a reply in a thread it is already in,
+	// a pull-request comment that does not mention it. It is recorded in the conversation's
+	// chat and NEVER starts a turn. It is recorded only into a chat that already exists:
+	// Podium keeps the whole of a conversation it is part of, and nothing of one it is not.
+	RecordOnly bool
+	// Change, when set, makes this event an edit (ChangeEdited) or a delete (ChangeDeleted)
+	// of the message named by ExternalID, made on its own surface. Text is the new text of
+	// an edit. A change updates the record and never starts a turn — not even an edit that
+	// adds a mention (decision 34).
+	Change string
+	// MirrorKey, when set, is the conversation a RecordOnly event or a Change belongs to when
+	// that is not the one its Ref names: a reply in a Slack thread bound to a pull-request
+	// review is part of the PR's conversation, not of a Slack thread of its own. The conductor
+	// honours it for those two kinds only, so it can move a record and never a turn.
+	MirrorKey string
+	// ChatID and ChatSeq are the message in a chat's record that this event is, once it is
+	// recorded: the web chat sets them as it stores the message, the mirror as it records
+	// one. The turn queue keeps them so the person who asked can take their turn back, and
+	// so the chat can show whose turns are waiting.
+	ChatID  string `json:",omitempty"`
+	ChatSeq uint64 `json:",omitempty"`
+	// Held is a message that is not in its chat's record yet: the web chat leaves a message
+	// sent while Podium is answering out of the transcript, so it is not read in the middle
+	// of the answer it waited for, and the conductor records it (HeldRecorder) as its turn
+	// starts — or as it goes into a turn that is up. ChatSeq is set then.
+	Held bool `json:",omitempty"`
+	// Routine is set on a run the routine scheduler started (routine.go). Its Text is the
+	// routine's instruction, which is not in the chat's record and never will be.
+	Routine *RoutineRef `json:",omitempty"`
+	// Placed, when set, is told where the message went once the conductor has decided: the
+	// number of turns that run before it (0: it is being answered now — it started a turn,
+	// or went into the turn already answering this person). The web chat sets it so a send
+	// can say how far back in the queue it is, exactly rather than by guessing. It is not
+	// called for a message nothing will answer, and it is never part of a queued event.
+	Placed func(ahead int) `json:"-"`
+	// RecordText is what the person actually wrote, when Text is an instruction the source
+	// built around it ("alice commented on #12 …"). The record keeps the person's words;
+	// the turn is handed the instruction. Empty means Text is both.
+	RecordText string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.
@@ -88,13 +229,28 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Playbook is a playbook the source KNOWS is right — Linear's linear: true playbook. It
-	// bypasses every routing rule, a typed /playbook included. Empty means "let the profile's
-	// rules decide", which is what Slack always leaves it as.
+	// Playbook is a playbook the source KNOWS is right — the Linear poller's linear: true
+	// playbook. It bypasses every routing rule, a typed /playbook included. Empty means "let
+	// the profile's rules decide", which is what Slack, the web chat and the Linear agent app
+	// always leave it as: a conversation is answered by the assistant and runs no playbook,
+	// and the app says what happened (Delegated) and lets the conductor route it.
 	//
-	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
-	// by the assistant and runs no playbook at all.
+	// The conductor writes here too, once it has routed an event that waits in the turn
+	// queue: the playbook chosen for it, so the turn runs that playbook when it starts
+	// whatever the turn before it ran.
 	Playbook string
+	// Delegated is a conversation that was handed to Podium as a piece of work rather than
+	// asked a question in: a Linear issue delegated to the agent app. On a conductor with a
+	// host runtime it is a conversation, as a mention is: the playbook its issue's Linear
+	// rules claim runs (DelegatedIssue), or the assistant decides. With no host runtime it
+	// runs the linear: true playbook as a task. False for an @mention, which is a question,
+	// and for every other source. Set on every prompt of the session, not only the first: a
+	// follow-up stays with how the session began.
+	Delegated bool
+	// DelegatedIssue is what a playbook's linear_teams and linear_labels are matched against.
+	// The app sets it on the opening prompt of a delegated session and on no other, so only
+	// the delegation itself is routed by them; its follow-ups go to the assistant.
+	DelegatedIssue *DelegatedIssue `json:",omitempty"`
 	// Role is the speaker's role on what the conversation is about, when the source knows it:
 	// their access to a pull request's repository — read, triage, write, maintain or admin.
 	// A pull request offers a playbook only to a speaker whose role its github_requires
@@ -130,6 +286,18 @@ type InboundEvent struct {
 	PersonalityPrompt string
 }
 
+// DelegatedIssue is the issue a Linear delegation hands over, as its playbook rules see it.
+type DelegatedIssue struct {
+	// Team is the issue's team key ("ENG"), or empty when Linear did not say.
+	Team string
+	// Labels are the names of the labels on the issue.
+	Labels []string
+	// Unknown is an issue whose labels could not be read. No rule claims it, whatever its
+	// team, so a lookup that failed sends the delegation to the assistant rather than to a
+	// playbook that would not have claimed it had the labels been known.
+	Unknown bool
+}
+
 // Attachment is one file the conductor wants put into the conversation. Size is part of
 // the contract because Slack's modern upload flow (getUploadURLExternal) has to declare the
 // length before the bytes move, so a source cannot discover it from the reader.
@@ -149,8 +317,11 @@ type Attachment struct {
 }
 
 // ActivityPoster is a Source that draws what a turn is doing — its tool calls and its
-// reasoning — beside what it says. Only the web chat is one: a Slack thread or a Linear
-// issue would be buried in it, so a source that is not one is told none of it.
+// reasoning — beside what it says. The web chat keeps every one as a row of the chat. A
+// Linear agent session shows each as an ephemeral activity that the next replaces, so it
+// shows what the turn is doing now rather than a trail of it. A Slack thread or a GitHub pull
+// request would be buried in them, since everything said there stays, so a source that is not
+// one is told none of it.
 type ActivityPoster interface {
 	PostActivity(ctx context.Context, ref string, out Outbound) error
 }
@@ -174,4 +345,29 @@ type Source interface {
 	Attach(ctx context.Context, ref string, file Attachment) error
 	// React shows a turn's state on the message that started it.
 	React(ctx context.Context, ref string, kind Reaction) error
+}
+
+// HeldRecorder is a source that can leave a message out of its record until it is answered
+// (InboundEvent.Held): the web chat. RecordHeld writes it now, sets ev.ChatSeq and clears
+// ev.Held. The conductor calls it as the message's turn starts, or as the message goes into a
+// turn that is up.
+type HeldRecorder interface {
+	RecordHeld(ctx context.Context, ev *InboundEvent) error
+}
+
+// recordHeld writes a held message into its chat before anything answers it. A source that
+// cannot is left alone, and a failure is logged: the turn still runs on the message, which
+// is in its brief either way.
+func (c *Conductor) recordHeld(ctx context.Context, src Source, ev *InboundEvent) {
+	if !ev.Held {
+		return
+	}
+	r, ok := src.(HeldRecorder)
+	if !ok {
+		return
+	}
+	if err := r.RecordHeld(ctx, ev); err != nil {
+		c.logger.WarnContext(ctx, "recording a queued message as its turn starts failed",
+			"chat_id", ev.ChatID, "error", err)
+	}
 }

@@ -61,9 +61,9 @@ type autoTitler interface {
 }
 
 // pullRequestLinker is the other optional half the web chat implements: a conversation can
-// carry the pull requests its turns produced. Slack and Linear do not — GitHub already
-// unfurls a link in a Slack thread and attaches one to a Linear issue, and neither has a
-// list of them belonging to the conversation for Podium to keep.
+// carry the pull requests its turns produced. A Linear agent session does too, as links on the
+// session. Slack does not — GitHub already unfurls a link in a Slack thread, and a thread has
+// no list of them belonging to the conversation for Podium to keep.
 type pullRequestLinker interface {
 	LinkPullRequests(ctx context.Context, ref string, prs []PullRequest) error
 }
@@ -90,6 +90,9 @@ type Options struct {
 	// the memory secret to every task spec. Nil means this host has no shared memory:
 	// briefs carry no memory block and nothing is retained.
 	Memory *BriefMemory
+	// MemorySandboxMCPURL is Memory's MCP URL as a cloud sandbox reaches it, for a turn
+	// placed on a provider. Empty briefs such a turn with Memory as it is.
+	MemorySandboxMCPURL string
 	// MemoryClient is what the end-of-turn retain writes through. Nil disables retaining
 	// while leaving the briefs alone, which is what a test that only cares about the brief
 	// wants; in production the two are set together.
@@ -138,6 +141,18 @@ type Options struct {
 	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
 	GitHubAPIURL string
 	GitHubURL    string
+	// AllowedDomains are the Google Workspace domains a Slack speaker's email must be on to
+	// be resolved to a Podium login (PODIUM_ALLOWED_DOMAINS). Empty skips that one check;
+	// the email must still be a login that has signed in. See identity.go.
+	AllowedDomains []string
+	// TranscriptBudgetBytes and TranscriptKeepRecent bound the transcript a turn is handed
+	// (transcript.go). Zero is DefaultTranscriptBudgetBytes / DefaultTranscriptKeepRecent.
+	TranscriptBudgetBytes int
+	TranscriptKeepRecent  int
+	// OutboxRetryDelay is the delivery outbox's backoff base (outbox.go). Zero is the real
+	// schedule (10s, doubling); negative retries a failed delivery at once, which is what a
+	// test wants and nothing else does.
+	OutboxRetryDelay time.Duration
 	// ChatHost answers conversations on one long-lived opencode 2 service instead of a
 	// runtime per turn (chathost.go). Nil runs every assistant turn as a host process. It
 	// needs Host as well: the brief, the prompt and the credentials are a host turn's.
@@ -148,6 +163,9 @@ type Options struct {
 	// ChatHostRender renders a turn's system prompt from its encoded brief — the runtime's
 	// own prompt, in the form the chat host calls tools in.
 	ChatHostRender func(ctx context.Context, encodedBrief string) (string, error)
+	// Tickets finds the Linear tickets a person's message to the assistant names that they may
+	// see, for the turn's brief (tickets.go). Nil briefs none.
+	Tickets TicketBriefer
 	// Notifiers tell a person their delegated task ended when they have left its conversation
 	// (notify.go), tried in order. None sends nothing.
 	Notifiers []Notifier
@@ -156,6 +174,13 @@ type Options struct {
 	NotifyAwayAfter time.Duration
 	// PublicURL is this deployment's web UI, for the link in a notification. Empty sends none.
 	PublicURL string
+	// Keys answers whether a stored model key is being refused, and is told when a turn was
+	// refused (keyhealth.go). Nil starts every turn and checks nothing.
+	Keys KeyHealth
+	// ChatHostClaude is true when the chat host can run Claude Code, so a person signed in
+	// with their Claude subscription has their conversations answered by opencode's
+	// claude-agent provider on it. Nowhere else spends a Claude sign-in.
+	ChatHostClaude bool
 	// AnthropicBaseURL is where the chat host's gateway sends Anthropic requests: the host,
 	// without /v1. Empty is https://api.anthropic.com.
 	AnthropicBaseURL string
@@ -183,11 +208,17 @@ type Conductor struct {
 	store    *store.Store
 	podium   *podium.Client
 	profiles *profiles.Live
+	// brand is the deployment's names, read from podium-server. See branding.go.
+	brand brandCache
 	// sources is guarded by mu: ReplaceSource swaps Slack and GitHub while turns run.
 	sources []Source
+	// tickets is Options.Tickets.
+	tickets TicketBriefer
 	metrics *Metrics
 	logger  *slog.Logger
 	memory  *BriefMemory
+	// memorySandboxMCPURL is Options.MemorySandboxMCPURL.
+	memorySandboxMCPURL string
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
 	// pending is the delegation announcements not said yet, oldest first. Guarded by mu;
@@ -231,10 +262,14 @@ type Conductor struct {
 	chat        chatState
 	// anthropicBaseURL is AnthropicBaseURL.
 	anthropicBaseURL string
+	// chatHostClaude is ChatHostClaude.
+	chatHostClaude bool
 	// notifiers, notifyAwayAfter and publicURL are notify.go's.
 	notifiers       []Notifier
 	notifyAwayAfter time.Duration
 	publicURL       string
+	// keys is Options.Keys.
+	keys KeyHealth
 	// replicaID, leaseTTL and heldLeases are this conductor's share of the work with the
 	// others on its database. heldLeases is guarded by mu. See lease.go.
 	replicaID string
@@ -247,6 +282,22 @@ type Conductor struct {
 	// scoped tokens each running turn holds. See usertoken.go.
 	githubAPIURL string
 	githubURL    string
+	// allowedDomains is Options.AllowedDomains.
+	allowedDomains []string
+	// outboxBase is Options.OutboxRetryDelay.
+	outboxBase time.Duration
+	// summarizer condenses the chatter a transcript budget leaves out. Nil is the
+	// extractive default; a test replaces it. See transcript.go.
+	summarizer Summarizer
+	// transcriptBudget and transcriptKeep are Options.TranscriptBudgetBytes and
+	// TranscriptKeepRecent with their defaults applied.
+	transcriptBudget int
+	transcriptKeep   int
+	// idents caches who a Slack, Linear or GitHub account is, and rate-limits review
+	// commands from outside Podium. See identity.go.
+	idents identityCache
+	// clock is time.Now, replaceable by a test.
+	clock        func() time.Time
 	userTokensMu sync.Mutex
 	userTokens   map[string]*userTokenSet
 	loginLocks   map[string]*sync.Mutex
@@ -256,6 +307,10 @@ type Conductor struct {
 	// hostRuns are the host turns in flight, by the ref of the message that started each,
 	// so one can be cancelled without stopping the conductor.
 	hostRuns map[string]func()
+	// earlyStops are Stops that arrived for a turn already recorded as running but not yet
+	// registered in hostRuns: the turn row is written a moment before the turn takes its
+	// stop. registerHost honours one it finds, so Stop pressed in that gap is not lost.
+	earlyStops map[string]time.Time
 	// turnTokens is the authority a host turn holds while it runs: one token per turn,
 	// scoped to that turn's conversation and its menu of playbooks, revoked when the turn
 	// ends. Not persisted — a host turn does not survive this process, so neither should
@@ -265,6 +320,11 @@ type Conductor struct {
 	// The durable half is the delegations table; this is only how a turn asking for
 	// progress finds the last thing its task said.
 	liveDelegations map[string]*delegationRun
+	// routineTurns is the scheduled routine runs this conductor is running, by turn id
+	// (routine.go). Guarded by mu.
+	routineTurns map[string]*routineTurn
+	// routineCreator is what create_routine creates routines with (routine.go).
+	routineCreator RoutineCreator
 	// workspaceMu makes claiming a pull request's workspace and recording the delegation
 	// that claimed it one step. See delegate.
 	workspaceMu sync.Mutex
@@ -283,10 +343,20 @@ type Conductor struct {
 // no in-flight turn this process owns, and the recovery pass rebuilds what matters.
 type sessionState struct {
 	running bool
-	pending bool
-	// next is the latest thing said while a turn was running. Only the latest becomes the
-	// next turn's instruction; the earlier ones are in the transcript.
-	next InboundEvent
+	// turnLogin and turnKind are whose turn this session last ran, and on which surface. A
+	// message is injected into a turn that is still up only when it is from the same person
+	// on the same surface; anything else is a turn of its own (queue.go).
+	turnLogin string
+	turnKind  string
+	// turnPlaybook is the playbook that turn ran, empty for the assistant. A task that has
+	// answered takes a follow-up only for its own playbook.
+	turnPlaybook string
+	// turnThread is the thread of the conversation that turn answered (threadOf): a Linear
+	// agent session within its issue's conversation, a routine's run, or "".
+	turnThread string
+	// local is turns queued in this process because the database refused to queue them.
+	// They are served after the durable queue.
+	local []InboundEvent
 	// awaitingTaskID is the running task that posted a question and is waiting for a
 	// human reply. Empty means this session is not parked. It outlives the host turn
 	// that started a delegated task, which is why a reply can land after the assistant
@@ -299,6 +369,9 @@ type sessionState struct {
 	// warmHost is a host turn that has answered and is still up, waiting for the next
 	// message, which is written into its inbox. See hostwarm.go.
 	warmHost *warmHost
+	// emptyPops is how many times in a row kick took the lease and found nothing it could
+	// pop while the queue still counted rows (queue.go, retryQueue). Reset by a pop that works.
+	emptyPops int
 }
 
 // New validates the options and returns a Conductor.
@@ -336,46 +409,67 @@ func New(opts Options) (*Conductor, error) {
 	if metrics == nil {
 		metrics = NewMetrics(nil)
 	}
-	return &Conductor{
-		store:              opts.Store,
-		podium:             opts.Podium,
-		profiles:           opts.Profiles,
-		sources:            opts.Sources,
-		metrics:            metrics,
-		logger:             logger,
-		memory:             opts.Memory,
-		memories:           opts.MemoryClient,
-		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
-		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
-		googleBaseURL:      cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
-		skillsDir:          opts.SkillsDir,
-		host:               opts.Host,
-		mirror:             opts.Mirror,
-		hostSlots:          make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
-		github:             opts.GitHub,
-		gitTaskURL:         opts.GitTaskURL,
-		mintSecret:         opts.MintSecret,
-		sandboxTaskURL:     opts.SandboxTaskURL,
-		chatHost:           opts.ChatHost,
-		chatHostURL:        opts.ChatHostURL,
-		chatRender:         opts.ChatHostRender,
-		anthropicBaseURL:   opts.AnthropicBaseURL,
-		notifiers:          opts.Notifiers,
-		notifyAwayAfter:    cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
-		publicURL:          opts.PublicURL,
-		chatSlots:          make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
-		chatPerUser:        cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
-		replicaID:          cmp.Or(opts.ReplicaID, newReplicaID()),
-		leaseTTL:           cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
-		heldLeases:         map[string]bool{},
-		githubAPIURL:       opts.GitHubAPIURL,
-		githubURL:          opts.GitHubURL,
-		sessions:           map[string]*sessionState{},
-		hostRuns:           map[string]func(){},
-		turnTokens:         map[string]turnGrant{},
-		liveDelegations:    map[string]*delegationRun{},
-	}, nil
+	c := &Conductor{
+		store:               opts.Store,
+		podium:              opts.Podium,
+		profiles:            opts.Profiles,
+		sources:             opts.Sources,
+		tickets:             opts.Tickets,
+		metrics:             metrics,
+		logger:              logger,
+		memory:              opts.Memory,
+		memorySandboxMCPURL: opts.MemorySandboxMCPURL,
+		memories:            opts.MemoryClient,
+		xaiBaseURL:          cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		openaiBaseURL:       cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
+		openaiCodexBaseURL:  cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		googleBaseURL:       cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
+		skillsDir:           opts.SkillsDir,
+		host:                opts.Host,
+		mirror:              opts.Mirror,
+		hostSlots:           make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:              opts.GitHub,
+		gitTaskURL:          opts.GitTaskURL,
+		mintSecret:          opts.MintSecret,
+		sandboxTaskURL:      opts.SandboxTaskURL,
+		chatHost:            opts.ChatHost,
+		chatHostURL:         opts.ChatHostURL,
+		chatRender:          opts.ChatHostRender,
+		anthropicBaseURL:    opts.AnthropicBaseURL,
+		chatHostClaude:      opts.ChatHostClaude && opts.ChatHost != nil,
+		notifiers:           opts.Notifiers,
+		notifyAwayAfter:     cmp.Or(opts.NotifyAwayAfter, DefaultNotifyAwayAfter),
+		publicURL:           opts.PublicURL,
+		keys:                opts.Keys,
+		chatSlots:           make(chan struct{}, cmp.Or(opts.ChatHostMaxTurns, DefaultChatHostMaxTurns)),
+		chatPerUser:         cmp.Or(opts.ChatHostMaxPerUser, DefaultChatHostMaxPerUser),
+		replicaID:           cmp.Or(opts.ReplicaID, newReplicaID()),
+		leaseTTL:            cmp.Or(opts.LeaseTTL, DefaultLeaseTTL),
+		heldLeases:          map[string]bool{},
+		githubAPIURL:        opts.GitHubAPIURL,
+		githubURL:           opts.GitHubURL,
+		allowedDomains:      opts.AllowedDomains,
+		transcriptBudget:    cmp.Or(opts.TranscriptBudgetBytes, DefaultTranscriptBudgetBytes),
+		transcriptKeep:      cmp.Or(opts.TranscriptKeepRecent, DefaultTranscriptKeepRecent),
+		outboxBase:          opts.OutboxRetryDelay,
+		sessions:            map[string]*sessionState{},
+		hostRuns:            map[string]func(){},
+		turnTokens:          map[string]turnGrant{},
+		liveDelegations:     map[string]*delegationRun{},
+		routineTurns:        map[string]*routineTurn{},
+	}
+	// A source that fans answers out to another (the GitHub source, to the Slack threads bound
+	// to a pull request) hands each copy back here, so it is owed and retried like the
+	// primary. See outbox.go.
+	for _, src := range c.sources {
+		if ds, ok := src.(deliverySetter); ok {
+			ds.SetDeliverer(c)
+		}
+		if rs, ok := src.(relaySetter); ok {
+			rs.SetRelayer(c)
+		}
+	}
+	return c, nil
 }
 
 // Run drains every source until ctx is cancelled, and resumes whatever was in flight when
@@ -396,6 +490,21 @@ func (c *Conductor) Run(ctx context.Context) error {
 	go func() {
 		defer c.wg.Done()
 		c.renewLeases(ctx)
+	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.deliverOutbox(ctx)
+	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.listenCancels(ctx)
+	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.listenStops(ctx)
 	}()
 	if c.chatHost != nil {
 		c.wg.Add(1)
@@ -440,22 +549,57 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.rememberSlackChannel(ctx, ev)
+	// Who said it.
+	c.resolveSpeaker(ctx, src, &ev)
+	// An edit, a delete, or chatter nobody put to Podium is recorded and is never a turn.
+	switch {
+	case ev.Change != "":
+		c.mirrorChanged(ctx, src, ev)
+		return
+	case ev.RecordOnly:
+		c.mirrorRecordOnly(ctx, src, ev)
+		return
+	}
+	// Recorded before anything is decided about it, and whoever answers it: a conversation
+	// whose first turn fails, or that the speaker may not start a turn in at all, is still a
+	// conversation somebody can read. The recording is also the dedupe — a Slack retry, a
+	// GitHub redelivery or a second conductor hearing the same event finds its message
+	// already written and stops here, so one message is never two turns. A no-op that reports
+	// fresh for the web chat, which stores its own messages, and for a source that is not
+	// mirrored at all.
+	if !c.mirrorHeard(ctx, src, &ev) {
+		c.logger.InfoContext(ctx, "an inbound message was already recorded; not acting on it twice",
+			"source", src.Kind(), "source_key", ev.SourceKey, "external_id", ev.ExternalID)
+		return
+	}
+	// A Linear conversation that waited on a person has heard from one.
+	c.clearLinearQuestion(ctx, src, ev)
+	// A message the web chat held back (ev.Held) is in nobody's record until a turn takes it.
+	// Whatever path this event leaves by without one — refused, a failed start — the message
+	// is recorded on the way out, so what a person said is never simply gone. A path that
+	// queued it, or put it into a turn, has cleared ev.Held and this does nothing.
+	defer c.recordHeld(ctx, src, &ev)
+	// Whether they may start anything at all. A refused event is reacted to by admit.
+	if !c.admit(ctx, src, &ev) {
+		return
+	}
 	// One snapshot for the whole of this event. A profile swapped in half way through must
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
 
 	// A pull request is a conversation: what people say on it is answered by the assistant,
-	// which delegates the review to the playbook marked github: true. What nobody said — a
+	// which delegates the review to the playbook that reviews the pull request's repository
+	// (github_repos, else github: true). What nobody said — a
 	// pull request opened, or marked ready — runs that playbook directly. So does every
 	// GitHub event on a conductor with no host runtime, which has no assistant to ask.
 	if src.Kind() == SourceGitHub && (ev.Automatic || c.host == nil) {
-		name := profile.GitHubPlaybook()
+		name := profile.GitHubPlaybookFor(pullRequestRepo(ev.SourceKey))
 		if name == "" {
 			c.logger.ErrorContext(ctx, "no playbook reviews pull requests",
 				"source_key", ev.SourceKey)
 			c.post(ctx, src, ev.Ref, Outbound{
 				Type: OutFailure,
-				Text: "No playbook reviews pull requests. Mark one with github: true.",
+				Text: "No playbook reviews pull requests in this repository. Name it in a playbook's github_repos, or mark one with github: true.",
 			})
 			c.finish(ctx, src, ev.Ref, ReactionFailed)
 			return
@@ -470,13 +614,31 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	var j job
 	var sess store.Session
 	var ok bool
+	// named is a turn of a playbook somebody named with a /playbook prefix in a Linear agent
+	// session. It runs that playbook for this turn alone, so it is never put into a turn or a
+	// task that is already up: that would be the playbook it did not ask for.
+	named := false
 	// A conversation with a host runtime is answered here. A web chat without one is
 	// refused rather than turned into a container task. The test-only KindDev source,
 	// and Slack on a conductor that has no host, still run as tasks so the playbook
-	// loop can be exercised without forking node.
+	// loop can be exercised without forking node. So does a Linear agent session on a
+	// conductor with no host, delegated or mentioned (conversational).
+	//
+	// A Linear session the assistant answers runs a playbook directly instead when a person
+	// named one with a /playbook prefix, or when it was opened by delegating an issue that
+	// exactly one playbook's Linear rules claim (claimedPlaybook).
 	switch {
-	case c.host != nil && aConversation(src.Kind()):
+	case c.conversational(src, ev):
 		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
+		if ok && src.Kind() == SourceLinear {
+			if nj, isNamed := c.namedPlaybook(src, profile, &ev); isNamed {
+				j, named = nj, true
+			} else if nj, claimed := c.claimedPlaybook(ctx, src, profile, &ev); claimed {
+				j, named = nj, true
+			} else if ev.DelegatedIssue != nil {
+				ev.Text = delegationPreamble + ev.Text
+			}
+		}
 	case src.Kind() == SourceChat:
 		c.logger.ErrorContext(ctx, "a conversation arrived with no host runtime",
 			"source", src.Kind(), "source_key", ev.SourceKey)
@@ -484,132 +646,90 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
 	default:
-		j, sess, ok = c.acceptTask(ctx, src, profile, &ev)
+		j, sess, named, ok = c.acceptTask(ctx, src, profile, &ev)
 	}
 	if !ok {
 		return
 	}
-	// Recorded before any turn runs, and whoever answers it: a conversation whose first
-	// turn fails is still a conversation somebody can read, and whether the assistant or a
-	// playbook takes it does not change who said what. A no-op for the web chat, which
-	// stores its own messages, and for a source that is not mirrored at all.
-	c.mirrorHeard(ctx, src, ev)
 
+	// A turn that is still up takes the message when it is from the same person on the same
+	// surface: a warm host turn, a running chat-host turn, a task that asked a question or is
+	// waiting for a follow-up. Anybody else's message is a turn of its own (queue.go).
+	//
+	// Except a running turn, for a message the web chat held back (ev.Held): somebody who
+	// sends from the web while Podium is answering is queueing it, the way other chat clients
+	// queue, and each message gets an answer of its own. Steered into the turn in progress, a
+	// second question was folded into the answer to the first.
 	c.mu.Lock()
-	st := c.sessions[sess.ID]
-	if st == nil {
-		st = &sessionState{}
-		c.sessions[sess.ID] = st
-	}
-	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" {
+	st := c.state(sess.ID)
+	same := c.sameAsker(st, src, ev) && !named
+	// A task waiting on a question in a Linear ticket's conversation also takes the answer of
+	// the person it asked when they give it from the web chat — or from their inbox, which sends
+	// there — whichever surface the turn began on (answersQuestion).
+	answers := !same && !named && st.awaitingTaskID != "" && c.answersQuestion(st, src, ev)
+	if wh := st.warmHost; wh != nil && st.awaitingTaskID == "" && same {
 		// The host turn that answered this conversation is still up: the message goes into
 		// it, and it is working again, so it is no longer a candidate to give its slot up.
 		st.warmHost = nil
 		c.mu.Unlock()
+		c.recordHeld(ctx, src, &ev)
 		if err := wh.inbox.inject(ev.Text); err == nil {
 			c.metrics.WarmInjects.WithLabelValues(profiles.RunsOnHost).Inc()
 			c.logger.InfoContext(ctx, "injected a message into a warm host turn", "session_id", sess.ID)
+			placed(ev, 0)
 			return
 		}
-		// Its inbox closed as it exited. The message is in the transcript; it becomes the
-		// next turn once the one exiting has finished.
+		// Its inbox closed as it exited. The message becomes the next turn once the one
+		// exiting has finished.
 		c.mu.Lock()
-		st = c.sessions[sess.ID]
-		if st == nil {
-			st = &sessionState{}
-			c.sessions[sess.ID] = st
-		}
+		st = c.state(sess.ID)
 	}
-	if st.running && c.chatHost != nil {
+	if st.running && c.chatHost != nil && same && !ev.Held {
 		// A chat-host turn is answering this conversation: the message goes into it, and is
 		// answered as part of that turn rather than after it.
 		c.mu.Unlock()
 		if c.chatSteer(ctx, sess.ID, ev.Text) {
 			c.logger.InfoContext(ctx, "steered a message into a running chat-host turn", "session_id", sess.ID)
+			placed(ev, 0)
 			return
 		}
 		c.mu.Lock()
-		st = c.sessions[sess.ID]
-		if st == nil {
-			st = &sessionState{}
-			c.sessions[sess.ID] = st
-		}
+		st = c.state(sess.ID)
 	}
+	// A question is answered by whoever asked it. A task that has answered and is waiting
+	// takes a follow-up only for its own playbook: a Linear session can run another for one
+	// turn, and its follow-up is not that playbook's.
 	injectID := st.awaitingTaskID
-	if injectID == "" {
+	if injectID == "" && st.turnPlaybook == j.playbook.Name {
 		injectID = st.warmTaskID
 	}
-	if injectID != "" {
-		taskID := injectID
-		c.mu.Unlock()
-		if err := c.podium.InjectTask(ctx, taskID, ev.Text); err != nil {
-			c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
-				"session_id", sess.ID, "task_id", taskID, "error", err)
-			c.mu.Lock()
-			st = c.sessions[sess.ID]
-			if st == nil {
-				st = &sessionState{}
-				c.sessions[sess.ID] = st
-			}
-			if st.running {
-				st.pending = true
-				st.next = ev
-				c.mu.Unlock()
-				return
-			}
-			st.running = true
-			c.mu.Unlock()
-			c.wg.Add(1)
-			go func() {
-				defer c.wg.Done()
-				c.serve(ctx, src, sess, j, ev)
-			}()
-			return
-		}
-		c.logger.InfoContext(ctx, "injected a message into a running task",
-			"session_id", sess.ID, "task_id", taskID)
-		return
-	}
-	if st.running {
-		// Nothing is lost and nothing runs twice: the message is in the thread, so it will
-		// be in the next turn's transcript, and the next turn starts from it.
-		st.pending = true
-		st.next = ev
-		c.mu.Unlock()
-		c.logger.InfoContext(ctx, "a turn is already running for this session; queued the message",
-			"session_id", sess.ID)
-		return
-	}
-	st.running = true
 	c.mu.Unlock()
-
-	// Another conductor may be serving this conversation. Then the message is its to answer:
-	// handed over, or injected into its warm task. Twice, because the owner may let go
-	// between the two questions, and then the session is this conductor's to take.
-	for attempt := 0; ; attempt++ {
-		if c.acquire(ctx, store.SessionLease(sess.ID)) {
-			break
-		}
-		if c.handOff(ctx, sess.ID, ev) || attempt == 1 {
-			c.mu.Lock()
-			st.running = false
-			// A message for this session that arrived locally meanwhile went into st.next;
-			// it is the owner's too.
-			next, pending := st.next, st.pending
-			st.pending = false
-			c.mu.Unlock()
-			if pending {
-				c.handOff(ctx, sess.ID, next)
-			}
+	if injectID != "" && (same || answers) {
+		c.recordHeld(ctx, src, &ev)
+		err := c.podium.InjectTask(ctx, injectID, ev.Text)
+		if err == nil {
+			c.logger.InfoContext(ctx, "injected a message into a running task",
+				"session_id", sess.ID, "task_id", injectID)
+			placed(ev, 0)
 			return
 		}
+		c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
+			"session_id", sess.ID, "task_id", injectID, "error", err)
+	}
+	// Another conductor may be serving this conversation, with a warm task answering this
+	// same person: then the message goes straight into it. Not a turn of a playbook the
+	// session does not run by default, whose task that warm one is not.
+	if !named && j.playbook.Name == sess.Playbook && c.injectIntoOwner(ctx, src, sess.ID, &ev) {
+		placed(ev, 0)
+		return
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.serve(ctx, src, sess, j, ev)
-	}()
+	// Otherwise it is a turn: queued first, then served by whoever serves the session. Nothing
+	// is lost and nothing runs twice — the row is the turn, and only one conductor takes it.
+	c.enqueue(ctx, src, sess, ev)
+	// The queued copy is still held and is recorded when its turn starts; this one is done.
+	ev.Held = false
+	c.kick(ctx, src, sess, j)
 }
 
 // runningDelegations is what this conversation already has in flight, for the brief. A
@@ -756,8 +876,7 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	if !ok {
 		return
 	}
-	c.mirrorHeard(ctx, src, ev)
-	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, store.Backend{})
+	turn, err := c.store.CreateTurnFor(ctx, sess.ID, ev.Ref, c.turnStartedBy(ctx, src, sess, ev), store.Backend{})
 	if err == nil {
 		// A turn with no task, possibly for hours while it queues behind a writer: the lease
 		// is what tells another conductor's restart that it is alive.
@@ -796,23 +915,91 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	c.metrics.Turns.WithLabelValues(sess.SourceKind, ev.Playbook, status).Inc()
 }
 
-// acceptTask is a Linear ticket, or a conversation on a conductor with no host runtime
-// (the test-only KindDev source, and Slack before host turns). It runs one playbook as a
-// task on a node. A web chat without a host runtime is refused instead.
+// runDirect is the turn of a playbook somebody named in a conversation the assistant answers:
+// a /playbook prefix in a Linear agent session opened by an @mention. There is nothing for the
+// assistant to decide, so the conductor delegates the playbook itself, as acceptAutomatic does
+// a pull request's review, and the task is the conversation's like any the assistant starts:
+// relayed as it works, listed to the next turn's brief, and stopped by a Stop.
+//
+// Unlike that review it is somebody's turn. It waits behind the session's other turns, its
+// task runs as the person who asked, with their secrets, and it starts with the placeholder
+// and ends with a reaction, as any turn does, so the session shows it starting. It ends once
+// the task has started: the task is followed from then on, as a delegation is, and the next
+// turn need not wait hours for it.
+func (c *Conductor) runDirect(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
+	name := j.playbook.Name
+	c.recordHeld(ctx, src, &ev)
+	// The zero Speaker: the conductor speaks for itself until the task does.
+	c.post(ctx, src, ev.Ref, Outbound{Type: OutProgress, Text: Placeholder})
+	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
+		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
+	}
+	turn, err := c.store.CreateTurnFor(ctx, sess.ID, ev.Ref, c.turnStartedBy(ctx, src, sess, ev), store.Backend{})
+	if err != nil {
+		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side before I could start. Nothing ran."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
+		return
+	}
+	// A turn with no task: the lease is what tells another conductor's restart it is alive.
+	c.acquire(ctx, turnLease(turn.ID))
+	defer c.release(ctx, turnLease(turn.ID))
+
+	status := store.TurnSucceeded
+	_, err = c.delegate(ctx, turnGrant{
+		turnID:    turn.ID,
+		sessionID: sess.ID,
+		ref:       ev.Ref,
+		src:       src,
+		playbooks: []string{name},
+		login:     c.turnLogin(ctx, src, sess, ev),
+	}, name, ev.Text, DelegateOptions{})
+	if err != nil {
+		status = store.TurnFailed
+		c.logger.WarnContext(ctx, "starting a playbook somebody named failed",
+			"session_id", sess.ID, "playbook", name, "error", err)
+		text := fmt.Sprintf("I could not start the `%s` playbook.", name)
+		if errors.Is(err, ErrWorkspaceBusy) {
+			// The assistant is told to inject into the task in the way; a person is told how
+			// to get the assistant to.
+			text = fmt.Sprintf("A `%s` task is still working on this. Wait for its answer, "+
+				"or ask without /%s and I will pass it on.", name, name)
+		}
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, name), Text: text})
+	}
+	none, free := 0, 0.0
+	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
+		c.logger.ErrorContext(ctx, "recording how the turn ended failed",
+			"turn_id", turn.ID, "status", status, "error", err)
+	}
+	// The task may not have spoken yet. Its announcement is what says it started.
+	c.sayAnnouncementsFor(ctx, turn.ID)
+	c.finish(ctx, src, ev.Ref, reactionFor(status))
+	c.metrics.Turns.WithLabelValues(sess.SourceKind, name, status).Inc()
+}
+
+// acceptTask is a Linear issue, or a conversation on a conductor with no host runtime (the
+// test-only KindDev source, Slack before host turns, and a Linear mention). It runs one
+// playbook as a task on a node. A web chat without a host runtime is refused instead.
+//
+// named reports a turn of a playbook somebody named for this turn alone (accept). Only a
+// Linear agent session has those: a Slack thread keeps the playbook it started with and
+// refuses another, and a polled ticket never reads a prefix at all.
 func (c *Conductor) acceptTask(
 	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
-) (job, store.Session, bool) {
-	sel := profile.Select(profiles.Routing{
-		Playbook: ev.Playbook,
-		Channel:  ev.Channel,
-		Text:     ev.Text,
-	})
+) (j job, sess store.Session, named, ok bool) {
+	linearApp := linearAgentSession(src, *ev)
+	sel := profile.Select(taskRouting(profile, *ev, linearApp))
 	if sel.Playbook.Name == "" {
 		c.logger.ErrorContext(ctx, "no playbook could be selected",
 			"source", src.Kind(), "source_key", ev.SourceKey)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: no playbook matches this. Register one, or name it with /playbook."})
+		text := "I couldn't start a turn: no playbook matches this. Register one, or name it with /playbook."
+		if linearApp {
+			text = "No playbook takes Linear issues. Mark one with linear: true, or name one with /playbook."
+		}
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: text})
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
-		return job{}, store.Session{}, false
+		return job{}, store.Session{}, false, false
 	}
 
 	sess, err := c.store.UpsertSession(ctx, store.Session{
@@ -825,100 +1012,175 @@ func (c *Conductor) acceptTask(
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn."})
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
-		return job{}, store.Session{}, false
+		return job{}, store.Session{}, false, false
 	}
 
-	// A THREAD keeps the playbook it started with: a Slack thread and a Linear issue are one
-	// piece of work, and a later /other in the middle of one is refused rather than silently
-	// ignored, because the human asked for something specific.
-	if sel.Explicit && sess.Playbook != sel.Playbook.Name {
+	name, named, refused := turnPlaybook(sel, sess.Playbook, linearApp)
+	if refused {
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
 			"This thread is running the `%s` playbook and a thread keeps the playbook it started with. "+
 				"Start a new thread to use `%s`.", sess.Playbook, sel.Playbook.Name)})
-		return job{}, store.Session{}, false
+		return job{}, store.Session{}, false, false
 	}
-	playbook, ok := profile.Playbooks[sess.Playbook]
-	if !ok {
+	playbook, found := profile.Playbooks[name]
+	if !found {
 		c.logger.ErrorContext(ctx, "the session's playbook is no longer loaded",
-			"session_id", sess.ID, "playbook", sess.Playbook)
+			"session_id", sess.ID, "playbook", name)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"This thread ran the `%s` playbook, which this bot no longer has. Start a new thread.", sess.Playbook)})
-		return job{}, store.Session{}, false
+			"This thread ran the `%s` playbook, which this bot no longer has. Start a new thread.", name)})
+		return job{}, store.Session{}, false, false
 	}
-	// Whatever the routing rules said, the instruction is the text minus a /playbook prefix.
+	// Whatever the routing rules said, the instruction is the text minus a /playbook prefix,
+	// and the playbook is the one this turn runs: a turn that waits in the queue runs it when
+	// it starts, whatever the turn before it ran (sourceAndJob).
 	ev.Text = sel.Instruction
-	return playbookJob(playbook), sess, true
+	ev.Playbook = name
+	return playbookJob(playbook), sess, named, true
 }
 
-// serve runs turns for one session until nothing is pending. It holds the session's
+// linearAgentSession reports whether ev is a prompt in a Linear agent session, as opposed to
+// a ticket the poller found: the app names a provider on every prompt and leaves the playbook
+// to the conductor, and the poller names its playbook and no provider.
+func linearAgentSession(src Source, ev InboundEvent) bool {
+	return src != nil && src.Kind() == SourceLinear && ev.SpeakerProvider == SpeakerLinear && ev.Playbook == ""
+}
+
+// taskRouting is what a task's playbook is selected from. A Linear agent session on a
+// conductor with no host runtime runs the linear: true playbook unless the person named
+// another; a polled ticket names its own, which no prefix can change.
+func taskRouting(profile *profiles.Profile, ev InboundEvent, linearApp bool) profiles.Routing {
+	r := profiles.Routing{Playbook: ev.Playbook, Channel: ev.Channel, Text: ev.Text}
+	if linearApp {
+		r.Default = profile.LinearPlaybook()
+	}
+	return r
+}
+
+// turnPlaybook is the playbook a task turn runs, given what Select chose and the playbook the
+// session runs (the one its first turn chose). named is a playbook somebody named for this turn
+// alone; refused is a /name the session may not run.
+//
+// A THREAD keeps the playbook it started with: a Slack thread is one piece of work, and a later
+// /other in the middle of one is refused rather than silently ignored, because the human asked
+// for something specific.
+//
+// A Linear agent session with no assistant to answer it runs a playbook somebody named for
+// that turn instead. A delegation's opening prompt is Linear's own words, so a session opened
+// that way could otherwise never run anything but the linear: true playbook; what nobody names
+// afterwards still runs the session's own.
+func turnPlaybook(sel profiles.Selection, session string, linearApp bool) (name string, named, refused bool) {
+	switch {
+	case sel.Explicit && linearApp:
+		return sel.Playbook.Name, true, false
+	case sel.Explicit && session != sel.Playbook.Name:
+		return "", false, true
+	}
+	return session, false, false
+}
+
+// namedPlaybook is a /playbook prefix in a Linear agent session the assistant answers: the
+// playbook is delegated directly for this turn, as the assistant would delegate it, and the
+// assistant is not asked (runDirect). The name must be one the assistant would be offered for
+// this person here (menuFor). An unknown name, or one not offered, is left in the text for the
+// assistant, as Select leaves an unknown one: somebody typing /shrug must not break the bot.
+func (c *Conductor) namedPlaybook(src Source, profile *profiles.Profile, ev *InboundEvent) (job, bool) {
+	sel := profile.Select(profiles.Routing{Text: ev.Text})
+	if !sel.Explicit || !containsString(playbookNames(c.menuFor(src, ev.SourceKey, ev.Role)), sel.Playbook.Name) {
+		return job{}, false
+	}
+	ev.Text = sel.Instruction
+	ev.Playbook = sel.Playbook.Name
+	return directJob(sel.Playbook), true
+}
+
+// claimedPlaybook is the playbook a delegated Linear issue's playbook rules claim
+// (linear_teams, linear_labels), run directly for the delegation as a /playbook prefix would
+// be (runDirect). Only the session's opening prompt carries the issue (DelegatedIssue), and
+// only a playbook the assistant would be offered here counts (menuFor). Exactly one must
+// claim it: none, several, or an issue whose labels could not be read leave the delegation
+// to the assistant, which delegates to one or asks.
+func (c *Conductor) claimedPlaybook(
+	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
+) (job, bool) {
+	issue := ev.DelegatedIssue
+	if issue == nil || issue.Unknown {
+		return job{}, false
+	}
+	offered := playbookNames(c.menuFor(src, ev.SourceKey, ev.Role))
+	var claims []string
+	for _, name := range profile.LinearClaims(issue.Team, issue.Labels) {
+		if containsString(offered, name) {
+			claims = append(claims, name)
+		}
+	}
+	if len(claims) != 1 {
+		if len(claims) > 1 {
+			c.logger.InfoContext(ctx, "several playbooks claim a delegated Linear issue; the assistant decides",
+				"source_key", ev.SourceKey, "team", issue.Team, "playbooks", claims)
+		}
+		return job{}, false
+	}
+	ev.Playbook = claims[0]
+	return directJob(profile.Playbooks[claims[0]]), true
+}
+
+// delegationPreamble opens what the assistant is asked when an issue is delegated to the app
+// and no playbook's rules claimed it. The issue itself follows, as the poller words a ticket:
+// on its own it reads like a bare @mention, which asks nothing of the assistant.
+const delegationPreamble = "This Linear issue was delegated to you to work on. Delegate it to " +
+	"the playbook that fits, or ask here what you need to know to choose.\n\n"
+
+// conversational reports whether the assistant answers ev: a chat window, a Slack thread, a
+// pull request, or a Linear agent session, whether it was opened by @mentioning the app or by
+// delegating an issue to it — and only on a conductor with a host runtime to answer it on. A
+// ticket the poller found names no provider (admit), and runs its playbook as a task.
+func (c *Conductor) conversational(src Source, ev InboundEvent) bool {
+	if c.host == nil || src == nil {
+		return false
+	}
+	if src.Kind() == SourceLinear {
+		return ev.SpeakerProvider == SpeakerLinear
+	}
+	return aConversation(src.Kind())
+}
+
+// serve runs turns for one session until nothing is queued. It holds the session's
 // "running" flag for its whole life, which is what serialises turns within a session while
-// leaving different sessions free to run at once.
+// leaving different sessions free to run at once. Each queued turn answers through its own
+// source: a web message in a mirrored conversation answers in the web chat.
 func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	key := store.SessionLease(sess.ID)
 	for {
+		c.setTurnAsker(sess.ID, src, ev, j.playbook.Name)
 		c.runTurn(ctx, src, sess, j, ev)
 
-		if next, ok := c.nextFor(ctx, sess.ID, key); ok {
-			ev = next
-			continue
-		}
-		return
-	}
-}
-
-// nextFor is the session's next message once a turn has ended: one said here while it ran,
-// or one another conductor handed over. With neither, the session is let go of, and ok is
-// false.
-func (c *Conductor) nextFor(ctx context.Context, sessionID, key string) (InboundEvent, bool) {
-	stop := func() {
-		if st := c.sessions[sessionID]; st != nil {
-			st.running = false
-			st.warmTaskID = ""
-			st.warmHost = nil
-		}
-	}
-	c.mu.Lock()
-	st := c.sessions[sessionID]
-	if st != nil && st.pending && ctx.Err() == nil {
-		st.pending = false
-		ev := st.next
-		c.mu.Unlock()
-		return ev, true
-	}
-	if st == nil || ctx.Err() != nil {
-		// Shutting down: the lease is left to this replica's next start, or to expire.
-		stop()
-		c.mu.Unlock()
-		return InboundEvent{}, false
-	}
-	c.mu.Unlock()
-
-	if handed := c.release(ctx, key); handed != nil {
-		return *handed, true
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if st.pending {
-		// Said here while the lease was being let go of. Take the session back; if another
-		// conductor got there first, the message is its to answer.
-		st.pending = false
-		ev := st.next
-		c.mu.Unlock()
-		if c.acquire(ctx, key) {
+		if ctx.Err() != nil {
+			// Shutting down: the lease is left to this replica's next start, or to expire,
+			// and the queue to whoever serves the session then.
 			c.mu.Lock()
-			return ev, true
+			c.state(sess.ID).running = false
+			c.mu.Unlock()
+			return
 		}
-		c.handOff(ctx, sessionID, ev)
-		c.mu.Lock()
+		next, nsrc, nj, ok := c.popNext(ctx, src, sess, j)
+		if !ok {
+			c.letGo(ctx, sess.ID, key)
+			return
+		}
+		ev, src, j = next, nsrc, nj
 	}
-	stop()
-	return InboundEvent{}, false
 }
 
 // runTurn is one inbound message, end to end.
 func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
+	if j.direct {
+		c.runDirect(ctx, src, sess, j, ev)
+		return
+	}
 	started := time.Now()
+	// A message that waited out of the record goes into it now, ahead of the placeholder: it
+	// is read after the answer it waited for, and before its own.
+	c.recordHeld(ctx, src, &ev)
 
 	// The placeholder goes first and the reaction second, because the placeholder is the
 	// acknowledgement a human is actually waiting for and a source's write path is rate
@@ -948,14 +1210,15 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		defer release()
 	}
 
-	entries, err := src.FetchTranscript(ctx, ev.Ref)
+	// The record, not the source: see transcript.go. The summary and the budget are applied
+	// inside, because the budget has to know which lines were put to Podium.
+	entries, err := c.turnTranscript(ctx, src, ev.Ref, sess)
 	if err != nil {
 		// A turn with no history is a worse answer than one with it, and a much better
 		// answer than none at all.
 		c.logger.WarnContext(ctx, "reading the conversation failed; running the turn without history",
 			"ref", ev.Ref, "error", err)
 	}
-	entries = c.withSummary(ctx, sess.ID, entries)
 
 	// Resolved before the turn is recorded so the row says what actually ran, and handed to
 	// the brief and the task spec so all three agree on one answer.
@@ -967,13 +1230,15 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		Provider: c.providerFor(choice.Agent, "").ID,
 	}
 
-	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, backend)
+	turn, err := c.store.CreateTurnFor(ctx, sess.ID, ev.Ref, c.turnStartedBy(ctx, src, sess, ev), backend)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side before I could start. Nothing ran."})
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
 	}
+	// A scheduled routine run: the run row learns its turn, and the turn its run.
+	c.noteRoutineTurn(ctx, turn.ID, ev)
 
 	// The playbook's Agent Skills, read off this host and packed. It happens per turn and
 	// not at start-up so that a skill an operator has just edited is the one the next turn
@@ -998,23 +1263,22 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// turn, and a name that no longer resolves fails the job that names it rather than the
 	// whole conductor.
 	//
-	// login is who personal secrets attach to. A Slack turn still has none of those: the
-	// speaker's email picks MCP servers only. A playbook that names user_secrets keeps
-	// failing a Slack turn, the same as before.
-	login := c.asker(ctx, src, sess)
-	speaker := ""
-	if src != nil && src.Kind() == SourceSlack {
-		speaker = strings.TrimSpace(ev.Login)
-	}
+	// login is who personal secrets attach to: the person who started this turn, on whatever
+	// surface they spoke (turnLogin). Slack and GitHub speakers are only ever resolved to a
+	// login that has proven the account is theirs, so their secrets follow them here the
+	// way a web chat's always have. speaker is the same person, kept as its own name for
+	// the places that only want somebody to count or to pick MCP servers for.
+	login := c.turnLogin(ctx, src, sess, ev)
+	speaker := login
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = speaker
 	}
-	servers, err := c.mcpServers(ctx, j, mcpOwner)
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
-		// The name is the operator's own and is safe to say, and saying it is the point: a
-		// playbook naming a server nobody registered is a five-second fix for whoever can
-		// see which name it is.
+		// A playbook naming a server this turn cannot have, a registry that cannot be read,
+		// or a saved config that no longer parses. The assistant's missing servers are not
+		// here: they are in unavailable, and its turn runs and says so itself.
 		c.logger.ErrorContext(ctx, "the turn's mcp servers could not be resolved",
 			"turn_id", turn.ID, "job", j.name, "mcp_servers", j.mcpServers, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, TaskID: "", Text: fmt.Sprintf(
@@ -1022,7 +1286,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	choice.CredentialOwner = c.credentialOwner(ctx, login, choice.Agent)
+	c.logUnavailableMCP(ctx, turn.ID, j.name, unavailable)
+	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, j.onHost && c.chatHost != nil)
+	if text, refused := c.keyRefused(ctx, choice, j.onHost && c.chatHost != nil); refused {
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: text})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
 	persona, err := c.githubPersona(ctx, login, j.playbook)
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
@@ -1036,14 +1306,18 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	brief.Playbook.UnavailableMCPServers = unavailable
+	brief.Routine = c.briefRoutine(ctx, src, ev)
+	brief.LinearTickets, brief.LinearTicketsWithheld = c.briefTickets(ctx, j, login, ev)
 	if persona != nil {
 		brief.Git = persona
 	}
+	c.withRequestedBy(ctx, brief, login, persona)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
-		menu = c.menuFor(src, ev.Role)
+		menu = c.routineMenu(c.menuFor(src, ev.SourceKey, ev.Role), ev)
 		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
@@ -1121,6 +1395,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			}
 			for _, s := range brief.Playbook.MCPServers {
 				host.pullRequest = host.pullRequest || s.Name == PullRequestMCPName
+				host.githubRead = host.githubRead || s.Name == GitHubReadMCPName
 			}
 			chatRun{h: host}.run(ctx)
 			return
@@ -1131,7 +1406,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	// The capability, before the task: admission refuses a spec naming a secret the control
 	// plane does not have, so the secret has to exist by the time CreateTask is called.
-	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login)
+	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login, persona != nil)
 	if err != nil {
 		c.logger.WarnContext(ctx, "preparing the turn's github credential failed",
 			"turn_id", turn.ID, "playbook", j.name, "error", err)
@@ -1185,12 +1460,14 @@ func playbookNames(menu []DelegablePlaybook) []string {
 }
 
 // aConversation is a source that is a chat window rather than a thread. A turn of one is
-// answered by the assistant, in this process, and delegates whatever needs a machine. A
-// Linear issue runs one playbook as a task: nobody is watching a cursor, and one session
-// is one piece of work. A pull request is a conversation: people ask about the code and
-// the review, and the assistant answers or delegates — the review to the playbook marked
-// github: true, other work to whatever the menu offers. The dev source is in here because
-// it is how a conversation is tested.
+// answered by the assistant, in this process, and delegates whatever needs a machine. A pull
+// request is a conversation: people ask about the code and the review, and the assistant
+// answers or delegates — the review to the playbook marked github: true, other work to
+// whatever the menu offers. The dev source is in here because it is how a conversation is
+// tested.
+//
+// Linear is not here because it is both, session by session: an @mention is a question and
+// a conversation, a delegated issue is a piece of work. conversational decides it per event.
 func aConversation(kind string) bool {
 	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
 }
@@ -1201,7 +1478,13 @@ func (c *Conductor) speakerFor(src Source, playbook string) Speaker {
 	if playbook == "" {
 		return Speaker{}
 	}
-	own := src != nil && src.Kind() == SourceGitHub && playbook == c.profiles.Current().GitHubPlaybook()
+	// A pull request's menu offers only the review playbook for its own repository, so any
+	// review playbook speaking on one is that one.
+	own := false
+	if src != nil && src.Kind() == SourceGitHub {
+		p, ok := c.profiles.Current().Playbooks[playbook]
+		own = ok && p.Reviews()
+	}
 	return Speaker{Playbook: playbook, SourcePlaybook: own}
 }
 
@@ -1251,6 +1534,7 @@ func (c *Conductor) brief(
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
+	names := c.branding(ctx)
 	// The choice is resolved once by the caller and handed to the brief, the task spec and
 	// the turn row alike. It used to be resolved separately here and in taskSpec, which left
 	// the credential and the model one profile reload apart from disagreeing.
@@ -1261,8 +1545,8 @@ func (c *Conductor) brief(
 		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL, Channel: c.sourceChannel(ctx, ev)},
 		Profile: BriefProfile{
 			Name:         profile.Name,
-			DisplayName:  profile.DisplayName,
-			SystemPrompt: systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt),
+			DisplayName:  displayNameFor(profile.DisplayName, names),
+			SystemPrompt: withBranding(systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt), names),
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},
@@ -1272,11 +1556,11 @@ func (c *Conductor) brief(
 			AllowedTools: append([]string{}, j.allowedTools...),
 			MaxTurns:     j.maxTurns,
 			Interactive:  j.playbook.Interactive,
-			GitHub:       j.playbook.GitHub,
+			GitHub:       j.playbook.Reviews(),
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
-		Memory:      c.memory,
+		Memory:      c.memoryFor(c.placedRunsOn(ctx, j)),
 	}
 	b.Provider = c.providerFor(choice.Agent, choice.CredentialOwner)
 	// Where this turn redeems its capability. The capability itself is a secret and is
@@ -1293,6 +1577,11 @@ func (c *Conductor) brief(
 		// brief. They cannot disagree: a turn with the tools and no browser, or a browser
 		// no tool can reach, is worse than a turn with neither.
 		b.Browser = &BriefBrowser{CDPURL: browserCDPURL}
+	}
+	if j.playbook.Desktop {
+		// The same tools, pointed at the desktop's own Chromium: the one the person sees.
+		b.Browser = &BriefBrowser{CDPURL: desktopCDPURL}
+		b.Desktop = true
 	}
 	for _, r := range j.playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
@@ -1366,13 +1655,15 @@ func (c *Conductor) providerFor(agent, owner string) *BriefProvider {
 // Conductor with no store produces.
 func (c *Conductor) openaiEndpoint(owner string) string {
 	api := strings.TrimSuffix(c.openaiBaseURL, "/") + "/v1"
-	if c.openaiAuthKind(owner) == "oauth" {
+	if c.authKind(profiles.ProviderOpenAI, owner) == "oauth" {
 		return strings.TrimSuffix(c.openaiCodexBaseURL, "/")
 	}
 	return api
 }
 
-func (c *Conductor) openaiAuthKind(owner string) string {
+// authKind is how owner's credential for provider was obtained, "oauth" for a sign-in, as the
+// settings row records it. A missing row is "", the key path.
+func (c *Conductor) authKind(provider, owner string) string {
 	if c.store == nil {
 		return ""
 	}
@@ -1380,10 +1671,30 @@ func (c *Conductor) openaiAuthKind(owner string) string {
 		AuthKind string `json:"auth_kind"`
 	}
 	if err := c.store.GetSetting(context.Background(),
-		profiles.ProviderSettingKey(profiles.ProviderOpenAI, owner), &row); err != nil {
+		profiles.ProviderSettingKey(provider, owner), &row); err != nil {
 		return ""
 	}
 	return row.AuthKind
+}
+
+// claudeSignIn is whether owner's own Anthropic credential is a Claude subscription sign-in.
+func (c *Conductor) claudeSignIn(owner string) bool {
+	return owner != "" && c.authKind(profiles.ProviderAnthropic, owner) == "oauth"
+}
+
+// globalClaudeSignIn is whether an admin signed in a Claude subscription for everyone, beside
+// the global Anthropic key. The settings row is what says so, as it is for claudeSignIn.
+func (c *Conductor) globalClaudeSignIn() bool {
+	if c.store == nil {
+		return false
+	}
+	var row struct {
+		AuthKind string `json:"auth_kind"`
+	}
+	if err := c.store.GetSetting(context.Background(), profiles.ClaudeSubscriptionSettingKey, &row); err != nil {
+		return false
+	}
+	return row.AuthKind == "oauth"
 }
 
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
@@ -1421,6 +1732,21 @@ func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) prof
 // Docker (a boat sandbox) a named command replaces the image's, so this is the same command
 // either way. An image of your own built FROM the runtime keeps this path.
 var runtimeCommand = []string{"node", "/opt/podium-agent/dist/main.js"}
+
+// desktopCommand is a desktop playbook's: podium-desktop starts the desktop, waits until its
+// browser and its stream answer, and execs the runtime, so the desktop lives as long as the
+// turn. Set explicitly on every placement, because nothing else in the image would run it.
+var desktopCommand = append([]string{"podium-desktop", "--"}, runtimeCommand...)
+
+// desktopHold is how long a desktop turn's containers stay up after its command exits. A
+// desktop needs its port published while the turn runs; expose is the only way to publish
+// one, and expose always holds afterwards. Nothing is left to look at once the turn has
+// gone — the desktop went with its command — so the hold is as short as a ttl can be.
+const desktopHold = time.Second
+
+// desktopCDPURL is where a desktop turn's browser tools find its Chromium: in the turn's own
+// container, on loopback, where podium-desktop started it.
+const desktopCDPURL = "http://127.0.0.1:9222"
 
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
@@ -1481,8 +1807,22 @@ func (c *Conductor) taskSpec(
 		x.Ports = maps.Clone(x.Ports)
 		s.Expose = &x
 	}
+	if playbook.Desktop {
+		if s.Expose == nil {
+			s.Expose = &spec.Expose{TTL: spec.Duration(desktopHold)}
+		}
+		if s.Expose.Ports == nil {
+			s.Expose.Ports = map[string]spec.ExposedPort{}
+		}
+		for name, port := range profiles.DesktopPorts {
+			s.Expose.Ports[name] = spec.ExposedPort{Port: port}
+		}
+	}
 	s.ApplyDefaults()
-	if s.UsesSandbox() {
+	switch {
+	case playbook.Desktop:
+		s.Command = slices.Clone(desktopCommand)
+	case s.UsesSandbox():
 		s.Command = slices.Clone(runtimeCommand)
 	}
 	return s
@@ -1506,33 +1846,77 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // playbook named them. A playbook that names none reads nothing, so a bot that does not use
 // MCP needs no database for this.
 //
-// An unknown or disabled name fails the turn. It is the same rule a missing skill follows,
-// and for the same reason: a turn that quietly ran with fewer tools than its playbook
-// describes is the one outcome nobody can diagnose afterwards. The error is shown to the
-// human because a server name is the operator's own text, and it is the only part of this
-// failure anybody can act on.
-func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, error) {
+// A name this turn cannot have — nobody registered it, this person has not connected it and
+// there is no shared one, it is turned off, its sign-in was never finished — is handled
+// differently for the two kinds of job:
+//
+//   - The ASSISTANT runs without it. It comes back in the second list, the brief carries it,
+//     and the prompt tells the agent which servers it lacks and why, so the agent answers
+//     "I have no access to Gmail" itself instead of the person getting a system error. That
+//     is not a turn quietly running with fewer tools: the agent knows, and says so.
+//   - A PLAYBOOK fails. It runs unattended in a container with a brief written for the tools
+//     it declares, and a task that ran with fewer than that is the one outcome nobody can
+//     diagnose afterwards — the same rule a missing skill follows. The error names the
+//     server, which is the operator's own text and the part anybody can act on.
+//
+// Either kind fails on what nobody in the conversation can fix: a registry that cannot be
+// read, or a saved config that no longer parses.
+func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	if len(j.mcpServers) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if c.store == nil {
-		return nil, fmt.Errorf("this conductor has no database, so it has no MCP server registry")
+		return nil, nil, fmt.Errorf("this conductor has no database, so it has no MCP server registry")
 	}
 	rows, err := c.store.ListMcpServers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return resolveMCPServers(turnOwner(login), j.mcpServers, rows)
+	servers, unavailable, err := resolveMCPServers(turnOwner(login), j.mcpServers, rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requireMCPServers(j, unavailable); err != nil {
+		return nil, nil, err
+	}
+	return servers, unavailable, nil
+}
+
+// requireMCPServers is the playbook's strictness: any server it names that this turn cannot
+// have is an error. The assistant's turn runs without them, so it never fails here.
+func requireMCPServers(j job, unavailable []BriefUnavailableMCPServer) error {
+	if j.onHost || len(unavailable) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(unavailable))
+	for _, u := range unavailable {
+		errs = append(errs, fmt.Errorf("the MCP server %q is unavailable: %s", u.Name, u.Reason))
+	}
+	return errors.Join(errs...)
+}
+
+// logUnavailableMCP records the servers a turn runs without. The agent tells the person; the
+// log is for the operator who wonders why a turn did not use a server it names.
+func (c *Conductor) logUnavailableMCP(ctx context.Context, turnID, job string, unavailable []BriefUnavailableMCPServer) {
+	for _, u := range unavailable {
+		c.logger.InfoContext(ctx, "the turn runs without an mcp server it names",
+			"turn_id", turnID, "job", job, "mcp_server", u.Name, "reason", u.Reason)
+	}
 }
 
 // credentialOwner is whose model credential a turn spends: the person who asked, when they
 // saved their own for the provider this backend spends, and the global one otherwise. A turn
-// with no person — Slack, Linear, GitHub, the dev token — always spends the global one.
+// with no person — a polled Linear ticket, an automatic review, the dev token — always spends
+// the global one, and so does every turn of a shared conversation (turnCredentialOwner).
 //
 // A control plane that cannot be asked falls back to the global credential and says so: a
 // turn that runs on the company key beats a turn that does not run, and the log is where an
 // operator finds out it happened.
-func (c *Conductor) credentialOwner(ctx context.Context, login, agent string) string {
+//
+// onChatHost is whether the turn is answered on the chat host. A Claude subscription sign-in
+// is spent only there, by opencode's claude-agent provider running Claude Code: every other
+// turn runs a harness that would send the token as an API key, so it spends the global key.
+func (c *Conductor) credentialOwner(ctx context.Context, login, agent string, onChatHost bool) string {
 	owner := turnOwner(login)
 	if owner == "" || c.podium == nil {
 		return ""
@@ -1547,10 +1931,56 @@ func (c *Conductor) credentialOwner(ctx context.Context, login, agent string) st
 			"spends the global one", "login", owner, "provider", b.Provider, "error", err)
 		return ""
 	}
-	if v > 0 {
-		return owner
+	if v == 0 {
+		return ""
 	}
-	return ""
+	if b.Provider == profiles.ProviderAnthropic && c.claudeSignIn(owner) && (!onChatHost || !c.chatHostClaude) {
+		c.logger.InfoContext(ctx, "a Claude subscription is only spent by the assistant on the chat host; "+
+			"this turn spends the global key", "login", owner)
+		return ""
+	}
+	return owner
+}
+
+// turnCredentialOwner is credentialOwner for a turn of one conversation: nobody's once the
+// conversation is shared. A shared conversation has one context whoever speaks in it, so it
+// spends one credential, the company's. Turns from different people then share a provider's
+// prompt cache instead of each writing their own, and nobody's own key is spent by somebody
+// else's question. Only the model key moves: the person asking still brings their own
+// secrets, MCP servers and GitHub account.
+func (c *Conductor) turnCredentialOwner(ctx context.Context, sess store.Session, login, agent string, onChatHost bool) string {
+	if c.sharedConversation(ctx, sess) {
+		return ""
+	}
+	return c.credentialOwner(ctx, login, agent, onChatHost)
+}
+
+// sharedConversation is whether a conversation is shared: a Slack thread, a Linear session or
+// issue, or a pull request always is, and a web chat is once it is multiplayer (shared, or a second
+// person spoke in it; store.Chat.Multiplayer, which never goes back). A Linear agent session
+// is a thread anybody in the workspace who can see the issue may reply in, exactly as a Slack
+// thread is, and a polled ticket has nobody's key to spend in the first place. A chat whose
+// record cannot be read is treated as shared: the company key is what every turn falls back
+// to anyway, and spending a person's own key in a conversation they may have shared is the
+// outcome to avoid.
+func (c *Conductor) sharedConversation(ctx context.Context, sess store.Session) bool {
+	switch sess.SourceKind {
+	case SourceSlack, SourceGitHub, SourceLinear:
+		return true
+	}
+	if c.store == nil || sess.SourceKey == "" {
+		return false
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		c.logger.WarnContext(ctx, "could not tell whether the conversation is shared; the turn "+
+			"spends the global credential", "session_id", sess.ID, "error", err)
+		return true
+	}
+	return chat.Multiplayer
 }
 
 // turnOwner is the MCP registry a turn reads. A Slack turn, the dev token, and the
@@ -1564,9 +1994,10 @@ func turnOwner(login string) string {
 	}
 }
 
-// asker is the signed-in login a turn's personal secrets attach to. Slack, Linear, and
-// GitHub have none: a mentioner's name is not a Podium login, and a mirrored chat's login
-// is empty. A Slack speaker's email is a separate hint, used for MCP servers only.
+// asker is who a turn falls back to when its speaker did not resolve (turnLogin). Slack,
+// Linear, and GitHub have nobody to fall back to: a mentioner's name is not a Podium login,
+// and a mirrored chat's login is empty. A speaker of theirs who resolved is ev.Login, which
+// turnLogin takes first.
 func (c *Conductor) asker(ctx context.Context, src Source, sess store.Session) string {
 	kind := sess.SourceKind
 	if src != nil && src.Kind() != "" {
@@ -1642,7 +2073,10 @@ func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef
 // uses their own row of that name. When they have none, a global row is used only if it
 // is enabled and its fallback switch is on. A row they turned off is not replaced by the
 // global one. Separated from the read so it can be asserted without a database.
-func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, error) {
+//
+// A name that does not resolve is returned as unavailable, with a reason written for the
+// agent to pass on. Only a config that does not parse is an error.
+func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	personal := map[string]mcp.Server{}
 	global := map[string]mcp.Server{}
 	for _, r := range rows {
@@ -1657,50 +2091,64 @@ func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.S
 		}
 	}
 	out := make([]mcp.Server, 0, len(names))
+	var unavailable []BriefUnavailableMCPServer
 	for _, name := range names {
-		srv, ok, err := pickMCPServer(owner, name, personal, global)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, fmt.Errorf("no MCP server named %q is registered", name)
+		srv, reason := pickMCPServer(owner, name, personal, global)
+		if reason != "" {
+			unavailable = append(unavailable, BriefUnavailableMCPServer{Name: name, Reason: reason})
+			continue
 		}
 		if _, err := mcp.ParseConfig(srv.Config); err != nil {
-			return nil, fmt.Errorf("the MCP server %q: %w", name, err)
+			return nil, nil, fmt.Errorf("the MCP server %q: %w", name, err)
 		}
 		out = append(out, srv)
 	}
-	return out, nil
+	return out, unavailable, nil
 }
 
-// pickMCPServer chooses one name. The bool is false when nothing qualifies, which the
-// caller reports as unregistered. A disabled row is an error of its own: the playbook
-// named a server that exists and was turned off.
-func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, bool, error) {
+// The reasons a named server is unavailable, as the agent is told them. They are written to
+// be repeated to the person, so they say what that person can do about it.
+const (
+	mcpReasonUnregistered = "no MCP server by this name is registered on this Podium; an operator would have to add it"
+	mcpReasonNotConnected = "the person in this conversation has not connected it, and there is no shared one " +
+		"they can use; they can connect their own under MCP servers in Podium"
+	mcpReasonOff       = "it is registered but turned off"
+	mcpReasonPersonOff = "the person in this conversation turned their own connection to it off"
+	mcpReasonSignIn    = "the person in this conversation started connecting it but never finished signing in; " +
+		"they can sign in under MCP servers in Podium"
+)
+
+// pickMCPServer chooses one name, or says why nothing qualifies.
+func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, string) {
 	if owner == "" {
 		srv, ok := global[name]
-		if !ok {
-			return mcp.Server{}, false, nil
+		switch {
+		case !ok:
+			return mcp.Server{}, mcpReasonUnregistered
+		case !srv.Enabled:
+			return mcp.Server{}, mcpReasonOff
 		}
-		if !srv.Enabled {
-			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
-		}
-		return srv, true, nil
+		return srv, ""
 	}
 	if srv, ok := personal[name]; ok {
-		if !srv.Enabled {
-			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		switch {
+		case !srv.Enabled:
+			return mcp.Server{}, mcpReasonPersonOff
+		case srv.Kind() == mcp.AuthOAuth && srv.TokenSecretVersion == 0:
+			// A sign-in that never completed has nothing to present. Handing the harness a
+			// server it cannot authenticate to fails the turn on its config instead.
+			return mcp.Server{}, mcpReasonSignIn
 		}
-		return srv, true, nil
+		return srv, ""
 	}
 	srv, ok := global[name]
-	if !ok || !srv.Fallback {
-		return mcp.Server{}, false, nil
+	switch {
+	case !ok || !srv.Fallback:
+		return mcp.Server{}, mcpReasonNotConnected
+	case !srv.Enabled:
+		return mcp.Server{}, mcpReasonOff
 	}
-	if !srv.Enabled {
-		return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
-	}
-	return srv, true, nil
+	return srv, ""
 }
 
 // skills is the library one turn resolves its names against: the directories under
@@ -1884,6 +2332,7 @@ func (c *Conductor) failTurn(
 		c.logger.ErrorContext(ctx, "finishing a failed turn failed", "turn_id", turn.ID, "error", err)
 	}
 	c.finish(ctx, src, ref, ReactionFailed)
+	c.forgetRoutineTurn(turn.ID)
 	c.metrics.Turns.WithLabelValues(sess.SourceKind, j.name, status).Inc()
 	c.metrics.TurnDuration.WithLabelValues(j.name).Observe(time.Since(started).Seconds())
 }
@@ -1892,6 +2341,25 @@ func (c *Conductor) failTurn(
 // source that cannot post is logged and the turn carries on: the work is more use to a
 // human than the placeholder was.
 func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbound) string {
+	// An answer, a failure or a question in a conversation that lives elsewhere is recorded
+	// and owed through the outbox (outbox.go), which also makes the first attempt.
+	// A routine run's output is held until it ends (routine.go). Its answer or its failure
+	// ends the hold; an answer from a run that reported idle is not said at all.
+	answer := ""
+	if out.Type == OutFinal {
+		answer = out.Text
+	}
+	if out.Type == OutQuestion {
+		c.noteLinearQuestion(ctx, src, ref, out)
+	}
+	if (out.Type == OutFinal || out.Type == OutFailure) && c.releaseRoutine(ctx, src, ref, answer) && out.Type == OutFinal {
+		return ""
+	}
+	if durableOut(out.Type) {
+		if id, handled := c.postDurable(ctx, src, ref, out); handled {
+			return id
+		}
+	}
 	id, err := src.Post(ctx, ref, out)
 	if err != nil {
 		c.logger.WarnContext(ctx, "posting to the conversation failed",
@@ -1900,11 +2368,18 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 	}
 	// Said out loud, so it belongs in the copy a reader sees.
 	c.mirrorSaid(ctx, src, ref, out)
+	// An answer to somebody who wrote in a Linear issue's conversation from the web is the
+	// issue's too (relay.go).
+	if durableOut(out.Type) {
+		c.relayAnswer(ctx, src, ref, id, out)
+	}
 	return id
 }
 
 // finish shows the turn's outcome on the triggering message.
 func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Reaction) {
+	// A routine run that ended without an answer still ends its hold.
+	c.releaseRoutine(ctx, src, ref, "")
 	if err := src.React(ctx, ref, kind); err != nil {
 		c.logger.WarnContext(ctx, "reacting with the turn's outcome failed",
 			"ref", ref, "reaction", kind, "error", err)
@@ -1922,6 +2397,8 @@ func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Rea
 // thing to keep in sync, and progress is superseded by the final anyway.
 func (c *Conductor) recover(ctx context.Context) {
 	c.recoverWork(ctx, true)
+	// Turns that were queued when this conductor (or another) stopped are still turns.
+	c.adoptQueues(ctx)
 }
 
 // recoverWork resumes what was in flight. At startup that is this conductor's own work from
@@ -1944,7 +2421,7 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 			c.logger.ErrorContext(ctx, "a running turn has no session", "turn_id", turn.ID, "error", err)
 			continue
 		}
-		src := c.sourceOf(sess.SourceKind)
+		src := c.sourceForRef(ctx, sess.SourceKind, turn.TriggerRef)
 
 		c.mu.Lock()
 		local := c.sessions[sess.ID] != nil && c.sessions[sess.ID].running
@@ -2086,6 +2563,12 @@ func (c *Conductor) ReplaceSource(kind string, src Source) {
 	c.sources = slices.DeleteFunc(c.sources, func(s Source) bool { return s.Kind() == kind })
 	if src != nil {
 		c.sources = append(c.sources, src)
+		if ds, ok := src.(deliverySetter); ok {
+			ds.SetDeliverer(c)
+		}
+		if rs, ok := src.(relaySetter); ok {
+			rs.SetRelayer(c)
+		}
 	}
 	ctx := c.baseCtx
 	c.mu.Unlock()

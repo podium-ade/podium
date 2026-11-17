@@ -1,0 +1,152 @@
+# podium-agent-runtime-desktop: the agent runtime plus a desktop the turn and a person share.
+#
+# A virtual X display (Xvfb), XFCE, one Chromium the agent's browser tools drive over its
+# DevTools port, and voxl, which streams the display to a browser as H.264 over a WebSocket —
+# the one transport that reaches a sandbox through Cloudflare and a provider's HTTPS proxy.
+# Beside it, ttyd serves a terminal the same way: a tmux session in the turn's workspace.
+# `desktop/podium-desktop` starts all of it in front of the runtime; see that script for why
+# it is a wrapper and not this image's CMD.
+#
+# It builds FROM the base runtime, the way -dev does, so `make agent-runtime` first:
+#
+#   make agent-runtime-desktop
+#
+# LICENSING — read desktop/THIRD_PARTY.md. voxl is MIT, but the binary built here links x264,
+# so it is distributed under GPL-2+. This image is NOT published: building it is not
+# distribution, and an operator builds their own. Publishing it means shipping the source with
+# it, which this file already does (the voxl crate goes into /usr/share/src/voxl). voxl only
+# ever runs as its own process; never link its library into a Podium binary.
+
+# The base runtime, already on Debian 13 (trixie): the desktop packages below are trixie's.
+ARG RUNTIME_IMAGE=podium-agent-runtime:dev
+
+# voxl's releases ship source only (a .crate), so it is compiled. From the released crate, not a
+# clone: the version and its lock file are pinned, and the same .crate is the source copy the
+# licence asks for.
+FROM rust:1-trixie@sha256:bc2c4c21d4467cdbbac0ee7b95a6deb742a3467dfe0ff7647916c4b42ca56372 AS voxl
+ARG VOXL_VERSION=0.3.3
+# esbuild bundles voxl's web client into the binary at build time.
+ARG ESBUILD_VERSION=0.25.10
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        clang libclang-dev pkg-config npm \
+        libx264-dev libyuv-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxcb1-dev; \
+    rm -rf /var/lib/apt/lists/*; \
+    npm install --global "esbuild@${ESBUILD_VERSION}"; \
+    npm cache clean --force
+RUN set -eux; \
+    cargo install --locked --root /opt/voxl "voxl-server@${VOXL_VERSION}"; \
+    install -d /opt/voxl/src; \
+    cp "$(find "${CARGO_HOME:-/usr/local/cargo}/registry/cache" -name "voxl-server-${VOXL_VERSION}.crate" | head -1)" \
+        /opt/voxl/src/; \
+    /opt/voxl/bin/voxl --help >/dev/null; \
+    # Debug symbols are 22 MB of the 25 MB binary. The source shipped beside it is what the
+    # licence asks for, not the symbols.
+    strip /opt/voxl/bin/voxl; \
+    /opt/voxl/bin/voxl --help >/dev/null
+
+# ttyd, the terminal: a web page and a WebSocket in front of a shell. Debian 13 does not package
+# it, so this is the project's own static release, pinned by checksum per architecture. MIT; its
+# static build carries libwebsockets, libuv and json-c (MIT), zlib (Zlib) and mbed TLS
+# (Apache-2.0) — see desktop/THIRD_PARTY.md.
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS ttyd
+ARG TARGETARCH
+ARG TTYD_VERSION=1.7.7
+ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
+ADD --chmod=0755 --checksum=sha256:${TTYD_SHA256_AMD64} \
+    https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64 /ttyd.amd64
+ADD --chmod=0755 --checksum=sha256:${TTYD_SHA256_ARM64} \
+    https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.aarch64 /ttyd.arm64
+RUN set -eux; \
+    install -D -m 0755 "/ttyd.${TARGETARCH}" /opt/ttyd/ttyd; \
+    /opt/ttyd/ttyd --version
+
+FROM ${RUNTIME_IMAGE}
+ARG VERSION=dev
+ARG REVISION=none
+ARG VOXL_VERSION=0.3.3
+LABEL org.opencontainers.image.title="podium-agent-runtime-desktop" \
+      org.opencontainers.image.source="https://github.com/podium-ade/podium" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="Apache-2.0 AND MIT AND GPL-2.0-or-later"
+
+USER root
+
+# The desktop, and only the libraries voxl links at run time (no -dev packages).
+#
+# - xvfb, dbus-x11, xfce4, xfce4-terminal: the display and a complete desktop that follows a
+#   RandR resize on its own, which a hand-built panel did not.
+# - greybird-gtk-theme, elementary-xfce-icon-theme, librsvg2-common: the dark theme and icons
+#   xfce-setup.sh selects, and the SVG loader the wallpaper needs (without it the desktop is
+#   black).
+# - chromium, xdotool: the browser and input automation for the agent.
+# - tmux: the terminal's session, so a reload, a second viewer or the panel coming back finds
+#   the same shell rather than a new one.
+# - libx264-164 libyuv0 libopus0 libpulse0: what /usr/local/bin/voxl links.
+#
+# /usr/share/doc stays: each package's copyright file is the licence text the image carries.
+#
+# Kept out of the image, by dpkg's own path-exclude so the files never land in a layer
+# (about 270 MB; measured, and the image tests prove the desktop works without them):
+#
+# - Mesa's software OpenGL: LLVM (130 MB), the gallium drivers and z3, which only LLVM uses.
+#   Chromium's libgbm and Xvfb's libGL pull them in but only ever dlopen them, and nothing on
+#   this desktop draws with OpenGL: Chromium renders with the SwiftShader it bundles (see the
+#   --use-angle flag in podium-desktop), and with Mesa present it still had no WebGL.
+# - elementary's high-DPI icon set (66 MB): a theme of its own that the dark theme
+#   xfce-setup.sh selects does not inherit.
+RUN set -eux; \
+    { \
+        echo 'path-exclude=/usr/lib/*/libLLVM*'; \
+        echo 'path-exclude=/usr/lib/*/libgallium-*'; \
+        echo 'path-exclude=/usr/lib/*/libz3.so*'; \
+        echo 'path-exclude=/usr/share/icons/elementary-xfce-hidpi/*'; \
+    } > /etc/dpkg/dpkg.cfg.d/podium-desktop-excludes; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        xvfb dbus-x11 xfce4 xfce4-terminal \
+        greybird-gtk-theme elementary-xfce-icon-theme librsvg2-common fonts-dejavu-core \
+        chromium xdotool tmux \
+        libx264-164 libyuv0 libopus0 libpulse0; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -f /usr/share/doc/libx264-164/copyright; \
+    chromium --version
+
+# The MCP client the runtime points the agent's browser* tools at (opencode.ts, BrowserBinary).
+# The base runtime does not carry it — a `browser: true` turn's image does — and without it a
+# desktop turn's browser tools have nothing to start. The same pin as Dockerfile.dev, and
+# installed rather than fetched by npx at run time, for the same reasons.
+ARG CHROME_DEVTOOLS_MCP_VERSION=1.10.1
+RUN set -eux; \
+    npm install --global "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
+    npm cache clean --force; \
+    chrome-devtools-mcp --version
+
+COPY --from=voxl /opt/voxl/bin/voxl /usr/local/bin/voxl
+COPY --from=voxl /opt/voxl/src/ /usr/share/src/voxl/
+COPY --from=ttyd /opt/ttyd/ttyd /usr/local/bin/ttyd
+COPY desktop/podium-desktop desktop/xfce-setup.sh /opt/podium-desktop/
+COPY desktop/chromium-flags /etc/chromium.d/podium-desktop
+COPY desktop/THIRD_PARTY.md /usr/share/doc/podium-desktop/THIRD_PARTY.md
+RUN set -eux; \
+    chmod 0755 /opt/podium-desktop/podium-desktop /opt/podium-desktop/xfce-setup.sh; \
+    ln -s /opt/podium-desktop/podium-desktop /usr/local/bin/podium-desktop; \
+    chmod 0644 /etc/chromium.d/podium-desktop; \
+    # XFCE's browser is debian-sensible-browser by default, which runs sensible-browser, which
+    # is not installed: the dock's browser failed with "Input/output error". Chromium's own
+    # helper runs `chromium`, which reads the flags above.
+    sed -i 's/^WebBrowser=.*/WebBrowser=chromium/' /etc/xdg/xfce4/helpers.rc; \
+    grep -qx 'WebBrowser=chromium' /etc/xdg/xfce4/helpers.rc; \
+    test -f "/usr/share/src/voxl/voxl-server-${VOXL_VERSION}.crate"; \
+    voxl --help >/dev/null; \
+    ttyd --version; \
+    chown -R 1000:1000 /home/agent
+
+USER agent
+WORKDIR /workspace
+# The base's: a turn's command is set by the conductor, and a desktop playbook's puts
+# podium-desktop in front of it. This image's own default is still the bare runtime.
+ENTRYPOINT ["node", "/opt/podium-agent/dist/main.js"]

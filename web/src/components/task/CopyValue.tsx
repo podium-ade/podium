@@ -26,7 +26,7 @@ export function CopyValue({
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <span className={cn("inline-flex min-w-0 items-start gap-1", className)}>
+    <span className={cn("inline-flex min-w-0 items-start gap-1.5", className)}>
       <span className="min-w-0 font-mono break-words">{children ?? value}</span>
       <Tooltip label={copied ? "Copied" : `Copy ${label}`}>
         <Button
@@ -34,7 +34,9 @@ export function CopyValue({
           variant="ghost"
           size="icon-xs"
           aria-label={`Copy ${label}`}
-          className="-my-1 shrink-0 text-faint hover:text-fg"
+          // A 24px target centred on the value's first line, whatever its size: the margin
+          // takes back what the button is taller than one line, half above and half below.
+          className="my-[calc((1lh-1.5rem)/2)] size-6 shrink-0 text-faint hover:text-fg"
           onClick={() => {
             void navigator.clipboard?.writeText(value);
             setCopied(true);

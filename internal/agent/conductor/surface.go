@@ -36,6 +36,21 @@ func (c *Conductor) turnSurfaceURL(runsOn string) string {
 	}
 }
 
+// memoryFor is the memory block of a brief for a turn running on runsOn: the same memory, at
+// the address a cloud sandbox reaches it when there is one.
+func (c *Conductor) memoryFor(runsOn string) *BriefMemory {
+	if c.memory == nil || c.memorySandboxMCPURL == "" {
+		return c.memory
+	}
+	switch runsOn {
+	case profiles.RunsOnHost, "", profiles.RunsOnNodes:
+		return c.memory
+	}
+	m := *c.memory
+	m.MCPURL = c.memorySandboxMCPURL
+	return &m
+}
+
 // placedRunsOn is where this job's turn runs, as turnSurfaceURL needs it: the host for the
 // assistant, or the playbook's runs_on resolved against the conductor's default.
 func (c *Conductor) placedRunsOn(ctx context.Context, j job) string {

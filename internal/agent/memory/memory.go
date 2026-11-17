@@ -49,6 +49,11 @@ const (
 // fixes by editing .env rather than by reading a log.
 var ErrUnauthorized = errors.New("hindsight refused the memory API key")
 
+// ErrUnreachable is Hindsight not answering at all: nothing listening, a timeout, or a
+// gateway in front of it saying the same. It is separated because the Memory page says it in
+// plain words, and because it also means nothing new is being remembered.
+var ErrUnreachable = errors.New("the memory service is not answering")
+
 // ErrNotFound is a 404 for a named memory. Hindsight answers a list of an unknown bank with
 // an empty page rather than a 404, so this only ever means "no such memory".
 var ErrNotFound = errors.New("no such memory")
@@ -136,8 +141,9 @@ type Client interface {
 	// Recall is the semantic search behind SearchMemories.
 	Recall(ctx context.Context, query string, limit int) ([]Memory, error)
 	// List is the newest-first page behind ListMemories. The cursor is opaque; an empty
-	// one starts at the beginning and an empty return means there is no further page.
-	List(ctx context.Context, cursor string, limit int) (items []Memory, next string, err error)
+	// one starts at the beginning and an empty return means there is no further page. total
+	// is how many memories the bank holds, so a reader can say "page 2 of 7".
+	List(ctx context.Context, cursor string, limit int) (items []Memory, next string, total int, err error)
 	// Forget excludes one memory from every future recall. Hindsight has no
 	// single-memory delete: this is its curation tombstone, which keeps the row for audit
 	// and is reversible from Hindsight's own API.
@@ -251,10 +257,10 @@ func (c *HTTP) Recall(ctx context.Context, query string, limit int) ([]Memory, e
 
 // List is one newest-first page. The cursor is Hindsight's offset, rendered as a string so
 // nothing outside this package depends on it being one.
-func (c *HTTP) List(ctx context.Context, cursor string, limit int) ([]Memory, string, error) {
+func (c *HTTP) List(ctx context.Context, cursor string, limit int) ([]Memory, string, int, error) {
 	offset, err := parseCursor(cursor)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	limit = clampLimit(limit)
 	query := url.Values{
@@ -263,7 +269,7 @@ func (c *HTTP) List(ctx context.Context, cursor string, limit int) ([]Memory, st
 	}
 	var out listResponse
 	if err := c.do(ctx, http.MethodGet, c.path("memories", "list"), query, nil, &out); err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	items := make([]Memory, 0, len(out.Items))
 	for _, u := range out.Items {
@@ -273,7 +279,7 @@ func (c *HTTP) List(ctx context.Context, cursor string, limit int) ([]Memory, st
 	if offset+len(items) < out.Total && len(items) > 0 {
 		next = strconv.Itoa(offset + len(items))
 	}
-	return items, next, nil
+	return items, next, out.Total, nil
 }
 
 // Forget invalidates one memory. Hindsight excludes an invalidated memory from recall, from
@@ -352,7 +358,10 @@ func (c *HTTP) do(ctx context.Context, method, path string, query url.Values, in
 
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("memory: %s %s: %w", method, path, err)
+		if ctx.Err() != nil {
+			return fmt.Errorf("memory: %s %s: %w", method, path, err)
+		}
+		return fmt.Errorf("%w (%s %s): %w", ErrUnreachable, method, path, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
@@ -389,6 +398,8 @@ func statusError(method, path string, res *http.Response) error {
 		return fmt.Errorf("%w (%s %s): %s", ErrUnauthorized, method, path, detail)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w (%s %s): %s", ErrNotFound, method, path, detail)
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return fmt.Errorf("%w (%s %s): %s: %s", ErrUnreachable, method, path, res.Status, detail)
 	}
 	return fmt.Errorf("memory: %s %s: %s: %s", method, path, res.Status, detail)
 }

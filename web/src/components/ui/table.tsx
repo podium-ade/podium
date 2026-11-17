@@ -87,9 +87,9 @@ function TableRow({ className, ...props }: ComponentProps<"tr">) {
 
 /*
  * A pinned trailing column, for the one cell that must stay reachable when a wide table
- * scrolls: the row's actions. It cannot simply inherit the row's translucent hover, because a
- * sticky cell paints over the columns sliding under it and would show them through, so the
- * hover colour is the same blend, mixed down to an opaque one.
+ * scrolls: the row's actions. A sticky cell paints over the columns sliding under it, so it
+ * needs its own opaque background rather than the row's; it takes the row's hover and
+ * selected colour (raised, which is opaque) so the highlight runs the full width of the row.
  *
  * The edge fade is only while something is still sliding under the column. Once the scroller
  * is at the end, the column is in its own place and a gradient would be a shadow on empty air.
@@ -125,7 +125,8 @@ function TableCell({ className, pinned, ...props }: ComponentProps<"td"> & { pin
         "border-b border-hairline px-3 py-2.5 align-middle",
         pinned && [
           ...PINNED,
-          "bg-card group-hover/row:bg-[color-mix(in_oklab,var(--color-raised)_45%,var(--color-card))]",
+          // The same fade as the row's, or the cell lands a beat before the rest of it.
+          "bg-card transition-colors duration-100 group-hover/row:bg-raised group-data-[state=selected]/row:bg-raised",
         ],
         className,
       )}

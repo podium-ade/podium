@@ -5,7 +5,7 @@
 #
 # The CLI never talks to Docker — everything it knows comes from the control plane — so this
 # image needs no socket, no privileges and no state.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 
 # goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
 # binaries at the same path: the build context holds linux/amd64/<binary> and

@@ -123,6 +123,7 @@ func (r *turnRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.job.playbook.Timeout.Std())
+	r.c.noteRefusal(ctx, r.turn.Backend.Provider, r.answer(), result.Status == store.TurnFailed)
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.
@@ -130,7 +131,10 @@ func (r *turnRun) run(ctx context.Context) {
 			"turn_id", r.turn.ID, "task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason(),
 			"error_event", r.errText)
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post})
+		r.c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, false); note != "" {
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: note})
@@ -206,14 +210,20 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
 	r.linkPullRequests(ctx, answer)
+	// A routine run that found nothing to do is kept in its chat only quietly (finish writes
+	// what it held as rows that are not history) and nothing of it goes to shared memory.
+	idle := r.c.routineIdle(r.ref)
 	r.c.finish(ctx, r.src, r.ref, reactionFor(status))
+	r.c.forgetRoutineTurn(r.turn.ID)
 	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.job.name, status).Inc()
 	r.c.metrics.TurnDuration.WithLabelValues(r.job.name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
 		"status", status, "playbook", r.job.name)
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
-	r.retain(ctx, status)
+	if !idle {
+		r.retain(ctx, status)
+	}
 }
 
 // linkPullRequests hands the source the pull requests this turn's answer named.

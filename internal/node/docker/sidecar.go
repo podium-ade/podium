@@ -174,7 +174,14 @@ func (e *Executor) startSidecar(ctx context.Context, req Request, netID, name st
 		AutoRemove:    false,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 	}
-	if sc.ShareWorkspace {
+	switch {
+	case sc.ShareWorkspace && e.hostWorkspace != "":
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: e.hostWorkspace,
+			Target: workspacePath,
+		})
+	case sc.ShareWorkspace:
 		// The same named volume the task has, at the same path. A nested Docker daemon
 		// resolves a bind-mount source against its OWN filesystem, so `docker run -v
 		// /workspace/x:/x` or a `docker compose` build context under /workspace reaches
@@ -184,6 +191,10 @@ func (e *Executor) startSidecar(ctx context.Context, req Request, netID, name st
 			Source: volumeName(req.TaskID),
 			Target: workspacePath,
 		})
+	}
+	if e.hostWorkspace != "" {
+		// A task run as a process is this machine, which a container reaches at its gateway.
+		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, networkAlias+":host-gateway")
 	}
 	applyResources(hostCfg, sc.Resources)
 	applySidecarHardening(hostCfg, sc.Privileged)

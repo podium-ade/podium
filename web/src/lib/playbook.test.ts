@@ -28,7 +28,10 @@ const draft: PlaybookDraft = {
   repos: [],
   slackChannels: [],
   linear: false,
+  linearTeams: ["ENG"],
+  linearLabels: ["bug"],
   github: false,
+  githubRepos: [],
   githubRequires: "",
   interactive: true,
   skills: ["pr-review"],
@@ -36,9 +39,32 @@ const draft: PlaybookDraft = {
   env: { CI: "true" },
   docker: false,
   browser: false,
+  desktop: false,
   runsOn: "",
   sandbox: NO_OVERRIDES,
 };
+
+describe("Linear rules", () => {
+  it("write linear_teams and linear_labels, and read them back", () => {
+    const yaml = draftToYaml(draft);
+    expect(yaml).toContain("linear_teams:");
+    expect(yaml).toContain("linear_labels:");
+    const { doc, problems } = parsePlaybookYaml(yaml);
+    expect(problems).toEqual([]);
+    expect(doc?.linear_teams).toEqual(["ENG"]);
+    expect(doc?.linear_labels).toEqual(["bug"]);
+    expect(docToDraft("reporter", doc!)).toMatchObject({ linearTeams: ["ENG"], linearLabels: ["bug"] });
+  });
+
+  it("leaves them out when a playbook names none", () => {
+    const yaml = draftToYaml({ ...draft, linearTeams: [], linearLabels: [] });
+    expect(yaml).not.toContain("linear_teams");
+    expect(yaml).not.toContain("linear_labels");
+    expect(definitionToYaml(create(PlaybookDefinitionSchema, { name: "x", linearTeams: ["OPS"] }))).toContain(
+      "linear_teams",
+    );
+  });
+});
 
 describe("parsePlaybookYaml", () => {
   it("decodes a playbooks/<name>.yaml", () => {
@@ -88,11 +114,32 @@ env:
     expect(bad.problems.join("\n")).toContain("is not one of read, triage, write, maintain, admin");
   });
 
+  it("round-trips github_repos and refuses an entry that is not owner/name", () => {
+    const text = draftToYaml({ ...draft, githubRepos: ["acme/api", "acme/billing"] });
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).githubRepos).toEqual(["acme/api", "acme/billing"]);
+    const bad = parsePlaybookYaml("system_prompt: hi\ngithub_repos: [api]\n");
+    expect(bad.problems.join("\n")).toContain('"api" is not owner/name');
+  });
+
   it("round-trips github: true", () => {
     const text = draftToYaml({ ...draft, github: true });
     const { doc, problems } = parsePlaybookYaml(text);
     expect(problems).toEqual([]);
     expect(docToDraft("reporter", doc!).github).toBe(true);
+  });
+
+  it("round-trips desktop: true, and a definition's flag reaches the file", () => {
+    const text = draftToYaml({ ...draft, desktop: true });
+    expect(text).toContain("desktop: true");
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).desktop).toBe(true);
+    expect(docToDraft("reporter", parsePlaybookYaml(draftToYaml(draft)).doc!).desktop).toBe(false);
+
+    const def = create(PlaybookDefinitionSchema, { name: "desk", systemPrompt: "x", desktop: true });
+    expect(definitionToYaml(def)).toContain("desktop: true");
   });
 
   it("round-trips where it runs and only the overrides that are set", () => {

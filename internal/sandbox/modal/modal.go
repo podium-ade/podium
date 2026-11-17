@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,7 @@ func init() {
 		}
 		return New(c)
 	})
+	sandbox.RegisterSnapshotter("modal")
 }
 
 // Config is the node's `sandbox.modal` block.
@@ -73,6 +75,10 @@ type Config struct {
 	// that asks for more than a limit is refused rather than given less than it asked for.
 	CPULimit      float64 `json:"cpu_limit"`
 	MemoryLimitMB int     `json:"memory_limit_mb"`
+	// PrivilegedSidecars lets a task under the vm runtime have a privileged sidecar, a Docker
+	// daemon for one. The sandbox is a VM of the task's own and holds no Modal credential, so
+	// root there reaches only what the task already has. gVisor runs none at all.
+	PrivilegedSidecars bool `json:"privileged_sidecars"`
 	// Runtime is "gvisor" (the default) or "vm". Only vm sandboxes can mount a tmpfs or run
 	// Docker; when one's image has dockerd, the sandbox starts it.
 	Runtime string `json:"runtime"`
@@ -204,7 +210,10 @@ func (p *Provider) Capabilities() sandbox.Capabilities { return capabilities(p.c
 
 func capabilities(c Config) sandbox.Capabilities {
 	vm := c.vm()
-	return sandbox.Capabilities{NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL}
+	return sandbox.Capabilities{
+		NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL,
+		PrivilegedSidecars: vm && c.PrivilegedSidecars, DirSnapshot: true,
+	}
 }
 
 // sandboxName is the Modal name for a key. Modal keeps names unique among an App's running
@@ -356,11 +365,54 @@ func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Co
 		return p.byName(ctx, app, params.Name, cfg.Environment)
 	}
 	if err != nil {
-		return "", toError("create", err)
+		source := req.Image
+		if source == "" && req.Snapshot == "" {
+			source = cfg.Image
+		}
+		return "", toError("create", explainBuild(source, err))
 	}
 	p.remember(sb)
 	return sb.SandboxID, nil
 }
+
+// emptyBuild is Modal's SDK reporting a failed image build whose exception is empty: Modal put
+// the reason in the build's log, which the SDK reads and throws away.
+var emptyBuild = regexp.MustCompile(`^Image build for (im-[A-Za-z0-9]+) failed with the exception:\s*$`)
+
+// explainBuild replaces a failed image build that came back with no reason by what Podium can
+// say about it: which image, what usually causes it, and where Modal keeps the log. Without it
+// a task fails with "failed with the exception:" and nothing after the colon.
+func explainBuild(image string, err error) error {
+	var remote sdk.RemoteError
+	if !errors.As(err, &remote) {
+		return err
+	}
+	m := emptyBuild.FindStringSubmatch(remote.Exception)
+	if m == nil {
+		return err
+	}
+	return buildError{image: image, build: m[1], err: err}
+}
+
+// buildError is an image build Modal failed without a reason. It still unwraps to Modal's own
+// error; it only does not print that error's empty tail.
+type buildError struct {
+	image, build string
+	err          error
+}
+
+func (e buildError) Error() string {
+	what := "the sandbox image"
+	if e.image != "" {
+		what = fmt.Sprintf("image %q", e.image)
+	}
+	return fmt.Sprintf("Modal could not prepare %s and gave no reason (build %s). Usually Modal "+
+		"could not pull it: the image must be in a registry Modal can reach, so a tag that exists "+
+		"only in a local Docker engine will not work, and a private registry needs its login set "+
+		"on the sandbox provider. Modal's dashboard has the build's log", what, e.build)
+}
+
+func (e buildError) Unwrap() error { return e.err }
 
 func isModalImage(image string) bool {
 	_, ok := spec.ModalImage(image)
@@ -561,6 +613,65 @@ func (p *Provider) Delete(ctx context.Context, id string) error {
 	_ = sb.Detach()
 	return nil
 }
+
+// snapshotTimeout bounds one directory snapshot. Modal's default of 55s is too short for a
+// workspace with its dependencies installed.
+const snapshotTimeout = 10 * time.Minute
+
+// SnapshotDir implements sandbox.Snapshotter with a Modal directory snapshot: only path is
+// kept, never the agent's token or the task's secrets, which live outside it.
+func (p *Provider) SnapshotDir(ctx context.Context, id, path string, ttl time.Duration) (string, error) {
+	sb, err := p.sandbox(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	params := &sdk.SandboxSnapshotDirectoryParams{Timeout: snapshotTimeout, TTL: snapshotTTL(ttl)}
+	img, err := sb.SnapshotDirectory(ctx, path, params)
+	if err != nil {
+		return "", toError("snapshot", err)
+	}
+	return img.ImageID, nil
+}
+
+// snapshotTTL is ttl as Modal takes it: whole seconds, NoExpiryTTL for never. Zero would be
+// Modal's own 30 days, which no policy asked for, so it is never.
+func snapshotTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return sdk.NoExpiryTTL
+	}
+	return max(ttl.Truncate(time.Second), time.Second)
+}
+
+// MountSnapshot implements sandbox.Snapshotter.
+func (p *Provider) MountSnapshot(ctx context.Context, id, path, image string) error {
+	sb, err := p.sandbox(ctx, id)
+	if err != nil {
+		return err
+	}
+	img, err := p.c.Images.FromID(ctx, image, nil)
+	if err != nil {
+		return toError("mount", err)
+	}
+	if err := sb.MountImage(ctx, path, img, nil); err != nil {
+		return toError("mount", err)
+	}
+	return nil
+}
+
+// DeleteSnapshot implements sandbox.Snapshotter.
+func (p *Provider) DeleteSnapshot(ctx context.Context, image string) error {
+	err := toError("delete snapshot", p.c.Images.Delete(ctx, image, nil))
+	var pe *sandbox.Error
+	if errors.As(err, &pe) && pe.Code == "not_found" {
+		return nil
+	}
+	return err
+}
+
+// Close drops the connection to Modal. Sandboxes and images are untouched.
+func (p *Provider) Close() { p.c.Close() }
+
+var _ sandbox.Snapshotter = (*Provider)(nil)
 
 // Limits is unknown: Modal has no API for the account's remaining room.
 func (p *Provider) Limits(context.Context) (sandbox.Limits, error) {

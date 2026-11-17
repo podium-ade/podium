@@ -162,6 +162,21 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"a docker playbook pointing DOCKER_HOST somewhere else", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "docker: true\nenv: {DOCKER_HOST: tcp://elsewhere:2375}\n"
 		}, []string{"playbooks/general.yaml", "DOCKER_HOST"}},
+		{"a desktop with a second browser", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nbrowser: true\n"
+		}, []string{"playbooks/general.yaml", "desktop and browser cannot both be true"}},
+		{"a desktop exposing its own port name", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {desktop: {port: 3000}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.desktop is the desktop's own port"}},
+		{"a desktop exposing the desktop's port number", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {web: {port: 6901}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.web uses port 6901"}},
+		{"a desktop exposing the terminal's port name", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {terminal: {port: 3000}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.terminal is the desktop's own port"}},
+		{"a desktop exposing the terminal's port number", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "desktop: true\nexpose: {ports: {web: {port: 7681}}}\n"
+		}, []string{"playbooks/general.yaml", "expose.ports.web uses port 7681, which is the desktop's terminal"}},
 		{"a boat machine type boat does not have", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "sandbox: {boat: {type: huge}}\n"
 		}, []string{"playbooks/general.yaml", "sandbox.boat.type"}},
@@ -356,6 +371,33 @@ func TestSelect(t *testing.T) {
 		assert.Empty(t, sel.Playbook.Name)
 		assert.Equal(t, "hello", sel.Instruction)
 	})
+
+	// A Linear agent session runs the linear: true playbook unless somebody named another.
+	t.Run("nothing else picked one, so the source's default runs", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "  look at this  "})
+		assert.Equal(t, "coder", sel.Playbook.Name)
+		assert.Equal(t, "look at this", sel.Instruction)
+		assert.False(t, sel.Explicit, "a default is not somebody naming a playbook")
+	})
+
+	t.Run("a /playbook prefix beats the source's default", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "/general what is this"})
+		assert.Equal(t, "general", sel.Playbook.Name)
+		assert.Equal(t, "what is this", sel.Instruction)
+		assert.True(t, sel.Explicit)
+	})
+
+	t.Run("an unknown /name falls through to the source's default with the text intact", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "coder", Text: "/shrug hi"})
+		assert.Equal(t, "coder", sel.Playbook.Name)
+		assert.Equal(t, "/shrug hi", sel.Instruction)
+		assert.False(t, sel.Explicit)
+	})
+
+	t.Run("a default that is not loaded selects nothing", func(t *testing.T) {
+		sel := p.Select(Routing{Default: "gone", Text: "hello"})
+		assert.Empty(t, sel.Playbook.Name)
+	})
 }
 
 func TestPlaybookPrefixRE(t *testing.T) {
@@ -367,9 +409,9 @@ func TestPlaybookPrefixRE(t *testing.T) {
 	}
 }
 
-// TestExactlyOnePlaybookMayTakeLinearTickets. Two is refused at load: a ticket has no channel
-// and no /playbook prefix, so there is nothing to disambiguate two claims with, and routing
-// that resolved by map iteration order would be worse than a refusal.
+// TestExactlyOnePlaybookMayTakeLinearTickets. Two is refused at load: a polled ticket and a
+// delegated issue name no playbook, so there is nothing to disambiguate two claims with, and
+// routing that resolved by map iteration order would be worse than a refusal.
 func TestExactlyOnePlaybookMayTakeLinearTickets(t *testing.T) {
 	files := base()
 	files["playbooks/coder.yaml"] = goodPlaybook + "linear: true\n"
@@ -428,7 +470,62 @@ func TestAPlaybookIsOfferedOnAPullRequestByRole(t *testing.T) {
 	files["playbooks/fixer.yaml"] = goodPlaybook + "github_requires: write\n" + repo
 	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\ngithub_requires: read\n" + repo
 	_, err = Load(write(t, files))
-	require.ErrorContains(t, err, "the review playbook is always offered")
+	require.ErrorContains(t, err, "a review playbook is always offered")
+}
+
+// A playbook naming a repository in github_repos reviews that repository's pull requests;
+// github: true is the fallback for every repository nobody names. One repository has one
+// reviewer, and an entry has to be owner/name.
+func TestAPlaybookReviewsTheRepositoriesItNames(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "github: true\n"
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api, https://github.com/Acme/Billing.git]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "api", p.GitHubPlaybookFor("acme/api"))
+	assert.Equal(t, "api", p.GitHubPlaybookFor("ACME/billing"), "GitHub compares repositories without case")
+	assert.Equal(t, "general", p.GitHubPlaybookFor("acme/web"))
+	assert.Equal(t, "general", p.GitHubPlaybookFor(""))
+	assert.True(t, p.Playbooks["api"].Reviews())
+	assert.False(t, p.Playbooks["api"].GitHub)
+
+	delete(files, "playbooks/general.yaml")
+	p, err = Load(write(t, files))
+	require.NoError(t, err)
+	assert.Empty(t, p.GitHubPlaybookFor("acme/web"), "no fallback: a repository nobody names has no reviewer")
+
+	files["playbooks/web.yaml"] = goodPlaybook + "github_repos: [acme/web, ACME/API]\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `playbooks "api" and "web" both review ACME/API`)
+
+	delete(files, "playbooks/web.yaml")
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [api]\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `github_repos entry "api" must be owner/name`)
+}
+
+// Each repository's reviewer gets the github_requires playbooks that share its first
+// repository; one sharing no reviewer's first repository is offered nowhere, so it is refused.
+func TestAGitHubMenuPlaybookMatchesSomeReviewer(t *testing.T) {
+	api := "repos: [{name: api, url: https://github.com/acme/api.git, default_branch: main}]\n"
+	web := "repos: [{name: web, url: https://github.com/acme/web.git, default_branch: main}]\n"
+	ops := "repos: [{name: ops, url: https://github.com/acme/ops.git, default_branch: main}]\n"
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "github: true\n" + web
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api]\n" + api
+	files["playbooks/api-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + api
+	files["playbooks/web-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + web
+	_, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	files["playbooks/ops-fixer.yaml"] = goodPlaybook + "github_requires: write\n" + ops
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `playbook "ops-fixer": github_requires needs the same first repository`)
+
+	delete(files, "playbooks/ops-fixer.yaml")
+	files["playbooks/api.yaml"] = goodPlaybook + "github_repos: [acme/api]\ngithub_requires: read\n" + api
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, "a review playbook is always offered")
 }
 
 func TestGitHubRolesAreOrdered(t *testing.T) {
@@ -555,4 +652,60 @@ func TestAPlaybooksModelNeverReachesTheAssistant(t *testing.T) {
 
 	assert.Equal(t, "grok-4.6", p.Resolve(p.Playbooks["general"], Override{}).Model)
 	assert.Equal(t, "claude-opus-5", p.ResolveAssistant(Override{}).Model)
+}
+
+// A playbook's Linear rules load from its file, and an empty entry is refused as an empty
+// slack_channels entry is.
+func TestAPlaybookDeclaresLinearTeamsAndLabels(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "linear_teams: [ENG, OPS]\nlinear_labels: [bug]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ENG", "OPS"}, p.Playbooks["general"].LinearTeams)
+	assert.Equal(t, []string{"bug"}, p.Playbooks["general"].LinearLabels)
+
+	for _, field := range []string{"linear_teams", "linear_labels"} {
+		files := base()
+		files["playbooks/general.yaml"] = goodPlaybook + field + ": [\" \"]\n"
+		_, err := Load(write(t, files))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), field+" holds an empty entry")
+	}
+
+	// Two playbooks may name one team: the assistant resolves the overlap at run time.
+	files = base()
+	files["playbooks/general.yaml"] = goodPlaybook + "linear_teams: [ENG]\n"
+	files["playbooks/coder.yaml"] = goodPlaybook + "linear_teams: [ENG]\n"
+	p, err = Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"coder", "general"}, p.LinearClaims("ENG", nil))
+}
+
+// What a playbook's Linear rules claim: the team when it names teams, AND one label when it
+// names labels, both without case. A playbook naming neither claims nothing.
+func TestClaimsLinear(t *testing.T) {
+	tests := []struct {
+		name   string
+		pb     Playbook
+		team   string
+		labels []string
+		want   bool
+	}{
+		{"no rules claim nothing", Playbook{}, "ENG", []string{"bug"}, false},
+		{"the team", Playbook{LinearTeams: []string{"ENG"}}, "ENG", nil, true},
+		{"the team without case", Playbook{LinearTeams: []string{"eng"}}, "ENG", nil, true},
+		{"another team", Playbook{LinearTeams: []string{"OPS"}}, "ENG", []string{"bug"}, false},
+		{"no team known", Playbook{LinearTeams: []string{"ENG"}}, "", nil, false},
+		{"a label, any team", Playbook{LinearLabels: []string{"Bug"}}, "OPS", []string{"bug", "ui"}, true},
+		{"no label of its", Playbook{LinearLabels: []string{"bug"}}, "OPS", []string{"ui"}, false},
+		{"no labels at all", Playbook{LinearLabels: []string{"bug"}}, "OPS", nil, false},
+		{"team and label", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "ENG", []string{"bug"}, true},
+		{"team but not label", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "ENG", []string{"ui"}, false},
+		{"label but not team", Playbook{LinearTeams: []string{"ENG"}, LinearLabels: []string{"bug"}}, "OPS", []string{"bug"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.pb.ClaimsLinear(tc.team, tc.labels))
+		})
+	}
 }

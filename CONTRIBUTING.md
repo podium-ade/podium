@@ -12,7 +12,7 @@
 |---|---|---|
 | Go | **1.27+** | `go.mod` sets the floor, and the comment above it says why 1.26 will not do |
 | Docker | Engine 24+, **cgroup v2** | the integration and e2e suites drive a real engine |
-| Node | 22+ | the web UI |
+| Node | 26+ | the web UI and the agent runtime; CI and the runtime image are on 26 |
 | pnpm | 12.x | the lockfile is `pnpm-lock.yaml` |
 | buf | 1.72.0 | only if you change a `.proto` |
 | golangci-lint | **v2**.13.2 | the config is v2-shaped and a v1 binary will not read it |
@@ -179,6 +179,24 @@ These exist because a developer's Docker engine is shared with the rest of their
 - `make e2e` is **not** in CI (it needs a Docker engine CI does not reliably have), so run it
   locally and say that you did. Neither is `make build` with a real UI — the release snapshot is
   the only job that links `web/dist` into the binaries.
+
+## Releasing
+
+Every merge to `main` is a release: `.github/workflows/release.yml` runs on the push, tags
+`main`, and publishes the archives and images. Nobody types a version. It is the latest stable
+`v*` tag, bumped by the pull request that was merged — first match wins:
+
+| On the PR | Release |
+|---|---|
+| a version in the title, `[RELEASE] 0.9.0` | exactly that version |
+| the `release:major` label | `1.0.0` from `0.8.2` |
+| the `release:minor` label | `0.9.0` from `0.8.2` |
+| the `release:patch` label, or nothing | `0.8.3` from `0.8.2` |
+| the `release:skip` label, or `[skip release]` in the merge commit | no release |
+
+A prerelease (`0.9.0-rc.1`) is cut by dispatching the workflow on `main` with the version
+filled in. Leave the version empty and the dispatch bumps like a merge (choose patch, minor or
+major).
 
 ## Known flake
 

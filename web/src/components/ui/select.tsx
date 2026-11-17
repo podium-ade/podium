@@ -1,9 +1,17 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const Select = SelectPrimitive.Root;
+/**
+ * Select is Radix's, with one guard: no item may have "" as its value, yet Radix can report
+ * "" — its hidden native select resets inside a form as the content remounts — and a caller
+ * reading that as a choice cleared the field ("Every 0 minutes"). A "" is never a choice, so it
+ * is dropped here, once, for every select.
+ */
+function Select({ onValueChange, ...props }: ComponentProps<typeof SelectPrimitive.Root>) {
+  return <SelectPrimitive.Root {...props} onValueChange={(v) => v !== "" && onValueChange?.(v)} />;
+}
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
@@ -20,7 +28,8 @@ function SelectTrigger({
       className={cn(
         "flex w-full items-center justify-between gap-2 rounded-md border border-line-strong bg-panel px-3 text-base text-fg",
         size === "sm" ? "min-h-9 text-sm" : "min-h-11",
-        "transition-[border-color] duration-150 ease-out hover:border-muted",
+        "outline-none transition-[border-color] duration-150 ease-out hover:border-muted",
+        "focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "data-[placeholder]:text-faint",
         "[&>span]:min-w-0 [&>span]:truncate [&>span]:text-left",
@@ -56,7 +65,10 @@ function SelectContent({
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
-          position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]",
+          // Never wider than the room there is: a long option otherwise pushed the list past a
+          // phone's edge and cut it off.
+          position === "popper" &&
+            "w-full min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]",
           className,
         )}
         {...props}
@@ -84,13 +96,24 @@ function SelectLabel({ className, ...props }: ComponentProps<typeof SelectPrimit
   );
 }
 
-function SelectItem({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Item>) {
+function SelectItem({
+  className,
+  children,
+  aside,
+  ...props
+}: ComponentProps<typeof SelectPrimitive.Item> & {
+  /** Shown beside the option in the list only; the closed trigger shows just the children. */
+  aside?: ReactNode;
+}) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-7 text-xs outline-none select-none",
-        "text-fg transition-colors data-[highlighted]:bg-raised",
+        "relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-7 text-sm outline-none select-none",
+        // The pointer highlights with CSS, at once; data-highlighted is the keyboard's row (and
+        // Radix's, which follows focus). No colour transition: it made the highlight trail the
+        // pointer down the list.
+        "text-fg hover:bg-raised data-[highlighted]:bg-raised",
         "data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
         className,
       )}
@@ -102,6 +125,7 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {aside ? <span className="ml-auto pl-3 tabular text-2xs text-faint">{aside}</span> : null}
     </SelectPrimitive.Item>
   );
 }

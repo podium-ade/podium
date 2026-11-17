@@ -10,6 +10,7 @@ import {
   harnessTools,
   lostToNetwork,
   mcpCount,
+  credentialRefused,
   resetTakesThinking,
   serverEnv,
   takesThinking,
@@ -28,6 +29,10 @@ import {
   skillRules,
   writeConfig,
   type Rule,
+  notStartedText,
+  HarnessNotStarted,
+  NotInstalledText,
+  serve,
 } from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
@@ -277,6 +282,12 @@ describe("writeConfig with delegation", () => {
     expect(off.has("shell")).toBe(true);
   });
 
+  it("passes which routine tools the server offers, and that there is nothing to delegate to", () => {
+    const { servers } = write({ delegation: { ...delegation, createRoutine: true, noPlaybooks: true } });
+    expect(servers!.podium.command.slice(4)).toEqual(["--create-routine", "--no-playbooks"]);
+    expect(servers!.podium.codemode).toBe(false);
+  });
+
   it("sits beside memory and the browser rather than replacing either", () => {
     const { servers } = write({
       delegation,
@@ -485,6 +496,21 @@ describe("lostToNetwork", () => {
   });
 });
 
+describe("credentialRefused", () => {
+  it("knows a refused credential from every other provider error", () => {
+    // What three reviews on popos died of after the Anthropic key expired.
+    expect(credentialRefused("invalid x-api-key")).toBe(true);
+    expect(credentialRefused('{"type":"authentication_error","message":"invalid x-api-key"}')).toBe(true);
+    expect(credentialRefused("Incorrect API key provided: sk-...abcd")).toBe(true);
+    expect(credentialRefused("API key not valid. Please pass a valid API key.")).toBe(true);
+    expect(credentialRefused("API key expired. Please renew the API key.")).toBe(true);
+    expect(credentialRefused("credit balance is too low")).toBe(false);
+    expect(credentialRefused("Overloaded")).toBe(false);
+    expect(credentialRefused("rate_limit_error")).toBe(false);
+    expect(credentialRefused(undefined)).toBe(false);
+  });
+});
+
 describe("takesThinking", () => {
   it("asks for reasoning only from a harness that says it takes the flag, and asks once", () => {
     resetTakesThinking();
@@ -509,5 +535,29 @@ describe("endedOnModelTurn", () => {
     expect(endedOnModelTurn("Requests ending with a model turn are not supported.")).toBe(true);
     expect(endedOnModelTurn("credit balance is too low")).toBe(false);
     expect(endedOnModelTurn(undefined)).toBe(false);
+  });
+});
+
+describe("a harness that cannot be started", () => {
+  it("tells the person it is not installed and how to install it, not an exit code", () => {
+    const err = Object.assign(new Error("spawn opencode ENOENT"), { code: "ENOENT", syscall: "spawn opencode" });
+    expect(notStartedText(err)).toBe(NotInstalledText);
+    expect(NotInstalledText).toContain("isn't installed");
+    expect(NotInstalledText).toMatch(/npm install -g @opencode\/cli@\d+\.\d+\.\d+/);
+    expect(NotInstalledText).not.toMatch(/exited/);
+  });
+
+  it("says permission denied in words", () => {
+    const err = Object.assign(new Error("spawn opencode EACCES"), { code: "EACCES", syscall: "spawn opencode" });
+    expect(notStartedText(err)).toContain("permission denied");
+  });
+
+  it("says so when the binary is not on PATH, from the server a turn starts first", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "octest-"));
+    const err = await serve({ configDir: dir, workdir: dir, env: { PATH: join(dir, "nowhere") }, warn: () => {} }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(HarnessNotStarted);
+    expect((err as HarnessNotStarted).text).toBe(NotInstalledText);
   });
 });

@@ -331,7 +331,7 @@ func TestAHostTurnDelegatesAndTheConversationOwnsTheTask(t *testing.T) {
 	assert.True(t, report.RunsOnHost, "the brief must say where the turn is running")
 	assert.True(t, report.TokenSet, "the token reaches the runtime through the environment")
 	assert.Equal(t, host.TurnURL, report.URL)
-	assert.Equal(t, []string{"coder", "dogfood", "general", "looker"}, report.Menu,
+	assert.Equal(t, []string{"coder", "desk", "dogfood", "general", "looker"}, report.Menu,
 		"every playbook is delegable, the conversation's own included: running it as a task "+
 			"is a container with a repository and a shell, which is the point")
 	assert.Equal(t, http.StatusOK, report.Status)

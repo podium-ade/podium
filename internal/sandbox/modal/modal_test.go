@@ -192,3 +192,76 @@ func TestTTLScripts(t *testing.T) {
 		t.Fatalf("extend past the max: exit %d", code)
 	}
 }
+
+// A privileged sidecar is root on the sandbox: only an operator turns it on, and only a vm
+// sandbox, which is a machine of the task's own, takes one.
+func TestPrivilegedSidecarsAreTheOperatorsAndOnlyUnderVM(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  Config
+		want bool
+	}{
+		{Config{Runtime: "vm"}, false},
+		{Config{Runtime: "vm", PrivilegedSidecars: true}, true},
+		{Config{Runtime: "gvisor", PrivilegedSidecars: true}, false},
+	} {
+		if got := capabilities(tc.cfg).PrivilegedSidecars; got != tc.want {
+			t.Errorf("%+v: %v, want %v", tc.cfg, got, tc.want)
+		}
+	}
+	p := &Provider{cfg: Config{Runtime: "gvisor", Image: DefaultImage, PrivilegedSidecars: true}}
+	caps, err := p.Override(map[string]string{"runtime": "vm"})
+	if err != nil || !caps.PrivilegedSidecars {
+		t.Errorf("a task asking for vm gets the operator's allowance: %+v, %v", caps, err)
+	}
+}
+
+// A policy with no age keeps an image until Podium deletes it: Modal's own default of 30 days
+// is never what anyone chose.
+func TestSnapshotTTL(t *testing.T) {
+	cases := map[time.Duration]time.Duration{
+		-1:                                     sdk.NoExpiryTTL,
+		0:                                      sdk.NoExpiryTTL,
+		500 * time.Millisecond:                 time.Second,
+		8*24*time.Hour + 1500*time.Millisecond: 8*24*time.Hour + time.Second,
+	}
+	for in, want := range cases {
+		if got := snapshotTTL(in); got != want {
+			t.Errorf("snapshotTTL(%v) = %v, want %v", in, got, want)
+		}
+	}
+	if !capabilities(Config{}).DirSnapshot || !sandbox.IsSnapshotter("modal") {
+		t.Fatal("modal keeps workspaces as directory snapshots")
+	}
+}
+
+func TestAnImageBuildModalGaveNoReasonForIsExplained(t *testing.T) {
+	remote := sdk.RemoteError{Exception: "Image build for im-81iSZK4loO5wBfFIwRgwEd failed with the exception:\n"}
+	err := explainBuild("podium-agent-runtime:dev", remote)
+	msg := err.Error()
+	for _, want := range []string{`image "podium-agent-runtime:dev"`, "im-81iSZK4loO5wBfFIwRgwEd", "only in a local Docker engine"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("%q does not say %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "the exception:") {
+		t.Errorf("%q still ends on Modal's empty exception", msg)
+	}
+	var back sdk.RemoteError
+	if !errors.As(err, &back) {
+		t.Error("Modal's own error is no longer underneath")
+	}
+
+	// A build that did say why is left as Modal said it, and so is anything that is not a build.
+	said := sdk.RemoteError{Exception: "Image build for im-1 failed with the exception:\nmanifest unknown"}
+	if got := explainBuild("x:1", said); got != error(said) {
+		t.Errorf("a build with a reason became %v", got)
+	}
+	other := errors.New("boom")
+	if got := explainBuild("x:1", other); got != other {
+		t.Errorf("an error that is not a build became %v", got)
+	}
+	// An image Podium did not name is still described.
+	if got := explainBuild("", remote).Error(); !strings.Contains(got, "the sandbox image") {
+		t.Errorf("%q does not describe an unnamed image", got)
+	}
+}

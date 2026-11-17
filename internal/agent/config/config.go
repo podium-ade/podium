@@ -82,6 +82,21 @@ const DefaultOpenAIOAuthIssuer = "https://auth.openai.com"
 // not Podium, because that is whose client this is.
 const DefaultOpenAIOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
+// The Claude subscription sign-in: OAuth 2 authorisation code with PKCE, where the human
+// copies the code Anthropic's page shows back into Podium. Anthropic offers no device grant
+// and no self-service client registration, so these are Claude Code's own public client and
+// endpoints, read out of Claude Code 2.1.316. The consent screen names Claude Code, not
+// Podium, because that is whose client this is.
+const (
+	DefaultAnthropicOAuthClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	DefaultAnthropicOAuthAuthorizeURL = "https://claude.com/cai/oauth/authorize"
+	DefaultAnthropicOAuthTokenURL     = "https://platform.claude.com/v1/oauth/token"
+	DefaultAnthropicOAuthRedirectURI  = "https://platform.claude.com/oauth/code/callback"
+	// DefaultAnthropicOAuthScopes is inference and the profile, which names the account on
+	// the settings row. It is the scope set `claude setup-token` asks for, plus the profile.
+	DefaultAnthropicOAuthScopes = "user:profile user:inference"
+)
+
 // DefaultGoogleBaseURL is where a Gemini API key is validated, and where a Gemini turn sends
 // the harness. It is the host only: the API version is a path the callers append.
 const DefaultGoogleBaseURL = "https://generativelanguage.googleapis.com"
@@ -109,6 +124,11 @@ const DefaultMemoryBank = "podium"
 // source at an httptest stub and so an install behind an egress proxy can name one; it is
 // not a "which Linear" knob.
 const DefaultLinearURL = "https://api.linear.app/graphql"
+
+// DefaultLinearTokenURL is Linear's OAuth token endpoint, where the agent app's client
+// credentials are exchanged for an access token. Overridable for the same reasons as
+// DefaultLinearURL, and it is not a "which Linear" knob either.
+const DefaultLinearTokenURL = "https://api.linear.app/oauth/token"
 
 // DefaultLinearPollInterval is how often the Linear source asks for issues that changed.
 // Linear bills 2,500 requests an hour against a personal API key, so 30s of one query is
@@ -208,6 +228,18 @@ type Config struct {
 	// Codex CLI). Set to "off" to turn the subscription sign-in off and leave the API key
 	// path. Public OAuth client metadata, not a secret.
 	OpenAIOAuthClientID string
+	// AnthropicOAuthClientID is PODIUM_AGENT_ANTHROPIC_OAUTH_CLIENT_ID: the OAuth client a
+	// Claude subscription sign-in uses. Default DefaultAnthropicOAuthClientID (Claude Code).
+	// "off" turns the sign-in off. It is only offered when the chat host can run Claude Code
+	// (ChatHostClaude): that is the one place a Claude subscription is spent.
+	AnthropicOAuthClientID string
+	// AnthropicOAuthAuthorizeURL, AnthropicOAuthTokenURL and AnthropicOAuthRedirectURI are
+	// PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL, _TOKEN_URL and _REDIRECT_URI.
+	AnthropicOAuthAuthorizeURL string
+	AnthropicOAuthTokenURL     string
+	AnthropicOAuthRedirectURI  string
+	// AnthropicOAuthScopes is PODIUM_AGENT_ANTHROPIC_OAUTH_SCOPES.
+	AnthropicOAuthScopes string
 	// GoogleBaseURL is PODIUM_AGENT_GOOGLE_BASE_URL, default
 	// https://generativelanguage.googleapis.com. SetProviderKey validates a Gemini API key
 	// against it, and a Gemini turn carries it in its brief.
@@ -219,6 +251,11 @@ type Config struct {
 	// MemoryTaskURL is PODIUM_AGENT_MEMORY_TASK_URL: Hindsight's base URL as seen from a
 	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
 	MemoryTaskURL string
+	// MemorySandboxURL is PODIUM_AGENT_MEMORY_SANDBOX_URL: Hindsight's base URL as a cloud
+	// sandbox reaches it. Empty means MemoryTaskURL, which a sandbox outside this network
+	// cannot reach: its turns then run with a memory that does not answer. It may carry a
+	// path, for Hindsight behind a public address shared with other things.
+	MemorySandboxURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
 	// turn: there is no per-user or per-playbook scoping in this track.
 	MemoryBank string
@@ -226,16 +263,40 @@ type Config struct {
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
 	// every turn's container gets it. SENSITIVE: never log it.
 	MemoryAPIKey string
+	// MemoryLLMToken is PODIUM_AGENT_MEMORY_LLM_TOKEN: the bearer the memory service presents
+	// when it calls this conductor for fact extraction (the /memory-llm/ route). It is set on
+	// the memory service as its LLM API key and its base URL points here, so the provider key
+	// and model behind it are chosen in the UI rather than in the memory service's
+	// environment. Empty means the route is not served and the memory service uses its own
+	// key. It is deliberately NOT MemoryAPIKey: every turn's container holds that one, and a
+	// turn must not be able to spend the organisation's model key through this route.
+	// SENSITIVE: never log it.
+	MemoryLLMToken string
 	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
-	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
-	// turns the Linear source off entirely. SENSITIVE: never log it.
+	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). It is the
+	// poller's, which runs only while no Linear app is saved. Empty turns the poller off.
+	// SENSITIVE: never log it.
 	LinearAPIKey string
 	// LinearURL is PODIUM_AGENT_LINEAR_URL, default DefaultLinearURL.
 	LinearURL string
 	// LinearPollInterval is PODIUM_AGENT_LINEAR_POLL_INTERVAL, default 30s, floor 10s.
-	// Linear is polled and never listened to: the conductor dials out, like every other
-	// thing on this host.
+	// The poller dials out, like every other thing on this host. A saved Linear app is
+	// listened to instead, on its webhook.
 	LinearPollInterval time.Duration
+	// LinearClientID is the Linear agent app's OAuth client id, saved under Settings →
+	// Connections. It is not read from the environment: PODIUM_AGENT_LINEAR_API_KEY is
+	// the poller's key and nothing else. Empty turns the app off.
+	LinearClientID string
+	// LinearClientSecret is that app's client secret, saved with it. SENSITIVE: never log it.
+	LinearClientSecret string
+	// LinearWebhookSecret is the signing secret of the app's webhook, saved with it. Linear
+	// signs each delivery with it. SENSITIVE: never log it.
+	LinearWebhookSecret string
+	// LinearWebhookListen is the host:port the app's webhook handler binds, saved with it.
+	// It may be the GitHub App's address, and then the two share one listener.
+	LinearWebhookListen string
+	// LinearTokenURL is PODIUM_AGENT_LINEAR_TOKEN_URL, default DefaultLinearTokenURL.
+	LinearTokenURL string
 	// GitHubWebhookSecret is the webhook secret saved with the App under Settings →
 	// Connections. Empty turns the review source off even when the App is configured
 	// for clone. SENSITIVE: never log it.
@@ -252,6 +313,23 @@ type Config struct {
 	// Server. It is used only to build the fallback link to a task page when an
 	// attachment cannot be uploaded into the conversation.
 	UIURL string
+	// AllowedDomains is PODIUM_ALLOWED_DOMAINS, a comma-separated list of the Google
+	// Workspace domains a Slack speaker's email must be on before it is matched to a
+	// Podium login. Empty skips that one check: the email must still be a login that has
+	// signed in through podium-server. Defence in depth for a server that admits only its
+	// own workspace anyway.
+	AllowedDomains []string
+	// SlackTeamIDs is PODIUM_SLACK_TEAM_IDS, a comma-separated list of Slack workspace (T…)
+	// and Enterprise Grid org (E…) ids whose full members may also be matched to a Podium
+	// login, beside the bot's own workspace. Empty is the bot's own workspace alone.
+	SlackTeamIDs []string
+	// TranscriptBudgetBytes is PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES: how much of the
+	// conversation's text a turn is handed before the older chatter nobody put to Podium is
+	// condensed. Zero is the conductor's default. See conductor/transcript.go.
+	TranscriptBudgetBytes int
+	// TranscriptKeepRecent is PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT: how many of the latest
+	// messages a turn always gets word for word, budget or not. Zero is the default.
+	TranscriptKeepRecent int
 	// GitHubAppID is the numeric id of the GitHub App turns clone and push with, and that
 	// the review source talks as. It is saved under Settings → Connections. Empty turns
 	// the App off and leaves the older path — a playbook naming podium.agent.github_token
@@ -293,6 +371,10 @@ type Config struct {
 	// each turn. It needs PODIUM_AGENT_HOST_RUNTIME, whose prompt and credentials it uses.
 	// See internal/agent/chathost.
 	ChatHost string
+	// ChatHostClaude is PODIUM_AGENT_CHAT_HOST_CLAUDE: a Claude Code binary (2.1.248 or
+	// later) the chat host runs for a person who signed in with their Claude subscription.
+	// opencode 2's claude-agent provider drives it. Empty turns Claude subscriptions off.
+	ChatHostClaude string
 	// ChatHostMaxTurns is PODIUM_AGENT_CHAT_HOST_MAX_TURNS: the chat-host turns running at
 	// once. Zero is the conductor's default.
 	ChatHostMaxTurns int
@@ -358,32 +440,49 @@ func FromEnv() Config {
 		OpenAIOAuthIssuer:   envOr("PODIUM_AGENT_OPENAI_OAUTH_ISSUER", DefaultOpenAIOAuthIssuer),
 		OpenAIOAuthClientID: oauthClientID("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", DefaultOpenAIOAuthClientID),
 		GoogleBaseURL:       envOr("PODIUM_AGENT_GOOGLE_BASE_URL", DefaultGoogleBaseURL),
-		MemoryURL:           os.Getenv("PODIUM_AGENT_MEMORY_URL"),
-		MemoryTaskURL:       envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
-		MemoryBank:          envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
-		MemoryAPIKey:        os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
-		LinearAPIKey:        os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
-		LinearURL:           envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		AnthropicOAuthClientID: oauthClientID("PODIUM_AGENT_ANTHROPIC_OAUTH_CLIENT_ID",
+			DefaultAnthropicOAuthClientID),
+		AnthropicOAuthAuthorizeURL: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL",
+			DefaultAnthropicOAuthAuthorizeURL),
+		AnthropicOAuthTokenURL: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_TOKEN_URL",
+			DefaultAnthropicOAuthTokenURL),
+		AnthropicOAuthRedirectURI: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_REDIRECT_URI",
+			DefaultAnthropicOAuthRedirectURI),
+		AnthropicOAuthScopes: envOr("PODIUM_AGENT_ANTHROPIC_OAUTH_SCOPES", DefaultAnthropicOAuthScopes),
+		MemoryURL:            os.Getenv("PODIUM_AGENT_MEMORY_URL"),
+		MemoryTaskURL:        envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
+		MemorySandboxURL:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_SANDBOX_URL")),
+		MemoryBank:           envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
+		MemoryAPIKey:         os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
+		MemoryLLMToken:       strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_LLM_TOKEN")),
+		LinearAPIKey:         os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
+		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		LinearTokenURL:       envOr("PODIUM_AGENT_LINEAR_TOKEN_URL", DefaultLinearTokenURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
-		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
-		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
-		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
-		HostIsolation:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
-		HostBwrap:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
-		HostMemoryMax:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
-		HostWarm:           envDuration("PODIUM_AGENT_HOST_WARM", 0),
-		ChatHost:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
-		ChatHostMaxTurns:   envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
-		ChatHostMaxPerUser: envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
-		PublicURL:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
-		SMTPURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
-		SMTPFrom:           strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
-		NotifyAway:         envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
-		ReplicaID:          strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
-		SandboxURL:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
-		SurfaceListen:      strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
-		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		UIURL:                 os.Getenv("PODIUM_AGENT_UI_URL"),
+		AllowedDomains:        domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
+		SlackTeamIDs:          idList(os.Getenv("PODIUM_SLACK_TEAM_IDS")),
+		TranscriptBudgetBytes: envInt("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES"),
+		TranscriptKeepRecent:  envInt("PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT"),
+		TaskURL:               envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
+		HostIsolation:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_ISOLATION")),
+		HostBwrap:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
+		HostMemoryMax:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
+		HostWarm:              envDuration("PODIUM_AGENT_HOST_WARM", 0),
+		ChatHost:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
+		ChatHostClaude:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
+		ChatHostMaxTurns:      envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
+		ChatHostMaxPerUser:    envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
+		PublicURL:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
+		SMTPURL:               strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
+		SMTPFrom:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
+		NotifyAway:            envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
+		ReplicaID:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
+		SandboxURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
+		SurfaceListen:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
+		DevSource:             envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -393,9 +492,16 @@ func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
 }
 
-// LinearEnabled reports whether the Linear source should be started. One variable turns it
-// on: an API key belonging to the bot user.
+// LinearEnabled reports whether the poller's key is set: an API key belonging to the bot
+// user. A saved app still wins: the poller runs only while LinearAppEnabled is false.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// LinearAppEnabled reports whether a Linear agent app is saved: a client id and its
+// secret. When it is, the app's webhooks run and the poller does not, whatever
+// LinearEnabled says: the two would start every ticket twice.
+func (c Config) LinearAppEnabled() bool {
+	return c.LinearClientID != "" && c.LinearClientSecret != ""
+}
 
 // GitHubSourceEnabled reports whether the GitHub review source should start: the App is
 // configured (so it can post) and the webhook listener is fully set.
@@ -475,6 +581,18 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
+	for _, u := range []struct{ name, value string }{
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL", c.AnthropicOAuthAuthorizeURL},
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_TOKEN_URL", c.AnthropicOAuthTokenURL},
+		{"PODIUM_AGENT_ANTHROPIC_OAUTH_REDIRECT_URI", c.AnthropicOAuthRedirectURI},
+	} {
+		if u.value == "" {
+			continue
+		}
+		if err := absoluteURLAllowPath(u.name, u.value); err != nil {
+			return err
+		}
+	}
 	if c.OpenAICodexBaseURL != "" {
 		if err := absoluteURLAllowPath("PODIUM_AGENT_OPENAI_CODEX_BASE_URL", c.OpenAICodexBaseURL); err != nil {
 			return err
@@ -490,6 +608,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.validateGitHubSource(); err != nil {
+		return err
+	}
+	if err := c.validateLinearApp(); err != nil {
 		return err
 	}
 	if err := c.validateHostAndSurface(); err != nil {
@@ -522,6 +643,10 @@ func (c Config) Validate() error {
 	// Same reasoning as the skills directory, and a stronger case for it: with a host
 	// runtime configured, EVERY conversation runs on it, so a path that is not there is
 	// every turn failing rather than some of them.
+	if c.TranscriptBudgetBytes < 0 || c.TranscriptKeepRecent < 0 {
+		return errors.New("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES and PODIUM_AGENT_TRANSCRIPT_KEEP_RECENT " +
+			"must be whole numbers of zero or more (zero is the default)")
+	}
 	if c.HostMaxTurns < 0 {
 		return errors.New("PODIUM_AGENT_HOST_MAX_TURNS must be a whole number of turns")
 	}
@@ -562,17 +687,24 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openai_codex_base_url", c.OpenAICodexBaseURL),
 		slog.String("openai_oauth_issuer", c.OpenAIOAuthIssuer),
 		slog.String("openai_oauth_client_id", c.OpenAIOAuthClientID),
+		slog.String("anthropic_oauth_client_id", c.AnthropicOAuthClientID),
 		slog.String("google_base_url", c.GoogleBaseURL),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),
 		slog.String("memory_url", c.MemoryURL),
 		slog.String("memory_task_url", c.MemoryTaskURL),
+		slog.String("memory_sandbox_url", c.MemorySandboxURL),
 		slog.String("memory_bank", c.MemoryBank),
 		slog.Bool("memory_api_key_set", c.MemoryAPIKey != ""),
 		slog.Bool("linear", c.LinearEnabled()),
 		slog.String("linear_url", c.LinearURL),
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
+		// The client id is public OAuth client metadata, like the xAI and OpenAI ones above.
+		slog.Bool("linear_app", c.LinearAppEnabled()),
+		slog.String("linear_client_id", c.LinearClientID),
+		slog.String("linear_webhook_listen", c.LinearWebhookListen),
+		slog.String("linear_token_url", c.LinearTokenURL),
 		slog.String("ui_url", c.WebURL()),
 		slog.Bool("github_app", c.GitHubAppEnabled()),
 		slog.Bool("github_source", c.GitHubSourceEnabled()),
@@ -585,6 +717,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("host_memory_max", c.HostMemoryMax),
 		slog.Duration("host_warm", c.HostWarm),
 		slog.String("chat_host", c.ChatHost),
+		slog.String("chat_host_claude", c.ChatHostClaude),
 		slog.String("public_url", c.PublicURL),
 		slog.Bool("smtp", c.SMTPURL != ""),
 		slog.String("replica_id", c.Replica()),
@@ -689,6 +822,11 @@ func (c Config) validateLinear() error {
 				"URL ending in the GraphQL path (default %s)", c.LinearURL, DefaultLinearURL)
 		}
 	}
+	if c.LinearTokenURL != "" {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_LINEAR_TOKEN_URL", c.LinearTokenURL); err != nil {
+			return err
+		}
+	}
 	switch {
 	case c.LinearPollInterval < 0:
 		// envDuration reports an unparseable value this way, so the name is reported here
@@ -712,6 +850,33 @@ func (c Config) validateLinear() error {
 		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateLinearApp refuses a half-configured Linear app. Settings → Connections saves all
+// four fields together, so a half here is a hand-built Config or a damaged row, and it is
+// cheaper to say so than to run an app that cannot sign in or cannot check a delivery.
+func (c Config) validateLinearApp() error {
+	switch {
+	case c.LinearClientID == "" && c.LinearClientSecret == "" &&
+		c.LinearWebhookSecret == "" && c.LinearWebhookListen == "":
+		return nil
+	case c.LinearClientID == "":
+		return errors.New("the Linear app's client id is missing: the client secret, webhook " +
+			"secret and listen address name no app without it")
+	case c.LinearClientSecret == "":
+		return errors.New("the Linear app's client secret is missing: the client id alone " +
+			"cannot sign in")
+	case c.LinearWebhookSecret == "":
+		return errors.New("the Linear app's webhook signing secret is missing: without it a " +
+			"delivery cannot be told from a forgery")
+	case c.LinearWebhookListen == "":
+		return errors.New("the Linear app's webhook listen address is missing")
+	}
+	if _, _, err := net.SplitHostPort(c.LinearWebhookListen); err != nil {
+		return fmt.Errorf("the Linear app's webhook listen address %q must be host:port, such as "+
+			"0.0.0.0:8091", c.LinearWebhookListen)
 	}
 	return nil
 }
@@ -747,10 +912,20 @@ func (c Config) validateMemory() error {
 	if err := absoluteURL("PODIUM_AGENT_MEMORY_TASK_URL", c.MemoryTaskURL); err != nil {
 		return err
 	}
+	if c.MemorySandboxURL != "" {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_MEMORY_SANDBOX_URL", c.MemorySandboxURL); err != nil {
+			return err
+		}
+	}
 	if c.MemoryAPIKey == "" {
 		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +
 			"is set: Hindsight has no authentication until it is given a key, so an install " +
 			"without one is a memory anybody who can reach the port can read and rewrite")
+	}
+	if c.MemoryLLMToken != "" && c.MemoryLLMToken == c.MemoryAPIKey {
+		return errors.New("PODIUM_AGENT_MEMORY_LLM_TOKEN must differ from PODIUM_AGENT_MEMORY_API_KEY: " +
+			"every turn's container is given the memory API key, and the LLM token spends the " +
+			"organisation's model key")
 	}
 	if !bankNameRE.MatchString(c.MemoryBank) {
 		return fmt.Errorf("PODIUM_AGENT_MEMORY_BANK=%q must match %s: it becomes a path segment "+
@@ -883,6 +1058,16 @@ func (c Config) validateHostAndSurface() error {
 			return fmt.Errorf("PODIUM_AGENT_CHAT_HOST=%q is not a binary this host can run: %w", c.ChatHost, err)
 		}
 	}
+	if c.ChatHostClaude != "" {
+		if c.ChatHost == "" {
+			return errors.New("PODIUM_AGENT_CHAT_HOST_CLAUDE needs PODIUM_AGENT_CHAT_HOST: Claude Code " +
+				"is run by the chat host's claude-agent provider")
+		}
+		if _, err := exec.LookPath(c.ChatHostClaude); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_CHAT_HOST_CLAUDE=%q is not a binary this host can run: %w",
+				c.ChatHostClaude, err)
+		}
+	}
 	if c.HostMemoryMax != "" && !memoryMaxRE.MatchString(c.HostMemoryMax) {
 		return fmt.Errorf("PODIUM_AGENT_HOST_MEMORY_MAX=%q is not a size systemd reads, like 1G or 768M", c.HostMemoryMax)
 	}
@@ -922,4 +1107,30 @@ func (c Config) Replica() string {
 // ReplicaIDFor is the default replica id of a conductor on host listening on listen.
 func ReplicaIDFor(host, listen string) string {
 	return host + "/" + listen
+}
+
+// domainList is a comma-separated list of domains, trimmed and lowercased, empties dropped.
+// idList is a comma-separated list of Slack ids, as Slack spells them (upper case), with
+// blanks and duplicates dropped.
+func idList(v string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range strings.Split(v, ",") {
+		id = strings.ToUpper(strings.TrimSpace(id))
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func domainList(v string) []string {
+	var out []string
+	for _, d := range strings.Split(v, ",") {
+		if d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "@"))); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }

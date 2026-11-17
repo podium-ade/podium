@@ -36,7 +36,10 @@ limitations rather than vulnerabilities. Reporting them tells us nothing we have
 
 - **RBAC gates Workspace users, not the CLI, nodes, or the bot.** After a Google Workspace
   claim, member / admin / owner is enforced on KindUser. The local token and every node still
-  do everything, and a Slack mention or Linear assignment is still enough to run a playbook.
+  do everything. A Slack mention or a Linear agent session from any person signed in to Podium
+  is enough to run any playbook, as them. With Linear's poller (a personal API key, the mode
+  that needs no inbound webhook) an assignment from **anybody** who can assign the bot user a
+  ticket is enough, and the turn runs as nobody: polling cannot prove who asked.
 - **A `podium-node` is root-equivalent on its host** — it holds the Docker socket. Running it as a
   non-root user in the `docker` group would be the same power with a longer name.
 - **The `local` transport is unencrypted**, and resolved secret values cross it. It is loopback-only
@@ -62,7 +65,7 @@ Releases are built by [`.github/workflows/release.yml`](.github/workflows/releas
 - every archive gets an SBOM from `syft`;
 - `checksums.txt` is signed with **keyless cosign**, so the signature names the workflow identity
   that produced it rather than a key somebody holds;
-- container images are multi-arch, based on `gcr.io/distroless/static-debian12` **pinned by
+- container images are multi-arch, based on `gcr.io/distroless/static-debian13` **pinned by
   digest**, and their manifests are signed the same way;
 - every GitHub Action in the release workflow is pinned to a commit SHA.
 

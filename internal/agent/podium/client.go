@@ -5,6 +5,7 @@ package podium
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,7 @@ type Client struct {
 	Artifacts podiumv1connect.ArtifactServiceClient
 	Secrets   podiumv1connect.SecretServiceClient
 	Identity  podiumv1connect.IdentityServiceClient
+	Audit     podiumv1connect.AuditServiceClient
 
 	base string
 	http *http.Client
@@ -61,6 +63,7 @@ func New(serverURL, token string) *Client {
 		Artifacts: podiumv1connect.NewArtifactServiceClient(httpClient, serverURL),
 		Secrets:   podiumv1connect.NewSecretServiceClient(httpClient, serverURL),
 		Identity:  podiumv1connect.NewIdentityServiceClient(httpClient, serverURL),
+		Audit:     podiumv1connect.NewAuditServiceClient(httpClient, serverURL),
 		base:      strings.TrimSuffix(serverURL, "/"),
 		http:      httpClient,
 	}
@@ -271,6 +274,26 @@ func (c *Client) DeletePersonalSecret(ctx context.Context, owner, name string) e
 	}))
 	if err != nil {
 		return fmt.Errorf("delete secret %s: %w", name, err)
+	}
+	return nil
+}
+
+// AuditChat records one sharing decision a person made on a chat in the control plane's
+// audit_log (multiplayer sessions, docs/agent.md). details must never carry message
+// text or a link token.
+func (c *Client) AuditChat(ctx context.Context, actor, action, chatID string, details map[string]any) error {
+	raw := ""
+	if len(details) > 0 {
+		b, err := json.Marshal(details)
+		if err != nil {
+			return fmt.Errorf("audit %s: marshal details: %w", action, err)
+		}
+		raw = string(b)
+	}
+	if _, err := c.Audit.RecordAudit(ctx, connect.NewRequest(&podiumv1.RecordAuditRequest{
+		Actor: actor, Action: action, Subject: chatID, DetailsJson: raw,
+	})); err != nil {
+		return fmt.Errorf("audit %s: %w", action, err)
 	}
 	return nil
 }

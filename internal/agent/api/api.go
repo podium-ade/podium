@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/config"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/profiles"
@@ -147,6 +148,15 @@ type AgentServiceOptions struct {
 	// sign-in. An empty client id means API keys only.
 	OpenAIOAuthIssuer   string
 	OpenAIOAuthClientID string
+	// AnthropicOAuth* configure the Claude subscription sign-in. An empty client id is API
+	// keys only, and so is ClaudeAgent false: a Claude sign-in is only offered where the
+	// chat host can run Claude Code, the one place it is spent.
+	AnthropicOAuthClientID     string
+	AnthropicOAuthAuthorizeURL string
+	AnthropicOAuthTokenURL     string
+	AnthropicOAuthRedirectURI  string
+	AnthropicOAuthScopes       string
+	ClaudeAgent                bool
 	// GoogleBaseURL is where SetProviderKey validates a Gemini API key.
 	GoogleBaseURL string
 	// GitHubURL and GitHubAPIURL are where a person's GitHub account is connected. Empty
@@ -179,31 +189,61 @@ type AgentServiceOptions struct {
 	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
 	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
 	Turns TurnStopper
+	// Deliveries retries a bot answer's failed deliveries to Slack or GitHub. Nil turns
+	// RetryChatDelivery off (Unimplemented).
+	Deliveries DeliveryRetrier
+	// Canceller stops the turn answering a chat (CancelChatTurn). Nil refuses that RPC.
+	Canceller ChatTurnCanceller
+	// Auditor writes sharing decisions to the control plane's audit_log. Nil writes nothing.
+	Auditor ChatAuditor
 	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
 	// before the first mention. Nil means this conductor has no Slack source.
-	Slack  SlackDirectory
-	Logger *slog.Logger
+	Slack SlackDirectory
+	// Linear lists the Linear workspace's teams and labels for the playbook editor. Nil is a
+	// conductor that offers none, and the editor takes typed values.
+	Linear LinearDirectory
+	// LinearIssues reads the Linear issues a chat names for the people who could see them in
+	// Linear (GetLinearIssues). Nil describes none, and a chat draws identifiers as text.
+	LinearIssues LinearIssueReader
+	Logger       *slog.Logger
 	// Env is the connection configuration the process was started with, before a saved
 	// connection replaced it. Running is what this process actually opened. GetConnections
 	// uses the two to say whether a restart is still owed. The zero value is an install
 	// with nothing configured, which is what tests that never touch connections want.
 	Env     config.Config
 	Running config.Config
-	// Connections switches the running conductor to a saved Slack pair or GitHub App, so a
-	// save takes effect without a restart. Nil leaves the change for the next start, and
-	// restart_required says so.
+	// Connections switches the running conductor to a saved Slack pair, GitHub App or
+	// Linear app, so a save takes effect without a restart. Nil leaves the change for the
+	// next start, and restart_required says so.
 	Connections ConnectionApplier
 }
 
-// ConnectionApplier is the part of the conductor that holds Slack and GitHub open.
+// ConnectionApplier is the part of the conductor that holds Slack, GitHub and Linear open.
 type ConnectionApplier interface {
-	// Check tries the Slack pair and GitHub App in cfg against Slack and GitHub, where they
-	// differ from what is running. It is how a mistyped token is refused at save rather
-	// than found by the conductor failing to connect with it.
-	Check(ctx context.Context, cfg config.Config) error
+	// Check tries the Slack pair, GitHub App and Linear app in cfg against Slack, GitHub
+	// and Linear, where they differ from what is running. It is how a mistyped token is
+	// refused at save rather than found by the conductor failing to connect with it. What
+	// it learned on the way comes back, to be saved with the connection.
+	Check(ctx context.Context, cfg config.Config) (Checked, error)
 	// Apply rereads the saved connections and swaps in whatever changed. Turns in flight
 	// keep running. On success it calls SetRunning with what it switched to.
 	Apply(ctx context.Context) error
+}
+
+// Checked is what Check learned about the connections it tried.
+type Checked struct {
+	// Linear is who the Linear app signs in as. Nil when the app was not tried, because
+	// none is configured or it is the one already running.
+	Linear *LinearApp
+}
+
+// LinearApp is the Linear app user and workspace a client id and secret sign in as.
+type LinearApp struct {
+	UserID             string
+	UserName           string
+	OrganizationID     string
+	OrganizationName   string
+	OrganizationURLKey string
 }
 
 // AgentService implements podium.agent.v1.AgentService.
@@ -231,6 +271,9 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
+	deliveries DeliveryRetrier
+	canceller  ChatTurnCanceller
+	auditor    ChatAuditor
 	logger     *slog.Logger
 
 	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
@@ -238,6 +281,10 @@ type AgentService struct {
 	connMu  sync.Mutex
 	running config.Config
 	slack   SlackDirectory
+	// linear is fixed for the process: it asks whichever Linear app is running when called.
+	linear LinearDirectory
+	// linearIssues is AgentServiceOptions.LinearIssues.
+	linearIssues LinearIssueReader
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -261,6 +308,14 @@ type AgentService struct {
 	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
 	// a conductor running a profile older than its stored overrides has to say so.
 	stale atomic.Pointer[string]
+
+	// routineMu guards the scheduler routines.go reaches, which is built after the service
+	// and handed to it by SetRoutines.
+	routineMu     sync.Mutex
+	routineRunner RoutineRunner
+
+	// keys is keyhealth.go's: who to tell when a stored key stops working.
+	keys keyHealth
 }
 
 // NewAgentService returns the handlers.
@@ -312,6 +367,13 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if c := newCodexClient(opts.OpenAIOAuthIssuer, opts.OpenAIOAuthClientID, opts.HTTPClient); c != nil {
 		oauth[ProviderOpenAI] = c
 	}
+	if opts.ClaudeAgent {
+		if c := newClaudeClient(opts.AnthropicOAuthClientID, opts.AnthropicOAuthAuthorizeURL,
+			opts.AnthropicOAuthTokenURL, opts.AnthropicOAuthRedirectURI, opts.AnthropicOAuthScopes,
+			opts.HTTPClient); c != nil {
+			oauth[ProviderAnthropic] = c
+		}
+	}
 	return &AgentService{
 		store:              opts.Store,
 		env:                opts.Env,
@@ -335,7 +397,12 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		chat:               opts.Chat,
 		tasks:              opts.Tasks,
 		turns:              opts.Turns,
+		deliveries:         opts.Deliveries,
+		canceller:          opts.Canceller,
+		auditor:            opts.Auditor,
 		slack:              opts.Slack,
+		linear:             opts.Linear,
+		linearIssues:       opts.LinearIssues,
 		logger:             opts.Logger,
 	}
 }
@@ -375,14 +442,23 @@ func (s *AgentService) ListSessions(
 	ctx context.Context, req *connect.Request[agentv1.ListSessionsRequest],
 ) (*connect.Response[agentv1.ListSessionsResponse], error) {
 	page := req.Msg.GetPage()
-	rows, next, err := s.store.ListSessions(ctx, Login(ctx), SeesAll(ctx), int(page.GetLimit()), page.GetCursor())
+	rows, next, err := s.store.ListSessions(ctx, Login(ctx), SeesAll(ctx), int(page.GetLimit()), page.GetCursor(),
+		req.Msg.GetSection())
+	if errors.Is(err, store.ErrInvalidSection) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	if err != nil {
 		return nil, storeError(err)
 	}
 	names := s.slackNames(ctx)
 	out := make([]*agentv1.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionToProto(r, names))
+		p := sessionToProto(r, names)
+		if SeesAll(ctx) && p.ChatId != "" {
+			// The dev token is the operator: an owner of everything it can see.
+			p.MyRole = store.RoleOwner
+		}
+		out = append(out, p)
 	}
 	return connect.NewResponse(&agentv1.ListSessionsResponse{Sessions: out, NextCursor: next}), nil
 }
@@ -432,22 +508,31 @@ func (s *AgentService) ListTurns(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	// In a Linear issue's conversation the task of a turn the caller did not run is its
+	// runner's, as its tool calls are in the chat (runner.go).
+	linear := store.IsLinearConversation(sess.SourceKey)
 	out := make([]*agentv1.Turn, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, turnToProto(r))
+		t := turnToProto(r)
+		if linear {
+			turnForReader(t, Login(ctx), Infra(ctx))
+		}
+		out = append(out, t)
 	}
 	return connect.NewResponse(&agentv1.ListTurnsResponse{Turns: out}), nil
 }
 
 // mayReadSession is the session half of the chat partition. The dev token sees every
-// source. A signed-in user sees a web-chat session only when they own that chat. Slack,
-// Linear and dev sessions have no such owner, so they are not returned.
+// source. A signed-in user sees a session exactly when they may read the chat that holds it:
+// their own web chat, or the mirror of a Slack thread, pull request or Linear agent session
+// they took part in. A ticket the Linear poller saw, or a dev session, has no chat, so it
+// stays the operator's.
 func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (bool, error) {
 	if SeesAll(ctx) {
 		return true, nil
 	}
 	login := Login(ctx)
-	if login == "" || login == "unknown" || sess.SourceKind != "chat" {
+	if login == "" || login == "unknown" {
 		return false, nil
 	}
 	row, err := s.store.ChatBySourceKey(ctx, sess.SourceKey)
@@ -457,7 +542,7 @@ func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (
 	if err != nil {
 		return false, err
 	}
-	return row.Login == login, nil
+	return s.mayReadChat(ctx, row, login)
 }
 
 // DefaultUsageDays is the range GetUsage reads when the request names neither end.
@@ -527,7 +612,18 @@ func (s *AgentService) GetUsage(
 			Unpriced:   int32(b.Unpriced),
 		})
 	}
+	people := make([]*agentv1.UsagePerson, 0, len(u.People))
+	for _, p := range u.People {
+		people = append(people, &agentv1.UsagePerson{
+			StartedBy:  p.StartedBy,
+			CostUsd:    p.CostUSD,
+			Turns:      int32(p.Turns),
+			ModelTurns: int32(p.ModelTurns),
+			Unpriced:   int32(p.Unpriced),
+		})
+	}
 	return connect.NewResponse(&agentv1.GetUsageResponse{
+		People:          people,
 		Days:            days,
 		Costs:           costs,
 		TotalCostUsd:    u.TotalCostUSD,
@@ -554,6 +650,7 @@ func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
 		Model:      c.Backend.Model,
 		Effort:     c.Backend.Effort,
 		Provider:   c.Backend.Provider,
+		StartedBy:  c.StartedBy,
 	}
 	if c.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*c.FinishedAt)
@@ -580,6 +677,11 @@ func sessionToProto(s store.Session, names map[string]string) *agentv1.Session {
 	if id, ok := store.SlackChannelID(s.SourceKey); ok && names != nil {
 		out.SourceLabel = names[id]
 	}
+	out.ChatId = s.Sharing.ChatID
+	out.MyRole = s.Sharing.MyRole
+	out.AccessReason = s.Sharing.AccessReason
+	out.SharedBy = s.Sharing.SharedBy
+	out.UnreadCount = s.Sharing.UnreadCount
 	return out
 }
 
@@ -609,6 +711,7 @@ func turnToProto(t store.Turn) *agentv1.Turn {
 		Status:     t.Status,
 		StartedAt:  timestamppb.New(t.StartedAt),
 		FinalText:  t.FinalText,
+		StartedBy:  t.StartedBy,
 	}
 	if t.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*t.FinishedAt)
@@ -627,6 +730,18 @@ func turnToProto(t store.Turn) *agentv1.Turn {
 func storeError(err error) error {
 	if errors.Is(err, store.ErrNotFound) {
 		return connect.NewError(connect.CodeNotFound, err)
+	}
+	// Phase 5: a viewer writing is refused as such — they can see the chat, so pretending it
+	// is not there would be a lie — and a share with somebody who never signed in, or with a
+	// role the schema does not have, is the caller's to fix.
+	switch {
+	case errors.Is(err, chat.ErrViewOnly):
+		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, store.ErrNoSuchMember):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection),
+		errors.Is(err, store.ErrBadLinearCursor):
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("agent store: %w", err))
 }

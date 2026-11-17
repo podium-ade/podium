@@ -73,6 +73,12 @@ const (
 	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// ClearGitHubConnection RPC.
 	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
+	// AgentServiceSetLinearConnectionProcedure is the fully-qualified name of the AgentService's
+	// SetLinearConnection RPC.
+	AgentServiceSetLinearConnectionProcedure = "/podium.agent.v1.AgentService/SetLinearConnection"
+	// AgentServiceClearLinearConnectionProcedure is the fully-qualified name of the AgentService's
+	// ClearLinearConnection RPC.
+	AgentServiceClearLinearConnectionProcedure = "/podium.agent.v1.AgentService/ClearLinearConnection"
 	// AgentServiceGetGitHubAccountProcedure is the fully-qualified name of the AgentService's
 	// GetGitHubAccount RPC.
 	AgentServiceGetGitHubAccountProcedure = "/podium.agent.v1.AgentService/GetGitHubAccount"
@@ -102,6 +108,12 @@ const (
 	// AgentServiceDeleteMemoryProcedure is the fully-qualified name of the AgentService's DeleteMemory
 	// RPC.
 	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
+	// AgentServiceGetMemorySettingsProcedure is the fully-qualified name of the AgentService's
+	// GetMemorySettings RPC.
+	AgentServiceGetMemorySettingsProcedure = "/podium.agent.v1.AgentService/GetMemorySettings"
+	// AgentServiceSetMemorySettingsProcedure is the fully-qualified name of the AgentService's
+	// SetMemorySettings RPC.
+	AgentServiceSetMemorySettingsProcedure = "/podium.agent.v1.AgentService/SetMemorySettings"
 	// AgentServiceListPlaybooksProcedure is the fully-qualified name of the AgentService's
 	// ListPlaybooks RPC.
 	AgentServiceListPlaybooksProcedure = "/podium.agent.v1.AgentService/ListPlaybooks"
@@ -167,6 +179,9 @@ const (
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
 	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
+	// AgentServiceListLinearConversationsProcedure is the fully-qualified name of the AgentService's
+	// ListLinearConversations RPC.
+	AgentServiceListLinearConversationsProcedure = "/podium.agent.v1.AgentService/ListLinearConversations"
 	// AgentServiceRenameChatProcedure is the fully-qualified name of the AgentService's RenameChat RPC.
 	AgentServiceRenameChatProcedure = "/podium.agent.v1.AgentService/RenameChat"
 	// AgentServiceDeleteChatProcedure is the fully-qualified name of the AgentService's DeleteChat RPC.
@@ -174,17 +189,60 @@ const (
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
 	// SendChatMessage RPC.
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
+	// AgentServiceCancelQueuedTurnProcedure is the fully-qualified name of the AgentService's
+	// CancelQueuedTurn RPC.
+	AgentServiceCancelQueuedTurnProcedure = "/podium.agent.v1.AgentService/CancelQueuedTurn"
+	// AgentServiceCancelChatTurnProcedure is the fully-qualified name of the AgentService's
+	// CancelChatTurn RPC.
+	AgentServiceCancelChatTurnProcedure = "/podium.agent.v1.AgentService/CancelChatTurn"
+	// AgentServiceSearchMembersProcedure is the fully-qualified name of the AgentService's
+	// SearchMembers RPC.
+	AgentServiceSearchMembersProcedure = "/podium.agent.v1.AgentService/SearchMembers"
+	// AgentServiceRetryChatDeliveryProcedure is the fully-qualified name of the AgentService's
+	// RetryChatDelivery RPC.
+	AgentServiceRetryChatDeliveryProcedure = "/podium.agent.v1.AgentService/RetryChatDelivery"
 	// AgentServiceStreamChatProcedure is the fully-qualified name of the AgentService's StreamChat RPC.
 	AgentServiceStreamChatProcedure = "/podium.agent.v1.AgentService/StreamChat"
+	// AgentServiceListChatMessagesProcedure is the fully-qualified name of the AgentService's
+	// ListChatMessages RPC.
+	AgentServiceListChatMessagesProcedure = "/podium.agent.v1.AgentService/ListChatMessages"
 	// AgentServiceAttachChatPullRequestProcedure is the fully-qualified name of the AgentService's
 	// AttachChatPullRequest RPC.
 	AgentServiceAttachChatPullRequestProcedure = "/podium.agent.v1.AgentService/AttachChatPullRequest"
 	// AgentServiceDetachChatPullRequestProcedure is the fully-qualified name of the AgentService's
 	// DetachChatPullRequest RPC.
 	AgentServiceDetachChatPullRequestProcedure = "/podium.agent.v1.AgentService/DetachChatPullRequest"
+	// AgentServiceGetChatSharingProcedure is the fully-qualified name of the AgentService's
+	// GetChatSharing RPC.
+	AgentServiceGetChatSharingProcedure = "/podium.agent.v1.AgentService/GetChatSharing"
+	// AgentServiceUpdateChatSharingProcedure is the fully-qualified name of the AgentService's
+	// UpdateChatSharing RPC.
+	AgentServiceUpdateChatSharingProcedure = "/podium.agent.v1.AgentService/UpdateChatSharing"
+	// AgentServiceShareChatProcedure is the fully-qualified name of the AgentService's ShareChat RPC.
+	AgentServiceShareChatProcedure = "/podium.agent.v1.AgentService/ShareChat"
+	// AgentServiceUnshareChatProcedure is the fully-qualified name of the AgentService's UnshareChat
+	// RPC.
+	AgentServiceUnshareChatProcedure = "/podium.agent.v1.AgentService/UnshareChat"
+	// AgentServiceLeaveChatProcedure is the fully-qualified name of the AgentService's LeaveChat RPC.
+	AgentServiceLeaveChatProcedure = "/podium.agent.v1.AgentService/LeaveChat"
+	// AgentServiceMarkChatReadProcedure is the fully-qualified name of the AgentService's MarkChatRead
+	// RPC.
+	AgentServiceMarkChatReadProcedure = "/podium.agent.v1.AgentService/MarkChatRead"
+	// AgentServiceSetChatRailHiddenProcedure is the fully-qualified name of the AgentService's
+	// SetChatRailHidden RPC.
+	AgentServiceSetChatRailHiddenProcedure = "/podium.agent.v1.AgentService/SetChatRailHidden"
+	// AgentServiceListNotificationsProcedure is the fully-qualified name of the AgentService's
+	// ListNotifications RPC.
+	AgentServiceListNotificationsProcedure = "/podium.agent.v1.AgentService/ListNotifications"
+	// AgentServiceMarkNotificationsReadProcedure is the fully-qualified name of the AgentService's
+	// MarkNotificationsRead RPC.
+	AgentServiceMarkNotificationsReadProcedure = "/podium.agent.v1.AgentService/MarkNotificationsRead"
 	// AgentServiceListSlackChannelsProcedure is the fully-qualified name of the AgentService's
 	// ListSlackChannels RPC.
 	AgentServiceListSlackChannelsProcedure = "/podium.agent.v1.AgentService/ListSlackChannels"
+	// AgentServiceListLinearCatalogProcedure is the fully-qualified name of the AgentService's
+	// ListLinearCatalog RPC.
+	AgentServiceListLinearCatalogProcedure = "/podium.agent.v1.AgentService/ListLinearCatalog"
 	// AgentServiceSetSlackChannelDescriptionProcedure is the fully-qualified name of the AgentService's
 	// SetSlackChannelDescription RPC.
 	AgentServiceSetSlackChannelDescriptionProcedure = "/podium.agent.v1.AgentService/SetSlackChannelDescription"
@@ -200,6 +258,59 @@ const (
 	// AgentServiceDeletePersonalityProcedure is the fully-qualified name of the AgentService's
 	// DeletePersonality RPC.
 	AgentServiceDeletePersonalityProcedure = "/podium.agent.v1.AgentService/DeletePersonality"
+	// AgentServiceListRoutinesProcedure is the fully-qualified name of the AgentService's ListRoutines
+	// RPC.
+	AgentServiceListRoutinesProcedure = "/podium.agent.v1.AgentService/ListRoutines"
+	// AgentServiceGetRoutineProcedure is the fully-qualified name of the AgentService's GetRoutine RPC.
+	AgentServiceGetRoutineProcedure = "/podium.agent.v1.AgentService/GetRoutine"
+	// AgentServiceCreateRoutineProcedure is the fully-qualified name of the AgentService's
+	// CreateRoutine RPC.
+	AgentServiceCreateRoutineProcedure = "/podium.agent.v1.AgentService/CreateRoutine"
+	// AgentServiceUpdateRoutineProcedure is the fully-qualified name of the AgentService's
+	// UpdateRoutine RPC.
+	AgentServiceUpdateRoutineProcedure = "/podium.agent.v1.AgentService/UpdateRoutine"
+	// AgentServiceDeleteRoutineProcedure is the fully-qualified name of the AgentService's
+	// DeleteRoutine RPC.
+	AgentServiceDeleteRoutineProcedure = "/podium.agent.v1.AgentService/DeleteRoutine"
+	// AgentServicePauseRoutineProcedure is the fully-qualified name of the AgentService's PauseRoutine
+	// RPC.
+	AgentServicePauseRoutineProcedure = "/podium.agent.v1.AgentService/PauseRoutine"
+	// AgentServiceResumeRoutineProcedure is the fully-qualified name of the AgentService's
+	// ResumeRoutine RPC.
+	AgentServiceResumeRoutineProcedure = "/podium.agent.v1.AgentService/ResumeRoutine"
+	// AgentServiceRunRoutineNowProcedure is the fully-qualified name of the AgentService's
+	// RunRoutineNow RPC.
+	AgentServiceRunRoutineNowProcedure = "/podium.agent.v1.AgentService/RunRoutineNow"
+	// AgentServiceResetRoutineStateProcedure is the fully-qualified name of the AgentService's
+	// ResetRoutineState RPC.
+	AgentServiceResetRoutineStateProcedure = "/podium.agent.v1.AgentService/ResetRoutineState"
+	// AgentServiceResolveRoutineNoteProcedure is the fully-qualified name of the AgentService's
+	// ResolveRoutineNote RPC.
+	AgentServiceResolveRoutineNoteProcedure = "/podium.agent.v1.AgentService/ResolveRoutineNote"
+	// AgentServiceListRoutineRunsProcedure is the fully-qualified name of the AgentService's
+	// ListRoutineRuns RPC.
+	AgentServiceListRoutineRunsProcedure = "/podium.agent.v1.AgentService/ListRoutineRuns"
+	// AgentServiceListRoutineRevisionsProcedure is the fully-qualified name of the AgentService's
+	// ListRoutineRevisions RPC.
+	AgentServiceListRoutineRevisionsProcedure = "/podium.agent.v1.AgentService/ListRoutineRevisions"
+	// AgentServiceCancelRoutineRunProcedure is the fully-qualified name of the AgentService's
+	// CancelRoutineRun RPC.
+	AgentServiceCancelRoutineRunProcedure = "/podium.agent.v1.AgentService/CancelRoutineRun"
+	// AgentServiceListMemberRoutinesProcedure is the fully-qualified name of the AgentService's
+	// ListMemberRoutines RPC.
+	AgentServiceListMemberRoutinesProcedure = "/podium.agent.v1.AgentService/ListMemberRoutines"
+	// AgentServiceGetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
+	// GetRoutineLimits RPC.
+	AgentServiceGetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/GetRoutineLimits"
+	// AgentServiceSetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
+	// SetRoutineLimits RPC.
+	AgentServiceSetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/SetRoutineLimits"
+	// AgentServiceGetLinearIssuesProcedure is the fully-qualified name of the AgentService's
+	// GetLinearIssues RPC.
+	AgentServiceGetLinearIssuesProcedure = "/podium.agent.v1.AgentService/GetLinearIssues"
+	// AgentServiceGetLinearIssueConversationProcedure is the fully-qualified name of the AgentService's
+	// GetLinearIssueConversation RPC.
+	AgentServiceGetLinearIssueConversationProcedure = "/podium.agent.v1.AgentService/GetLinearIssueConversation"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -251,6 +362,15 @@ type AgentServiceClient interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// SetLinearConnection stores the Linear agent app: its OAuth client id and secret, its
+	// webhook signing secret and the address its webhooks reach. The credentials are tried
+	// against Linear first, and refused unless they sign in as an app user. A blank secret
+	// keeps the saved one while the client id is the same. Nothing runs on the app yet, and
+	// PODIUM_AGENT_LINEAR_API_KEY keeps polling beside it.
+	SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error)
+	// ClearLinearConnection removes the saved app and its access token. Calling it twice is
+	// not an error.
+	ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error)
 	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
 	// connect one at all.
 	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
@@ -281,6 +401,13 @@ type AgentServiceClient interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// GetMemorySettings reports which saved model key the memory service's fact extraction
+	// spends, and which keys it could spend instead. No credential is ever returned.
+	GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error)
+	// SetMemorySettings points fact extraction at one provider's saved global key and a model.
+	// The pair is tried with one small completion first; a pair that does not answer is not
+	// saved. Admin or owner only.
+	SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error)
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
@@ -363,6 +490,11 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// ListLinearConversations is the Linear view: one row per Linear issue or project
+	// conversation, most recently active first. Admins and owners list every one; anybody else
+	// lists those whose issue they touched (through their linked Linear account), spoke in, or
+	// were shared. Each opens as a read-only chat, as a pull request's does.
+	ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.
 	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
@@ -371,14 +503,33 @@ type AgentServiceClient interface {
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
-	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running, unless that turn is
-	// awaiting a human reply (an interactive playbook asked a question): then the text is
-	// injected into the running task and no second turn starts.
+	// SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+	// it — or queues one behind the turn already running, to run as the sender (phase 4 of
+	// docs/agent.md). In a multiplayer chat a message has to mention
+	// Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+	// reply from the same person takes the text instead of a new turn starting. A mirrored
+	// conversation may be written here too; its messages and their answers stay in Podium.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+	// is not queued any more, or is somebody else's.
+	CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error)
+	// CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+	// who may write the chat. The tasks it delegated keep running: they belong to the
+	// conversation, and stopping one is its own decision.
+	CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error)
+	// SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+	SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error)
+	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+	// message has nothing failed to retry.
+	RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error)
+	// ListChatMessages pages a chat's history backwards: the newest `limit` messages with a seq
+	// below before_seq, in seq order. It is how a chat opened with StreamChat's tail loads what
+	// came before, as the reader scrolls up.
+	ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error)
 	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
 	// the one a turn never named or a related one a human wants on the conversation. A URL
 	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
@@ -387,10 +538,41 @@ type AgentServiceClient interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+	// way a document is: by name with a role, with every Podium member, or with anybody signed
+	// in who has the link.
+	//
+	// GetChatSharing is the share dialog: who has access, general access, and — for the owner
+	// only — the link. Anybody who can open the chat may read it; only the owner may change it.
+	GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error)
+	// UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+	UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error)
+	// ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+	// login that has never signed in to Podium is failed_precondition.
+	ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error)
+	// UnshareChat removes a named grant. Owner only.
+	UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error)
+	// LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+	// any surface, brings them back. The owner cannot leave; they delete.
+	LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error)
+	// MarkChatRead moves the caller's read mark forward. It never moves it back.
+	MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error)
+	// SetChatRailHidden takes a Linear ticket's conversation out of the caller's chat rail, or
+	// puts it back. It comes back by itself once something new is said in it, and stays in the
+	// Linear view throughout.
+	SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error)
+	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
+	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
+	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
+	// pickers. With no Linear app running it is empty and says so.
+	ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error)
 	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
@@ -408,6 +590,45 @@ type AgentServiceClient interface {
 	// DeletePersonality removes one of the caller's voices. Chats that used it stay
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
+	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+	// own. A personal routine is its owner's: every RPC below answers only for routines the
+	// caller owns, and the dev token for all of them. A system routine runs as nobody and is
+	// configured by admins and owners, who manage it with the same RPCs.
+	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
+	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
+	// CreateRoutine opens the routine and its chat.
+	CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error)
+	UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error)
+	// DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+	DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error)
+	PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error)
+	ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error)
+	// RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+	RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error)
+	ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error)
+	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
+	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
+	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
+	// ListRoutineRevisions is the history of what a routine was told to do: each change to its
+	// instruction, notes or schedule, who made it, and when.
+	ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error)
+	// CancelRoutineRun stops the run going now.
+	CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error)
+	// ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+	// last run's status, never the chat, the instruction or what a run said. Admins only.
+	ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error)
+	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
+	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
+	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
+	// issue, or somebody whose linked Linear account is on its team — and nothing about the
+	// others, which are left out exactly as an identifier no team has is.
+	GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error)
+	// GetLinearIssueConversation is the panel of a Linear issue's conversation: the issue as
+	// Linear has it now, the tasks the conversation started and the routine runs that happened
+	// in it. To anybody who may read the conversation.
+	GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -511,6 +732,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
 			connect.WithClientOptions(opts...),
 		),
+		setLinearConnection: connect.NewClient[v1.SetLinearConnectionRequest, v1.SetLinearConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceSetLinearConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetLinearConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		clearLinearConnection: connect.NewClient[v1.ClearLinearConnectionRequest, v1.ClearLinearConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceClearLinearConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearLinearConnection")),
+			connect.WithClientOptions(opts...),
+		),
 		getGitHubAccount: connect.NewClient[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse](
 			httpClient,
 			baseURL+AgentServiceGetGitHubAccountProcedure,
@@ -569,6 +802,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceDeleteMemoryProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+			connect.WithClientOptions(opts...),
+		),
+		getMemorySettings: connect.NewClient[v1.GetMemorySettingsRequest, v1.GetMemorySettingsResponse](
+			httpClient,
+			baseURL+AgentServiceGetMemorySettingsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetMemorySettings")),
+			connect.WithClientOptions(opts...),
+		),
+		setMemorySettings: connect.NewClient[v1.SetMemorySettingsRequest, v1.SetMemorySettingsResponse](
+			httpClient,
+			baseURL+AgentServiceSetMemorySettingsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetMemorySettings")),
 			connect.WithClientOptions(opts...),
 		),
 		listPlaybooks: connect.NewClient[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse](
@@ -709,6 +954,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 			connect.WithClientOptions(opts...),
 		),
+		listLinearConversations: connect.NewClient[v1.ListLinearConversationsRequest, v1.ListLinearConversationsResponse](
+			httpClient,
+			baseURL+AgentServiceListLinearConversationsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListLinearConversations")),
+			connect.WithClientOptions(opts...),
+		),
 		renameChat: connect.NewClient[v1.RenameChatRequest, v1.RenameChatResponse](
 			httpClient,
 			baseURL+AgentServiceRenameChatProcedure,
@@ -727,10 +978,40 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 			connect.WithClientOptions(opts...),
 		),
+		cancelQueuedTurn: connect.NewClient[v1.CancelQueuedTurnRequest, v1.CancelQueuedTurnResponse](
+			httpClient,
+			baseURL+AgentServiceCancelQueuedTurnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelQueuedTurn")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelChatTurn: connect.NewClient[v1.CancelChatTurnRequest, v1.CancelChatTurnResponse](
+			httpClient,
+			baseURL+AgentServiceCancelChatTurnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelChatTurn")),
+			connect.WithClientOptions(opts...),
+		),
+		searchMembers: connect.NewClient[v1.SearchMembersRequest, v1.SearchMembersResponse](
+			httpClient,
+			baseURL+AgentServiceSearchMembersProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SearchMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		retryChatDelivery: connect.NewClient[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse](
+			httpClient,
+			baseURL+AgentServiceRetryChatDeliveryProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RetryChatDelivery")),
+			connect.WithClientOptions(opts...),
+		),
 		streamChat: connect.NewClient[v1.StreamChatRequest, v1.ChatFrame](
 			httpClient,
 			baseURL+AgentServiceStreamChatProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
+			connect.WithClientOptions(opts...),
+		),
+		listChatMessages: connect.NewClient[v1.ListChatMessagesRequest, v1.ListChatMessagesResponse](
+			httpClient,
+			baseURL+AgentServiceListChatMessagesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListChatMessages")),
 			connect.WithClientOptions(opts...),
 		),
 		attachChatPullRequest: connect.NewClient[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse](
@@ -745,10 +1026,70 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 			connect.WithClientOptions(opts...),
 		),
+		getChatSharing: connect.NewClient[v1.GetChatSharingRequest, v1.GetChatSharingResponse](
+			httpClient,
+			baseURL+AgentServiceGetChatSharingProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetChatSharing")),
+			connect.WithClientOptions(opts...),
+		),
+		updateChatSharing: connect.NewClient[v1.UpdateChatSharingRequest, v1.UpdateChatSharingResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateChatSharingProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateChatSharing")),
+			connect.WithClientOptions(opts...),
+		),
+		shareChat: connect.NewClient[v1.ShareChatRequest, v1.ShareChatResponse](
+			httpClient,
+			baseURL+AgentServiceShareChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ShareChat")),
+			connect.WithClientOptions(opts...),
+		),
+		unshareChat: connect.NewClient[v1.UnshareChatRequest, v1.UnshareChatResponse](
+			httpClient,
+			baseURL+AgentServiceUnshareChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UnshareChat")),
+			connect.WithClientOptions(opts...),
+		),
+		leaveChat: connect.NewClient[v1.LeaveChatRequest, v1.LeaveChatResponse](
+			httpClient,
+			baseURL+AgentServiceLeaveChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("LeaveChat")),
+			connect.WithClientOptions(opts...),
+		),
+		markChatRead: connect.NewClient[v1.MarkChatReadRequest, v1.MarkChatReadResponse](
+			httpClient,
+			baseURL+AgentServiceMarkChatReadProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("MarkChatRead")),
+			connect.WithClientOptions(opts...),
+		),
+		setChatRailHidden: connect.NewClient[v1.SetChatRailHiddenRequest, v1.SetChatRailHiddenResponse](
+			httpClient,
+			baseURL+AgentServiceSetChatRailHiddenProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetChatRailHidden")),
+			connect.WithClientOptions(opts...),
+		),
+		listNotifications: connect.NewClient[v1.ListNotificationsRequest, v1.ListNotificationsResponse](
+			httpClient,
+			baseURL+AgentServiceListNotificationsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListNotifications")),
+			connect.WithClientOptions(opts...),
+		),
+		markNotificationsRead: connect.NewClient[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse](
+			httpClient,
+			baseURL+AgentServiceMarkNotificationsReadProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("MarkNotificationsRead")),
+			connect.WithClientOptions(opts...),
+		),
 		listSlackChannels: connect.NewClient[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse](
 			httpClient,
 			baseURL+AgentServiceListSlackChannelsProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
+			connect.WithClientOptions(opts...),
+		),
+		listLinearCatalog: connect.NewClient[v1.ListLinearCatalogRequest, v1.ListLinearCatalogResponse](
+			httpClient,
+			baseURL+AgentServiceListLinearCatalogProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListLinearCatalog")),
 			connect.WithClientOptions(opts...),
 		),
 		setSlackChannelDescription: connect.NewClient[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse](
@@ -781,6 +1122,114 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
 			connect.WithClientOptions(opts...),
 		),
+		listRoutines: connect.NewClient[v1.ListRoutinesRequest, v1.ListRoutinesResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutinesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutines")),
+			connect.WithClientOptions(opts...),
+		),
+		getRoutine: connect.NewClient[v1.GetRoutineRequest, v1.GetRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceGetRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		createRoutine: connect.NewClient[v1.CreateRoutineRequest, v1.CreateRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceCreateRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreateRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		updateRoutine: connect.NewClient[v1.UpdateRoutineRequest, v1.UpdateRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRoutine: connect.NewClient[v1.DeleteRoutineRequest, v1.DeleteRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		pauseRoutine: connect.NewClient[v1.PauseRoutineRequest, v1.PauseRoutineResponse](
+			httpClient,
+			baseURL+AgentServicePauseRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("PauseRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeRoutine: connect.NewClient[v1.ResumeRoutineRequest, v1.ResumeRoutineResponse](
+			httpClient,
+			baseURL+AgentServiceResumeRoutineProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResumeRoutine")),
+			connect.WithClientOptions(opts...),
+		),
+		runRoutineNow: connect.NewClient[v1.RunRoutineNowRequest, v1.RunRoutineNowResponse](
+			httpClient,
+			baseURL+AgentServiceRunRoutineNowProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RunRoutineNow")),
+			connect.WithClientOptions(opts...),
+		),
+		resetRoutineState: connect.NewClient[v1.ResetRoutineStateRequest, v1.ResetRoutineStateResponse](
+			httpClient,
+			baseURL+AgentServiceResetRoutineStateProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResetRoutineState")),
+			connect.WithClientOptions(opts...),
+		),
+		resolveRoutineNote: connect.NewClient[v1.ResolveRoutineNoteRequest, v1.ResolveRoutineNoteResponse](
+			httpClient,
+			baseURL+AgentServiceResolveRoutineNoteProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResolveRoutineNote")),
+			connect.WithClientOptions(opts...),
+		),
+		listRoutineRuns: connect.NewClient[v1.ListRoutineRunsRequest, v1.ListRoutineRunsResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutineRunsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
+			connect.WithClientOptions(opts...),
+		),
+		listRoutineRevisions: connect.NewClient[v1.ListRoutineRevisionsRequest, v1.ListRoutineRevisionsResponse](
+			httpClient,
+			baseURL+AgentServiceListRoutineRevisionsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListRoutineRevisions")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelRoutineRun: connect.NewClient[v1.CancelRoutineRunRequest, v1.CancelRoutineRunResponse](
+			httpClient,
+			baseURL+AgentServiceCancelRoutineRunProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CancelRoutineRun")),
+			connect.WithClientOptions(opts...),
+		),
+		listMemberRoutines: connect.NewClient[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse](
+			httpClient,
+			baseURL+AgentServiceListMemberRoutinesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListMemberRoutines")),
+			connect.WithClientOptions(opts...),
+		),
+		getRoutineLimits: connect.NewClient[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse](
+			httpClient,
+			baseURL+AgentServiceGetRoutineLimitsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetRoutineLimits")),
+			connect.WithClientOptions(opts...),
+		),
+		setRoutineLimits: connect.NewClient[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse](
+			httpClient,
+			baseURL+AgentServiceSetRoutineLimitsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
+			connect.WithClientOptions(opts...),
+		),
+		getLinearIssues: connect.NewClient[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse](
+			httpClient,
+			baseURL+AgentServiceGetLinearIssuesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetLinearIssues")),
+			connect.WithClientOptions(opts...),
+		),
+		getLinearIssueConversation: connect.NewClient[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse](
+			httpClient,
+			baseURL+AgentServiceGetLinearIssueConversationProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetLinearIssueConversation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -801,6 +1250,8 @@ type agentServiceClient struct {
 	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
 	setGitHubWebhookFilters    *connect.Client[v1.SetGitHubWebhookFiltersRequest, v1.SetGitHubWebhookFiltersResponse]
 	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
+	setLinearConnection        *connect.Client[v1.SetLinearConnectionRequest, v1.SetLinearConnectionResponse]
+	clearLinearConnection      *connect.Client[v1.ClearLinearConnectionRequest, v1.ClearLinearConnectionResponse]
 	getGitHubAccount           *connect.Client[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse]
 	startGitHubOAuth           *connect.Client[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse]
 	completeGitHubOAuth        *connect.Client[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse]
@@ -811,6 +1262,8 @@ type agentServiceClient struct {
 	listMemories               *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
 	searchMemories             *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
 	deleteMemory               *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	getMemorySettings          *connect.Client[v1.GetMemorySettingsRequest, v1.GetMemorySettingsResponse]
+	setMemorySettings          *connect.Client[v1.SetMemorySettingsRequest, v1.SetMemorySettingsResponse]
 	listPlaybooks              *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
 	getProfile                 *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile              *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
@@ -834,18 +1287,52 @@ type agentServiceClient struct {
 	completeMcpOAuth           *connect.Client[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse]
 	createChat                 *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats                  *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	listLinearConversations    *connect.Client[v1.ListLinearConversationsRequest, v1.ListLinearConversationsResponse]
 	renameChat                 *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	deleteChat                 *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage            *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	cancelQueuedTurn           *connect.Client[v1.CancelQueuedTurnRequest, v1.CancelQueuedTurnResponse]
+	cancelChatTurn             *connect.Client[v1.CancelChatTurnRequest, v1.CancelChatTurnResponse]
+	searchMembers              *connect.Client[v1.SearchMembersRequest, v1.SearchMembersResponse]
+	retryChatDelivery          *connect.Client[v1.RetryChatDeliveryRequest, v1.RetryChatDeliveryResponse]
 	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	listChatMessages           *connect.Client[v1.ListChatMessagesRequest, v1.ListChatMessagesResponse]
 	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
+	getChatSharing             *connect.Client[v1.GetChatSharingRequest, v1.GetChatSharingResponse]
+	updateChatSharing          *connect.Client[v1.UpdateChatSharingRequest, v1.UpdateChatSharingResponse]
+	shareChat                  *connect.Client[v1.ShareChatRequest, v1.ShareChatResponse]
+	unshareChat                *connect.Client[v1.UnshareChatRequest, v1.UnshareChatResponse]
+	leaveChat                  *connect.Client[v1.LeaveChatRequest, v1.LeaveChatResponse]
+	markChatRead               *connect.Client[v1.MarkChatReadRequest, v1.MarkChatReadResponse]
+	setChatRailHidden          *connect.Client[v1.SetChatRailHiddenRequest, v1.SetChatRailHiddenResponse]
+	listNotifications          *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
+	markNotificationsRead      *connect.Client[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
+	listLinearCatalog          *connect.Client[v1.ListLinearCatalogRequest, v1.ListLinearCatalogResponse]
 	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
 	listPersonalities          *connect.Client[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse]
 	createPersonality          *connect.Client[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse]
 	updatePersonality          *connect.Client[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse]
 	deletePersonality          *connect.Client[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse]
+	listRoutines               *connect.Client[v1.ListRoutinesRequest, v1.ListRoutinesResponse]
+	getRoutine                 *connect.Client[v1.GetRoutineRequest, v1.GetRoutineResponse]
+	createRoutine              *connect.Client[v1.CreateRoutineRequest, v1.CreateRoutineResponse]
+	updateRoutine              *connect.Client[v1.UpdateRoutineRequest, v1.UpdateRoutineResponse]
+	deleteRoutine              *connect.Client[v1.DeleteRoutineRequest, v1.DeleteRoutineResponse]
+	pauseRoutine               *connect.Client[v1.PauseRoutineRequest, v1.PauseRoutineResponse]
+	resumeRoutine              *connect.Client[v1.ResumeRoutineRequest, v1.ResumeRoutineResponse]
+	runRoutineNow              *connect.Client[v1.RunRoutineNowRequest, v1.RunRoutineNowResponse]
+	resetRoutineState          *connect.Client[v1.ResetRoutineStateRequest, v1.ResetRoutineStateResponse]
+	resolveRoutineNote         *connect.Client[v1.ResolveRoutineNoteRequest, v1.ResolveRoutineNoteResponse]
+	listRoutineRuns            *connect.Client[v1.ListRoutineRunsRequest, v1.ListRoutineRunsResponse]
+	listRoutineRevisions       *connect.Client[v1.ListRoutineRevisionsRequest, v1.ListRoutineRevisionsResponse]
+	cancelRoutineRun           *connect.Client[v1.CancelRoutineRunRequest, v1.CancelRoutineRunResponse]
+	listMemberRoutines         *connect.Client[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse]
+	getRoutineLimits           *connect.Client[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse]
+	setRoutineLimits           *connect.Client[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse]
+	getLinearIssues            *connect.Client[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse]
+	getLinearIssueConversation *connect.Client[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -923,6 +1410,16 @@ func (c *agentServiceClient) ClearGitHubConnection(ctx context.Context, req *con
 	return c.clearGitHubConnection.CallUnary(ctx, req)
 }
 
+// SetLinearConnection calls podium.agent.v1.AgentService.SetLinearConnection.
+func (c *agentServiceClient) SetLinearConnection(ctx context.Context, req *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error) {
+	return c.setLinearConnection.CallUnary(ctx, req)
+}
+
+// ClearLinearConnection calls podium.agent.v1.AgentService.ClearLinearConnection.
+func (c *agentServiceClient) ClearLinearConnection(ctx context.Context, req *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error) {
+	return c.clearLinearConnection.CallUnary(ctx, req)
+}
+
 // GetGitHubAccount calls podium.agent.v1.AgentService.GetGitHubAccount.
 func (c *agentServiceClient) GetGitHubAccount(ctx context.Context, req *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
 	return c.getGitHubAccount.CallUnary(ctx, req)
@@ -971,6 +1468,16 @@ func (c *agentServiceClient) SearchMemories(ctx context.Context, req *connect.Re
 // DeleteMemory calls podium.agent.v1.AgentService.DeleteMemory.
 func (c *agentServiceClient) DeleteMemory(ctx context.Context, req *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return c.deleteMemory.CallUnary(ctx, req)
+}
+
+// GetMemorySettings calls podium.agent.v1.AgentService.GetMemorySettings.
+func (c *agentServiceClient) GetMemorySettings(ctx context.Context, req *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error) {
+	return c.getMemorySettings.CallUnary(ctx, req)
+}
+
+// SetMemorySettings calls podium.agent.v1.AgentService.SetMemorySettings.
+func (c *agentServiceClient) SetMemorySettings(ctx context.Context, req *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error) {
+	return c.setMemorySettings.CallUnary(ctx, req)
 }
 
 // ListPlaybooks calls podium.agent.v1.AgentService.ListPlaybooks.
@@ -1088,6 +1595,11 @@ func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request
 	return c.listChats.CallUnary(ctx, req)
 }
 
+// ListLinearConversations calls podium.agent.v1.AgentService.ListLinearConversations.
+func (c *agentServiceClient) ListLinearConversations(ctx context.Context, req *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error) {
+	return c.listLinearConversations.CallUnary(ctx, req)
+}
+
 // RenameChat calls podium.agent.v1.AgentService.RenameChat.
 func (c *agentServiceClient) RenameChat(ctx context.Context, req *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
 	return c.renameChat.CallUnary(ctx, req)
@@ -1103,9 +1615,34 @@ func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.R
 	return c.sendChatMessage.CallUnary(ctx, req)
 }
 
+// CancelQueuedTurn calls podium.agent.v1.AgentService.CancelQueuedTurn.
+func (c *agentServiceClient) CancelQueuedTurn(ctx context.Context, req *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error) {
+	return c.cancelQueuedTurn.CallUnary(ctx, req)
+}
+
+// CancelChatTurn calls podium.agent.v1.AgentService.CancelChatTurn.
+func (c *agentServiceClient) CancelChatTurn(ctx context.Context, req *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error) {
+	return c.cancelChatTurn.CallUnary(ctx, req)
+}
+
+// SearchMembers calls podium.agent.v1.AgentService.SearchMembers.
+func (c *agentServiceClient) SearchMembers(ctx context.Context, req *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error) {
+	return c.searchMembers.CallUnary(ctx, req)
+}
+
+// RetryChatDelivery calls podium.agent.v1.AgentService.RetryChatDelivery.
+func (c *agentServiceClient) RetryChatDelivery(ctx context.Context, req *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {
+	return c.retryChatDelivery.CallUnary(ctx, req)
+}
+
 // StreamChat calls podium.agent.v1.AgentService.StreamChat.
 func (c *agentServiceClient) StreamChat(ctx context.Context, req *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error) {
 	return c.streamChat.CallServerStream(ctx, req)
+}
+
+// ListChatMessages calls podium.agent.v1.AgentService.ListChatMessages.
+func (c *agentServiceClient) ListChatMessages(ctx context.Context, req *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error) {
+	return c.listChatMessages.CallUnary(ctx, req)
 }
 
 // AttachChatPullRequest calls podium.agent.v1.AgentService.AttachChatPullRequest.
@@ -1118,9 +1655,59 @@ func (c *agentServiceClient) DetachChatPullRequest(ctx context.Context, req *con
 	return c.detachChatPullRequest.CallUnary(ctx, req)
 }
 
+// GetChatSharing calls podium.agent.v1.AgentService.GetChatSharing.
+func (c *agentServiceClient) GetChatSharing(ctx context.Context, req *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error) {
+	return c.getChatSharing.CallUnary(ctx, req)
+}
+
+// UpdateChatSharing calls podium.agent.v1.AgentService.UpdateChatSharing.
+func (c *agentServiceClient) UpdateChatSharing(ctx context.Context, req *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error) {
+	return c.updateChatSharing.CallUnary(ctx, req)
+}
+
+// ShareChat calls podium.agent.v1.AgentService.ShareChat.
+func (c *agentServiceClient) ShareChat(ctx context.Context, req *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error) {
+	return c.shareChat.CallUnary(ctx, req)
+}
+
+// UnshareChat calls podium.agent.v1.AgentService.UnshareChat.
+func (c *agentServiceClient) UnshareChat(ctx context.Context, req *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error) {
+	return c.unshareChat.CallUnary(ctx, req)
+}
+
+// LeaveChat calls podium.agent.v1.AgentService.LeaveChat.
+func (c *agentServiceClient) LeaveChat(ctx context.Context, req *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error) {
+	return c.leaveChat.CallUnary(ctx, req)
+}
+
+// MarkChatRead calls podium.agent.v1.AgentService.MarkChatRead.
+func (c *agentServiceClient) MarkChatRead(ctx context.Context, req *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error) {
+	return c.markChatRead.CallUnary(ctx, req)
+}
+
+// SetChatRailHidden calls podium.agent.v1.AgentService.SetChatRailHidden.
+func (c *agentServiceClient) SetChatRailHidden(ctx context.Context, req *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error) {
+	return c.setChatRailHidden.CallUnary(ctx, req)
+}
+
+// ListNotifications calls podium.agent.v1.AgentService.ListNotifications.
+func (c *agentServiceClient) ListNotifications(ctx context.Context, req *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return c.listNotifications.CallUnary(ctx, req)
+}
+
+// MarkNotificationsRead calls podium.agent.v1.AgentService.MarkNotificationsRead.
+func (c *agentServiceClient) MarkNotificationsRead(ctx context.Context, req *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error) {
+	return c.markNotificationsRead.CallUnary(ctx, req)
+}
+
 // ListSlackChannels calls podium.agent.v1.AgentService.ListSlackChannels.
 func (c *agentServiceClient) ListSlackChannels(ctx context.Context, req *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
 	return c.listSlackChannels.CallUnary(ctx, req)
+}
+
+// ListLinearCatalog calls podium.agent.v1.AgentService.ListLinearCatalog.
+func (c *agentServiceClient) ListLinearCatalog(ctx context.Context, req *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error) {
+	return c.listLinearCatalog.CallUnary(ctx, req)
 }
 
 // SetSlackChannelDescription calls podium.agent.v1.AgentService.SetSlackChannelDescription.
@@ -1146,6 +1733,96 @@ func (c *agentServiceClient) UpdatePersonality(ctx context.Context, req *connect
 // DeletePersonality calls podium.agent.v1.AgentService.DeletePersonality.
 func (c *agentServiceClient) DeletePersonality(ctx context.Context, req *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
 	return c.deletePersonality.CallUnary(ctx, req)
+}
+
+// ListRoutines calls podium.agent.v1.AgentService.ListRoutines.
+func (c *agentServiceClient) ListRoutines(ctx context.Context, req *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error) {
+	return c.listRoutines.CallUnary(ctx, req)
+}
+
+// GetRoutine calls podium.agent.v1.AgentService.GetRoutine.
+func (c *agentServiceClient) GetRoutine(ctx context.Context, req *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error) {
+	return c.getRoutine.CallUnary(ctx, req)
+}
+
+// CreateRoutine calls podium.agent.v1.AgentService.CreateRoutine.
+func (c *agentServiceClient) CreateRoutine(ctx context.Context, req *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error) {
+	return c.createRoutine.CallUnary(ctx, req)
+}
+
+// UpdateRoutine calls podium.agent.v1.AgentService.UpdateRoutine.
+func (c *agentServiceClient) UpdateRoutine(ctx context.Context, req *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error) {
+	return c.updateRoutine.CallUnary(ctx, req)
+}
+
+// DeleteRoutine calls podium.agent.v1.AgentService.DeleteRoutine.
+func (c *agentServiceClient) DeleteRoutine(ctx context.Context, req *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error) {
+	return c.deleteRoutine.CallUnary(ctx, req)
+}
+
+// PauseRoutine calls podium.agent.v1.AgentService.PauseRoutine.
+func (c *agentServiceClient) PauseRoutine(ctx context.Context, req *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error) {
+	return c.pauseRoutine.CallUnary(ctx, req)
+}
+
+// ResumeRoutine calls podium.agent.v1.AgentService.ResumeRoutine.
+func (c *agentServiceClient) ResumeRoutine(ctx context.Context, req *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error) {
+	return c.resumeRoutine.CallUnary(ctx, req)
+}
+
+// RunRoutineNow calls podium.agent.v1.AgentService.RunRoutineNow.
+func (c *agentServiceClient) RunRoutineNow(ctx context.Context, req *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error) {
+	return c.runRoutineNow.CallUnary(ctx, req)
+}
+
+// ResetRoutineState calls podium.agent.v1.AgentService.ResetRoutineState.
+func (c *agentServiceClient) ResetRoutineState(ctx context.Context, req *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error) {
+	return c.resetRoutineState.CallUnary(ctx, req)
+}
+
+// ResolveRoutineNote calls podium.agent.v1.AgentService.ResolveRoutineNote.
+func (c *agentServiceClient) ResolveRoutineNote(ctx context.Context, req *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error) {
+	return c.resolveRoutineNote.CallUnary(ctx, req)
+}
+
+// ListRoutineRuns calls podium.agent.v1.AgentService.ListRoutineRuns.
+func (c *agentServiceClient) ListRoutineRuns(ctx context.Context, req *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error) {
+	return c.listRoutineRuns.CallUnary(ctx, req)
+}
+
+// ListRoutineRevisions calls podium.agent.v1.AgentService.ListRoutineRevisions.
+func (c *agentServiceClient) ListRoutineRevisions(ctx context.Context, req *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error) {
+	return c.listRoutineRevisions.CallUnary(ctx, req)
+}
+
+// CancelRoutineRun calls podium.agent.v1.AgentService.CancelRoutineRun.
+func (c *agentServiceClient) CancelRoutineRun(ctx context.Context, req *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error) {
+	return c.cancelRoutineRun.CallUnary(ctx, req)
+}
+
+// ListMemberRoutines calls podium.agent.v1.AgentService.ListMemberRoutines.
+func (c *agentServiceClient) ListMemberRoutines(ctx context.Context, req *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error) {
+	return c.listMemberRoutines.CallUnary(ctx, req)
+}
+
+// GetRoutineLimits calls podium.agent.v1.AgentService.GetRoutineLimits.
+func (c *agentServiceClient) GetRoutineLimits(ctx context.Context, req *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error) {
+	return c.getRoutineLimits.CallUnary(ctx, req)
+}
+
+// SetRoutineLimits calls podium.agent.v1.AgentService.SetRoutineLimits.
+func (c *agentServiceClient) SetRoutineLimits(ctx context.Context, req *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
+	return c.setRoutineLimits.CallUnary(ctx, req)
+}
+
+// GetLinearIssues calls podium.agent.v1.AgentService.GetLinearIssues.
+func (c *agentServiceClient) GetLinearIssues(ctx context.Context, req *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
+	return c.getLinearIssues.CallUnary(ctx, req)
+}
+
+// GetLinearIssueConversation calls podium.agent.v1.AgentService.GetLinearIssueConversation.
+func (c *agentServiceClient) GetLinearIssueConversation(ctx context.Context, req *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error) {
+	return c.getLinearIssueConversation.CallUnary(ctx, req)
 }
 
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
@@ -1197,6 +1874,15 @@ type AgentServiceHandler interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// SetLinearConnection stores the Linear agent app: its OAuth client id and secret, its
+	// webhook signing secret and the address its webhooks reach. The credentials are tried
+	// against Linear first, and refused unless they sign in as an app user. A blank secret
+	// keeps the saved one while the client id is the same. Nothing runs on the app yet, and
+	// PODIUM_AGENT_LINEAR_API_KEY keeps polling beside it.
+	SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error)
+	// ClearLinearConnection removes the saved app and its access token. Calling it twice is
+	// not an error.
+	ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error)
 	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
 	// connect one at all.
 	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
@@ -1227,6 +1913,13 @@ type AgentServiceHandler interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// GetMemorySettings reports which saved model key the memory service's fact extraction
+	// spends, and which keys it could spend instead. No credential is ever returned.
+	GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error)
+	// SetMemorySettings points fact extraction at one provider's saved global key and a model.
+	// The pair is tried with one small completion first; a pair that does not answer is not
+	// saved. Admin or owner only.
+	SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error)
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
@@ -1309,6 +2002,11 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// ListLinearConversations is the Linear view: one row per Linear issue or project
+	// conversation, most recently active first. Admins and owners list every one; anybody else
+	// lists those whose issue they touched (through their linked Linear account), spoke in, or
+	// were shared. Each opens as a read-only chat, as a pull request's does.
+	ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.
 	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
@@ -1317,14 +2015,33 @@ type AgentServiceHandler interface {
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
-	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running, unless that turn is
-	// awaiting a human reply (an interactive playbook asked a question): then the text is
-	// injected into the running task and no second turn starts.
+	// SendChatMessage stores one human message and, when it is put to Podium, starts a turn on
+	// it — or queues one behind the turn already running, to run as the sender (phase 4 of
+	// docs/agent.md). In a multiplayer chat a message has to mention
+	// Podium to be put to it; anything else is recorded and starts nothing. A turn awaiting a
+	// reply from the same person takes the text instead of a new turn starting. A mirrored
+	// conversation may be written here too; its messages and their answers stay in Podium.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// CancelQueuedTurn takes back the caller's own turn that is still waiting. NotFound when it
+	// is not queued any more, or is somebody else's.
+	CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error)
+	// CancelChatTurn stops the turn answering a chat right now, whoever started it, for anybody
+	// who may write the chat. The tasks it delegated keep running: they belong to the
+	// conversation, and stopping one is its own decision.
+	CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error)
+	// SearchMembers finds Podium people by name or login, for the composer's @-mention list.
+	SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error)
+	// RetryChatDelivery puts a bot message's failed deliveries to Slack or GitHub back in the
+	// queue and attempts them at once. NotFound when the caller cannot read the chat, or the
+	// message has nothing failed to retry.
+	RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error
+	// ListChatMessages pages a chat's history backwards: the newest `limit` messages with a seq
+	// below before_seq, in seq order. It is how a chat opened with StreamChat's tail loads what
+	// came before, as the reader scrolls up.
+	ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error)
 	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
 	// the one a turn never named or a related one a human wants on the conversation. A URL
 	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
@@ -1333,10 +2050,41 @@ type AgentServiceHandler interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// The sharing half (multiplayer sessions, docs/agent.md). A chat is shared the
+	// way a document is: by name with a role, with every Podium member, or with anybody signed
+	// in who has the link.
+	//
+	// GetChatSharing is the share dialog: who has access, general access, and — for the owner
+	// only — the link. Anybody who can open the chat may read it; only the owner may change it.
+	GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error)
+	// UpdateChatSharing sets general access and its role, and resets the link. Owner only.
+	UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error)
+	// ShareChat grants a Podium person a role, or changes the role they have. Owner only. A
+	// login that has never signed in to Podium is failed_precondition.
+	ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error)
+	// UnshareChat removes a named grant. Owner only.
+	UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error)
+	// LeaveChat takes the caller out of a chat that is not theirs. Speaking in it again, from
+	// any surface, brings them back. The owner cannot leave; they delete.
+	LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error)
+	// MarkChatRead moves the caller's read mark forward. It never moves it back.
+	MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error)
+	// SetChatRailHidden takes a Linear ticket's conversation out of the caller's chat rail, or
+	// puts it back. It comes back by itself once something new is said in it, and stays in the
+	// Linear view throughout.
+	SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error)
+	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
+	MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error)
 	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
 	// mentioned, or listed from Slack on this call — with the operator-authored description
 	// a turn of that channel is briefed with.
 	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// ListLinearCatalog reports the teams and issue labels of the Linear workspace the saved
+	// Linear app is installed in, for the playbook editor's linear_teams and linear_labels
+	// pickers. With no Linear app running it is empty and says so.
+	ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error)
 	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
@@ -1354,6 +2102,45 @@ type AgentServiceHandler interface {
 	// DeletePersonality removes one of the caller's voices. Chats that used it stay
 	// readable under the name they had. A new message in one of those chats is refused.
 	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
+	// Routines (docs/agent.md, "Routines"): a recurring job an agent does in one chat of its
+	// own. A personal routine is its owner's: every RPC below answers only for routines the
+	// caller owns, and the dev token for all of them. A system routine runs as nobody and is
+	// configured by admins and owners, who manage it with the same RPCs.
+	ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error)
+	GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error)
+	// CreateRoutine opens the routine and its chat.
+	CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error)
+	UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error)
+	// DeleteRoutine removes the routine and its runs. Its chat stays, as an ordinary chat.
+	DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error)
+	PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error)
+	ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error)
+	// RunRoutineNow starts a run at once, outside the schedule. Refused while the chat is busy.
+	RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error)
+	ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error)
+	// ResolveRoutineNote accepts or dismisses the note the agent proposed.
+	ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error)
+	ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error)
+	// ListRoutineRevisions is the history of what a routine was told to do: each change to its
+	// instruction, notes or schedule, who made it, and when.
+	ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error)
+	// CancelRoutineRun stops the run going now.
+	CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error)
+	// ListMemberRoutines is every person's routines as an admin sees them: metadata and the
+	// last run's status, never the chat, the instruction or what a run said. Admins only.
+	ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error)
+	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
+	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
+	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
+	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
+	// issue, or somebody whose linked Linear account is on its team — and nothing about the
+	// others, which are left out exactly as an identifier no team has is.
+	GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error)
+	// GetLinearIssueConversation is the panel of a Linear issue's conversation: the issue as
+	// Linear has it now, the tasks the conversation started and the routine runs that happened
+	// in it. To anybody who may read the conversation.
+	GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1453,6 +2240,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceSetLinearConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceSetLinearConnectionProcedure,
+		svc.SetLinearConnection,
+		connect.WithSchema(agentServiceMethods.ByName("SetLinearConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearLinearConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceClearLinearConnectionProcedure,
+		svc.ClearLinearConnection,
+		connect.WithSchema(agentServiceMethods.ByName("ClearLinearConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceGetGitHubAccountHandler := connect.NewUnaryHandler(
 		AgentServiceGetGitHubAccountProcedure,
 		svc.GetGitHubAccount,
@@ -1511,6 +2310,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceDeleteMemoryProcedure,
 		svc.DeleteMemory,
 		connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetMemorySettingsHandler := connect.NewUnaryHandler(
+		AgentServiceGetMemorySettingsProcedure,
+		svc.GetMemorySettings,
+		connect.WithSchema(agentServiceMethods.ByName("GetMemorySettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetMemorySettingsHandler := connect.NewUnaryHandler(
+		AgentServiceSetMemorySettingsProcedure,
+		svc.SetMemorySettings,
+		connect.WithSchema(agentServiceMethods.ByName("SetMemorySettings")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceListPlaybooksHandler := connect.NewUnaryHandler(
@@ -1651,6 +2462,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListLinearConversationsHandler := connect.NewUnaryHandler(
+		AgentServiceListLinearConversationsProcedure,
+		svc.ListLinearConversations,
+		connect.WithSchema(agentServiceMethods.ByName("ListLinearConversations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceRenameChatHandler := connect.NewUnaryHandler(
 		AgentServiceRenameChatProcedure,
 		svc.RenameChat,
@@ -1669,10 +2486,40 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceCancelQueuedTurnHandler := connect.NewUnaryHandler(
+		AgentServiceCancelQueuedTurnProcedure,
+		svc.CancelQueuedTurn,
+		connect.WithSchema(agentServiceMethods.ByName("CancelQueuedTurn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCancelChatTurnHandler := connect.NewUnaryHandler(
+		AgentServiceCancelChatTurnProcedure,
+		svc.CancelChatTurn,
+		connect.WithSchema(agentServiceMethods.ByName("CancelChatTurn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSearchMembersHandler := connect.NewUnaryHandler(
+		AgentServiceSearchMembersProcedure,
+		svc.SearchMembers,
+		connect.WithSchema(agentServiceMethods.ByName("SearchMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceRetryChatDeliveryHandler := connect.NewUnaryHandler(
+		AgentServiceRetryChatDeliveryProcedure,
+		svc.RetryChatDelivery,
+		connect.WithSchema(agentServiceMethods.ByName("RetryChatDelivery")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceStreamChatHandler := connect.NewServerStreamHandler(
 		AgentServiceStreamChatProcedure,
 		svc.StreamChat,
 		connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListChatMessagesHandler := connect.NewUnaryHandler(
+		AgentServiceListChatMessagesProcedure,
+		svc.ListChatMessages,
+		connect.WithSchema(agentServiceMethods.ByName("ListChatMessages")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceAttachChatPullRequestHandler := connect.NewUnaryHandler(
@@ -1687,10 +2534,70 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetChatSharingHandler := connect.NewUnaryHandler(
+		AgentServiceGetChatSharingProcedure,
+		svc.GetChatSharing,
+		connect.WithSchema(agentServiceMethods.ByName("GetChatSharing")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateChatSharingHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateChatSharingProcedure,
+		svc.UpdateChatSharing,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateChatSharing")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceShareChatHandler := connect.NewUnaryHandler(
+		AgentServiceShareChatProcedure,
+		svc.ShareChat,
+		connect.WithSchema(agentServiceMethods.ByName("ShareChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUnshareChatHandler := connect.NewUnaryHandler(
+		AgentServiceUnshareChatProcedure,
+		svc.UnshareChat,
+		connect.WithSchema(agentServiceMethods.ByName("UnshareChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceLeaveChatHandler := connect.NewUnaryHandler(
+		AgentServiceLeaveChatProcedure,
+		svc.LeaveChat,
+		connect.WithSchema(agentServiceMethods.ByName("LeaveChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceMarkChatReadHandler := connect.NewUnaryHandler(
+		AgentServiceMarkChatReadProcedure,
+		svc.MarkChatRead,
+		connect.WithSchema(agentServiceMethods.ByName("MarkChatRead")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetChatRailHiddenHandler := connect.NewUnaryHandler(
+		AgentServiceSetChatRailHiddenProcedure,
+		svc.SetChatRailHidden,
+		connect.WithSchema(agentServiceMethods.ByName("SetChatRailHidden")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListNotificationsHandler := connect.NewUnaryHandler(
+		AgentServiceListNotificationsProcedure,
+		svc.ListNotifications,
+		connect.WithSchema(agentServiceMethods.ByName("ListNotifications")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceMarkNotificationsReadHandler := connect.NewUnaryHandler(
+		AgentServiceMarkNotificationsReadProcedure,
+		svc.MarkNotificationsRead,
+		connect.WithSchema(agentServiceMethods.ByName("MarkNotificationsRead")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceListSlackChannelsHandler := connect.NewUnaryHandler(
 		AgentServiceListSlackChannelsProcedure,
 		svc.ListSlackChannels,
 		connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListLinearCatalogHandler := connect.NewUnaryHandler(
+		AgentServiceListLinearCatalogProcedure,
+		svc.ListLinearCatalog,
+		connect.WithSchema(agentServiceMethods.ByName("ListLinearCatalog")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceSetSlackChannelDescriptionHandler := connect.NewUnaryHandler(
@@ -1721,6 +2628,114 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceDeletePersonalityProcedure,
 		svc.DeletePersonality,
 		connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListRoutinesHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutinesProcedure,
+		svc.ListRoutines,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutines")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceGetRoutineProcedure,
+		svc.GetRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("GetRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreateRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceCreateRoutineProcedure,
+		svc.CreateRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("CreateRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateRoutineProcedure,
+		svc.UpdateRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteRoutineProcedure,
+		svc.DeleteRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServicePauseRoutineHandler := connect.NewUnaryHandler(
+		AgentServicePauseRoutineProcedure,
+		svc.PauseRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("PauseRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResumeRoutineHandler := connect.NewUnaryHandler(
+		AgentServiceResumeRoutineProcedure,
+		svc.ResumeRoutine,
+		connect.WithSchema(agentServiceMethods.ByName("ResumeRoutine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceRunRoutineNowHandler := connect.NewUnaryHandler(
+		AgentServiceRunRoutineNowProcedure,
+		svc.RunRoutineNow,
+		connect.WithSchema(agentServiceMethods.ByName("RunRoutineNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResetRoutineStateHandler := connect.NewUnaryHandler(
+		AgentServiceResetRoutineStateProcedure,
+		svc.ResetRoutineState,
+		connect.WithSchema(agentServiceMethods.ByName("ResetRoutineState")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResolveRoutineNoteHandler := connect.NewUnaryHandler(
+		AgentServiceResolveRoutineNoteProcedure,
+		svc.ResolveRoutineNote,
+		connect.WithSchema(agentServiceMethods.ByName("ResolveRoutineNote")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListRoutineRunsHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutineRunsProcedure,
+		svc.ListRoutineRuns,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutineRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListRoutineRevisionsHandler := connect.NewUnaryHandler(
+		AgentServiceListRoutineRevisionsProcedure,
+		svc.ListRoutineRevisions,
+		connect.WithSchema(agentServiceMethods.ByName("ListRoutineRevisions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCancelRoutineRunHandler := connect.NewUnaryHandler(
+		AgentServiceCancelRoutineRunProcedure,
+		svc.CancelRoutineRun,
+		connect.WithSchema(agentServiceMethods.ByName("CancelRoutineRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListMemberRoutinesHandler := connect.NewUnaryHandler(
+		AgentServiceListMemberRoutinesProcedure,
+		svc.ListMemberRoutines,
+		connect.WithSchema(agentServiceMethods.ByName("ListMemberRoutines")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetRoutineLimitsHandler := connect.NewUnaryHandler(
+		AgentServiceGetRoutineLimitsProcedure,
+		svc.GetRoutineLimits,
+		connect.WithSchema(agentServiceMethods.ByName("GetRoutineLimits")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetRoutineLimitsHandler := connect.NewUnaryHandler(
+		AgentServiceSetRoutineLimitsProcedure,
+		svc.SetRoutineLimits,
+		connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetLinearIssuesHandler := connect.NewUnaryHandler(
+		AgentServiceGetLinearIssuesProcedure,
+		svc.GetLinearIssues,
+		connect.WithSchema(agentServiceMethods.ByName("GetLinearIssues")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetLinearIssueConversationHandler := connect.NewUnaryHandler(
+		AgentServiceGetLinearIssueConversationProcedure,
+		svc.GetLinearIssueConversation,
+		connect.WithSchema(agentServiceMethods.ByName("GetLinearIssueConversation")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1755,6 +2770,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetGitHubWebhookFiltersHandler.ServeHTTP(w, r)
 		case AgentServiceClearGitHubConnectionProcedure:
 			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceSetLinearConnectionProcedure:
+			agentServiceSetLinearConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceClearLinearConnectionProcedure:
+			agentServiceClearLinearConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceGetGitHubAccountProcedure:
 			agentServiceGetGitHubAccountHandler.ServeHTTP(w, r)
 		case AgentServiceStartGitHubOAuthProcedure:
@@ -1775,6 +2794,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSearchMemoriesHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteMemoryProcedure:
 			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
+		case AgentServiceGetMemorySettingsProcedure:
+			agentServiceGetMemorySettingsHandler.ServeHTTP(w, r)
+		case AgentServiceSetMemorySettingsProcedure:
+			agentServiceSetMemorySettingsHandler.ServeHTTP(w, r)
 		case AgentServiceListPlaybooksProcedure:
 			agentServiceListPlaybooksHandler.ServeHTTP(w, r)
 		case AgentServiceGetProfileProcedure:
@@ -1821,20 +2844,52 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
 			agentServiceListChatsHandler.ServeHTTP(w, r)
+		case AgentServiceListLinearConversationsProcedure:
+			agentServiceListLinearConversationsHandler.ServeHTTP(w, r)
 		case AgentServiceRenameChatProcedure:
 			agentServiceRenameChatHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteChatProcedure:
 			agentServiceDeleteChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
+		case AgentServiceCancelQueuedTurnProcedure:
+			agentServiceCancelQueuedTurnHandler.ServeHTTP(w, r)
+		case AgentServiceCancelChatTurnProcedure:
+			agentServiceCancelChatTurnHandler.ServeHTTP(w, r)
+		case AgentServiceSearchMembersProcedure:
+			agentServiceSearchMembersHandler.ServeHTTP(w, r)
+		case AgentServiceRetryChatDeliveryProcedure:
+			agentServiceRetryChatDeliveryHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
 			agentServiceStreamChatHandler.ServeHTTP(w, r)
+		case AgentServiceListChatMessagesProcedure:
+			agentServiceListChatMessagesHandler.ServeHTTP(w, r)
 		case AgentServiceAttachChatPullRequestProcedure:
 			agentServiceAttachChatPullRequestHandler.ServeHTTP(w, r)
 		case AgentServiceDetachChatPullRequestProcedure:
 			agentServiceDetachChatPullRequestHandler.ServeHTTP(w, r)
+		case AgentServiceGetChatSharingProcedure:
+			agentServiceGetChatSharingHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateChatSharingProcedure:
+			agentServiceUpdateChatSharingHandler.ServeHTTP(w, r)
+		case AgentServiceShareChatProcedure:
+			agentServiceShareChatHandler.ServeHTTP(w, r)
+		case AgentServiceUnshareChatProcedure:
+			agentServiceUnshareChatHandler.ServeHTTP(w, r)
+		case AgentServiceLeaveChatProcedure:
+			agentServiceLeaveChatHandler.ServeHTTP(w, r)
+		case AgentServiceMarkChatReadProcedure:
+			agentServiceMarkChatReadHandler.ServeHTTP(w, r)
+		case AgentServiceSetChatRailHiddenProcedure:
+			agentServiceSetChatRailHiddenHandler.ServeHTTP(w, r)
+		case AgentServiceListNotificationsProcedure:
+			agentServiceListNotificationsHandler.ServeHTTP(w, r)
+		case AgentServiceMarkNotificationsReadProcedure:
+			agentServiceMarkNotificationsReadHandler.ServeHTTP(w, r)
 		case AgentServiceListSlackChannelsProcedure:
 			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
+		case AgentServiceListLinearCatalogProcedure:
+			agentServiceListLinearCatalogHandler.ServeHTTP(w, r)
 		case AgentServiceSetSlackChannelDescriptionProcedure:
 			agentServiceSetSlackChannelDescriptionHandler.ServeHTTP(w, r)
 		case AgentServiceListPersonalitiesProcedure:
@@ -1845,6 +2900,42 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceUpdatePersonalityHandler.ServeHTTP(w, r)
 		case AgentServiceDeletePersonalityProcedure:
 			agentServiceDeletePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutinesProcedure:
+			agentServiceListRoutinesHandler.ServeHTTP(w, r)
+		case AgentServiceGetRoutineProcedure:
+			agentServiceGetRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceCreateRoutineProcedure:
+			agentServiceCreateRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateRoutineProcedure:
+			agentServiceUpdateRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteRoutineProcedure:
+			agentServiceDeleteRoutineHandler.ServeHTTP(w, r)
+		case AgentServicePauseRoutineProcedure:
+			agentServicePauseRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceResumeRoutineProcedure:
+			agentServiceResumeRoutineHandler.ServeHTTP(w, r)
+		case AgentServiceRunRoutineNowProcedure:
+			agentServiceRunRoutineNowHandler.ServeHTTP(w, r)
+		case AgentServiceResetRoutineStateProcedure:
+			agentServiceResetRoutineStateHandler.ServeHTTP(w, r)
+		case AgentServiceResolveRoutineNoteProcedure:
+			agentServiceResolveRoutineNoteHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutineRunsProcedure:
+			agentServiceListRoutineRunsHandler.ServeHTTP(w, r)
+		case AgentServiceListRoutineRevisionsProcedure:
+			agentServiceListRoutineRevisionsHandler.ServeHTTP(w, r)
+		case AgentServiceCancelRoutineRunProcedure:
+			agentServiceCancelRoutineRunHandler.ServeHTTP(w, r)
+		case AgentServiceListMemberRoutinesProcedure:
+			agentServiceListMemberRoutinesHandler.ServeHTTP(w, r)
+		case AgentServiceGetRoutineLimitsProcedure:
+			agentServiceGetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceSetRoutineLimitsProcedure:
+			agentServiceSetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceGetLinearIssuesProcedure:
+			agentServiceGetLinearIssuesHandler.ServeHTTP(w, r)
+		case AgentServiceGetLinearIssueConversationProcedure:
+			agentServiceGetLinearIssueConversationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1914,6 +3005,14 @@ func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearGitHubConnection is not implemented"))
 }
 
+func (UnimplementedAgentServiceHandler) SetLinearConnection(context.Context, *connect.Request[v1.SetLinearConnectionRequest]) (*connect.Response[v1.SetLinearConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetLinearConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearLinearConnection(context.Context, *connect.Request[v1.ClearLinearConnectionRequest]) (*connect.Response[v1.ClearLinearConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearLinearConnection is not implemented"))
+}
+
 func (UnimplementedAgentServiceHandler) GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetGitHubAccount is not implemented"))
 }
@@ -1952,6 +3051,14 @@ func (UnimplementedAgentServiceHandler) SearchMemories(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMemory is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetMemorySettings(context.Context, *connect.Request[v1.GetMemorySettingsRequest]) (*connect.Response[v1.GetMemorySettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetMemorySettings is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetMemorySettings(context.Context, *connect.Request[v1.SetMemorySettingsRequest]) (*connect.Response[v1.SetMemorySettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetMemorySettings is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error) {
@@ -2046,6 +3153,10 @@ func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
 }
 
+func (UnimplementedAgentServiceHandler) ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListLinearConversations is not implemented"))
+}
+
 func (UnimplementedAgentServiceHandler) RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RenameChat is not implemented"))
 }
@@ -2058,8 +3169,28 @@ func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connec
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SendChatMessage is not implemented"))
 }
 
+func (UnimplementedAgentServiceHandler) CancelQueuedTurn(context.Context, *connect.Request[v1.CancelQueuedTurnRequest]) (*connect.Response[v1.CancelQueuedTurnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelQueuedTurn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CancelChatTurn(context.Context, *connect.Request[v1.CancelChatTurnRequest]) (*connect.Response[v1.CancelChatTurnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelChatTurn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SearchMembers(context.Context, *connect.Request[v1.SearchMembersRequest]) (*connect.Response[v1.SearchMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SearchMembers is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RetryChatDelivery(context.Context, *connect.Request[v1.RetryChatDeliveryRequest]) (*connect.Response[v1.RetryChatDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RetryChatDelivery is not implemented"))
+}
+
 func (UnimplementedAgentServiceHandler) StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StreamChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListChatMessages(context.Context, *connect.Request[v1.ListChatMessagesRequest]) (*connect.Response[v1.ListChatMessagesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChatMessages is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) AttachChatPullRequest(context.Context, *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error) {
@@ -2070,8 +3201,48 @@ func (UnimplementedAgentServiceHandler) DetachChatPullRequest(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DetachChatPullRequest is not implemented"))
 }
 
+func (UnimplementedAgentServiceHandler) GetChatSharing(context.Context, *connect.Request[v1.GetChatSharingRequest]) (*connect.Response[v1.GetChatSharingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetChatSharing is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateChatSharing(context.Context, *connect.Request[v1.UpdateChatSharingRequest]) (*connect.Response[v1.UpdateChatSharingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateChatSharing is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ShareChat(context.Context, *connect.Request[v1.ShareChatRequest]) (*connect.Response[v1.ShareChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ShareChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UnshareChat(context.Context, *connect.Request[v1.UnshareChatRequest]) (*connect.Response[v1.UnshareChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UnshareChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) LeaveChat(context.Context, *connect.Request[v1.LeaveChatRequest]) (*connect.Response[v1.LeaveChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.LeaveChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) MarkChatRead(context.Context, *connect.Request[v1.MarkChatReadRequest]) (*connect.Response[v1.MarkChatReadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.MarkChatRead is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetChatRailHidden is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListNotifications is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) MarkNotificationsRead(context.Context, *connect.Request[v1.MarkNotificationsReadRequest]) (*connect.Response[v1.MarkNotificationsReadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.MarkNotificationsRead is not implemented"))
+}
+
 func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSlackChannels is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListLinearCatalog(context.Context, *connect.Request[v1.ListLinearCatalogRequest]) (*connect.Response[v1.ListLinearCatalogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListLinearCatalog is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
@@ -2092,4 +3263,76 @@ func (UnimplementedAgentServiceHandler) UpdatePersonality(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutines(context.Context, *connect.Request[v1.ListRoutinesRequest]) (*connect.Response[v1.ListRoutinesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutines is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetRoutine(context.Context, *connect.Request[v1.GetRoutineRequest]) (*connect.Response[v1.GetRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreateRoutine(context.Context, *connect.Request[v1.CreateRoutineRequest]) (*connect.Response[v1.CreateRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateRoutine(context.Context, *connect.Request[v1.UpdateRoutineRequest]) (*connect.Response[v1.UpdateRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteRoutine(context.Context, *connect.Request[v1.DeleteRoutineRequest]) (*connect.Response[v1.DeleteRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) PauseRoutine(context.Context, *connect.Request[v1.PauseRoutineRequest]) (*connect.Response[v1.PauseRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.PauseRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResumeRoutine(context.Context, *connect.Request[v1.ResumeRoutineRequest]) (*connect.Response[v1.ResumeRoutineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResumeRoutine is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RunRoutineNow(context.Context, *connect.Request[v1.RunRoutineNowRequest]) (*connect.Response[v1.RunRoutineNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RunRoutineNow is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResetRoutineState(context.Context, *connect.Request[v1.ResetRoutineStateRequest]) (*connect.Response[v1.ResetRoutineStateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResetRoutineState is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResolveRoutineNote(context.Context, *connect.Request[v1.ResolveRoutineNoteRequest]) (*connect.Response[v1.ResolveRoutineNoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ResolveRoutineNote is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutineRuns(context.Context, *connect.Request[v1.ListRoutineRunsRequest]) (*connect.Response[v1.ListRoutineRunsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutineRuns is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListRoutineRevisions(context.Context, *connect.Request[v1.ListRoutineRevisionsRequest]) (*connect.Response[v1.ListRoutineRevisionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListRoutineRevisions is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CancelRoutineRun(context.Context, *connect.Request[v1.CancelRoutineRunRequest]) (*connect.Response[v1.CancelRoutineRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CancelRoutineRun is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListMemberRoutines(context.Context, *connect.Request[v1.ListMemberRoutinesRequest]) (*connect.Response[v1.ListMemberRoutinesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListMemberRoutines is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetLinearIssues is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetLinearIssueConversation(context.Context, *connect.Request[v1.GetLinearIssueConversationRequest]) (*connect.Response[v1.GetLinearIssueConversationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetLinearIssueConversation is not implemented"))
 }

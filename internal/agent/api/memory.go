@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -28,13 +30,18 @@ func (s *AgentService) ListMemories(
 	if s.memory == nil {
 		return nil, notConfigured()
 	}
-	items, next, err := s.memory.List(ctx, req.Msg.GetCursor(), int(req.Msg.GetLimit()))
+	cursor := req.Msg.GetCursor()
+	if cursor == "" && req.Msg.GetOffset() > 0 {
+		cursor = strconv.Itoa(int(req.Msg.GetOffset()))
+	}
+	items, next, total, err := s.memory.List(ctx, cursor, int(req.Msg.GetLimit()))
 	if err != nil {
 		return nil, s.memoryError(ctx, "list memories", err)
 	}
 	return connect.NewResponse(&agentv1.ListMemoriesResponse{
 		Items:      memoriesToProto(items),
 		NextCursor: next,
+		Total:      int32(min(total, math.MaxInt32)),
 	}), nil
 }
 
@@ -86,10 +93,19 @@ func (s *AgentService) DeleteMemory(
 // Unavailable rather than PermissionDenied on purpose: the caller's own credentials are
 // fine, and telling an operator "you may not do that" when the truth is "this host's
 // memory key is wrong" sends them to the wrong place.
+// memoryUnreachable is the whole message of a memory call Hindsight did not answer. The web
+// client compares against it (MEMORY_UNREACHABLE), so change both together.
+const memoryUnreachable = "the memory service is not answering"
+
 func (s *AgentService) memoryError(ctx context.Context, what string, err error) error {
 	switch {
 	case errors.Is(err, memory.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%s: %w", what, err))
+	case errors.Is(err, memory.ErrUnreachable):
+		// The page matches this exact message, as it does podium-server's "podium-agent is not
+		// reachable"; the address and the dial error are for the log, not the screen.
+		s.logger.WarnContext(ctx, "the memory service is not answering", "what", what, "error", err)
+		return connect.NewError(connect.CodeUnavailable, errors.New(memoryUnreachable))
 	case errors.Is(err, memory.ErrUnauthorized):
 		s.logger.ErrorContext(ctx, "the memory API key is refused; check PODIUM_AGENT_MEMORY_API_KEY "+
 			"against the memory service's own key", "error", err)

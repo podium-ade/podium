@@ -52,18 +52,9 @@ jobs:
           version: 12.10.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-
-      # release.yml refuses to publish if LICENSE contains a TODO placeholder.
-      # Warn here so that state is visible without blocking development.
-      - name: LICENSE placeholder check
-        run: |
-          if grep -qi 'TODO' LICENSE; then
-            echo "::warning file=LICENSE::LICENSE is still a TODO placeholder. \
-          release.yml refuses to publish until the Apache-2.0 text is restored."
-          fi
 
       - uses: goreleaser/goreleaser-action@v6
         with:

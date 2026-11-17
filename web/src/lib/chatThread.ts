@@ -29,6 +29,9 @@ export { parseActivity, type Activity } from "./activity";
  * speaks again after answering — a follow-up — opens a new block where that happens.
  */
 
+/** PENDING_USER is the id of the question sent from this screen and not yet on the stream. */
+export const PENDING_USER = "pending-user";
+
 /** TASK_TOOL is the tool name a delegated task is drawn under. It is Podium's, not the model's. */
 export const TASK_TOOL = "podium_task";
 
@@ -41,6 +44,83 @@ export interface TaskArgs {
 export interface MessageCustom {
   author?: string;
   attachments?: ChatAttachment[];
+  /** authorLogin is the Podium person who said it; empty for somebody who is not in Podium. */
+  authorLogin?: string;
+  authorHandle?: string;
+  authorAvatar?: string;
+  /** via is the surface it came in through: web, slack, github. */
+  via?: string;
+  /** externalUrl opens the message where it was said. */
+  externalUrl?: string;
+  /** addressed is false for chatter nobody put to Podium. */
+  addressed?: boolean;
+  edited?: boolean;
+  /** deleted is set for a message deleted on its own surface; it carries no text. */
+  deleted?: boolean;
+  /**
+   * undelivered is every copy of the bot's answer that has not reached its surface (a Slack
+   * thread, a pull request): still being retried, or given up on. Empty when every copy
+   * landed, and for a conversation Podium holds itself.
+   */
+  undelivered?: Undelivered[];
+  /**
+   * ranAs is who the turn that said this ran as, in words: a person's name, or "the routine
+   * Nightly triage". Set in a Linear issue's conversation, where people read turns somebody
+   * else ran with their own secrets and accounts.
+   */
+  ranAs?: string;
+  /**
+   * hiddenSteps is how many steps of somebody else's turn the server withheld from this
+   * reader: its tool calls, thoughts and progress lines. The view counts them, and that is
+   * all there is to show.
+   */
+  hiddenSteps?: number;
+}
+
+/** ranAsLabel is who a bot row's turn ran as, in words, or undefined when the row does not say. */
+export function ranAsLabel(m: ChatMessage): string | undefined {
+  if (m.ranAsRoutine) return `the routine ${m.ranAsRoutine}`;
+  if (m.ranAsName) return m.ranAsName;
+  if (m.ranAs) return m.ranAs;
+  return undefined;
+}
+
+/** Undelivered is one answer's copy that did not reach where it was owed. */
+export interface Undelivered {
+  chatId: string;
+  seq: bigint;
+  surface: string;
+  /** status is "pending" (being retried) or "failed" (given up; a person can retry). */
+  status: string;
+  error: string;
+}
+
+/** undeliveredOf is a row's deliveries that have not landed. */
+export function undeliveredOf(m: ChatMessage): Undelivered[] {
+  return (m.deliveries ?? [])
+    .filter((d) => d.status === "failed" || (d.status === "pending" && d.attempts > 0 && d.error !== ""))
+    .map((d) => ({ chatId: m.chatId, seq: m.seq, surface: d.surface, status: d.status, error: d.error }));
+}
+
+/** userCustom is what a user message carries for the view. */
+function userCustom(m: ChatMessage): MessageCustom {
+  return {
+    author: m.author || undefined,
+    attachments: m.attachments,
+    authorLogin: m.authorLogin || undefined,
+    authorHandle: m.authorHandle || undefined,
+    authorAvatar: m.authorAvatar || undefined,
+    via: m.via || undefined,
+    externalUrl: m.externalUrl || undefined,
+    // A message from a server that predates attribution carries no via, and proto3's
+    // default false would dim every one of them. Only a message that says where it came
+    // from can say it was not put to Podium.
+    addressed: m.via ? m.addressed : true,
+    edited: m.editedAt !== undefined,
+    deleted: m.deleted || undefined,
+    // A person's message in a Linear issue's conversation is owed to the issue as theirs.
+    undelivered: undeliveredOf(m),
+  };
 }
 
 export interface ThreadInput {
@@ -71,6 +151,23 @@ interface Assistant {
   /** tasks maps a task id to its block in this message. */
   tasks: Map<string, TaskBlock>;
   attachments: ChatAttachment[];
+  undelivered: Undelivered[];
+  ranAs?: string;
+  hiddenSteps: number;
+}
+
+/**
+ * fromFirstTurn is the rows to draw while there is history above them: from the first row
+ * that starts a turn — a question, or a divider — on. A page of history can begin halfway
+ * through a turn, and that part-turn is drawn again, under a new id, once the page above
+ * brings its beginning: everything in it was thrown away and re-made, focus with it. Held
+ * back until then, every message drawn keeps its id as pages land. A tail with no turn
+ * start in it at all is drawn whole: nothing would be left to draw.
+ */
+export function fromFirstTurn(messages: readonly ChatMessage[], more: boolean): readonly ChatMessage[] {
+  if (!more) return messages;
+  const at = messages.findIndex((m) => m.role === "user" || m.role === "notice");
+  return at > 0 ? messages.slice(at) : messages;
 }
 
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
@@ -83,30 +180,71 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const last = new Map<string, TaskBlock>();
 
   let current: Assistant | undefined;
+  // A routine run that found nothing to do is kept quietly: under a "… · nothing to do"
+  // divider, its answer is stored as a progress row so it is not history. It is still what
+  // the run concluded, so it is drawn as the turn's words, after its folded steps.
+  let quiet = false;
+  let quietAnswer = -1;
   const close = () => {
     if (!current) return;
+    if (quiet && quietAnswer >= 0 && quietAnswer === current.parts.length - 1) {
+      const part = current.parts[quietAnswer];
+      if (part?.type === "reasoning") current.parts[quietAnswer] = { type: "text", text: part.text };
+    }
+    quietAnswer = -1;
     out.push(current);
     current = undefined;
   };
 
   for (const m of messages) {
+    if (m.role === "notice") {
+      // Podium saying something about the chat itself (it became multiplayer): a divider
+      // between turns, never part of one.
+      close();
+      quiet = isQuietRun(m.text);
+      out.push({
+        id: `n${m.seq}`,
+        role: "system",
+        content: m.text,
+        createdAt: toDate(m.ts),
+      });
+      continue;
+    }
     if (m.role === "user") {
       close();
+      quiet = false;
       out.push({
         id: `u${m.seq}`,
         role: "user",
         content: m.text,
         createdAt: toDate(m.ts),
-        metadata: { custom: { author: m.author || undefined, attachments: m.attachments } },
+        metadata: { custom: userCustom(m) as Record<string, unknown> },
       });
       continue;
     }
-    current ??= { id: `a${m.seq}`, createdAt: toDate(m.ts), parts: [], tasks: new Map(), attachments: [] };
+    current ??= {
+      id: `a${m.seq}`,
+      createdAt: toDate(m.ts),
+      parts: [],
+      tasks: new Map(),
+      attachments: [],
+      undelivered: [],
+      hiddenSteps: 0,
+    };
     current.attachments.push(...m.attachments);
+    current.undelivered.push(...undeliveredOf(m));
+    current.ranAs ??= ranAsLabel(m);
+
+    if (m.redacted) {
+      // A step of somebody else's turn: the server sent that it happened and nothing else.
+      current.hiddenSteps++;
+      continue;
+    }
 
     if (m.taskId === "") {
       const part = rowPart(m);
       if (part) current.parts.push(part);
+      quietAnswer = part && m.role === "progress" ? current.parts.length - 1 : -1;
       continue;
     }
 
@@ -137,7 +275,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const thread = out.map((m) => ("role" in m ? m : finish(m, live)));
 
   if (pendingUser !== undefined) {
-    thread.push({ id: "pending-user", role: "user", content: pendingUser });
+    thread.push({ id: PENDING_USER, role: "user", content: pendingUser });
   }
   const tail = thread[thread.length - 1];
   if (busy && tail?.role !== "assistant") {
@@ -148,6 +286,11 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
     thread[thread.length - 1] = { ...tail, status: { type: "running" } };
   }
   return thread;
+}
+
+/** isQuietRun is a routine run's divider for a run that found nothing to do. */
+export function isQuietRun(divider: string): boolean {
+  return divider.startsWith("Routine run ·") && divider.endsWith("· nothing to do");
 }
 
 /** rowPart is one non-answer row, or an answer, as a part; undefined for what draws nothing. */
@@ -211,7 +354,12 @@ function finish(a: Assistant, live: boolean): ThreadMessageLike {
       isError: status.type === "incomplete",
     };
   }
-  const custom: MessageCustom = { attachments: a.attachments };
+  const custom: MessageCustom = {
+    attachments: a.attachments,
+    undelivered: a.undelivered,
+    ranAs: a.ranAs,
+    hiddenSteps: a.hiddenSteps || undefined,
+  };
   return {
     id: a.id,
     role: "assistant",

@@ -2,6 +2,7 @@ import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { AgentService } from "../gen/podium/agent/v1/agent_pb";
 import { NodeAdminService } from "../gen/podium/v1/admin_pb";
+import { OrganizationService } from "../gen/podium/v1/organization_pb";
 import { ArtifactService } from "../gen/podium/v1/artifact_pb";
 import { IdentityService } from "../gen/podium/v1/identity_pb";
 import { RegistryService } from "../gen/podium/v1/registry_pb";
@@ -49,6 +50,7 @@ export const sandboxProviders = createClient(SandboxProviderService, transport);
 export const artifacts = createClient(ArtifactService, transport);
 export const snapshots = createClient(SnapshotService, transport);
 export const users = createClient(UserService, transport);
+export const organization = createClient(OrganizationService, transport);
 // The conductor's own service, on the SAME transport: podium-server reverse-proxies
 // /podium.agent.v1.AgentService/ to it, so the bearer interceptor and the 401 re-gate above
 // keep working and the page still only ever talks to its own origin.
@@ -67,6 +69,21 @@ export function isAgentUnreachable(err: unknown): boolean {
     err instanceof ConnectError &&
     err.code === Code.Unavailable &&
     err.rawMessage === AGENT_UNREACHABLE
+  );
+}
+
+/**
+ * The exact message the conductor answers a memory call with when the memory service
+ * (Hindsight) does not answer. internal/agent/api/memory.go's memoryUnreachable is the other
+ * half; change both together.
+ */
+export const MEMORY_UNREACHABLE = "the memory service is not answering";
+
+export function isMemoryUnreachable(err: unknown): boolean {
+  return (
+    err instanceof ConnectError &&
+    err.code === Code.Unavailable &&
+    err.rawMessage === MEMORY_UNREACHABLE
   );
 }
 

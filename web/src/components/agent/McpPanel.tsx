@@ -1,4 +1,5 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { ChevronRight, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
@@ -6,9 +7,11 @@ import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import {
   CUSTOM_MCP_DESCRIPTION,
+  MCP_ADD_PARAM,
   MCP_PRESETS,
   callbackURL,
   presetFor,
+  presetNamed,
   rememberPending,
   tokenHelp,
   type McpPreset,
@@ -116,7 +119,28 @@ export function McpPanel() {
   const personal = viewer?.kind === IdentityKind.USER;
   const qc = useQueryClient();
   const toast = useToast();
-  const [editing, setEditing] = useState<McpServer | "new" | "new-bot">();
+  // ?add=<preset> opens "add a personal server" on that product: where a hint elsewhere ("Connect
+  // your Linear MCP server") sends a person. Read once and dropped from the URL, so closing the
+  // dialog and reloading does not open it again. Only a person has servers of their own.
+  const [params, setParams] = useSearchParams();
+  const [startPreset, setStartPreset] = useState<McpPreset | undefined>(() =>
+    personal ? presetNamed(params.get(MCP_ADD_PARAM)) : undefined,
+  );
+  const [editing, setEditing] = useState<McpServer | "new" | "new-bot" | undefined>(() =>
+    startPreset ? "new" : undefined,
+  );
+  const hasAddParam = params.has(MCP_ADD_PARAM);
+  useEffect(() => {
+    if (!hasAddParam) return;
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(MCP_ADD_PARAM);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [hasAddParam, setParams]);
   // A person opens on their own list. The local token has no personal registry,
   // so it opens on Global and the Yours tab stays read-only.
   const [tab, setTab] = useState<"yours" | "global">(personal ? "yours" : "global");
@@ -318,16 +342,21 @@ export function McpPanel() {
       ) : null}
 
       <ServerDialog
-        key={creating ? editing : (editingServer?.name ?? "closed")}
+        key={creating ? `${editing}:${startPreset?.name ?? ""}` : (editingServer?.name ?? "closed")}
         server={editingServer}
         forBot={editingForBot}
+        preset={editing === "new" ? startPreset : undefined}
         open={editing !== undefined}
         taken={new Set((editingForBot ? global : yours).map((s) => s.name))}
         onOpenChange={(open) => {
-          if (!open) setEditing(undefined);
+          if (!open) {
+            setEditing(undefined);
+            setStartPreset(undefined);
+          }
         }}
         onDone={async (name, created) => {
           setEditing(undefined);
+          setStartPreset(undefined);
           toast(`${name} ${created ? "added" : "saved"}. It applies to the next turn.`, "ok");
           await reload();
         }}
@@ -869,6 +898,7 @@ function DetailField({
 function ServerDialog({
   server,
   forBot = false,
+  preset: startPreset,
   open,
   taken,
   onOpenChange,
@@ -876,6 +906,8 @@ function ServerDialog({
 }: {
   server?: McpServer;
   forBot?: boolean;
+  /** preset starts a new server on a product rather than on the picker (?add=linear). */
+  preset?: McpPreset;
   open: boolean;
   taken: Set<string>;
   onOpenChange: (open: boolean) => void;
@@ -883,9 +915,11 @@ function ServerDialog({
 }) {
   const uid = useId();
   const creating = server === undefined;
-  const [picked, setPicked] = useState<McpPreset | "custom" | undefined>(creating ? undefined : "custom");
-  const [name, setName] = useState(server?.name ?? "");
-  const [url, setUrl] = useState(server?.url ?? "");
+  const [picked, setPicked] = useState<McpPreset | "custom" | undefined>(
+    creating ? startPreset : "custom",
+  );
+  const [name, setName] = useState(server?.name ?? startPreset?.name ?? "");
+  const [url, setUrl] = useState(server?.url ?? startPreset?.url ?? "");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [fallback, setFallback] = useState(server?.fallback ?? false);
   const [token, setToken] = useState("");

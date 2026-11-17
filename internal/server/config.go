@@ -116,6 +116,13 @@ type Config struct {
 	// PreviewMaxTTL is PODIUM_PREVIEW_MAX_TTL: the longest a task may ask its preview to
 	// stay up after its command exits. Zero means api.DefaultMaxPreviewTTL.
 	PreviewMaxTTL time.Duration
+
+	// DesktopURL is PODIUM_DESKTOP_URL: the origin a desktop playbook's desktop is streamed on,
+	// scheme://host[:port]. It must not be the UI's origin — the desktop's page is voxl's
+	// JavaScript, and on the UI's origin it could call the API as the person watching — but it
+	// is served by this same process, which tells the two apart by Host. Empty turns desktops
+	// off: CreateDesktopTicket says so. See internal/server/desktop.
+	DesktopURL string
 }
 
 // ConfigFromEnv reads the canonical environment variables and applies the defaults.
@@ -123,6 +130,7 @@ func ConfigFromEnv() Config {
 	return Config{
 		DatabaseURL:            os.Getenv("PODIUM_DATABASE_URL"),
 		Transport:              envOr("PODIUM_TRANSPORT", TransportLocal),
+		DesktopURL:             os.Getenv("PODIUM_DESKTOP_URL"),
 		LocalListen:            envOr("PODIUM_LOCAL_LISTEN", local.DefaultListen),
 		LocalToken:             os.Getenv("PODIUM_LOCAL_TOKEN"),
 		LocalAllowUnsafeListen: envBool(local.UnsafeListenVar),
@@ -207,8 +215,38 @@ func (c Config) Validate() error {
 	if err := c.validateGoogle(); err != nil {
 		return err
 	}
+	if err := c.validateDesktop(); err != nil {
+		return err
+	}
 	return c.S3.Validate()
 }
+
+// validateDesktop refuses a desktop origin that is not an origin, or that is the UI's own:
+// a desktop served on the UI's origin could call the API as the person watching it.
+func (c Config) validateDesktop() error {
+	if c.DesktopURL == "" {
+		return nil
+	}
+	u, err := url.Parse(c.DesktopURL)
+	if err != nil {
+		return fmt.Errorf("PODIUM_DESKTOP_URL=%q is not a URL: %w", c.DesktopURL, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("PODIUM_DESKTOP_URL=%q must be an absolute http:// or https:// URL", c.DesktopURL)
+	}
+	if p := strings.TrimSuffix(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("PODIUM_DESKTOP_URL=%q must be scheme://host[:port] with no path or query", c.DesktopURL)
+	}
+	if c.PublicURL != "" {
+		if pub, err := url.Parse(c.PublicURL); err == nil && strings.EqualFold(pub.Host, u.Host) {
+			return fmt.Errorf("PODIUM_DESKTOP_URL=%q is the UI's own origin (PODIUM_PUBLIC_URL): a desktop needs an origin of its own", c.DesktopURL)
+		}
+	}
+	return nil
+}
+
+// DesktopEnabled reports whether desktops are streamed.
+func (c Config) DesktopEnabled() bool { return c.DesktopURL != "" }
 
 // AgentEnabled reports whether this control plane proxies the conductor's API.
 func (c Config) AgentEnabled() bool { return c.AgentURL != "" }

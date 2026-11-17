@@ -1,8 +1,9 @@
 -- name: CreateTurn :one
 insert into turns (id, session_id, task_id, trigger_ref, status, started_at,
-                   agent, model, effort, provider)
+                   agent, model, effort, provider, started_by)
 values (@id, @session_id, @task_id, @trigger_ref, @status, @started_at,
-        nullif(@agent::text, ''), nullif(@model::text, ''), nullif(@effort::text, ''), nullif(@provider::text, ''))
+        nullif(@agent::text, ''), nullif(@model::text, ''), nullif(@effort::text, ''), nullif(@provider::text, ''),
+        @started_by)
 returning *;
 
 -- name: SetTurnTask :exec
@@ -68,16 +69,17 @@ order by day;
 -- name: ListTurnCosts :many
 select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
        t.num_turns, t.cost_usd, t.agent, t.model, t.effort, t.provider,
-       s.source_kind, s.source_key, s.playbook, s.profile
+       s.source_kind, s.source_key, s.playbook, s.profile, t.started_by
 from turns t
 join sessions s on s.id = t.session_id
 where t.started_at >= @from_time and t.started_at < @to_time
 union all
 select d.id, coalesce(d.task_id, '')::text, d.session_id, d.status, d.created_at, d.finished_at,
        d.num_turns, d.cost_usd, d.agent, d.model, d.effort, d.provider,
-       s.source_kind, s.source_key, d.playbook, s.profile
+       s.source_kind, s.source_key, d.playbook, s.profile, coalesce(pt.started_by, '')::text
 from delegations d
 join sessions s on s.id = d.session_id
+left join turns pt on pt.id = d.turn_id
 where d.created_at >= @from_time and d.created_at < @to_time
 order by started_at desc, id desc
 limit @page_limit::int;
@@ -108,3 +110,45 @@ from (
 ) r
 group by r.provider, r.agent, r.model, r.effort
 order by cost_usd desc, turns desc;
+
+-- UsageByPerson is spend grouped by whose turn it was: the login the turn started for, and
+-- for a delegation the login of the turn that delegated it, because the person who asked is
+-- the person the work was for. Empty is a turn from before turns.started_by, or one with no
+-- person; 'github-app' is a review nobody in Podium asked for. A multiplayer chat is many
+-- people's turns in one conversation, and this is the only place they come apart again.
+-- name: UsageByPerson :many
+select r.started_by::text                               as started_by,
+       coalesce(sum(r.cost_usd), 0)::float8             as cost_usd,
+       count(*)::int                                    as turns,
+       coalesce(sum(r.num_turns), 0)::int               as model_turns,
+       count(*) filter (where r.cost_usd is null)::int  as unpriced
+from (
+  select t.started_by, t.cost_usd, t.num_turns from turns t
+   where t.started_at >= @from_time and t.started_at < @to_time
+  union all
+  select coalesce(pt.started_by, '') as started_by, d.cost_usd, d.num_turns from delegations d
+    left join turns pt on pt.id = d.turn_id
+   where d.created_at >= @from_time and d.created_at < @to_time
+) r
+group by r.started_by
+order by cost_usd desc, turns desc;
+
+-- ListChatTurnRunners is every turn of the conversation a chat records, oldest first, with who
+-- it ran as and the tasks it ran: its own (a playbook's turn) and every one it delegated. It is
+-- what tells a reader of a Linear issue's conversation which of its rows are somebody else's
+-- work (0049, api/runner.go): a row with a task id belongs to the turn that ran that task, and
+-- the assistant's own rows to the turn that was running when they were said — a conversation
+-- runs one turn at a time. routine_name and routine_system name a routine's run.
+-- name: ListChatTurnRunners :many
+select t.id, coalesce(t.task_id, '')::text as task_id, t.started_by, t.started_at,
+       coalesce(r.name, '')::text as routine_name,
+       coalesce(r.scope = 'system', false)::bool as routine_system,
+       coalesce(r.owner_login, '')::text as routine_owner,
+       coalesce((select array_agg(d.task_id order by d.created_at) from delegations d
+                  where d.turn_id = t.id and d.task_id is not null), '{}')::text[] as delegated
+  from turns t
+  join sessions s on s.id = t.session_id
+  left join routine_runs rr on rr.id = t.routine_run_id
+  left join routines r on r.id = rr.routine_id
+ where s.source_key = (select c.source_key from chats c where c.id = @chat_id)
+ order by t.started_at, t.id;

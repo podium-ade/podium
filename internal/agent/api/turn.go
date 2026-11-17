@@ -14,6 +14,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -41,6 +42,9 @@ type Delegator interface {
 	CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error)
 	InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error)
 	ReleaseDelegationPreview(ctx context.Context, token, id string) (store.Delegation, error)
+	StartChat(ctx context.Context, token string, req conductor.StartChatRequest) (conductor.StartedChat, error)
+	FinishRoutine(ctx context.Context, token string, req conductor.RoutineFinishRequest) (string, error)
+	CreateRoutine(ctx context.Context, token string, req conductor.CreateRoutineRequest) (string, error)
 }
 
 // TurnService implements podium.agent.v1.TurnService.
@@ -196,6 +200,110 @@ func (s *TurnService) ReleasePreview(
 	return connect.NewResponse(&agentv1.ReleasePreviewResponse{Delegation: delegationProto(dlg)}), nil
 }
 
+// StartChat opens a new chat for the calling turn's person and returns the link to it.
+func (s *TurnService) StartChat(
+	ctx context.Context,
+	req *connect.Request[agentv1.StartChatRequest],
+) (*connect.Response[agentv1.StartChatResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	started, err := s.delegator.StartChat(ctx, token, conductor.StartChatRequest{
+		Title:     req.Msg.GetTitle(),
+		Opening:   req.Msg.GetOpening(),
+		ShareWith: req.Msg.GetShareWith(),
+		Access:    req.Msg.GetAccess(),
+		Role:      req.Msg.GetRole(),
+	})
+	if err != nil {
+		return nil, startChatError(err)
+	}
+	return connect.NewResponse(&agentv1.StartChatResponse{
+		ChatId:     started.Chat.ID,
+		Title:      started.Chat.Title,
+		Url:        started.URL,
+		SharedWith: started.SharedWith,
+		Access:     started.Chat.GeneralAccess,
+	}), nil
+}
+
+// FinishRoutine ends the calling turn's routine run.
+func (s *TurnService) FinishRoutine(
+	ctx context.Context,
+	req *connect.Request[agentv1.FinishRoutineRequest],
+) (*connect.Response[agentv1.FinishRoutineResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	in := conductor.RoutineFinishRequest{
+		Status:      req.Msg.GetStatus(),
+		Summary:     req.Msg.GetSummary(),
+		ProposeNote: req.Msg.GetProposeNote(),
+	}
+	if raw := strings.TrimSpace(req.Msg.GetStateJson()); raw != "" {
+		in.State = json.RawMessage(raw)
+	}
+	msg, err := s.delegator.FinishRoutine(ctx, token, in)
+	switch {
+	case err == nil:
+		return connect.NewResponse(&agentv1.FinishRoutineResponse{Message: msg}), nil
+	case errors.Is(err, conductor.ErrNoTurn):
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	case errors.Is(err, conductor.ErrInvalidRoutineFinish):
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, conductor.ErrNotARoutine):
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+}
+
+// CreateRoutine opens a routine for the person who asked for it in the calling turn's chat.
+func (s *TurnService) CreateRoutine(
+	ctx context.Context,
+	req *connect.Request[agentv1.TurnServiceCreateRoutineRequest],
+) (*connect.Response[agentv1.TurnServiceCreateRoutineResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	msg, err := s.delegator.CreateRoutine(ctx, token, conductor.CreateRoutineRequest{
+		Name:        req.Msg.GetName(),
+		Instruction: req.Msg.GetInstruction(),
+		Schedule:    req.Msg.GetSchedule(),
+		Timezone:    req.Msg.GetTimezone(),
+		Notes:       req.Msg.GetNotes(),
+	})
+	switch {
+	case err == nil:
+		return connect.NewResponse(&agentv1.TurnServiceCreateRoutineResponse{Message: msg}), nil
+	case errors.Is(err, conductor.ErrNoTurn):
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	case errors.Is(err, conductor.ErrInvalidCreateRoutine):
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, conductor.ErrNoRoutineHere):
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+}
+
+func startChatError(err error) error {
+	switch {
+	case errors.Is(err, conductor.ErrNoTurn):
+		return connect.NewError(connect.CodeUnauthenticated, err)
+	case errors.Is(err, conductor.ErrInvalidStartChat):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, conductor.ErrNoChatOwner), errors.Is(err, conductor.ErrTooManyChats),
+		errors.Is(err, conductor.ErrRoutineChatCap):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return connect.NewError(connect.CodeInternal, err)
+	}
+}
+
 // token is the caller's turn token, or the reason there is nothing to do.
 func (s *TurnService) token(h interface{ Get(string) string }) (string, error) {
 	if s.delegator == nil {
@@ -231,6 +339,8 @@ func delegationError(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrWorkspaceBusy):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, conductor.ErrRoutineDelegationCap):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

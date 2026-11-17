@@ -65,6 +65,30 @@ func TestTheTurnSurfaceAsResources(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "dlg_10", out["delegation"].(map[string]any)["id"])
 
+	code, out = restCall(t, h, http.MethodPost, "/v1/chats", "tok",
+		`{"title":"Triage","opening":"Starting a triage.","share_with":["dana@acme.com"],"access":"members"}`)
+	assert.Equal(t, http.StatusCreated, code)
+	assert.Equal(t, "chat_new", out["chatId"])
+	assert.Equal(t, "https://podium.example/agent/chat/chat_new", out["url"])
+	assert.Equal(t, []string{"dana@acme.com"}, fake.chats[0].ShareWith)
+
+	code, out = restCall(t, h, http.MethodPost, "/v1/routine-runs/finish", "tok",
+		`{"status":"idle","summary":"nothing new","stateJson":"{\"seen\":[1]}","proposeNote":"skip drafts"}`)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "Recorded as idle.", out["message"])
+	require.Len(t, fake.finishes, 1)
+	assert.Equal(t, "idle", fake.finishes[0].Status)
+	assert.JSONEq(t, `{"seen":[1]}`, string(fake.finishes[0].State))
+	assert.Equal(t, "skip drafts", fake.finishes[0].ProposeNote)
+
+	code, out = restCall(t, h, http.MethodPost, "/v1/routines", "tok",
+		`{"name":"PR digest","instruction":"Report failing PRs.","schedule":"0 9 * * 1-5","timezone":"America/Toronto"}`)
+	assert.Equal(t, http.StatusCreated, code)
+	assert.Equal(t, "Created.", out["message"])
+	require.Len(t, fake.routines, 1)
+	assert.Equal(t, "0 9 * * 1-5", fake.routines[0].Schedule)
+	assert.Equal(t, "America/Toronto", fake.routines[0].Timezone)
+
 	for _, tok := range fake.tokens {
 		assert.Equal(t, "tok", tok)
 	}

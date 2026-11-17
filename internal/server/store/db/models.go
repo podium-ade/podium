@@ -71,6 +71,14 @@ type NodeCommand struct {
 	CreatedAt time.Time
 }
 
+type Organization struct {
+	ID               int32
+	OrganizationName string
+	DeploymentName   string
+	UpdatedBy        string
+	UpdatedAt        time.Time
+}
+
 type Preview struct {
 	TaskID        string
 	NodeID        string
@@ -111,6 +119,31 @@ type SandboxReap struct {
 	TaskID    string
 	Reason    string
 	CreatedAt time.Time
+}
+
+type SandboxSnapshot struct {
+	SessionID string
+	Provider  string
+	ImageID   string
+	NodeID    string
+	TaskID    string
+	UpdatedAt time.Time
+}
+
+type SandboxSnapshotRetention struct {
+	ID            int32
+	MaxAgeSeconds int64
+	MaxCount      int64
+	UpdatedBy     string
+	UpdatedAt     time.Time
+}
+
+type SandboxSnapshotsRetired struct {
+	ImageID   string
+	Provider  string
+	Attempts  int32
+	LastError string
+	RetiredAt time.Time
 }
 
 type Secret struct {
