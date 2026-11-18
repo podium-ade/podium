@@ -241,6 +241,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 
 	// Nothing was asked of the control plane. That is the point of a host turn.
 	assert.Empty(t, fake.Specs(), "a host turn creates no task")
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	records := src.Records()
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionDone)},
@@ -330,6 +331,7 @@ func TestAHostTurnThatFailsSaysSoAndRecordsIt(t *testing.T) {
 	waitFor(t, 30*time.Second, "the host turn to fail", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnFailed
 	})
+	awaitOutcome(t, src, conductor.ReactionFailed)
 
 	records := src.Records()
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionFailed)},

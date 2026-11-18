@@ -56,7 +56,7 @@ func TestStoppingASessionCancelsItsRunningTask(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to be recorded cancelled", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnCancelled
 	})
-	assert.Contains(t, reactions(src.Records()), string(conductor.ReactionFailed))
+	awaitOutcome(t, src, conductor.ReactionFailed)
 }
 
 // A follow-up queued behind the stopped turn never runs: the Stop ends the session's work.
