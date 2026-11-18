@@ -81,18 +81,20 @@ select distinct li.team_key::text as team_key
    and c.deleted_at is null
    and li.team_key <> ''
    and ($1::bool or chat_visible_to(c.id, c.login, $2::text))
+   and ($3::bool or linear_involved(c.source_key, c.id, $2::text))
  order by 1
 `
 
 type LinearConversationTeamsParams struct {
-	SeeAll bool
-	Viewer string
+	SeeAll  bool
+	Viewer  string
+	ListAll bool
 }
 
-// LinearConversationTeams is every team a conversation the caller may list is in, for the
-// Linear view's team filter.
+// LinearConversationTeams is every team a conversation the caller lists is in — those they may
+// read and, unless list_all, are involved in — for the Issues view's team filter.
 func (q *Queries) LinearConversationTeams(ctx context.Context, arg LinearConversationTeamsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, linearConversationTeams, arg.SeeAll, arg.Viewer)
+	rows, err := q.db.Query(ctx, linearConversationTeams, arg.SeeAll, arg.Viewer, arg.ListAll)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +151,8 @@ with conv as (
          coalesce((select t.status from turns t where t.session_id = s.id order by t.started_at desc limit 1), '')::text as last_turn_status,
          (coalesce((select sum(t.cost_usd) from turns t where t.session_id = s.id), 0)
           + coalesce((select sum(d.cost_usd) from delegations d where d.session_id = s.id), 0))::float8 as cost_usd,
-         chat_role(c.id, $8::text)::text as my_role,
-         chat_visible_to(c.id, c.login, $8::text)::bool as mine
+         chat_role(c.id, $7::text)::text as my_role,
+         linear_involved(c.source_key, c.id, $7::text)::bool as involved
     from chats c
     left join linear_issues li on li.source_key = c.source_key
     left join sessions s on s.source_key = c.source_key
@@ -163,9 +165,9 @@ with conv as (
      and c.source_key like 'linear:%'
      and c.source_key not like 'linear:session:%'
      and c.deleted_at is null
-     and ($9::bool or chat_visible_to(c.id, c.login, $8::text))
+     and ($8::bool or chat_visible_to(c.id, c.login, $7::text))
 ), listed as (
-  select conv.chat_id, conv.source_key, conv.chat_title, conv.owner_login, conv.source_url, conv.kind, conv.identifier, conv.issue_title, conv.issue_url, conv.team_key, conv.state_name, conv.state_type, conv.asked_at, conv.asked_of, conv.last_activity_at, conv.last_text, conv.session_id, conv.turn_running, conv.task_running, conv.last_turn_status, conv.cost_usd, conv.my_role, conv.mine,
+  select conv.chat_id, conv.source_key, conv.chat_title, conv.owner_login, conv.source_url, conv.kind, conv.identifier, conv.issue_title, conv.issue_url, conv.team_key, conv.state_name, conv.state_type, conv.asked_at, conv.asked_of, conv.last_activity_at, conv.last_text, conv.session_id, conv.turn_running, conv.task_running, conv.last_turn_status, conv.cost_usd, conv.my_role, conv.involved,
          (case
             when conv.asked_at is not null then 'waiting'
             when conv.turn_running or conv.task_running then 'working'
@@ -175,33 +177,27 @@ with conv as (
           end)::text as state
     from conv
 )
-select listed.chat_id, listed.source_key, listed.chat_title, listed.owner_login, listed.source_url, listed.kind, listed.identifier, listed.issue_title, listed.issue_url, listed.team_key, listed.state_name, listed.state_type, listed.asked_at, listed.asked_of, listed.last_activity_at, listed.last_text, listed.session_id, listed.turn_running, listed.task_running, listed.last_turn_status, listed.cost_usd, listed.my_role, listed.mine, listed.state, (count(*) over ())::int as total from listed
- where (not $1::bool or listed.mine)
+select listed.chat_id, listed.source_key, listed.chat_title, listed.owner_login, listed.source_url, listed.kind, listed.identifier, listed.issue_title, listed.issue_url, listed.team_key, listed.state_name, listed.state_type, listed.asked_at, listed.asked_of, listed.last_activity_at, listed.last_text, listed.session_id, listed.turn_running, listed.task_running, listed.last_turn_status, listed.cost_usd, listed.my_role, listed.involved, listed.state, (count(*) over ())::int as total from listed
+ where ($1::bool or listed.involved)
    and ($2::text = '' or listed.team_key = $2::text)
    and ($3::text = ''
         or listed.state = $3::text
         or ($3::text = 'attention' and listed.state in ('waiting', 'failed')))
-   and ($4::text = ''
-        or ($4::text = 'none'
-            and (listed.kind = 'project'
-                 or listed.state_type not in ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled')))
-        or (listed.kind <> 'project' and listed.state_type = $4::text))
-   and ($5::timestamptz is null
-        or (listed.last_activity_at, listed.chat_id) < ($5::timestamptz, $6::text))
+   and ($4::timestamptz is null
+        or (listed.last_activity_at, listed.chat_id) < ($4::timestamptz, $5::text))
  order by listed.last_activity_at desc, listed.chat_id desc
- limit $7::int
+ limit $6::int
 `
 
 type ListLinearConversationsParams struct {
-	OnlyMine        bool
-	Team            string
-	FilterState     string
-	FilterStateType string
-	AfterAt         *time.Time
-	AfterID         string
-	PageLimit       int32
-	Viewer          string
-	SeeAll          bool
+	ListAll     bool
+	Team        string
+	FilterState string
+	AfterAt     *time.Time
+	AfterID     string
+	PageLimit   int32
+	Viewer      string
+	SeeAll      bool
 }
 
 type ListLinearConversationsRow struct {
@@ -227,7 +223,7 @@ type ListLinearConversationsRow struct {
 	LastTurnStatus string
 	CostUsd        float64
 	MyRole         string
-	Mine           bool
+	Involved       bool
 	State          string
 	Total          int32
 }
@@ -237,16 +233,16 @@ type ListLinearConversationsRow struct {
 //
 // see_all is an admin, an owner or the dev token, who read every one. Anybody else lists what
 // chat_visible_to allows: a conversation they spoke in, own, were shared, or whose issue they
-// touched (linear_touched). mine narrows either to the last of those.
+// touched (linear_touched). Of those, the list is the ones the viewer is involved in
+// (linear_involved: assigned, created, asked Podium about, spoke in, @mentioned in) unless
+// list_all, which only see_all may ask for, lists every one.
 //
 // state is what Podium is doing about it: 'waiting' on a person (a question nobody answered),
 // 'working' (a turn or a task it started is running), 'failed' (its last turn failed), 'done'
 // (its last turn ended), or 'new' (no turn yet). filter_state is ” for every one, a state, or
 // 'attention' for waiting and failed together.
 //
-// filter_state_type is the board's column: ” for every one, an issue's Linear state type
-// ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'), or 'none' for the rest
-// — a project, or an issue whose state type the webhooks never said or Linear added since.
+// A board's column is one state.
 //
 // The page is keyed by (last_activity_at, chat_id), newest first: after_at and after_id are the
 // last row of the page before, and after_at null is the first page. total is how many rows match
@@ -254,10 +250,9 @@ type ListLinearConversationsRow struct {
 // since ordering by last activity already reads every one.
 func (q *Queries) ListLinearConversations(ctx context.Context, arg ListLinearConversationsParams) ([]ListLinearConversationsRow, error) {
 	rows, err := q.db.Query(ctx, listLinearConversations,
-		arg.OnlyMine,
+		arg.ListAll,
 		arg.Team,
 		arg.FilterState,
-		arg.FilterStateType,
 		arg.AfterAt,
 		arg.AfterID,
 		arg.PageLimit,
@@ -294,7 +289,7 @@ func (q *Queries) ListLinearConversations(ctx context.Context, arg ListLinearCon
 			&i.LastTurnStatus,
 			&i.CostUsd,
 			&i.MyRole,
-			&i.Mine,
+			&i.Involved,
 			&i.State,
 			&i.Total,
 		); err != nil {

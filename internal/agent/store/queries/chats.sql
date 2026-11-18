@@ -150,13 +150,13 @@ where (
     )
   )
   -- A Linear issue's or project's conversation (0048) is not in the chat list: a company has
-  -- hundreds of them. The Linear view lists them (ListLinearConversations).
+  -- hundreds of them. The Issues view lists them (ListLinearConversations).
   --
   -- linear_rail lets one kind back in (0049): an issue's conversation, in a signed-in caller's
   -- own list, when they are one of its people — they touched the issue through their linked
   -- Linear account (linear_people, resolved through identities when they read), or they spoke
   -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
-  -- in the Linear view. One they hid stays out until something new is said in it.
+  -- in the Issues view. One they hid stays out until something new is said in it.
   and not (
     @exclude_linear::bool and c.origin = 'linear'
     and not (
@@ -170,7 +170,9 @@ where (
         or exists (
           select 1 from linear_people lp
             join identities i on i.provider = 'linear' and i.external_id = lp.linear_user
-           where lp.source_key = c.source_key and lp.linear_user <> '' and i.login = @viewer::text)
+           where lp.source_key = c.source_key and lp.linear_user <> '' and i.login = @viewer::text
+             -- A mention alone makes nobody one of its people (0054).
+             and lp.via <> 'person_mentioned')
       )
       and not exists (
         select 1 from chat_rail_hidden h

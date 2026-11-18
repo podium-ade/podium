@@ -48,16 +48,16 @@ select linear_touched(@source_key::text, @viewer::text)::bool as touched;
 --
 -- see_all is an admin, an owner or the dev token, who read every one. Anybody else lists what
 -- chat_visible_to allows: a conversation they spoke in, own, were shared, or whose issue they
--- touched (linear_touched). mine narrows either to the last of those.
+-- touched (linear_touched). Of those, the list is the ones the viewer is involved in
+-- (linear_involved: assigned, created, asked Podium about, spoke in, @mentioned in) unless
+-- list_all, which only see_all may ask for, lists every one.
 --
 -- state is what Podium is doing about it: 'waiting' on a person (a question nobody answered),
 -- 'working' (a turn or a task it started is running), 'failed' (its last turn failed), 'done'
 -- (its last turn ended), or 'new' (no turn yet). filter_state is '' for every one, a state, or
 -- 'attention' for waiting and failed together.
 --
--- filter_state_type is the board's column: '' for every one, an issue's Linear state type
--- ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'), or 'none' for the rest
--- — a project, or an issue whose state type the webhooks never said or Linear added since.
+-- A board's column is one state.
 --
 -- The page is keyed by (last_activity_at, chat_id), newest first: after_at and after_id are the
 -- last row of the page before, and after_at null is the first page. total is how many rows match
@@ -85,7 +85,7 @@ with conv as (
          (coalesce((select sum(t.cost_usd) from turns t where t.session_id = s.id), 0)
           + coalesce((select sum(d.cost_usd) from delegations d where d.session_id = s.id), 0))::float8 as cost_usd,
          chat_role(c.id, @viewer::text)::text as my_role,
-         chat_visible_to(c.id, c.login, @viewer::text)::bool as mine
+         linear_involved(c.source_key, c.id, @viewer::text)::bool as involved
     from chats c
     left join linear_issues li on li.source_key = c.source_key
     left join sessions s on s.source_key = c.source_key
@@ -111,23 +111,18 @@ with conv as (
     from conv
 )
 select listed.*, (count(*) over ())::int as total from listed
- where (not @only_mine::bool or listed.mine)
+ where (@list_all::bool or listed.involved)
    and (@team::text = '' or listed.team_key = @team::text)
    and (@filter_state::text = ''
         or listed.state = @filter_state::text
         or (@filter_state::text = 'attention' and listed.state in ('waiting', 'failed')))
-   and (@filter_state_type::text = ''
-        or (@filter_state_type::text = 'none'
-            and (listed.kind = 'project'
-                 or listed.state_type not in ('triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled')))
-        or (listed.kind <> 'project' and listed.state_type = @filter_state_type::text))
    and (sqlc.narg('after_at')::timestamptz is null
         or (listed.last_activity_at, listed.chat_id) < (sqlc.narg('after_at')::timestamptz, @after_id::text))
  order by listed.last_activity_at desc, listed.chat_id desc
  limit @page_limit::int;
 
--- LinearConversationTeams is every team a conversation the caller may list is in, for the
--- Linear view's team filter.
+-- LinearConversationTeams is every team a conversation the caller lists is in — those they may
+-- read and, unless list_all, are involved in — for the Issues view's team filter.
 -- name: LinearConversationTeams :many
 select distinct li.team_key::text as team_key
   from chats c
@@ -136,4 +131,5 @@ select distinct li.team_key::text as team_key
    and c.deleted_at is null
    and li.team_key <> ''
    and (@see_all::bool or chat_visible_to(c.id, c.login, @viewer::text))
+   and (@list_all::bool or linear_involved(c.source_key, c.id, @viewer::text))
  order by 1;

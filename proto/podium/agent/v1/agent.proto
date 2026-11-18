@@ -184,11 +184,11 @@ service AgentService {
   // ListChats returns the caller's own chats, newest first. Another login's chats are
   // never returned.
   rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
-  // ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
-  // every issue tracker Podium is connected to (today Linear), each a conversation of its own,
-  // most recently active first. Admins and owners list every one; anybody else lists those whose
-  // issue they touched (through their linked account), spoke in, or were shared. Each opens as a
-  // read-only chat, as a pull request's does.
+  // ListWorkItems is the Issues view: one row per issue or project the caller is involved in,
+  // from every issue tracker Podium is connected to (today Linear), each a conversation of its
+  // own, most recently active first. Involved is assigned or created it, asked Podium about it,
+  // spoke in its conversation, or was @mentioned in it. Admins and owners may ask for every one
+  // (all). Each opens as a read-only chat, as a pull request's does.
   rpc ListWorkItems(ListWorkItemsRequest) returns (ListWorkItemsResponse);
   // RenameChat changes the title of one of the caller's chats. Another login's chat is
   // not_found, the same as every other chat RPC. An empty title is refused.
@@ -1766,8 +1766,10 @@ message WorkItem {
   double cost_usd = 14;
   // my_role is the caller's role in it; an admin who reads it only as an admin is "viewer".
   string my_role = 15;
-  // mine is a conversation the caller touched, spoke in, owns or was shared.
-  bool mine = 16;
+  // involved is an item the caller is involved in: they were assigned or created it, asked
+  // Podium about it (delegated it, @mentioned the app on it, prompted it, or spoke in its
+  // conversation), or were @mentioned in its description or a comment.
+  bool involved = 16;
 }
 
 // WorkTeam is one team of one provider, for the Issues view's team filter.
@@ -1777,26 +1779,28 @@ message WorkTeam {
 }
 
 message ListWorkItemsRequest {
+  // 2 was mine and 6 status, before the list was the caller's own and the board Podium's state.
+  reserved 2, 6;
+  reserved "mine", "status";
   Page page = 1;
-  // mine lists only the items the caller touched, spoke in, owns or was shared.
-  bool mine = 2;
+  // all lists every item the caller may read rather than those they are involved in. Only an
+  // admin or an owner may ask for it; anybody else is permission_denied.
+  bool all = 7;
   // provider is one issue tracker ("linear"), or "" for every one. Every one is served only
   // while Podium has a single provider; with more, name one.
   string provider = 3;
   // team is a team key of the provider, empty for every team.
   string team = 4;
-  // state is "", one of WorkItem.state, or "attention" (waiting and failed).
+  // state is "", one of WorkItem.state, or "attention" (waiting and failed). A board's column
+  // is one state.
   string state = 5;
-  // status is one column of the board: "" for every item, one of WorkItem.status's categories,
-  // or "none" for the rest — projects, and issues whose state is unknown.
-  string status = 6;
 }
 
 message ListWorkItemsResponse {
   repeated WorkItem items = 1;
   // Empty when there is no further page.
   string next_cursor = 2;
-  // teams are the teams of every item the caller may list, for the team filter.
+  // teams are the teams of every item the caller lists (all, or involved), for the team filter.
   repeated WorkTeam teams = 3;
   // providers are the issue trackers Podium lists items from, for a provider filter.
   repeated string providers = 4;

@@ -511,7 +511,8 @@ the least that lets a second (Jira, GitHub Issues) be one adapter.
   state), and Podium's `state`, `asked_of`, `last_activity_at`, `last_text`, `cost_usd`,
   `my_role`, `mine` as before. The request adds `provider` ("" for every one) and `status` (one
   board column, or `none`); the response adds `providers` and makes `teams` `WorkTeam {provider,
-  key}`.
+  key}`. (Since *Your issues, and Podium's columns*, below: `mine` is `all` on the request and
+  `involved` on the item, and `status` is no longer a filter.)
 - **Status.** A category every provider maps its states to: `triage`, `backlog`, `todo`,
   `in_progress`, `done`, `canceled`, or "" for unknown (and every project). Linear's state types
   map one to one (`unstarted` → `todo`, `started` → `in_progress`, `completed` → `done`, the rest
@@ -652,3 +653,36 @@ Across the whole stack, what is still open:
   task ended without an answer keeps its item until somebody speaks or it is dismissed.
 - **`make lint` was not run** on any of the stack's branches: golangci-lint cannot type-check on
   the machine they were built on. CI is the first place it runs.
+
+## Your issues, and Podium's columns
+
+Built on *Issues, not Linear*, in the same pull request. What the user asked for: a person's list
+is the issues they are involved in, and the board's columns are Podium's state.
+
+- **Involved** (`linear_involved`, 0054): `linear_people` via `assigned`, `created`, `delegated`,
+  `mentioned` (the app), `prompted`, or the new `person_mentioned`, resolved through `identities`
+  as `linear_touched` is; or a `chat_participants` row that is not a backfilled guess (spoke in the
+  conversation). Not `commented`, `changed`, `routine`, or a share: those still read it.
+- **The list** is `chat_visible_to` (or an admin) and, unless `list_all`, `linear_involved`. The
+  team filter's teams follow the same rule. `ListWorkItemsRequest.mine` is gone; `all` asks for
+  every issue, refused (`permission_denied`) to anybody who is not an admin or owner, so a client
+  never shows "all" over a list that is not. `WorkItem.mine` is `involved`. The web shows
+  *Mine | All issues* to admins and owners only; everybody else just gets their list.
+- **@mentions of people.** Parsed from an `Issue` change's `description`, a `Comment` change's
+  `body`, and an agent session's comment: profile URLs (`https://linear.app/<workspace>/profiles/
+  <handle>`, which is how Linear's docs say a mention is written in markdown, and the form a
+  user's `url` takes in `testdata/`) and typed `@handle`s (the session fixtures' bodies, which
+  `stripMention` already relies on), outside code, bounded to 50 a text and its first 64 KiB.
+  Handles resolve through `PodiumUsers` (the workspace's users, `displayName`), cached ten minutes
+  and retried at most once a minute for a missing handle; the app's own handle never asks.
+- **Access is unchanged.** `linear_touched` and the chat rail's people now ignore
+  `person_mentioned`, so a mention reads nothing: anybody can @mention anybody, and touching makes
+  a writer. A mention lists an issue for somebody who already reads it. Deciding whether a mention
+  should grant reading (gated on the issue's team privacy, say) is left open.
+- **The board** asks each column for one Podium state (`state`; `ListWorkItemsRequest.status` and
+  the store's state-type filter are gone): Not started, Working, Waiting on someone, Failed, Done.
+  The state toggle is the table's only. Cards show the tracker's state as a label and no Podium
+  badge; a waiting one says whose answer it needs. `WorkItem.status` and the Linear mapping stay,
+  as data.
+- **Not built.** A mention edited out of a text stays recorded; mentions in project descriptions
+  and project updates are not read.

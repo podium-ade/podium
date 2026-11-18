@@ -1,6 +1,7 @@
 // Package work is the Issues view's model of work management, whatever issue tracker it lives
 // in: an Item is one issue's (or project's) conversation, a Source lists a provider's items, and
-// Status is the column of the board a provider's own state falls in.
+// Status is the category a provider's own state falls in. The board's columns are Podium's
+// State, not Status: what Podium is doing about each issue.
 //
 // A provider is one adapter: a Source whose List maps the provider's rows onto Item and its
 // state onto Status. Linear's is internal/agent/linear's WorkSource. The mapping from a
@@ -14,10 +15,10 @@ import (
 	"time"
 )
 
-// Status is the category of a provider's state for an item: the board's columns.
+// Status is the category of a provider's state for an item.
 type Status string
 
-// The statuses, in the board's order. StatusUnknown is a state the provider named none of these
+// The statuses, in a tracker's usual order. StatusUnknown is a state the provider named none of these
 // for, or none at all (a project).
 const (
 	StatusTriage     Status = "triage"
@@ -29,23 +30,10 @@ const (
 	StatusUnknown    Status = ""
 )
 
-// Statuses are the known statuses, in the board's order.
+// Statuses are the known statuses, in a tracker's usual order.
 var Statuses = []Status{StatusTriage, StatusBacklog, StatusTodo, StatusInProgress, StatusDone, StatusCanceled}
 
-// StatusNone filters to the items with no known status: the board's last column.
-const StatusNone Status = "none"
-
-// ParseStatusFilter is s as a Filter.Status — "", one of Statuses, or StatusNone — and whether
-// it is one.
-func ParseStatusFilter(s string) (Status, bool) {
-	st := Status(strings.ToLower(strings.TrimSpace(s)))
-	if st == StatusUnknown || st == StatusNone || slices.Contains(Statuses, st) {
-		return st, true
-	}
-	return "", false
-}
-
-// Where Podium is with an item, whatever its provider.
+// Where Podium is with an item, whatever its provider: the board's columns.
 const (
 	StateWaiting = "waiting"
 	StateWorking = "working"
@@ -55,6 +43,19 @@ const (
 	// StateAttention is a filter, not a state: waiting and failed together.
 	StateAttention = "attention"
 )
+
+// States are the states, in the board's order.
+var States = []string{StateNew, StateWorking, StateWaiting, StateFailed, StateDone}
+
+// ParseStateFilter is s as a Filter.State — "", one of States, or StateAttention — and whether
+// it is one.
+func ParseStateFilter(s string) (string, bool) {
+	st := strings.ToLower(strings.TrimSpace(s))
+	if st == "" || st == StateAttention || slices.Contains(States, st) {
+		return st, true
+	}
+	return "", false
+}
 
 // Item is one issue's or project's conversation.
 type Item struct {
@@ -80,22 +81,22 @@ type Item struct {
 	CostUSD        float64
 	// MyRole is the viewer's role in the chat, "" for an admin who reads it as an admin.
 	MyRole string
-	// Mine is an item the viewer touched, spoke in, owns or was shared.
-	Mine bool
+	// Involved is an item the viewer is involved in, by the provider's rule (Linear's: assigned
+	// or created it, asked Podium about it, spoke in its conversation, or was @mentioned in it).
+	Involved bool
 }
 
 // Filter narrows a Source's list.
 type Filter struct {
-	// SeeAll is an admin, an owner or the dev token, who list every item.
+	// SeeAll is an admin, an owner or the dev token, who may read every item.
 	SeeAll bool
-	// Mine lists only what the viewer touched, spoke in, owns or was shared.
-	Mine bool
+	// All lists every item the viewer may read, not only those they are involved in. Only
+	// SeeAll may ask for it; the API refuses anybody else.
+	All bool
 	// Team is a team key of the provider, "" for every team.
 	Team string
-	// State is "", a state, or StateAttention.
+	// State is "", one of States, or StateAttention.
 	State string
-	// Status is "", one of Statuses, or StatusNone.
-	Status Status
 	// Limit is the most items a page holds; Cursor is the Page.Next of the page before, "" for
 	// the first.
 	Limit  int
@@ -109,7 +110,8 @@ type Page struct {
 	Next string
 	// Total is how many items the filter matches, counted on the first page only.
 	Total int
-	// Teams are the teams of every item the viewer may list, whatever the filter.
+	// Teams are the teams of every item the viewer lists (All or involved), whatever the other
+	// filters.
 	Teams []string
 }
 

@@ -74,6 +74,9 @@ const (
 	LinearViaCommented = "commented"
 	LinearViaChanged   = "changed"
 	LinearViaRoutine   = "routine"
+	// LinearViaPersonMentioned is a person @mentioned in the issue's description or a comment;
+	// LinearViaMentioned is a person who @mentioned the app.
+	LinearViaPersonMentioned = "person_mentioned"
 )
 
 // LinearIssue is what the webhooks said about the issue or project a conversation is about.
@@ -257,8 +260,9 @@ type LinearConversation struct {
 	CostUSD        float64
 	// MyRole is the caller's role in the chat, "" for an admin who reads it as an admin.
 	MyRole string
-	// Mine is a conversation the caller touched, spoke in, owns or was shared.
-	Mine bool
+	// Involved is a conversation the caller is involved in (linear_involved): assigned or
+	// created the issue, asked Podium about it, spoke in it, or was @mentioned in it.
+	Involved bool
 }
 
 // Where Podium is with a Linear conversation.
@@ -277,25 +281,16 @@ var ErrBadLinearCursor = errors.New("not a cursor of the Linear view")
 
 // LinearConversationFilter narrows the Linear view.
 type LinearConversationFilter struct {
-	// SeeAll is an admin, an owner or the dev token, who list every conversation.
+	// SeeAll is an admin, an owner or the dev token, who may read every conversation.
 	SeeAll bool
-	// Mine lists only what the caller touched, spoke in, owns or was shared.
-	Mine bool
+	// All lists every conversation the caller may read, not only those they are involved in.
+	// The store does not check it is SeeAll's to ask: the API does.
+	All bool
 	// Team is a team key, "" for every team.
 	Team string
-	// State is "", a state, or LinearStateAttention.
+	// State is "", a state, or LinearStateAttention: a board's column is one state.
 	State string
-	// StateType is the board's column: "", one of LinearStateTypes, or LinearStateTypeNone.
-	StateType string
 }
-
-// LinearStateTypes are the types of an issue's state in Linear, in Linear's order: the board's
-// columns.
-var LinearStateTypes = []string{"triage", "backlog", "unstarted", "started", "completed", "canceled"}
-
-// LinearStateTypeNone filters the Linear view to what has none of LinearStateTypes: projects,
-// and issues whose state type the webhooks never said.
-const LinearStateTypeNone = "none"
 
 // LinearConversationPage is one page of the Linear view.
 type LinearConversationPage struct {
@@ -307,15 +302,14 @@ type LinearConversationPage struct {
 }
 
 // ListLinearConversations is a page of the Linear view for viewer, most recently active first.
-// A StateType that is none of LinearStateTypes or LinearStateTypeNone matches nothing.
 func (s *Store) ListLinearConversations(
 	ctx context.Context, viewer string, f LinearConversationFilter, limit int, cursor string,
 ) (LinearConversationPage, error) {
 	limit = clampLimit(limit)
 	params := db.ListLinearConversationsParams{
-		Viewer: viewer, SeeAll: f.SeeAll, OnlyMine: f.Mine, Team: strings.ToUpper(strings.TrimSpace(f.Team)),
-		FilterState: strings.TrimSpace(f.State), FilterStateType: strings.ToLower(strings.TrimSpace(f.StateType)),
-		PageLimit: int32(limit + 1),
+		Viewer: viewer, SeeAll: f.SeeAll, ListAll: f.All, Team: strings.ToUpper(strings.TrimSpace(f.Team)),
+		FilterState: strings.TrimSpace(f.State),
+		PageLimit:   int32(limit + 1),
 	}
 	if cursor != "" {
 		at, id, ok := parseLinearCursor(cursor)
@@ -352,15 +346,16 @@ func (s *Store) ListLinearConversations(
 			ChatID: r.ChatID, SourceKey: deref(r.SourceKey), Kind: r.Kind, Identifier: r.Identifier, Title: title,
 			URL: url, TeamKey: r.TeamKey, StateName: r.StateName, StateType: r.StateType, State: r.State,
 			AskedOf: r.AskedOf, LastActivityAt: r.LastActivityAt.UTC(), LastText: preview(r.LastText, ChatPreviewChars),
-			CostUSD: r.CostUsd, MyRole: r.MyRole, Mine: r.Mine,
+			CostUSD: r.CostUsd, MyRole: r.MyRole, Involved: r.Involved,
 		})
 	}
 	return LinearConversationPage{Rows: out, Next: next, Total: total}, nil
 }
 
-// LinearConversationTeams is every team a conversation viewer may list is in.
-func (s *Store) LinearConversationTeams(ctx context.Context, viewer string, seeAll bool) ([]string, error) {
-	teams, err := s.q.LinearConversationTeams(ctx, db.LinearConversationTeamsParams{Viewer: viewer, SeeAll: seeAll})
+// LinearConversationTeams is every team a conversation viewer lists is in: those they may read
+// and, unless all, are involved in.
+func (s *Store) LinearConversationTeams(ctx context.Context, viewer string, seeAll, all bool) ([]string, error) {
+	teams, err := s.q.LinearConversationTeams(ctx, db.LinearConversationTeamsParams{Viewer: viewer, SeeAll: seeAll, ListAll: all})
 	if err != nil {
 		return nil, fmt.Errorf("list the Linear view's teams: %w", err)
 	}

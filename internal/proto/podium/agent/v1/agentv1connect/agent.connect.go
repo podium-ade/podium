@@ -490,11 +490,11 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
-	// ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
-	// every issue tracker Podium is connected to (today Linear), each a conversation of its own,
-	// most recently active first. Admins and owners list every one; anybody else lists those whose
-	// issue they touched (through their linked account), spoke in, or were shared. Each opens as a
-	// read-only chat, as a pull request's does.
+	// ListWorkItems is the Issues view: one row per issue or project the caller is involved in,
+	// from every issue tracker Podium is connected to (today Linear), each a conversation of its
+	// own, most recently active first. Involved is assigned or created it, asked Podium about it,
+	// spoke in its conversation, or was @mentioned in it. Admins and owners may ask for every one
+	// (all). Each opens as a read-only chat, as a pull request's does.
 	ListWorkItems(context.Context, *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.
@@ -2004,11 +2004,11 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
-	// ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
-	// every issue tracker Podium is connected to (today Linear), each a conversation of its own,
-	// most recently active first. Admins and owners list every one; anybody else lists those whose
-	// issue they touched (through their linked account), spoke in, or were shared. Each opens as a
-	// read-only chat, as a pull request's does.
+	// ListWorkItems is the Issues view: one row per issue or project the caller is involved in,
+	// from every issue tracker Podium is connected to (today Linear), each a conversation of its
+	// own, most recently active first. Involved is assigned or created it, asked Podium about it,
+	// spoke in its conversation, or was @mentioned in it. Admins and owners may ask for every one
+	// (all). Each opens as a read-only chat, as a pull request's does.
 	ListWorkItems(context.Context, *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.

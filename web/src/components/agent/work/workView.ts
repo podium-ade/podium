@@ -1,14 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData } from "@tanstack/react-query";
-import {
-  Circle,
-  CircleCheck,
-  CircleDashed,
-  CircleDot,
-  CircleSlash,
-  CircleX,
-  Inbox,
-  type LucideIcon,
-} from "lucide-react";
+import { CircleCheck, CircleDashed, CircleDot, CircleX, Hourglass, type LucideIcon } from "lucide-react";
 import type { WorkItem } from "../../../gen/podium/agent/v1/agent_pb";
 import linear from "../../../assets/marks/linear.svg";
 import { agent } from "../../../lib/client";
@@ -44,10 +35,12 @@ export const itemLabel = (c: WorkItem) => c.key || (c.kind === "project" ? "Proj
 export type StateFilter = "" | "working" | "attention";
 
 /**
- * WorkFilters are the Issues view's filters, which the table and the board share. provider is ""
- * for every issue tracker; it is only ever set while more than one is connected.
+ * WorkFilters are the Issues view's filters, which the table and the board share. all is every
+ * issue rather than the viewer's own, an admin's or an owner's to ask for. provider is "" for
+ * every issue tracker; it is only ever set while more than one is connected. state is the
+ * table's: the board's columns are the states.
  */
-export type WorkFilters = { mine: boolean; provider: string; team: string; state: StateFilter };
+export type WorkFilters = { all: boolean; provider: string; team: string; state: StateFilter };
 
 /** View is how the Issues view lays its issues out. */
 export type View = "table" | "board";
@@ -77,46 +70,42 @@ export function storeView(view: View) {
 export const BOARD_PAGE = 10;
 
 export type Column = {
-  /** status is the status the column lists, as ListWorkItems names it ("none" for the rest). */
-  status: string;
+  /** state is the Podium state the column lists, as ListWorkItems names it. */
+  state: string;
   label: string;
   icon: LucideIcon;
-  /** optional is a column shown only while something is in it. */
-  optional?: boolean;
 };
 
 /**
- * COLUMNS are the statuses every issue tracker's states map to, in a board's order, then Other:
- * a project, or an issue whose state the provider never named or named one Podium does not
- * know. Triage is a setting many workspaces leave off, so it and Other appear only when
- * something is in them; the rest always do, so the board keeps its shape from one filter to the
- * next.
+ * COLUMNS are where Podium is with each issue, in the order work moves through them: not started,
+ * working, waiting on someone, failed, done. Every column always shows, so the board keeps its
+ * shape from one filter to the next. The tracker's own state is on each card.
  */
 export const COLUMNS: Column[] = [
-  { status: "triage", label: "Triage", icon: Inbox, optional: true },
-  { status: "backlog", label: "Backlog", icon: CircleDashed },
-  { status: "todo", label: "Todo", icon: Circle },
-  { status: "in_progress", label: "In progress", icon: CircleDot },
-  { status: "done", label: "Done", icon: CircleCheck },
-  { status: "canceled", label: "Canceled", icon: CircleX },
-  { status: "none", label: "Other", icon: CircleSlash, optional: true },
+  { state: "new", label: "Not started", icon: CircleDashed },
+  { state: "working", label: "Working", icon: CircleDot },
+  { state: "waiting", label: "Waiting on someone", icon: Hourglass },
+  { state: "failed", label: "Failed", icon: CircleX },
+  { state: "done", label: "Done", icon: CircleCheck },
 ];
 
+/** FIRST_COLUMN is the column whose pages carry the teams and providers for the filters. */
+export const FIRST_COLUMN = COLUMNS[0].state;
+
 /**
- * boardColumnQuery is one column's pages: the filters plus the column's status, paged on the
- * server ten at a time. The view's team and provider filters read from the Backlog column's
- * pages, so the two share one cache entry and one request.
+ * boardColumnQuery is one column's pages: the filters plus the column's state, paged on the
+ * server ten at a time. The view's team and provider filters read from the first column's pages,
+ * so the two share one cache entry and one request.
  */
-export function boardColumnQuery(f: WorkFilters, status: string) {
+export function boardColumnQuery(f: WorkFilters, state: string) {
   return infiniteQueryOptions({
-    queryKey: ["agent", "work", "board", f.mine, f.provider, f.team, f.state, status],
+    queryKey: ["agent", "work", "board", f.all, f.provider, f.team, state],
     queryFn: ({ pageParam }) =>
       agent.listWorkItems({
-        mine: f.mine,
+        all: f.all,
         provider: f.provider,
         team: f.team,
-        state: f.state,
-        status,
+        state,
         page: { limit: BOARD_PAGE, cursor: pageParam },
       }),
     initialPageParam: "",
