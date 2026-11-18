@@ -536,7 +536,7 @@ know before you write one.
   routine's events are about learn nothing from it — a routine's run is visible to its owner and to
   admins, and to those who touched the issue, who could already read the issue. What a delivery
   says about an issue (its identifier, title, team and state) is kept in `linear_issues` for the
-  Linear view, for every issue the webhook names, including ones with no conversation.
+  Issues view, for every issue the webhook names, including ones with no conversation.
 - **A turn in a Linear issue's conversation shows its work only to whoever it ran as.** Each turn
   runs as whoever prompted it — their secrets, their MCP servers, their GitHub account — and the
   conversation is read by everybody who touched the issue. So every row the bot wrote says whose
