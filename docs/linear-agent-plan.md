@@ -563,6 +563,18 @@ needs the session's chat row.
 
 Across the whole stack, what is still open:
 
+- **A run as Podium's Linear has not run end to end.** The app token against
+  `mcp.linear.app/mcp`, `save_comment` attributed to the app, and the app's own comment ignored as
+  an event were checked by hand on the Emergere workspace; the conductor's path (a system
+  routine's run on a host turn and in a task) is covered by unit tests and one integration test
+  that compiles, not by a live run.
+- **A system routine's Linear has no allow-list.** Every tool of Linear's MCP server, across every
+  team the app reaches. Accepted; narrowing it (a tool list, or a team scope) is open.
+- **A delegated task acts as Podium only on the conductor running its turn.** Whether a turn is a
+  routine's run is remembered in that conductor's memory; a delegation that reaches another
+  conductor, or this one after a restart, resolves Linear as a turn with nobody behind it (the
+  registry's shared `linear`, if any).
+
 - **Nothing has run against a real Linear workspace with a running conductor.** The spike
   (phase 0) captured payloads with a throwaway listener; every phase since was built against
   those fixtures and a GraphQL stub. One live pass per phase on the dev stack, through a tunnel,
@@ -686,3 +698,30 @@ is the issues they are involved in, and the board's columns are Podium's state.
   as data.
 - **Not built.** A mention edited out of a text stays recorded; mentions in project descriptions
   and project updates are not read.
+
+## Linear as the app, for a run as Podium
+
+What the user asked for: a system routine ("Runs as: Podium") that runs, say, an investigate
+playbook on every new issue posts its comment as the Linear app, not as a person.
+
+- **The rule.** A run's Linear follows who it runs as. A turn with nobody behind it that is a
+  system routine's run (`runsAsPodium`: no login, and its routine is `System()`) acts as Podium;
+  every other run — a person's turn, a personal routine's — resolves `linear` against the MCP
+  registry exactly as before.
+- **Where.** `conductor.mcpServers` resolves a job's `mcp_servers` per turn, for the assistant's
+  turn and for a delegated task. For a run as Podium it takes `linear` out of the names the
+  registry is asked for and puts `mcp.LinearAppServer()` in its place: `https://mcp.linear.app/mcp`,
+  named `linear`, auth kind `linear_app`. Only when the job names `linear`, as the person's preset
+  is only had when named.
+- **The token.** `Options.LinearAppToken` is the running app's `AccessToken` (its client's
+  `TokenSource`: minted or refreshed at turn start, shared through the vault). A host turn reads it
+  where it reads every MCP token (`mcpToken`, for the runtime's environment and the chat host's
+  headers). A task container gets it the way every MCP credential reaches one: the conductor writes
+  it to `podium.agent.mcp.linear_app_token` (only when it changed, by hash) and the task spec names
+  that secret for `PODIUM_MCP_LINEAR_TOKEN`. It is never in the brief, the turn row or a log.
+- **No app.** None connected, the poller's key (no app), or one Linear revoked: the run gets no
+  Linear, and the brief's unavailable servers say why. A playbook is not failed for it.
+- **No loop.** Linear delivers the app's own change, and the conductor ignores it ("the app's own
+  change"), so a routine's comment does not start the routine again. Checked on Emergere.
+- **Risk.** In security.md: issue text can prompt-inject a run as Podium into acting
+  workspace-wide as the app; accepted because only admins and owners make system routines.

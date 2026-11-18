@@ -57,7 +57,7 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   {
     scope: "system",
     label: "Podium (system)",
-    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names. Admins see it; nobody writes in its chat.",
+    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names, and acts in Linear as the Podium app. Admins see it; nobody writes in its chat.",
   },
 ];
 
@@ -474,7 +474,7 @@ export function RoutineDialog({
           </DialogTitle>
           <DialogDescription className="text-sm text-soft">
             {fixedScope === "system"
-              ? "Runs as Podium with the company’s credentials. Nobody writes in its chat: what it does is steered from here."
+              ? "Runs as Podium with the company’s credentials, and acts in Linear as the Podium app. Nobody writes in its chat: what it does is steered from here."
               : "A job an assistant does in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."}
           </DialogDescription>
         </DialogHeader>

@@ -729,6 +729,19 @@ func (l *liveConnections) slackSource() *agentslack.Source {
 	return l.slack
 }
 
+// LinearAppToken is the running Linear app's own access token, for a run that acts as Podium
+// (conductor/linearapp.go). No app here — none connected, or the poller's personal key, which
+// is no app — is an error, as is one Linear revoked.
+func (l *liveConnections) LinearAppToken(ctx context.Context) (string, error) {
+	l.mu.Lock()
+	app := l.linearApp
+	l.mu.Unlock()
+	if app == nil {
+		return "", errors.New("no Linear app is connected")
+	}
+	return app.AccessToken(ctx)
+}
+
 // ticketApp is the running Linear app as package tickets reads issues through it, or nil
 // when none runs here: the poller's personal key is no app, and is never used to show people
 // issues.

@@ -429,6 +429,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		PublicURL:          a.cfg.PublicURL,
 		Keys:               keyHealth{a},
 		Tickets:            ticketReader.BriefTickets,
+		LinearAppToken:     a.live.LinearAppToken,
 	})
 	if err != nil {
 		st.Close()

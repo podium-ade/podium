@@ -101,7 +101,38 @@ const (
 	AuthNone  = ""
 	AuthToken = "token"
 	AuthOAuth = "oauth"
+	// AuthLinearApp is never a row's: it is the Linear MCP server as a run that acts as Podium
+	// gets it (LinearAppServer), signed in with the Linear app's own access token rather than
+	// any person's. The conductor mints that token when the turn starts.
+	AuthLinearApp = "linear_app"
 )
+
+// The Linear MCP server a run as Podium gets. LinearName is the name an assistant or a playbook
+// names it by, the same as a person's own Linear preset, so the tools are mcp__linear__* either
+// way and a playbook reads the same.
+const (
+	LinearName = "linear"
+	LinearURL  = "https://mcp.linear.app/mcp"
+	// LinearAppTokenSecret is where the conductor puts the app's access token for a task
+	// container to receive, the way every MCP credential reaches one. It is under SecretPrefix,
+	// which a playbook may not name, and no registered server's TokenSecret can be it: NameRE
+	// has no underscore.
+	LinearAppTokenSecret = SecretPrefix + "linear_app_token"
+)
+
+// LinearAppServer is the Linear MCP server signed in as the Linear app. TokenSecretVersion is
+// set so the brief promises the variable its token arrives in; the token itself is the
+// conductor's to supply (CredentialSecret, and the conductor's own reader for a host turn).
+func LinearAppServer() Server {
+	return Server{
+		Name:               LinearName,
+		URL:                LinearURL,
+		Description:        "Linear, as the Podium app",
+		Enabled:            true,
+		AuthKind:           AuthLinearApp,
+		TokenSecretVersion: 1,
+	}
+}
 
 // OAuth is what a sign-in leaves behind: enough to refresh it, and enough to say who it is.
 //
@@ -222,6 +253,9 @@ func LegacyPersonalTokenSecret(owner, name string) string {
 // TokenSecret, which is global. A personal row uses PersonalTokenSecret, which is that
 // person's own secret.
 func CredentialSecret(srv Server) string {
+	if srv.AuthKind == AuthLinearApp {
+		return LinearAppTokenSecret
+	}
 	if srv.Owner == "" {
 		return TokenSecret(srv.Name)
 	}

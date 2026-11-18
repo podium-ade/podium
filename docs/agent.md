@@ -2374,7 +2374,8 @@ tools of its own. A turn that reads or changes tickets — "what's on my plate",
 Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server ([`mcp_servers:`](#mcp_servers--tools-that-are-somebody-elses-api)):
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
-with what Linear lets them do. The Issues view (while Linear is among its trackers) and an issue's
+with what Linear lets them do. A system routine's run is nobody's, and gets the same server signed
+in as the Podium Linear app instead ([Routines](#routines)). The Issues view (while Linear is among its trackers) and an issue's
 conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
@@ -3753,6 +3754,7 @@ is the issue's, not the routine's.
 |---|---|---|
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
+| Linear | the owner's own Linear MCP server, as them | the Linear MCP server signed in as the **Podium Linear app**: what it writes in Linear is the app's |
 | GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
@@ -3761,6 +3763,19 @@ is the issue's, not the routine's.
 
 The scope is chosen once, when the routine is made. A system routine cannot open chats
 (`start_chat` needs a Podium person to own them).
+
+**A run as Podium reaches Linear as the app.** When the assistant or a playbook a system routine's
+run uses names `linear` among its MCP servers, the run gets Linear's MCP server
+(`https://mcp.linear.app/mcp`) signed in with the Linear app's own access token (`actor=app`, the
+token the conductor's Linear app already holds), not any person's and not a `linear` row on the
+MCP servers screen. So an "on Linear issue created" routine that runs an investigate playbook
+posting its findings with `save_comment` posts them as the app, and Linear does not deliver the
+app's own change back as an event, so the comment does not set the routine off again. A task the
+run delegates gets the same. With no Linear app connected, or one Linear revoked, the run goes on
+without Linear and is told why; a playbook that names it does not fail for that. The app's token
+reaches all of Linear the app can (`access: all`), with every tool the server has: what that
+means is in [security.md](security.md#5-the-conductor-and-the-bot). Every run a person is behind —
+theirs, their routine's — keeps their own Linear MCP server, as before.
 
 ### Making one
 
@@ -3962,8 +3977,8 @@ other on one. Changing it affects later runs only, and history records the chang
   listed in the Issues view, not the rail. Events about a cycle, a label or nothing in particular
   are no conversation, and run in the routine's own chat, opened the first time one does.
 - **The run is still its routine's.** It runs as the routine's owner — their secrets, MCP servers
-  and GitHub account, with the routine's assistant — or as nobody for a system routine, never as
-  the conversation's owner. It is briefed with the routine block and its events, offered
+  and GitHub account, with the routine's assistant — or as nobody for a system routine, which
+  reaches Linear as the app ([Two scopes](#routines)), never as the conversation's owner. It is briefed with the routine block and its events, offered
   `routine_finish`, held while it runs and written in under a `Routine run · …` divider, and kept
   quietly when idle. A conversation is shared, so it spends the company's model key. The routine's
   owner is recorded as having touched the issue, which is what lets them read the conversation.
