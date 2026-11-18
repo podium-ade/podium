@@ -2,75 +2,81 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, Rows3, SquareKanban } from "lucide-react";
-import type { LinearConversation } from "../../gen/podium/agent/v1/agent_pb";
-import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { absolute, relative } from "../../lib/format";
-import { money } from "../../lib/routines";
-import { cn } from "../../lib/utils";
-import { Badge } from "../Badge";
-import { Empty } from "../Empty";
-import { TableSkeleton } from "../Skeleton";
-import { Button } from "../ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { ConductorDown } from "./ConductorDown";
-import { LinearBoard } from "./LinearBoard";
-import { LinearMcpHint } from "./LinearMcpHint";
+import type { WorkItem } from "../../../gen/podium/agent/v1/agent_pb";
+import { agent, errorMessage, isAgentUnreachable } from "../../../lib/client";
+import { absolute, relative } from "../../../lib/format";
+import { money } from "../../../lib/routines";
+import { cn } from "../../../lib/utils";
+import { Badge } from "../../Badge";
+import { Empty } from "../../Empty";
+import { TableSkeleton } from "../../Skeleton";
+import { Button } from "../../ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { ToggleGroup, ToggleGroupItem } from "../../ui/toggle-group";
+import { ConductorDown } from "../ConductorDown";
+import { LinearMcpHint } from "../LinearMcpHint";
+import { ProviderMark } from "./ProviderMark";
+import { WorkBoard } from "./WorkBoard";
 import {
-  type LinearFilters,
   POLL_MS,
-  boardColumnQuery,
   type StateFilter,
   type View,
+  type WorkFilters,
+  boardColumnQuery,
+  itemLabel,
   podiumState,
+  providerName,
   storeView,
   storedView,
-} from "./linearView";
+} from "./workView";
 
 /** One page of the list. The server pages it, so a workspace's thousands of issues are never read at once. */
 const PAGE = 50;
 
-/** ALL_TEAMS is the team filter's "every team", which a Select cannot hold as "". */
-const ALL_TEAMS = "*";
+/** ALL is a Select's "every one", which a Select cannot hold as "". */
+const ALL = "*";
 
 /** ITEM is a filter toggle the height of the chat rail's filter, so the two read as one control. */
 const ITEM = "h-9 px-2.5";
 
-/** linearKey is where one filter's pages of the list are cached. */
-const linearKey = (mine: boolean, team: string, state: StateFilter) => [
-  "agent",
-  "linear",
-  mine,
-  team,
-  state,
-];
+/** SELECT is a filter Select the height, border, corners and type of the toggles beside it. */
+const SELECT = "h-[2.625rem] min-h-0 rounded-lg border-border px-2.5 text-xs font-medium";
+
+/** teamValue is one provider's team as a Select value; a team key is unique within its provider only. */
+const teamValue = (provider: string, key: string) => `${provider}:${key}`;
+
+/** workKey is where one filter's pages of the list are cached. */
+const workKey = (f: WorkFilters) => ["agent", "work", f.mine, f.provider, f.team, f.state];
 
 /**
- * LinearTable is the Linear view: one row per Linear issue (or project) Podium works on, each a
- * conversation of its own however it was started — the issue delegated to the app, the app
- * @mentioned on it, or a routine that ran about it. There are too many for the chat rail, so they
- * are listed here, newest activity first, and filtered on the server.
+ * WorkTable is the Issues view: one row per issue (or project) an assistant works on, from every
+ * issue tracker Podium is connected to — today Linear — each a conversation of its own however it
+ * was started: the issue delegated to the app, the app @mentioned on it, or a routine that ran
+ * about it. There are too many for the chat rail, so they are listed here, newest activity first,
+ * and filtered on the server.
  *
- * What a row says about the issue — its identifier, title, team and Linear state — is what the
- * webhooks said, kept by the conductor; nothing here asks Linear. A row opens the issue's
- * conversation, read-only as a pull request's is, and its identifier opens the issue in Linear.
+ * What a row says about the issue — its key, title, team and state in its tracker — is what the
+ * tracker's webhooks said, kept by the conductor; nothing here asks the tracker. A row opens the
+ * issue's conversation, read-only as a pull request's is, and its key opens the issue where it
+ * lives.
  *
- * Admins and owners see every issue; anybody else sees the issues they touched in Linear (once
- * their Linear account is linked to Podium), spoke in, or were shared.
+ * Admins and owners see every issue; anybody else sees the issues they touched in the tracker
+ * (once their account there is linked to Podium), spoke in, or were shared.
  *
- * The same issues lay out as a table or as a board of Linear's states (LinearBoard), under the
- * same filters. The layout is ?view=board in the URL, so a board can be linked, and the browser
+ * The same issues lay out as a table or as a board of statuses (WorkBoard), under the same
+ * filters. The layout is ?view=board in the URL, so a board can be linked, and the browser
  * remembers the last one chosen for a visit whose URL names none.
  */
-export function LinearTable() {
+export function WorkTable() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [remembered, setRemembered] = useState<View>(storedView);
   const [mine, setMine] = useState(false);
+  const [provider, setProvider] = useState("");
   const [team, setTeam] = useState("");
   const [state, setState] = useState<StateFilter>("");
-  const filters: LinearFilters = { mine, team, state };
+  const filters: WorkFilters = { mine, provider, team, state };
 
   const asked = params.get("view");
   const view: View = asked === "board" || asked === "table" ? asked : remembered;
@@ -88,9 +94,9 @@ export function LinearTable() {
   };
 
   const list = useInfiniteQuery({
-    queryKey: linearKey(mine, team, state),
+    queryKey: workKey(filters),
     queryFn: ({ pageParam }) =>
-      agent.listLinearConversations({ mine, team, state, page: { limit: PAGE, cursor: pageParam } }),
+      agent.listWorkItems({ mine, provider, team, state, page: { limit: PAGE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor || undefined,
     refetchInterval: POLL_MS,
@@ -99,18 +105,22 @@ export function LinearTable() {
     placeholderData: keepPreviousData,
     enabled: view === "table",
   });
-  // The board's Backlog column, always on it: its pages carry the teams for the team filter,
-  // and its failure is the board's.
+  // The board's Backlog column, always on it: its pages carry the teams and providers for the
+  // filters, and its failure is the board's.
   const backlog = useInfiniteQuery({ ...boardColumnQuery(filters, "backlog"), enabled: view === "board" });
   const shown = view === "table" ? list : backlog;
 
-  const rows = list.data?.pages.flatMap((p) => p.conversations) ?? [];
-  const teams = shown.data?.pages[0]?.teams ?? [];
-  const filtered = mine || team !== "" || state !== "";
+  const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
+  const first = shown.data?.pages[0];
+  const providers = first?.providers ?? [];
+  const several = providers.length > 1;
+  // With several providers a team is one provider's, so the list names whose.
+  const teams = (first?.teams ?? []).filter((t) => provider === "" || t.provider === provider);
+  const filtered = mine || provider !== "" || team !== "" || state !== "";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2" data-testid="linear-filters">
+      <div className="flex flex-wrap items-center gap-2" data-testid="work-filters">
         <ToggleGroup
           type="single"
           value={mine ? "mine" : "all"}
@@ -130,21 +140,46 @@ export function LinearTable() {
           <ToggleGroupItem value="working" className={ITEM}>Working</ToggleGroupItem>
           <ToggleGroupItem value="attention" className={ITEM}>Needs attention</ToggleGroupItem>
         </ToggleGroup>
-        {teams.length > 0 || team !== "" ? (
-          <Select value={team || ALL_TEAMS} onValueChange={(v) => setTeam(v === ALL_TEAMS ? "" : v)}>
-            <SelectTrigger
-              size="sm"
-              className="h-[2.625rem] min-h-0 w-[9rem] rounded-lg border-border px-2.5 text-xs font-medium"
-              aria-label="Team"
-              data-testid="linear-team"
-            >
+        {several || provider !== "" ? (
+          <Select
+            value={provider || ALL}
+            onValueChange={(v) => {
+              setProvider(v === ALL ? "" : v);
+              setTeam("");
+            }}
+          >
+            <SelectTrigger size="sm" className={cn(SELECT, "w-[9rem]")} aria-label="Tracker" data-testid="work-provider">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_TEAMS}>Every team</SelectItem>
+              <SelectItem value={ALL}>Every tracker</SelectItem>
+              {providers.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {providerName(p)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {teams.length > 0 || team !== "" ? (
+          <Select
+            value={team ? teamValue(provider || (first?.teams.find((t) => t.key === team)?.provider ?? ""), team) : ALL}
+            onValueChange={(v) => {
+              if (v === ALL) return setTeam("");
+              const t = teams.find((t) => teamValue(t.provider, t.key) === v);
+              if (!t) return;
+              setTeam(t.key);
+              if (several) setProvider(t.provider);
+            }}
+          >
+            <SelectTrigger size="sm" className={cn(SELECT, "w-[9rem]")} aria-label="Team" data-testid="work-team">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Every team</SelectItem>
               {teams.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t}
+                <SelectItem key={teamValue(t.provider, t.key)} value={teamValue(t.provider, t.key)}>
+                  {several ? `${t.key} · ${providerName(t.provider)}` : t.key}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -168,24 +203,25 @@ export function LinearTable() {
         </ToggleGroup>
       </div>
 
-      <LinearMcpHint />
+      {providers.includes("linear") ? <LinearMcpHint /> : null}
 
       {shown.isError ? (
         isAgentUnreachable(shown.error) ? (
           <ConductorDown
-            what="Could not list Linear issues"
+            what="Could not list issues"
             onRetry={() => void shown.refetch()}
             retrying={shown.isFetching}
           />
         ) : (
-          <Empty icon={SquareKanban} title="Could not list Linear issues" hint={errorMessage(shown.error)} />
+          <Empty icon={SquareKanban} title="Could not list issues" hint={errorMessage(shown.error)} />
         )
       ) : view === "board" ? (
-        <LinearBoard filters={filters} />
+        <WorkBoard filters={filters} />
       ) : (
-        <LinearTableBody
+        <WorkTableBody
           rows={rows}
           filtered={filtered}
+          linear={providers.includes("linear")}
           pending={list.isPending}
           success={list.isSuccess}
           dimmed={list.isPlaceholderData}
@@ -199,10 +235,11 @@ export function LinearTable() {
   );
 }
 
-/** LinearTableBody is the table layout of the Linear view: one row per issue, fifty a page. */
-function LinearTableBody({
+/** WorkTableBody is the table layout of the Issues view: one row per issue, fifty a page. */
+function WorkTableBody({
   rows,
   filtered,
+  linear,
   pending,
   success,
   dimmed,
@@ -211,8 +248,10 @@ function LinearTableBody({
   onMore,
   onOpen,
 }: {
-  rows: LinearConversation[];
+  rows: WorkItem[];
   filtered: boolean;
+  /** linear is Linear among the trackers, which the empty view says how to reach. */
+  linear: boolean;
   pending: boolean;
   success: boolean;
   dimmed: boolean;
@@ -228,11 +267,13 @@ function LinearTableBody({
       {success && rows.length === 0 ? (
         <Empty
           icon={SquareKanban}
-          title={filtered ? "No issues match." : "No Linear issues yet."}
+          title={filtered ? "No issues match." : "No issues yet."}
           hint={
             filtered
               ? "Clear a filter to see more."
-              : "Delegate an issue to the Podium app in Linear, or @mention it in a comment. An issue you touched appears here once your Linear account is linked to Podium."
+              : !linear
+                ? "An issue appears here once an assistant works on it in a connected issue tracker."
+                : "In Linear, delegate an issue to the Podium app or @mention it in a comment. An issue you touched appears here once your Linear account is linked to Podium."
           }
         />
       ) : null}
@@ -251,7 +292,7 @@ function LinearTableBody({
           </TableHeader>
           <TableBody>
             {rows.map((c) => (
-              <LinearRow key={c.chatId} c={c} onOpen={() => onOpen(c.chatId)} />
+              <WorkRow key={c.chatId} c={c} onOpen={() => onOpen(c.chatId)} />
             ))}
           </TableBody>
         </Table>
@@ -268,14 +309,15 @@ function LinearTableBody({
   );
 }
 
-function LinearRow({ c, onOpen }: { c: LinearConversation; onOpen: () => void }) {
+function WorkRow({ c, onOpen }: { c: WorkItem; onOpen: () => void }) {
   const state = podiumState(c.state);
-  const label = c.identifier || (c.kind === "project" ? "Project" : "Issue");
+  const label = itemLabel(c);
+  const where = providerName(c.provider);
   return (
     <TableRow
-      data-testid="linear-row"
+      data-testid="work-row"
       tabIndex={0}
-      aria-label={`Open the conversation of ${c.identifier ? `${c.identifier} ` : ""}${c.title}`}
+      aria-label={`Open the conversation of ${c.key ? `${c.key} ` : ""}${c.title}`}
       onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -287,6 +329,7 @@ function LinearRow({ c, onOpen }: { c: LinearConversation; onOpen: () => void })
     >
       <TableCell className="max-w-[28rem]">
         <div className="flex min-w-0 items-baseline gap-2">
+          <ProviderMark provider={c.provider} />
           {c.url ? (
             <a
               href={c.url}
@@ -294,7 +337,7 @@ function LinearRow({ c, onOpen }: { c: LinearConversation; onOpen: () => void })
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
               className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-accent hover:underline"
-              title="Open in Linear"
+              title={`Open in ${where}`}
             >
               {label}
               <ExternalLink aria-hidden className="size-3" />
@@ -306,9 +349,13 @@ function LinearRow({ c, onOpen }: { c: LinearConversation; onOpen: () => void })
             {c.title || "Untitled"}
           </span>
         </div>
-        {c.linearState ? <div className="text-2xs text-faint">In Linear: {c.linearState}</div> : null}
+        {c.statusLabel ? (
+          <div className="text-2xs text-faint">
+            In {where}: {c.statusLabel}
+          </div>
+        ) : null}
       </TableCell>
-      <TableCell className="text-xs text-muted">{c.teamKey || "—"}</TableCell>
+      <TableCell className="text-xs text-muted">{c.team || "—"}</TableCell>
       <TableCell>
         <Badge tone={state.tone}>{state.label}</Badge>
         {c.state === "waiting" && c.askedOf ? (

@@ -67,6 +67,8 @@ vi.mock("../lib/client", async () => {
       updatePersonality: (...a: unknown[]) => updatePersonality(...a),
       deletePersonality: (...a: unknown[]) => deletePersonality(...a),
       listMcpServers: () => Promise.resolve({ servers: [] }),
+      listWorkItems: () =>
+        Promise.resolve({ items: [], nextCursor: "", teams: [], providers: ["linear"], total: 0 }),
       reloadProfileDir: () => Promise.resolve({}),
       getProfileFile: (...a: unknown[]) => getProfileFile(...a),
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),

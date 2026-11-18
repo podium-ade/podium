@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -298,15 +297,6 @@ var LinearStateTypes = []string{"triage", "backlog", "unstarted", "started", "co
 // and issues whose state type the webhooks never said.
 const LinearStateTypeNone = "none"
 
-// LinearStateTypeFilter is s as a LinearConversationFilter.StateType, and whether it is one.
-func LinearStateTypeFilter(s string) (string, bool) {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" || s == LinearStateTypeNone || slices.Contains(LinearStateTypes, s) {
-		return s, true
-	}
-	return "", false
-}
-
 // LinearConversationPage is one page of the Linear view.
 type LinearConversationPage struct {
 	Rows []LinearConversation
@@ -317,7 +307,7 @@ type LinearConversationPage struct {
 }
 
 // ListLinearConversations is a page of the Linear view for viewer, most recently active first.
-// A StateType that is not one (LinearStateTypeFilter) matches nothing.
+// A StateType that is none of LinearStateTypes or LinearStateTypeNone matches nothing.
 func (s *Store) ListLinearConversations(
 	ctx context.Context, viewer string, f LinearConversationFilter, limit int, cursor string,
 ) (LinearConversationPage, error) {
