@@ -1,7 +1,6 @@
 import { Eye, EyeOff } from "lucide-react";
 import type { Chat } from "../../../gen/podium/agent/v1/agent_pb";
 import { viewingKind } from "../../../lib/sharing";
-import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
 import { Tooltip } from "../../ui/tooltip";
 
@@ -11,22 +10,15 @@ import { Tooltip } from "../../ui/tooltip";
  * viewer may read, or one of their own the search or source filter is hiding. Nothing is
  * stored: it is the open chat, and it goes when another chat is opened.
  *
- * Watch keeps it in the rail for good (SetChatWatched); a chat already in the rail has nothing
- * to watch, and a watched one offers Unwatch.
+ * The entry only says where you are. Watch, which keeps the chat in the rail for good
+ * (SetChatWatched), is in the chat's header beside Share.
  */
 export function ViewingEntry({
   chat,
   viewerLogin,
-  canWatch,
-  busy,
-  onWatch,
 }: {
   chat: Chat;
   viewerLogin: string;
-  /** canWatch offers Watch: the chat is in no list of the viewer's, and they may watch. */
-  canWatch: boolean;
-  busy: boolean;
-  onWatch: (on: boolean) => void;
 }) {
   const title = chat.linearIssue?.identifier
     ? `${chat.linearIssue.identifier} · ${chat.linearIssue.title || chat.title}`
@@ -44,25 +36,20 @@ export function ViewingEntry({
             {viewingKind(chat, viewerLogin)}
           </span>
         </span>
-        {canWatch || chat.watched ? (
-          <WatchButton watched={chat.watched} busy={busy} onWatch={onWatch} compact />
-        ) : null}
       </div>
     </li>
   );
 }
 
-/** WatchButton keeps a chat in the viewer's rail, or stops. */
+/** WatchButton keeps a chat in the viewer's rail, or stops. It sits beside Share, its size. */
 export function WatchButton({
   watched,
   busy,
   onWatch,
-  compact = false,
 }: {
   watched: boolean;
   busy: boolean;
   onWatch: (on: boolean) => void;
-  compact?: boolean;
 }) {
   const label = watched ? "Unwatch" : "Watch";
   const hint = watched ? "Take this chat out of your chat list" : "Keep this chat in your chat list";
@@ -70,13 +57,13 @@ export function WatchButton({
     <Tooltip label={hint}>
       <Button
         type="button"
-        size="xs"
-        variant={watched ? "ghost" : "outline"}
-        data-testid={compact ? "chat-viewing-watch" : "chat-watch"}
+        size="sm"
+        variant="outline"
+        data-testid="chat-watch"
         aria-pressed={watched}
         disabled={busy}
         onClick={() => onWatch(!watched)}
-        className={cn(compact && "shrink-0")}
+        className="shrink-0"
       >
         {watched ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
         {label}

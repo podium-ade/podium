@@ -134,7 +134,9 @@ describe("the chat rail's Viewing entry and Watch", () => {
     expect(viewing).toHaveTextContent("Viewing");
     expect(viewing).toHaveTextContent("Fix failing CI");
     expect(within(viewing).getByTestId("chat-viewing-kind")).toHaveTextContent("Routine");
-    expect(within(viewing).getByTestId("chat-viewing-watch")).toHaveTextContent("Watch");
+    // Watch is in the header beside Share, not on the entry.
+    expect(within(viewing).queryByRole("button", { name: /watch/i })).not.toBeInTheDocument();
+    expect(await screen.findByTestId("chat-watch")).toHaveTextContent("Watch");
 
     await user.click(screen.getByRole("button", { name: "go mine" }));
     await waitFor(() => expect(screen.queryByTestId("chat-viewing")).not.toBeInTheDocument());
@@ -151,7 +153,7 @@ describe("the chat rail's Viewing entry and Watch", () => {
   it("keeps a watched chat in the rail, and Unwatch takes it out", async () => {
     const user = userEvent.setup();
     mount("/agent/chat/c_routine");
-    await user.click(await screen.findByTestId("chat-viewing-watch"));
+    await user.click(await screen.findByTestId("chat-watch"));
     await waitFor(() => expect(setChatWatched).toHaveBeenCalledWith({ chatId: "c_routine", watched: true }));
 
     const list = screen.getByTestId("chat-list");
@@ -176,6 +178,6 @@ describe("the chat rail's Viewing entry and Watch", () => {
     await user.type(await screen.findByTestId("chat-search"), "alpha");
     const viewing = await screen.findByTestId("chat-viewing");
     expect(viewing).toHaveTextContent("Mine");
-    expect(within(viewing).queryByTestId("chat-viewing-watch")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-watch")).not.toBeInTheDocument();
   });
 });

@@ -376,9 +376,6 @@ export function ChatPanel() {
           onHide={(c) => hide.mutate(c)}
           onUnwatch={(c) => watch.mutate({ chat: c, on: false })}
           viewing={viewing}
-          canWatch={mayWatch && !inRail}
-          watching={watch.isPending}
-          onWatch={onWatch}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -628,9 +625,6 @@ function ChatRail({
   onHide,
   onUnwatch,
   viewing,
-  canWatch,
-  watching,
-  onWatch,
   deletingId,
   viewerLogin,
   voices,
@@ -651,10 +645,6 @@ function ChatRail({
   onUnwatch: (chat: Chat) => void;
   /** viewing is the open chat, from its rail row or its stream; undefined until known. */
   viewing?: Chat;
-  /** canWatch offers Watch on the Viewing entry: the open chat is in no list of the viewer's. */
-  canWatch: boolean;
-  watching: boolean;
-  onWatch: (on: boolean) => void;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -940,9 +930,6 @@ function ChatRail({
           <ViewingEntry
             chat={viewingEntry}
             viewerLogin={viewerLogin}
-            canWatch={canWatch}
-            busy={watching}
-            onWatch={onWatch}
           />
         ) : null}
         {!loading && ordered.length === 0 ? (
