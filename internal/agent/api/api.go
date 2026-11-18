@@ -23,6 +23,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/work"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
@@ -205,7 +206,10 @@ type AgentServiceOptions struct {
 	// LinearIssues reads the Linear issues a chat names for the people who could see them in
 	// Linear (GetLinearIssues). Nil describes none, and a chat draws identifiers as text.
 	LinearIssues LinearIssueReader
-	Logger       *slog.Logger
+	// WorkSources are the issue trackers the Issues view lists (ListWorkItems), one per
+	// provider. None lists nothing.
+	WorkSources []work.Source
+	Logger      *slog.Logger
 	// Env is the connection configuration the process was started with, before a saved
 	// connection replaced it. Running is what this process actually opened. GetConnections
 	// uses the two to say whether a restart is still owed. The zero value is an install
@@ -285,6 +289,8 @@ type AgentService struct {
 	linear LinearDirectory
 	// linearIssues is AgentServiceOptions.LinearIssues.
 	linearIssues LinearIssueReader
+	// workSources is AgentServiceOptions.WorkSources.
+	workSources []work.Source
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -403,6 +409,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		slack:              opts.Slack,
 		linear:             opts.Linear,
 		linearIssues:       opts.LinearIssues,
+		workSources:        opts.WorkSources,
 		logger:             opts.Logger,
 	}
 }

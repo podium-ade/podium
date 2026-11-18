@@ -184,11 +184,12 @@ service AgentService {
   // ListChats returns the caller's own chats, newest first. Another login's chats are
   // never returned.
   rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
-  // ListLinearConversations is the Linear view: one row per Linear issue or project
-  // conversation, most recently active first. Admins and owners list every one; anybody else
-  // lists those whose issue they touched (through their linked Linear account), spoke in, or
-  // were shared. Each opens as a read-only chat, as a pull request's does.
-  rpc ListLinearConversations(ListLinearConversationsRequest) returns (ListLinearConversationsResponse);
+  // ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
+  // every issue tracker Podium is connected to (today Linear), each a conversation of its own,
+  // most recently active first. Admins and owners list every one; anybody else lists those whose
+  // issue they touched (through their linked account), spoke in, or were shared. Each opens as a
+  // read-only chat, as a pull request's does.
+  rpc ListWorkItems(ListWorkItemsRequest) returns (ListWorkItemsResponse);
   // RenameChat changes the title of one of the caller's chats. Another login's chat is
   // not_found, the same as every other chat RPC. An empty title is refused.
   rpc RenameChat(RenameChatRequest) returns (RenameChatResponse);
@@ -1733,60 +1734,75 @@ message ListChatsRequest {
   string section = 4;
 }
 
-// LinearConversation is one Linear issue's or project's conversation: every agent session on
-// it, and every routine run about it, as one chat.
-message LinearConversation {
+// WorkItem is one issue's or project's conversation in an issue tracker (a provider): every
+// agent session on it, and every routine run about it, as one chat. What it says about the issue
+// is what the provider's webhooks last said; state and what follows it are Podium's.
+message WorkItem {
   string chat_id = 1;
+  // provider is the issue tracker it lives in: "linear".
+  string provider = 2;
   // kind is "issue" or "project".
-  string kind = 2;
-  // identifier is the issue's ("ENG-12"), empty for a project.
-  string identifier = 3;
-  string title = 4;
-  // url is the issue or project in Linear.
-  string url = 5;
-  string team_key = 6;
-  // linear_state is the issue's state in Linear as the webhooks last said it ("In Progress"),
-  // and linear_state_type its type ("started").
-  string linear_state = 7;
-  string linear_state_type = 8;
+  string kind = 3;
+  // key is the provider's identifier for it ("ENG-12"), empty when it has none (a project).
+  string key = 4;
+  string title = 5;
+  // url is the issue or project in its provider.
+  string url = 6;
+  // team is the provider's grouping it sits in (a Linear team's key), empty for none.
+  string team = 7;
+  // status is the provider's state as a category every provider maps to: "triage", "backlog",
+  // "todo", "in_progress", "done", "canceled", or "" when the provider named none Podium knows.
+  string status = 8;
+  // status_label is the provider's own name for its state ("In Progress").
+  string status_label = 9;
   // state is where Podium is with it: "waiting" on a person, "working", "failed", "done", or
   // "new" before its first turn.
-  string state = 9;
+  string state = 10;
   // asked_of is whose turn asked the question it waits on, when it waits.
-  string asked_of = 10;
-  google.protobuf.Timestamp last_activity_at = 11;
-  string last_text = 12;
+  string asked_of = 11;
+  google.protobuf.Timestamp last_activity_at = 12;
+  string last_text = 13;
   // cost_usd is what its turns and the tasks they started cost.
-  double cost_usd = 13;
+  double cost_usd = 14;
   // my_role is the caller's role in it; an admin who reads it only as an admin is "viewer".
-  string my_role = 14;
+  string my_role = 15;
   // mine is a conversation the caller touched, spoke in, owns or was shared.
-  bool mine = 15;
+  bool mine = 16;
 }
 
-message ListLinearConversationsRequest {
+// WorkTeam is one team of one provider, for the Issues view's team filter.
+message WorkTeam {
+  string provider = 1;
+  string key = 2;
+}
+
+message ListWorkItemsRequest {
   Page page = 1;
-  // mine lists only the conversations the caller touched, spoke in, owns or was shared.
+  // mine lists only the items the caller touched, spoke in, owns or was shared.
   bool mine = 2;
-  // team is a team key, empty for every team.
-  string team = 3;
-  // state is "", one of LinearConversation.state, or "attention" (waiting and failed).
-  string state = 4;
-  // linear_state_type is one column of the board: "" for every issue, an issue's Linear state
-  // type ("triage", "backlog", "unstarted", "started", "completed", "canceled"), or "none" for
-  // the rest — projects, and issues whose state type is unknown.
-  string linear_state_type = 5;
+  // provider is one issue tracker ("linear"), or "" for every one. Every one is served only
+  // while Podium has a single provider; with more, name one.
+  string provider = 3;
+  // team is a team key of the provider, empty for every team.
+  string team = 4;
+  // state is "", one of WorkItem.state, or "attention" (waiting and failed).
+  string state = 5;
+  // status is one column of the board: "" for every item, one of WorkItem.status's categories,
+  // or "none" for the rest — projects, and issues whose state is unknown.
+  string status = 6;
 }
 
-message ListLinearConversationsResponse {
-  repeated LinearConversation conversations = 1;
+message ListWorkItemsResponse {
+  repeated WorkItem items = 1;
   // Empty when there is no further page.
   string next_cursor = 2;
-  // teams are the team keys of every conversation the caller may list, for the team filter.
-  repeated string teams = 3;
-  // total is how many conversations the filters match, on the first page (no cursor) only;
-  // 0 on a later page.
-  int32 total = 4;
+  // teams are the teams of every item the caller may list, for the team filter.
+  repeated WorkTeam teams = 3;
+  // providers are the issue trackers Podium lists items from, for a provider filter.
+  repeated string providers = 4;
+  // total is how many items the filters match, on the first page (no cursor) only; 0 on a
+  // later page.
+  int32 total = 5;
 }
 
 message ListChatsResponse {

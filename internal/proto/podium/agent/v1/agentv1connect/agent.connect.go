@@ -179,9 +179,9 @@ const (
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
 	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
-	// AgentServiceListLinearConversationsProcedure is the fully-qualified name of the AgentService's
-	// ListLinearConversations RPC.
-	AgentServiceListLinearConversationsProcedure = "/podium.agent.v1.AgentService/ListLinearConversations"
+	// AgentServiceListWorkItemsProcedure is the fully-qualified name of the AgentService's
+	// ListWorkItems RPC.
+	AgentServiceListWorkItemsProcedure = "/podium.agent.v1.AgentService/ListWorkItems"
 	// AgentServiceRenameChatProcedure is the fully-qualified name of the AgentService's RenameChat RPC.
 	AgentServiceRenameChatProcedure = "/podium.agent.v1.AgentService/RenameChat"
 	// AgentServiceDeleteChatProcedure is the fully-qualified name of the AgentService's DeleteChat RPC.
@@ -490,11 +490,12 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
-	// ListLinearConversations is the Linear view: one row per Linear issue or project
-	// conversation, most recently active first. Admins and owners list every one; anybody else
-	// lists those whose issue they touched (through their linked Linear account), spoke in, or
-	// were shared. Each opens as a read-only chat, as a pull request's does.
-	ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error)
+	// ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
+	// every issue tracker Podium is connected to (today Linear), each a conversation of its own,
+	// most recently active first. Admins and owners list every one; anybody else lists those whose
+	// issue they touched (through their linked account), spoke in, or were shared. Each opens as a
+	// read-only chat, as a pull request's does.
+	ListWorkItems(context.Context, *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.
 	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
@@ -955,10 +956,10 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 			connect.WithClientOptions(opts...),
 		),
-		listLinearConversations: connect.NewClient[v1.ListLinearConversationsRequest, v1.ListLinearConversationsResponse](
+		listWorkItems: connect.NewClient[v1.ListWorkItemsRequest, v1.ListWorkItemsResponse](
 			httpClient,
-			baseURL+AgentServiceListLinearConversationsProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("ListLinearConversations")),
+			baseURL+AgentServiceListWorkItemsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListWorkItems")),
 			connect.WithClientOptions(opts...),
 		),
 		renameChat: connect.NewClient[v1.RenameChatRequest, v1.RenameChatResponse](
@@ -1288,7 +1289,7 @@ type agentServiceClient struct {
 	completeMcpOAuth           *connect.Client[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse]
 	createChat                 *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats                  *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
-	listLinearConversations    *connect.Client[v1.ListLinearConversationsRequest, v1.ListLinearConversationsResponse]
+	listWorkItems              *connect.Client[v1.ListWorkItemsRequest, v1.ListWorkItemsResponse]
 	renameChat                 *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	deleteChat                 *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage            *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
@@ -1596,9 +1597,9 @@ func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request
 	return c.listChats.CallUnary(ctx, req)
 }
 
-// ListLinearConversations calls podium.agent.v1.AgentService.ListLinearConversations.
-func (c *agentServiceClient) ListLinearConversations(ctx context.Context, req *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error) {
-	return c.listLinearConversations.CallUnary(ctx, req)
+// ListWorkItems calls podium.agent.v1.AgentService.ListWorkItems.
+func (c *agentServiceClient) ListWorkItems(ctx context.Context, req *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error) {
+	return c.listWorkItems.CallUnary(ctx, req)
 }
 
 // RenameChat calls podium.agent.v1.AgentService.RenameChat.
@@ -2003,11 +2004,12 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
-	// ListLinearConversations is the Linear view: one row per Linear issue or project
-	// conversation, most recently active first. Admins and owners list every one; anybody else
-	// lists those whose issue they touched (through their linked Linear account), spoke in, or
-	// were shared. Each opens as a read-only chat, as a pull request's does.
-	ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error)
+	// ListWorkItems is the Issues view: one row per issue or project an assistant works on, from
+	// every issue tracker Podium is connected to (today Linear), each a conversation of its own,
+	// most recently active first. Admins and owners list every one; anybody else lists those whose
+	// issue they touched (through their linked account), spoke in, or were shared. Each opens as a
+	// read-only chat, as a pull request's does.
+	ListWorkItems(context.Context, *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error)
 	// RenameChat changes the title of one of the caller's chats. Another login's chat is
 	// not_found, the same as every other chat RPC. An empty title is refused.
 	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
@@ -2464,10 +2466,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceListLinearConversationsHandler := connect.NewUnaryHandler(
-		AgentServiceListLinearConversationsProcedure,
-		svc.ListLinearConversations,
-		connect.WithSchema(agentServiceMethods.ByName("ListLinearConversations")),
+	agentServiceListWorkItemsHandler := connect.NewUnaryHandler(
+		AgentServiceListWorkItemsProcedure,
+		svc.ListWorkItems,
+		connect.WithSchema(agentServiceMethods.ByName("ListWorkItems")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceRenameChatHandler := connect.NewUnaryHandler(
@@ -2846,8 +2848,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
 			agentServiceListChatsHandler.ServeHTTP(w, r)
-		case AgentServiceListLinearConversationsProcedure:
-			agentServiceListLinearConversationsHandler.ServeHTTP(w, r)
+		case AgentServiceListWorkItemsProcedure:
+			agentServiceListWorkItemsHandler.ServeHTTP(w, r)
 		case AgentServiceRenameChatProcedure:
 			agentServiceRenameChatHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteChatProcedure:
@@ -3155,8 +3157,8 @@ func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) ListLinearConversations(context.Context, *connect.Request[v1.ListLinearConversationsRequest]) (*connect.Response[v1.ListLinearConversationsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListLinearConversations is not implemented"))
+func (UnimplementedAgentServiceHandler) ListWorkItems(context.Context, *connect.Request[v1.ListWorkItemsRequest]) (*connect.Response[v1.ListWorkItemsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListWorkItems is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {

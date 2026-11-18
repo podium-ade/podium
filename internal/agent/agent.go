@@ -42,6 +42,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/agent/tickets"
 	"github.com/podium-ade/podium/internal/agent/webhooks"
+	"github.com/podium-ade/podium/internal/agent/work"
 	"github.com/podium-ade/podium/internal/netlisten"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
@@ -473,6 +474,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Slack:                      slackDir,
 		Linear:                     a.live,
 		LinearIssues:               ticketReader,
+		WorkSources:                []work.Source{agentlinear.NewWorkSource(a.store)},
 		Connections:                a.live,
 		Logger:                     a.logger,
 	})
