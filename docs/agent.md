@@ -2294,42 +2294,60 @@ conversation.
 
 ### The Issues view
 
-**Work → Issues** (`/agent/issues`) lists every issue conversation the viewer may read, from
-each issue tracker Podium is connected to — today Linear is the only one — one row each, most
-recently active first: the tracker's mark, the key and title (the key opens the issue in its
+**Work → Issues** (`/agent/issues`) lists the issue conversations the viewer is **involved in**,
+from each issue tracker Podium is connected to — today Linear is the only one — one row each, most
+recently active first. Involved is: assigned the issue, or created it; asked Podium about it —
+delegated it to the app, @mentioned the app on it, prompted it in an agent session, or spoke in
+its conversation from Podium; or @mentioned in its description or a comment. Admins and owners get
+the same list, and a **Mine | All issues** toggle (theirs only) for every issue. A row shows: the tracker's mark, the key and title (the key opens the issue in its
 tracker), the team, where Podium is with it — *working* (a turn or a task it started is running),
 *waiting on someone* (a question was asked in it and nobody has answered; the row names whose turn
 asked), *failed* (its last turn failed), *done*, or *not started* — the issue's state in its tracker, in
-the tracker's own words ("In Linear: In Review"), the last thing said and when, and what its turns and their tasks cost. Filters: **Mine** (issues
-the viewer touched, spoke in, owns or was shared), **Working**, **Needs attention** (waiting or
-failed), and a team. A tracker filter appears once more than one tracker is connected. The list is filtered and paged on the server, fifty rows at a time, so a
+the tracker's own words ("In Linear: In Review"), the last thing said and when, and what its turns and their tasks cost. Filters:
+**Working**, **Needs attention** (waiting or failed), and a team. A tracker filter appears once more than one tracker is connected. The list is filtered and paged on the server, fifty rows at a time, so a
 workspace with thousands of issues is never read whole. A row opens the issue's conversation,
 read-only as a pull request's is for anybody who is not a participant.
 
+The list is narrower than who may read: a person who commented on an issue, changed it, owns a
+routine that ran in it, or was shared its conversation still opens it from a link or the chat
+rail, and does not find it here. And an @mention alone lets nobody read anything: anybody in the
+workspace can @mention anybody, including somebody a private team's issue is hidden from, so a
+mention lists the issue for a person who may already read its conversation, and for nobody else.
+
 **Table | Board** switches the same issues, under the same filters, to a board with a column per
-status — the category a tracker's own state falls in: *Backlog*, *Todo*, *In progress*, *Done* and
-*Canceled* always, and *Triage* and *Other* (a project, or an issue whose state no delivery named
-yet or names one Podium does not know) only when something is in them. Linear's state types map
-one to one: `triage`, `backlog`, `unstarted` (Todo), `started` (In progress), `completed` (Done)
-and `canceled`; a state Linear calls "In Review" is a `started` one, so it sits in In progress
-and its card says "In Review". Each column is its own server query: it shows the ten most recently
+Podium state, in the order work moves: *Not started*, *Working*, *Waiting on someone*, *Failed*
+and *Done*, all always shown. The columns are the state filter, so the board has no *Working* or
+*Needs attention* toggle. A card shows the tracker's mark, the key, and the issue's state in the
+tracker as a small label ("In Progress"); a waiting card says whose answer it needs. The tracker's
+state is also kept as a category every tracker maps to — `triage`, `backlog`, `todo`,
+`in_progress`, `done`, `canceled`, or none (Linear's state types `unstarted`, `started` and
+`completed` are Todo, In progress and Done; the others by name) — for the views that come next.
+Each column is its own server query: it shows the ten most recently
 active, its header says how many the filters match, and **Load more** reads the next ten of that
 column alone. A card opens the issue's conversation, and its key the issue in its tracker. The
-board only reads: a card moves when the tracker says the issue did, and is not dragged, since
-moving it would mean writing to the tracker. The layout is `?view=board` in the URL, so a board
+board only reads: a card moves when Podium's work on the issue does, and is not dragged. The layout is `?view=board` in the URL, so a board
 can be linked, and each browser remembers the one last chosen.
 
 Who sees what, and what a row says, is each tracker's. For Linear:
 
-Admins and owners see every issue. Anybody else sees an issue they touched in Linear once their
-Linear account is linked to Podium ([Who is who](#who-is-who)): the conductor records, as the
+Admins and owners may read every issue. Anybody else reads an issue they touched in Linear once
+their Linear account is linked to Podium ([Who is who](#who-is-who)): the conductor records, as the
 deliveries arrive, which Linear accounts created an issue, were assigned it, delegated it,
-@mentioned the app on it, wrote in its agent sessions, commented on it or changed it, and turns an
-account into a login only when somebody reads, through `identities` — so an account linked later
-sees what it touched before, one never linked sees nothing, and nobody is matched by name.
-Creator, assignee, comments and changes are known only from data change webhooks, which need
-*Issues* and *Comments* ticked on the app's webhook ([On a Linear event](#on-a-linear-event));
-without them, a person is recorded only by delegating, mentioning or writing in an agent session.
+@mentioned the app on it, wrote in its agent sessions, commented on it or changed it, and who was
+@mentioned in it, and turns an account into a login only when somebody reads, through
+`identities` — so an account linked later sees what it touched before, one never linked sees
+nothing, and nobody is matched by name. Creator, assignee, comments, changes and mentions are known
+only from data change webhooks, which need *Issues* and *Comments* ticked on the app's webhook
+([On a Linear event](#on-a-linear-event)); without them, a person is recorded only by delegating,
+mentioning the app or writing in an agent session.
+
+A person @mentioned is found in the markdown Linear sends — the description of an `Issue` change,
+the body of a `Comment` change or of an agent session's comment — as Linear writes a mention, the
+plain URL of their profile (`https://linear.app/<workspace>/profiles/<handle>`), or as typed
+(`@handle`); text in code is not a mention. A handle is resolved to a Linear user through the
+workspace's users, read through the app at most once every ten minutes, and once a minute at most
+for a handle that list lacks; a handle nobody has, and the app's own, are nobody. The text is only
+scanned: nothing in it is followed or run. A mention later edited out stays recorded.
 
 What a row says about the issue is what the webhooks said, kept in `linear_issues` and updated on
 each delivery that names the issue (an agent session's prompt, an `Issue` or `Comment` change):
@@ -4080,7 +4098,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartMcpOAuth`, `CompleteMcpOAuth` | signing in to a server that speaks OAuth: discovery, dynamic client registration and the code exchange. The verifier stays on the conductor; the browser carries a flow id |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
-| `ListWorkItems` | the Issues view: one row per issue conversation the caller may read from an issue tracker (`provider`, today `linear`), filtered (also to one status, a board column) and paged on the server; the first page carries the filters' total, and every page the teams and providers for the filters. With several providers a request names one |
+| `ListWorkItems` | the Issues view: one row per issue conversation the caller is involved in from an issue tracker (`provider`, today `linear`), or with `all` every one they may read (admins and owners only; anybody else is `permission_denied`), filtered (`state` is also a board column) and paged on the server; the first page carries the filters' total, and every page the teams and providers for the filters. With several providers a request names one |
 | `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 

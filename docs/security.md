@@ -537,6 +537,16 @@ know before you write one.
   admins, and to those who touched the issue, who could already read the issue. What a delivery
   says about an issue (its identifier, title, team and state) is kept in `linear_issues` for the
   Issues view, for every issue the webhook names, including ones with no conversation.
+- **A person's Issues list is narrower than what they may read, and an @mention grants
+  nothing.** The Issues view lists what a person is involved in (assigned, created, asked Podium
+  about, spoke in, or @mentioned in); an admin's or owner's *All issues* lists every one, and
+  `ListWorkItems` refuses `all` to anybody else rather than answering with less. Who is
+  @mentioned in a description or a comment is recorded (`person_mentioned`, 0054), and counts for
+  neither reading nor the chat rail: `linear_touched` and the rail leave it out, because anybody in
+  the workspace can @mention anybody, including somebody a private team's issue is hidden from,
+  and touching an issue makes a person its conversation's writer. A mention is found by scanning
+  text somebody else wrote for profile links and `@handle`s; the handles are looked up in the
+  workspace's user list, and nothing in the text is fetched, followed or run.
 - **A turn in a Linear issue's conversation shows its work only to whoever it ran as.** Each turn
   runs as whoever prompted it — their secrets, their MCP servers, their GitHub account — and the
   conversation is read by everybody who touched the issue. So every row the bot wrote says whose
