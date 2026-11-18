@@ -243,7 +243,7 @@ export function ChatPanel() {
   });
 
   // Hiding takes a Linear ticket's conversation out of the rail until something new is said
-  // in it. It stays in the Linear view, so there is nothing to confirm.
+  // in it. It stays in the Issues view, so there is nothing to confirm.
   const hide = useMutation({
     mutationFn: (chat: Chat) => agent.setChatRailHidden({ chatId: chat.id, hidden: true }),
     onSuccess: async (_res, chat) => {
