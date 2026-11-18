@@ -290,6 +290,16 @@ func posts(records []fakesource.Record, kind string) []fakesource.Record {
 	return out
 }
 
+// awaitOutcome waits for the reaction a finished turn leaves on its message. finish stores the
+// turn's status before it reacts, so a test that has only seen the status may be a moment early
+// for the reaction.
+func awaitOutcome(t *testing.T, src *fakesource.Source, outcome conductor.Reaction) {
+	t.Helper()
+	waitFor(t, 30*time.Second, "the turn to show its outcome", func() bool {
+		return slices.Contains(reactions(src.Records()), string(outcome))
+	})
+}
+
 func reactions(records []fakesource.Record) []string {
 	var out []string
 	for _, r := range records {
@@ -359,6 +369,7 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
 	})
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	records := src.Records()
 
@@ -1174,11 +1185,7 @@ func TestARestartResumesTheTurnAndPostsTheFinalOnce(t *testing.T) {
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, relayed, "the ledger holds one row per thing said, and no more")
-	// finish stores the status before it reacts, so the reaction is waited for rather than
-	// read the moment the status says succeeded.
-	waitFor(t, 30*time.Second, "the resumed turn to show its outcome", func() bool {
-		return slices.Contains(reactions(src.Records()), string(conductor.ReactionDone))
-	})
+	awaitOutcome(t, src, conductor.ReactionDone)
 }
 
 // Two conductors following one task is what a botched rolling restart looks like. Both
@@ -1242,6 +1249,7 @@ func TestAFailedTurnPostsPlainWordsAndNoRawError(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to fail", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnFailed
 	})
+	awaitOutcome(t, src, conductor.ReactionFailed)
 
 	records := src.Records()
 	failures := posts(records, conductor.OutFailure)
@@ -1398,7 +1406,7 @@ func TestAnImpossibleBriefFailsTheTurnWithoutATask(t *testing.T) {
 	failures := posts(src.Records(), conductor.OutFailure)
 	require.Len(t, failures, 1)
 	assert.Contains(t, failures[0].Text, "too large")
-	assert.Contains(t, reactions(src.Records()), string(conductor.ReactionFailed))
+	awaitOutcome(t, src, conductor.ReactionFailed)
 }
 
 // A turn recorded but never bound to a task is what a crash between CreateTurn and
