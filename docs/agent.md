@@ -2260,17 +2260,17 @@ opens the issue in Linear. The people who spoke in it from Linear and are in Pod
 participants, who may act in it, and the first of them owns it. Everybody who touched the issue
 and has linked their Linear account to Podium — who created it, was assigned it, delegated it,
 @mentioned the app on it, commented on it or changed it, or whose routine ran in it — may **read
-and write** it, and every admin and owner reads it ([The Linear view](#the-linear-view)). Sharing a
+and write** it, and every admin and owner reads it ([The Issues view](#the-issues-view)). Sharing a
 chat of a private team's issue warns first ([Sharing a chat](#sharing-a-chat)). Somebody refused
 is recorded, as in Slack, and is never a participant. The refusal itself is the source's word in
 Linear and is not recorded, as Slack's 🚫 is not. A ticket the poller saw has no chat.
 
 **In the chat rail.** An issue's conversation is in the rail of its people — those who touched it
 through a linked Linear account, and those who spoke in it — not of everybody who could read it:
-an admin finds every one in the Linear view. Its row reads `EME-6 · title`, with a dot for the
+an admin finds every one in the Issues view. Its row reads `EME-6 · title`, with a dot for the
 issue's state in Linear and *Waiting on you* while a question asked by your turn, or by nobody's,
 is unanswered. It is ordered by its last activity with the other chats. *Hide* in its menu takes
-it out of your rail until something new is said in it; it stays in the Linear view.
+it out of your rail until something new is said in it; it stays in the Issues view.
 
 **Writing from Podium.** What you send in an issue's conversation is posted to the issue as a
 comment under your name and picture (the app posts it, with Linear's `createAsUser`), whether or
@@ -2292,28 +2292,34 @@ under such a key stay readable as they were, by the people in them, and are list
 nothing is written into them any more, and the next prompt on their issue opens the issue's
 conversation.
 
-### The Linear view
+### The Issues view
 
-**Work → Linear** (`/agent/linear`) lists every issue conversation the viewer may read, one row
-each, most recently active first: the identifier and title (the identifier opens the issue in
-Linear), the team, where Podium is with it — *working* (a turn or a task it started is running),
+**Work → Issues** (`/agent/issues`) lists every issue conversation the viewer may read, from
+each issue tracker Podium is connected to — today Linear is the only one — one row each, most
+recently active first: the tracker's mark, the key and title (the key opens the issue in its
+tracker), the team, where Podium is with it — *working* (a turn or a task it started is running),
 *waiting on someone* (a question was asked in it and nobody has answered; the row names whose turn
-asked), *failed* (its last turn failed), *done*, or *not started* — the issue's state in Linear,
-the last thing said and when, and what its turns and their tasks cost. Filters: **Mine** (issues
+asked), *failed* (its last turn failed), *done*, or *not started* — the issue's state in its tracker, in
+the tracker's own words ("In Linear: In Review"), the last thing said and when, and what its turns and their tasks cost. Filters: **Mine** (issues
 the viewer touched, spoke in, owns or was shared), **Working**, **Needs attention** (waiting or
-failed), and a team. The list is filtered and paged on the server, fifty rows at a time, so a
+failed), and a team. A tracker filter appears once more than one tracker is connected. The list is filtered and paged on the server, fifty rows at a time, so a
 workspace with thousands of issues is never read whole. A row opens the issue's conversation,
 read-only as a pull request's is for anybody who is not a participant.
 
 **Table | Board** switches the same issues, under the same filters, to a board with a column per
-state type in Linear, in Linear's order: *Backlog*, *Todo*, *In progress*, *Done* and *Canceled*
-always, and *Triage* and *No state* (a project, or an issue whose state no delivery named yet) only
-when something is in them. Each column is its own server query: it shows the ten most recently
+status — the category a tracker's own state falls in: *Backlog*, *Todo*, *In progress*, *Done* and
+*Canceled* always, and *Triage* and *Other* (a project, or an issue whose state no delivery named
+yet or names one Podium does not know) only when something is in them. Linear's state types map
+one to one: `triage`, `backlog`, `unstarted` (Todo), `started` (In progress), `completed` (Done)
+and `canceled`; a state Linear calls "In Review" is a `started` one, so it sits in In progress
+and its card says "In Review". Each column is its own server query: it shows the ten most recently
 active, its header says how many the filters match, and **Load more** reads the next ten of that
-column alone. A card opens the issue's conversation, and its identifier the issue in Linear. The
-board only reads: a card moves when Linear says the issue did, and is not dragged, since moving
-it would mean writing to Linear. The layout is `?view=board` in the URL, so a board can be
-linked, and each browser remembers the one last chosen.
+column alone. A card opens the issue's conversation, and its key the issue in its tracker. The
+board only reads: a card moves when the tracker says the issue did, and is not dragged, since
+moving it would mean writing to the tracker. The layout is `?view=board` in the URL, so a board
+can be linked, and each browser remembers the one last chosen.
+
+Who sees what, and what a row says, is each tracker's. For Linear:
 
 Admins and owners see every issue. Anybody else sees an issue they touched in Linear once their
 Linear account is linked to Podium ([Who is who](#who-is-who)): the conductor records, as the
@@ -2328,7 +2334,7 @@ without them, a person is recorded only by delegating, mentioning or writing in 
 What a row says about the issue is what the webhooks said, kept in `linear_issues` and updated on
 each delivery that names the issue (an agent session's prompt, an `Issue` or `Comment` change):
 nothing asks Linear per row. A title changed in Linear shows once a delivery names it again. The
-chat rail marks an issue waiting on the viewer; the Linear view's *Needs attention* lists every
+chat rail marks an issue waiting on the viewer; the Issues view's *Needs attention* lists every
 one.
 
 **A question lands in the inbox of whoever it is asked of.** When anything in an issue's
@@ -2350,7 +2356,8 @@ tools of its own. A turn that reads or changes tickets — "what's on my plate",
 Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server ([`mcp_servers:`](#mcp_servers--tools-that-are-somebody-elses-api)):
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
-with what Linear lets them do. The Linear view and an issue's conversation show one quiet line
+with what Linear lets them do. The Issues view (while Linear is among its trackers) and an issue's
+conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
 browser. What that means for trust is in [security.md](security.md#5-the-conductor-and-the-bot).
@@ -3516,7 +3523,7 @@ What that decides:
 - **A linked Linear account reads the issues it touched.** Who created, was assigned, delegated,
   mentioned the app on, commented on or changed an issue is kept by Linear account, and becomes a
   Podium login only through the row above, at the moment somebody reads; an issue's conversation
-  is readable by those logins ([The Linear view](#the-linear-view)). An account linked later sees
+  is readable by those logins ([The Issues view](#the-issues-view)). An account linked later sees
   what it touched before.
 - **A turn runs as whoever started it**, on every surface: their personal secrets, their MCP
   servers, their GitHub identity. Never the chat owner's on somebody else's behalf.
@@ -3598,9 +3605,9 @@ task it delegates, and may choose several while answering once.
   Slack thread, a pull request or a Linear issue the bot was in is mirrored into a
   read-only chat. A thread or a pull request is listed — in Chat and in Sessions — for every
   Podium person who spoke in it, and for nobody else except the dev token; a thread only people
-  outside Podium spoke in stays hidden. A Linear issue is listed in the Linear view, for
+  outside Podium spoke in stays hidden. A Linear issue is listed in the Issues view, for
   the people who spoke in it, everybody who touched the issue with a linked Linear account, and
-  every admin and owner ([The Linear view](#the-linear-view)), and in Chat for the first two only. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
+  every admin and owner ([The Issues view](#the-issues-view)), and in Chat for the first two only. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
@@ -3934,7 +3941,7 @@ other on one. Changing it affects later runs only, and history records the chang
   (`linear:project:<id>`). The conversation is opened by the run when nothing has opened it yet —
   a chat of origin `linear`, nobody's until a Podium person speaks in it from Linear — and is the
   issue's, never the routine's: it has no routine card, is not deleted with the routine, and is
-  listed in the Linear view, not the rail. Events about a cycle, a label or nothing in particular
+  listed in the Issues view, not the rail. Events about a cycle, a label or nothing in particular
   are no conversation, and run in the routine's own chat, opened the first time one does.
 - **The run is still its routine's.** It runs as the routine's owner — their secrets, MCP servers
   and GitHub account, with the routine's assistant — or as nobody for a system routine, never as
@@ -4073,7 +4080,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartMcpOAuth`, `CompleteMcpOAuth` | signing in to a server that speaks OAuth: discovery, dynamic client registration and the code exchange. The verifier stays on the conductor; the browser carries a flow id |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
-| `ListLinearConversations` | the Linear view: one row per Linear issue's conversation the caller may read, filtered (also to one Linear state type, a board column) and paged on the server; the first page carries the filters' total |
+| `ListWorkItems` | the Issues view: one row per issue conversation the caller may read from an issue tracker (`provider`, today `linear`), filtered (also to one status, a board column) and paged on the server; the first page carries the filters' total, and every page the teams and providers for the filters. With several providers a request names one |
 | `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 

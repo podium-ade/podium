@@ -323,7 +323,8 @@ touched the ticket and to admins.
   `identities` when somebody reads (`linear_touched`), so a link made later counts, and grant
   `viewer`. Admins and owners read every one through the API (`Infra`). Writing is still a
   participant's.
-- **The Linear view.** `ListLinearConversations`, filtered (mine, team, state) and keyset-paged on
+- **The Linear view** (since *Issues, not Linear*, below: the Issues view, `ListWorkItems`).
+  `ListLinearConversations`, filtered (mine, team, state) and keyset-paged on
   the server, with what the deliveries said about each issue kept in `linear_issues` (identifier,
   title, link, team, Linear state) and whether it waits on a person (`asked_at`, set on a question,
   cleared by the next thing said from Linear). Issue conversations are left out of `ListChats` and
@@ -478,7 +479,8 @@ Linear view, at most ten cards a column, with a Load more on each.
   In progress (`started`), Done (`completed`), Canceled, then No state. Triage and No state show
   only while something is in them (many teams leave triage off; a project and an issue no
   delivery gave a state to have none); the rest always show, so the board keeps its shape.
-- **One query a column.** `ListLinearConversationsRequest.linear_state_type` narrows the view's
+- **One query a column.** `ListLinearConversationsRequest.linear_state_type` (now
+  `ListWorkItemsRequest.status`, a status that maps to one state type) narrows the view's
   query to one type (`none` for the rest, a project always among them) next to mine, team and
   state; the keyset paging is unchanged, so each column has its own cursor and Load more reads
   ten more of that column only. Anything else is `invalid_argument`.
@@ -493,6 +495,42 @@ Linear view, at most ten cards a column, with a Load more on each.
 - **No drag and drop.** Moving a card would be writing an issue's state to Linear as somebody;
   out of scope. A card moves when a webhook says its issue did.
 - **No migration.** The query change is read-only.
+
+## Issues, not Linear
+
+Built on `feature/linear-14-board`. What the user asked for: the Linear view as a view of work
+management in which Linear is one provider, renamed. One provider exists, so the abstraction is
+the least that lets a second (Jira, GitHub Issues) be one adapter.
+
+- **The name.** Work → **Issues**, `/agent/issues`, replacing `/agent/linear` outright: it was
+  never released, so nothing redirects. The nav icon is a generic issue mark; the sidebar search
+  still finds it by "linear" and "tickets". The browser's layout choice is `podium.work.view`.
+- **The wire.** `ListWorkItems` replaces `ListLinearConversations` (unreleased, so no shim).
+  `WorkItem` is `chat_id`, `provider` (`linear`), `kind`, `key` (the provider's identifier),
+  `title`, `url`, `team`, `status` (below), `status_label` (the provider's own name for its
+  state), and Podium's `state`, `asked_of`, `last_activity_at`, `last_text`, `cost_usd`,
+  `my_role`, `mine` as before. The request adds `provider` ("" for every one) and `status` (one
+  board column, or `none`); the response adds `providers` and makes `teams` `WorkTeam {provider,
+  key}`.
+- **Status.** A category every provider maps its states to: `triage`, `backlog`, `todo`,
+  `in_progress`, `done`, `canceled`, or "" for unknown (and every project). Linear's state types
+  map one to one (`unstarted` → `todo`, `started` → `in_progress`, `completed` → `done`, the rest
+  by name); the mapping and its inverse, which the store filters on, live in
+  `internal/agent/linear/work.go`, not in the generic package.
+- **The Go side.** `internal/agent/work` holds `Item`, `Status`, `Filter`, `Page` and
+  `Source { Provider(); List(ctx, viewer, Filter) (Page, error) }`. Linear's `WorkSource` adapts
+  the store's existing query (unchanged). The conductor registers it in
+  `AgentServiceOptions.WorkSources`; `ListWorkItems` reads the source the request names, or the
+  only one for "". `providers` are the registered sources, so the web shows a tracker filter only
+  once there are two, and the Linear MCP hint only while Linear is one of them.
+- **Adding a provider.** Write a `work.Source` for it (a query over whatever its webhooks keep,
+  its states mapped to `work.Status`), append it to `WorkSources`, and give the web its name and
+  mark in `workView.ts`'s `PROVIDERS`.
+- **Not built.** Listing every provider at once with more than one: each source pages by its own
+  cursor, and merging them into one page needs a merged cursor. Until then that request is
+  `unimplemented` and has to name a provider, which also means the web's first request would fail
+  with two providers registered: the merge is the second provider's first job. Ticket chips
+  (`GetLinearIssues`), the issue panel and `GetLinearIssueConversation` stay Linear's.
 
 ## Testing
 
