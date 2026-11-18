@@ -21,8 +21,8 @@ function dismissed(): boolean {
 
 /**
  * LinearMcpHint is one quiet line offering a person their own Linear MCP server, where Linear is
- * in front of them: the Linear view and a ticket's conversation. With it the assistant reads and
- * writes Linear in a chat as them, with their permissions; without it, it cannot touch Linear
+ * in front of them: the Issues view, while Linear is among its trackers, and a ticket's
+ * conversation. With it the assistant reads and writes Linear in a chat as them, with their permissions; without it, it cannot touch Linear
  * beyond what the app itself posts. It is shown only to a signed-in person who has no personal
  * Linear server switched on, until they connect one or put the line away.
  */
