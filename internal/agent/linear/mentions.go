@@ -1,7 +1,8 @@
 package linear
 
 // Who an issue's description or a comment @mentions, which puts the issue in their Issues list
-// (docs/agent.md, "The Issues view").
+// when they may read its conversation (docs/agent.md, "The Issues view"). A mention alone grants
+// no reading: anybody can @mention anybody, a private team's issue included.
 //
 // Linear writes a person's mention into markdown as the plain URL of their profile,
 // https://linear.app/<workspace>/profiles/<displayName> ("mentions can be created in Markdown by

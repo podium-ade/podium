@@ -290,7 +290,8 @@ func TestTheBoardListsOneStateAPage(t *testing.T) {
 // TestAPersonsListIsTheIssuesTheyAreInvolvedIn: assigned, created, asked Podium (delegated,
 // mentioned the app, prompted), spoke in the conversation, or @mentioned in it. Commenting,
 // changing it, owning a routine that ran in it or being shared it lets a person read the
-// conversation, and leaves it out of their list.
+// conversation, and leaves it out of their list. A mention alone grants no reading, so it lists
+// the issue only for somebody who reads it another way.
 func TestAPersonsListIsTheIssuesTheyAreInvolvedIn(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
@@ -301,17 +302,17 @@ func TestAPersonsListIsTheIssuesTheyAreInvolvedIn(t *testing.T) {
 		require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: login, Provider: ProviderLinear, ExternalID: account}))
 	}
 	cases := []struct {
-		via      string
-		involved bool
+		via             string
+		listed, touched bool
 	}{
-		{LinearViaAssigned, true},
-		{LinearViaCreated, true},
-		{LinearViaDelegated, true},
-		{LinearViaMentioned, true},
-		{LinearViaPrompted, true},
-		{LinearViaPersonMentioned, true},
-		{LinearViaCommented, false},
-		{LinearViaChanged, false},
+		{LinearViaAssigned, true, true},
+		{LinearViaCreated, true, true},
+		{LinearViaDelegated, true, true},
+		{LinearViaMentioned, true, true},
+		{LinearViaPrompted, true, true},
+		{LinearViaPersonMentioned, false, false},
+		{LinearViaCommented, false, true},
+		{LinearViaChanged, false, true},
 	}
 	for i, c := range cases {
 		login := fmt.Sprintf("p%d@acme.com", i)
@@ -324,14 +325,25 @@ func TestAPersonsListIsTheIssuesTheyAreInvolvedIn(t *testing.T) {
 
 		page, err := s.ListLinearConversations(ctx, login, LinearConversationFilter{}, 50, "")
 		require.NoError(t, err)
-		if c.involved {
+		if c.listed {
 			assert.Len(t, page.Rows, 1, c.via)
 		} else {
 			assert.Empty(t, page.Rows, c.via)
 		}
 		touched, err := s.LinearTouched(ctx, key, login)
 		require.NoError(t, err)
-		assert.True(t, touched, "%s still reads the conversation", c.via)
+		assert.Equal(t, c.touched, touched, "%s reads the conversation as before", c.via)
+		if c.via == LinearViaPersonMentioned {
+			rail, _, err := s.ListChats(ctx, login, false, 50, "", ListChatsScope{ExcludeLinear: true, LinearRail: true})
+			require.NoError(t, err)
+			assert.Empty(t, rail, "a mention alone puts nothing in the chat rail")
+			// Who was @mentioned and also commented reads it, and lists it.
+			require.NoError(t, s.RecordLinearPeople(ctx, key, []LinearPerson{{LinearUser: account, Via: LinearViaCommented}}, now))
+			page, err = s.ListLinearConversations(ctx, login, LinearConversationFilter{}, 50, "")
+			require.NoError(t, err)
+			require.Len(t, page.Rows, 1, "mentioned and able to read it")
+			assert.True(t, page.Rows[0].Involved)
+		}
 	}
 
 	// A routine's owner and a person it was shared with read it, and do not list it.
@@ -368,12 +380,12 @@ func TestAPersonsListIsTheIssuesTheyAreInvolvedIn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, page.Rows)
 
-	// Linked later, an account's mention is theirs from then on.
+	// Linked later, an account's assignment is theirs from then on.
 	other := LinearIssueKey("iss-later")
 	_, _, err = s.EnsureLinearConversation(ctx, other, "later")
 	require.NoError(t, err)
 	require.NoError(t, s.UpsertLinearIssue(ctx, LinearIssue{SourceKey: other, Identifier: "ENG-77", TeamKey: "ENG"}))
-	require.NoError(t, s.RecordLinearPeople(ctx, other, []LinearPerson{{LinearUser: "org-1/u-late", Via: LinearViaPersonMentioned}}, now))
+	require.NoError(t, s.RecordLinearPeople(ctx, other, []LinearPerson{{LinearUser: "org-1/u-late", Via: LinearViaAssigned}}, now))
 	page, err = s.ListLinearConversations(ctx, "late@acme.com", LinearConversationFilter{}, 50, "")
 	require.NoError(t, err)
 	assert.Empty(t, page.Rows)
