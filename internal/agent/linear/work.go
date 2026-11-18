@@ -26,30 +26,12 @@ func WorkStatus(kind, stateType string) work.Status {
 	return stateTypeStatus[stateType]
 }
 
-// StateTypeFilter is the store's Linear state type filter for a work status filter: the state
-// type that maps to it, store.LinearStateTypeNone for work.StatusNone, "" for every one. A
-// status no state type maps to is false.
-func StateTypeFilter(s work.Status) (string, bool) {
-	switch s {
-	case work.StatusUnknown:
-		return "", true
-	case work.StatusNone:
-		return store.LinearStateTypeNone, true
-	}
-	for stateType, st := range stateTypeStatus {
-		if st == s {
-			return stateType, true
-		}
-	}
-	return "", false
-}
-
 // workStore is the store's Linear view, which WorkSource adapts.
 type workStore interface {
 	ListLinearConversations(
 		ctx context.Context, viewer string, f store.LinearConversationFilter, limit int, cursor string,
 	) (store.LinearConversationPage, error)
-	LinearConversationTeams(ctx context.Context, viewer string, seeAll bool) ([]string, error)
+	LinearConversationTeams(ctx context.Context, viewer string, seeAll, all bool) ([]string, error)
 }
 
 // WorkSource is Linear as a work.Source: the conversations of the Linear issues and projects
@@ -68,22 +50,16 @@ func (*WorkSource) Provider() string { return Kind }
 
 // List is a page of Linear's items for viewer.
 func (w *WorkSource) List(ctx context.Context, viewer string, f work.Filter) (work.Page, error) {
-	stateType, ok := StateTypeFilter(f.Status)
-	if !ok {
-		// Every status the API accepts maps to a state type; one that does not matches nothing.
-		return work.Page{}, nil
-	}
 	got, err := w.store.ListLinearConversations(ctx, viewer, store.LinearConversationFilter{
-		SeeAll:    f.SeeAll,
-		Mine:      f.Mine,
-		Team:      f.Team,
-		State:     f.State,
-		StateType: stateType,
+		SeeAll: f.SeeAll,
+		All:    f.All,
+		Team:   f.Team,
+		State:  f.State,
 	}, f.Limit, f.Cursor)
 	if err != nil {
 		return work.Page{}, err
 	}
-	teams, err := w.store.LinearConversationTeams(ctx, viewer, f.SeeAll)
+	teams, err := w.store.LinearConversationTeams(ctx, viewer, f.SeeAll, f.All)
 	if err != nil {
 		return work.Page{}, err
 	}
@@ -105,7 +81,7 @@ func (w *WorkSource) List(ctx context.Context, viewer string, f work.Filter) (wo
 			LastText:       r.LastText,
 			CostUSD:        r.CostUSD,
 			MyRole:         r.MyRole,
-			Mine:           r.Mine,
+			Involved:       r.Involved,
 		})
 	}
 	return work.Page{Items: items, Next: got.Next, Total: got.Total, Teams: teams}, nil

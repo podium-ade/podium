@@ -18,16 +18,18 @@ import (
 // each keyed by their own cursor, and merging them into one is not built yet.
 var errMergeProviders = errors.New("listing every provider at once is not supported with more than one; name a provider")
 
-// ListWorkItems is the Issues view (docs/agent.md, "Issues"): every issue's or project's
-// conversation the caller may read, from each issue tracker Podium lists (a work.Source per
-// provider; today Linear), one row each, most recently active first.
+// ListWorkItems is the Issues view (docs/agent.md, "The Issues view"): the issues' and projects'
+// conversations the caller is involved in, from each issue tracker Podium lists (a work.Source
+// per provider; today Linear), one row each, most recently active first.
 //
-// An admin or owner (Infra) and the dev token read every one. Anybody else reads those whose
-// issue they touched through their linked account, that they spoke in, own, or were shared —
-// the source applies it in its query, so a page is never short of rows the caller may not see.
-// status narrows it to one column of the board, and the first page of any filter says how many
-// rows it matches. Reading is all an admin gets by being one: writing in a conversation is still
-// a participant's.
+// Involved is the provider's rule (Linear's: assigned or created the issue, asked Podium about
+// it, spoke in its conversation, or was @mentioned in it). It narrows only the list: who may
+// open a conversation is unchanged. An admin or owner (Infra) and the dev token may ask for
+// every one (all); anybody else asking for it is refused rather than quietly given their own,
+// so a client never shows "all" over a list that is not. The source applies both in its query,
+// so a page is never short of rows. state narrows it to one column of the board, and the first
+// page of any filter says how many rows it matches. Reading is all an admin gets by being one:
+// writing in a conversation is still a participant's.
 //
 // provider "" is every provider. While there is one, that is it; with several, the request has
 // to name one (errMergeProviders), since merging their pages is not built.
@@ -41,14 +43,15 @@ func (s *AgentService) ListWorkItems(
 	if err != nil {
 		return nil, err
 	}
-	status, ok := work.ParseStatusFilter(req.Msg.GetStatus())
+	state, ok := work.ParseStateFilter(req.Msg.GetState())
 	if !ok {
-		names := make([]string, 0, len(work.Statuses))
-		for _, st := range work.Statuses {
-			names = append(names, string(st))
-		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
-			"status %q is not one of %s or %q", req.Msg.GetStatus(), strings.Join(names, ", "), work.StatusNone))
+			"state %q is not one of %s or %q", req.Msg.GetState(), strings.Join(work.States, ", "), work.StateAttention))
+	}
+	seeAll := Infra(ctx)
+	if req.Msg.GetAll() && !seeAll {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("only an admin or an owner lists every issue; everybody else lists the issues they are involved in"))
 	}
 	providers := make([]string, 0, len(s.workSources))
 	for _, src := range s.workSources {
@@ -62,14 +65,12 @@ func (s *AgentService) ListWorkItems(
 		return connect.NewResponse(&agentv1.ListWorkItemsResponse{Providers: providers}), nil
 	}
 
-	seeAll := Infra(ctx)
 	page := req.Msg.GetPage()
 	got, err := src.List(ctx, login, work.Filter{
 		SeeAll: seeAll,
-		Mine:   req.Msg.GetMine(),
+		All:    req.Msg.GetAll(),
 		Team:   req.Msg.GetTeam(),
-		State:  req.Msg.GetState(),
-		Status: status,
+		State:  state,
 		Limit:  int(page.GetLimit()),
 		Cursor: page.GetCursor(),
 	})
@@ -101,7 +102,7 @@ func (s *AgentService) ListWorkItems(
 			LastText:       it.LastText,
 			CostUsd:        it.CostUSD,
 			MyRole:         role,
-			Mine:           it.Mine,
+			Involved:       it.Involved,
 		})
 	}
 	teams := make([]*agentv1.WorkTeam, 0, len(got.Teams))

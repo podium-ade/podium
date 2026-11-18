@@ -215,6 +215,9 @@ type AppSource struct {
 	// ticketCache is the issues, people's teams and team keys read for people in Podium
 	// (tickets.go).
 	ticketCache *ticketCache
+	// handles is the workspace's users by handle, for the people a text @mentions
+	// (mentions.go). Guarded by mu.
+	handles handleCache
 }
 
 // teamPrivacy is what Linear said about one team's privacy, and when it was asked.

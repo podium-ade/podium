@@ -927,3 +927,45 @@ func (c *Client) Catalog(ctx context.Context) ([]TeamInfo, []LabelInfo, error) {
 	}
 	return teams, labels, nil
 }
+
+// usersPerPage and maxUserPages bound Users: forty pages is ten thousand people, past which a
+// workspace's mentions of the rest are not resolved.
+const (
+	usersPerPage = "250"
+	maxUserPages = 40
+)
+
+// usersQuery is the workspace's active users and their handles, a page at a time.
+const usersQuery = `query PodiumUsers($after: String) {
+  users(first: ` + usersPerPage + `, after: $after) {
+    nodes { id displayName }
+    pageInfo { hasNextPage endCursor }
+  }
+}`
+
+// Users is the workspace's active users, with the handle (display name) a mention names them by.
+func (c *Client) Users(ctx context.Context) ([]User, error) {
+	var all []User
+	after := ""
+	for range maxUserPages {
+		vars := map[string]any{}
+		if after != "" {
+			vars["after"] = after
+		}
+		var out struct {
+			Users struct {
+				Nodes    []User   `json:"nodes"`
+				PageInfo pageInfo `json:"pageInfo"`
+			} `json:"users"`
+		}
+		if err := c.do(ctx, "PodiumUsers", usersQuery, vars, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Users.Nodes...)
+		if !out.Users.PageInfo.HasNextPage || out.Users.PageInfo.EndCursor == "" {
+			break
+		}
+		after = out.Users.PageInfo.EndCursor
+	}
+	return all, nil
+}

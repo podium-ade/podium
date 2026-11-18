@@ -190,17 +190,31 @@ func TestWhoTouchedAnIssueReadsItsConversation(t *testing.T) {
 
 	minePage, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{}, 50, "")
 	require.NoError(t, err)
+	assert.Empty(t, minePage.Rows, "a commenter reads the conversation, and is not involved in it")
+	require.NoError(t, s.RecordLinearPeople(ctx, key, []LinearPerson{
+		{LinearUser: "org-1/u-bo", Via: LinearViaAssigned},
+	}, time.Now()))
+	minePage, err = s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{}, 50, "")
+	require.NoError(t, err)
 	mine := minePage.Rows
-	require.Len(t, mine, 1)
+	require.Len(t, mine, 1, "the assignee lists it")
 	assert.Equal(t, LinearStateNew, mine[0].State)
+	assert.True(t, mine[0].Involved)
 	nonePage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{}, 50, "")
 	require.NoError(t, err)
 	none := nonePage.Rows
 	assert.Empty(t, none, "somebody who never touched it does not list it")
-	allPage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{SeeAll: true}, 50, "")
+	adminPage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{SeeAll: true}, 50, "")
+	require.NoError(t, err)
+	assert.Empty(t, adminPage.Rows, "an admin's own list is what they are involved in")
+	allPage, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{SeeAll: true, All: true}, 50, "")
 	require.NoError(t, err)
 	all := allPage.Rows
-	assert.Len(t, all, 1, "an admin lists every one")
+	require.Len(t, all, 1, "an admin asking for every one lists it")
+	assert.False(t, all[0].Involved)
+	sneaky, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{All: true}, 50, "")
+	require.NoError(t, err)
+	assert.Empty(t, sneaky.Rows, "all lists what the caller may read, and no more")
 
 	require.NoError(t, s.SetLinearIssueAsked(ctx, key, true, "bo@acme.com"))
 	waitingPage, err := s.ListLinearConversations(ctx, "bo@acme.com", LinearConversationFilter{State: LinearStateAttention}, 50, "")
@@ -215,7 +229,7 @@ func TestWhoTouchedAnIssueReadsItsConversation(t *testing.T) {
 	assert.Empty(t, chats, "an issue's conversation is not in the chat rail")
 }
 
-func TestTheLinearBoardListsOneStateTypeAPage(t *testing.T) {
+func TestTheBoardListsOneStateAPage(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	open := func(key, title string, li LinearIssue) {
@@ -225,65 +239,149 @@ func TestTheLinearBoardListsOneStateTypeAPage(t *testing.T) {
 		li.SourceKey = key
 		require.NoError(t, s.UpsertLinearIssue(ctx, li))
 	}
-	for i := range 3 {
+	for i := range 4 {
 		id := fmt.Sprintf("ENG-%d", i+1)
-		open(LinearIssueKey("started-"+id), id, LinearIssue{Identifier: id, TeamKey: "ENG", StateName: "In Progress", StateType: "started"})
+		open(LinearIssueKey("eng-"+id), id, LinearIssue{Identifier: id, TeamKey: "ENG", StateName: "In Progress", StateType: "started"})
 	}
-	open(LinearIssueKey("todo"), "ENG-9", LinearIssue{Identifier: "ENG-9", TeamKey: "ENG", StateName: "Todo", StateType: "unstarted"})
-	open(LinearIssueKey("ops"), "OPS-1", LinearIssue{Identifier: "OPS-1", TeamKey: "OPS", StateName: "In Progress", StateType: "started"})
-	open(LinearIssueKey("unsaid"), "ENG-10", LinearIssue{Identifier: "ENG-10", TeamKey: "ENG"})
-	open(LinearProjectKey("p1"), "Roadmap", LinearIssue{Title: "Roadmap", StateName: "Started", StateType: "started"})
+	open(LinearIssueKey("ops"), "OPS-1", LinearIssue{Identifier: "OPS-1", TeamKey: "OPS", StateName: "Todo", StateType: "unstarted"})
+	open(LinearProjectKey("p1"), "Roadmap", LinearIssue{Title: "Roadmap"})
+	require.NoError(t, s.SetLinearIssueAsked(ctx, LinearIssueKey("eng-ENG-4"), true, "bo@acme.com"))
 
 	list := func(f LinearConversationFilter, limit int, cursor string) LinearConversationPage {
 		t.Helper()
-		f.SeeAll = true
+		f.SeeAll, f.All = true, true
 		p, err := s.ListLinearConversations(ctx, "root@acme.com", f, limit, cursor)
 		require.NoError(t, err)
 		return p
 	}
-	idents := func(rows []LinearConversation) []string {
-		var out []string
-		for _, r := range rows {
-			out = append(out, r.Identifier+r.Kind)
-		}
-		return out
-	}
 
-	first := list(LinearConversationFilter{StateType: "started"}, 2, "")
+	first := list(LinearConversationFilter{State: LinearStateNew}, 2, "")
 	assert.Len(t, first.Rows, 2)
-	assert.Equal(t, 4, first.Total, "three ENG and one OPS issue are started; the project is not an issue")
+	assert.Equal(t, 5, first.Total, "three ENG issues, the OPS one and the project are not started; ENG-4 waits")
 	require.NotEmpty(t, first.Next)
-	second := list(LinearConversationFilter{StateType: "started"}, 2, first.Next)
+	second := list(LinearConversationFilter{State: LinearStateNew}, 2, first.Next)
 	assert.Len(t, second.Rows, 2)
-	assert.Empty(t, second.Next)
 	assert.Zero(t, second.Total, "only the first page counts")
-	for _, r := range append(first.Rows, second.Rows...) {
-		assert.Equal(t, "started", r.StateType)
-		assert.Equal(t, "issue", r.Kind)
+	third := list(LinearConversationFilter{State: LinearStateNew}, 2, second.Next)
+	assert.Len(t, third.Rows, 1)
+	assert.Empty(t, third.Next)
+	for _, r := range append(append(first.Rows, second.Rows...), third.Rows...) {
+		assert.Equal(t, LinearStateNew, r.State)
 	}
 
-	eng := list(LinearConversationFilter{StateType: "started", Team: "eng"}, 10, "")
+	eng := list(LinearConversationFilter{State: LinearStateNew, Team: "eng"}, 10, "")
 	assert.Equal(t, 3, eng.Total, "the team filter applies to a column too")
-	assert.Len(t, eng.Rows, 3)
 
-	todo := list(LinearConversationFilter{StateType: "unstarted"}, 10, "")
-	assert.Equal(t, []string{"ENG-9issue"}, idents(todo.Rows))
+	waiting := list(LinearConversationFilter{State: LinearStateWaiting}, 10, "")
+	require.Len(t, waiting.Rows, 1)
+	assert.Equal(t, "ENG-4", waiting.Rows[0].Identifier)
+	assert.Equal(t, "started", waiting.Rows[0].StateType, "the tracker's state is still on the row")
 
-	none := list(LinearConversationFilter{StateType: LinearStateTypeNone}, 10, "")
-	assert.ElementsMatch(t, []string{"ENG-10issue", "project"}, idents(none.Rows),
-		"an issue whose state type is unknown and a project have no column of their own")
-	assert.Equal(t, 2, none.Total)
-
-	empty := list(LinearConversationFilter{StateType: "canceled"}, 10, "")
+	empty := list(LinearConversationFilter{State: LinearStateFailed}, 10, "")
 	assert.Empty(t, empty.Rows)
 	assert.Zero(t, empty.Total)
 
-	every := list(LinearConversationFilter{}, 10, "")
-	assert.Equal(t, 7, every.Total)
-	assert.Len(t, every.Rows, 7)
-
-	nobody, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{StateType: "started"}, 10, "")
+	nobody, err := s.ListLinearConversations(ctx, "cy@acme.com", LinearConversationFilter{State: LinearStateNew, All: true}, 10, "")
 	require.NoError(t, err)
 	assert.Empty(t, nobody.Rows, "a column lists only what the caller may read")
 	assert.Zero(t, nobody.Total, "and counts only that")
+}
+
+// TestAPersonsListIsTheIssuesTheyAreInvolvedIn: assigned, created, asked Podium (delegated,
+// mentioned the app, prompted), spoke in the conversation, or @mentioned in it. Commenting,
+// changing it, owning a routine that ran in it or being shared it lets a person read the
+// conversation, and leaves it out of their list.
+func TestAPersonsListIsTheIssuesTheyAreInvolvedIn(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	link := func(login, account string) {
+		t.Helper()
+		require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: login, Provider: ProviderWeb, ExternalID: login}))
+		require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: login, Provider: ProviderLinear, ExternalID: account}))
+	}
+	cases := []struct {
+		via      string
+		involved bool
+	}{
+		{LinearViaAssigned, true},
+		{LinearViaCreated, true},
+		{LinearViaDelegated, true},
+		{LinearViaMentioned, true},
+		{LinearViaPrompted, true},
+		{LinearViaPersonMentioned, true},
+		{LinearViaCommented, false},
+		{LinearViaChanged, false},
+	}
+	for i, c := range cases {
+		login := fmt.Sprintf("p%d@acme.com", i)
+		account := fmt.Sprintf("org-1/u-%d", i)
+		link(login, account)
+		key := LinearIssueKey(fmt.Sprintf("iss-%d", i))
+		_, _, err := s.EnsureLinearConversation(ctx, key, c.via)
+		require.NoError(t, err)
+		require.NoError(t, s.RecordLinearPeople(ctx, key, []LinearPerson{{LinearUser: account, Via: c.via}}, now))
+
+		page, err := s.ListLinearConversations(ctx, login, LinearConversationFilter{}, 50, "")
+		require.NoError(t, err)
+		if c.involved {
+			assert.Len(t, page.Rows, 1, c.via)
+		} else {
+			assert.Empty(t, page.Rows, c.via)
+		}
+		touched, err := s.LinearTouched(ctx, key, login)
+		require.NoError(t, err)
+		assert.True(t, touched, "%s still reads the conversation", c.via)
+	}
+
+	// A routine's owner and a person it was shared with read it, and do not list it.
+	key := LinearIssueKey("iss-shared")
+	chat, _, err := s.EnsureLinearConversation(ctx, key, "shared")
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "ro@acme.com", Provider: ProviderWeb, ExternalID: "ro@acme.com"}))
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "sh@acme.com", Provider: ProviderWeb, ExternalID: "sh@acme.com"}))
+	require.NoError(t, s.RecordLinearPeople(ctx, key, []LinearPerson{{Login: "ro@acme.com", Via: LinearViaRoutine}}, now))
+	_, err = s.ShareChat(ctx, chat.ID, "sh@acme.com", RoleViewer, "root@acme.com")
+	require.NoError(t, err)
+	for _, login := range []string{"ro@acme.com", "sh@acme.com"} {
+		role, err := s.ChatRole(ctx, chat.ID, login)
+		require.NoError(t, err)
+		assert.NotEmpty(t, role, login)
+		page, err := s.ListLinearConversations(ctx, login, LinearConversationFilter{}, 50, "")
+		require.NoError(t, err)
+		assert.Empty(t, page.Rows, login)
+	}
+
+	// Speaking in the conversation from Podium is asking Podium; a backfilled guess is not.
+	_, err = s.AddChatParticipant(ctx, chat.ID, "sh@acme.com", JoinedWeb, now)
+	require.NoError(t, err)
+	page, err := s.ListLinearConversations(ctx, "sh@acme.com", LinearConversationFilter{}, 50, "")
+	require.NoError(t, err)
+	require.Len(t, page.Rows, 1)
+	assert.True(t, page.Rows[0].Involved)
+	teams, err := s.LinearConversationTeams(ctx, "sh@acme.com", false, false)
+	require.NoError(t, err)
+	assert.Empty(t, teams, "the issue names no team")
+	_, err = s.AddChatParticipant(ctx, chat.ID, "bf@acme.com", JoinedBackfill, now)
+	require.NoError(t, err)
+	page, err = s.ListLinearConversations(ctx, "bf@acme.com", LinearConversationFilter{}, 50, "")
+	require.NoError(t, err)
+	assert.Empty(t, page.Rows)
+
+	// Linked later, an account's mention is theirs from then on.
+	other := LinearIssueKey("iss-later")
+	_, _, err = s.EnsureLinearConversation(ctx, other, "later")
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertLinearIssue(ctx, LinearIssue{SourceKey: other, Identifier: "ENG-77", TeamKey: "ENG"}))
+	require.NoError(t, s.RecordLinearPeople(ctx, other, []LinearPerson{{LinearUser: "org-1/u-late", Via: LinearViaPersonMentioned}}, now))
+	page, err = s.ListLinearConversations(ctx, "late@acme.com", LinearConversationFilter{}, 50, "")
+	require.NoError(t, err)
+	assert.Empty(t, page.Rows)
+	link("late@acme.com", "org-1/u-late")
+	page, err = s.ListLinearConversations(ctx, "late@acme.com", LinearConversationFilter{}, 50, "")
+	require.NoError(t, err)
+	assert.Len(t, page.Rows, 1)
+	teams, err = s.LinearConversationTeams(ctx, "late@acme.com", false, false)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ENG"}, teams)
 }

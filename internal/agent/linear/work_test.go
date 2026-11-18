@@ -28,29 +28,11 @@ func TestLinearStateTypesAreWorkStatuses(t *testing.T) {
 	assert.Equal(t, work.StatusUnknown, WorkStatus(store.LinearKindProject, "started"), "a project has no column")
 }
 
-// TestEveryStatusIsALinearStateType is the inverse, which the store filters on: every column
-// the board asks for is one state type, and none is the store's own "none".
-func TestEveryStatusIsALinearStateType(t *testing.T) {
-	for _, st := range work.Statuses {
-		stateType, ok := StateTypeFilter(st)
-		require.True(t, ok, st)
-		assert.Equal(t, st, WorkStatus(store.LinearKindIssue, stateType), st)
-		assert.Contains(t, store.LinearStateTypes, stateType)
-	}
-	got, ok := StateTypeFilter(work.StatusNone)
-	assert.True(t, ok)
-	assert.Equal(t, store.LinearStateTypeNone, got)
-	got, ok = StateTypeFilter(work.StatusUnknown)
-	assert.True(t, ok)
-	assert.Empty(t, got)
-	_, ok = StateTypeFilter("someday")
-	assert.False(t, ok)
-}
-
 type fakeLinearStore struct {
-	filter store.LinearConversationFilter
-	limit  int
-	cursor string
+	filter   store.LinearConversationFilter
+	teamsAll bool
+	limit    int
+	cursor   string
 }
 
 func (f *fakeLinearStore) ListLinearConversations(
@@ -60,7 +42,8 @@ func (f *fakeLinearStore) ListLinearConversations(
 	return store.LinearConversationPage{
 		Rows: []store.LinearConversation{
 			{ChatID: "c1", Kind: store.LinearKindIssue, Identifier: "ENG-12", Title: "Fix login", TeamKey: "ENG",
-				StateName: "In Review", StateType: "started", State: store.LinearStateWaiting, LastActivityAt: time.Unix(5, 0)},
+				StateName: "In Review", StateType: "started", State: store.LinearStateWaiting, LastActivityAt: time.Unix(5, 0),
+				Involved: true},
 			{ChatID: "c2", Kind: store.LinearKindProject, Title: "Q4", StateType: "started"},
 		},
 		Next:  "n",
@@ -68,7 +51,8 @@ func (f *fakeLinearStore) ListLinearConversations(
 	}, nil
 }
 
-func (f *fakeLinearStore) LinearConversationTeams(context.Context, string, bool) ([]string, error) {
+func (f *fakeLinearStore) LinearConversationTeams(_ context.Context, _ string, _, all bool) ([]string, error) {
+	f.teamsAll = all
 	return []string{"ENG", "OPS"}, nil
 }
 
@@ -78,12 +62,13 @@ func TestWorkSourceListsLinearsConversations(t *testing.T) {
 	assert.Equal(t, "linear", src.Provider())
 
 	page, err := src.List(context.Background(), "ana@acme.com", work.Filter{
-		SeeAll: true, Team: "ENG", State: work.StateAttention, Status: work.StatusTodo, Limit: 10, Cursor: "c",
+		SeeAll: true, All: true, Team: "ENG", State: work.StateAttention, Limit: 10, Cursor: "c",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, store.LinearConversationFilter{
-		SeeAll: true, Team: "ENG", State: work.StateAttention, StateType: "unstarted",
+		SeeAll: true, All: true, Team: "ENG", State: work.StateAttention,
 	}, st.filter)
+	assert.True(t, st.teamsAll, "the team filter lists the teams of what is listed")
 	assert.Equal(t, 10, st.limit)
 	assert.Equal(t, "c", st.cursor)
 
@@ -91,13 +76,11 @@ func TestWorkSourceListsLinearsConversations(t *testing.T) {
 	assert.Equal(t, work.Item{
 		ChatID: "c1", Provider: "linear", Kind: "issue", Key: "ENG-12", Title: "Fix login", Team: "ENG",
 		Status: work.StatusInProgress, StatusLabel: "In Review", State: work.StateWaiting, LastActivityAt: time.Unix(5, 0),
+		Involved: true,
 	}, page.Items[0])
 	assert.Equal(t, work.StatusUnknown, page.Items[1].Status)
 	assert.Equal(t, "n", page.Next)
 	assert.Equal(t, 7, page.Total)
 	assert.Equal(t, []string{"ENG", "OPS"}, page.Teams)
 
-	_, err = src.List(context.Background(), "ana@acme.com", work.Filter{Status: work.StatusNone})
-	require.NoError(t, err)
-	assert.Equal(t, store.LinearStateTypeNone, st.filter.StateType)
 }

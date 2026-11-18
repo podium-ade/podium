@@ -48,17 +48,17 @@ func listWork(ctx context.Context, s *AgentService, msg *agentv1.ListWorkItemsRe
 	return res.Msg, nil
 }
 
-// TestTheBoardAsksForAColumnThereIs refuses a column that is no status before a source is asked.
+// TestTheBoardAsksForAColumnThereIs refuses a column that is no state before a source is asked.
 func TestTheBoardAsksForAColumnThereIs(t *testing.T) {
 	lin := &fakeWork{provider: "linear"}
 	s := workService(lin)
 
-	for _, bad := range []string{"started", "in progress", "completed", "in_progress;drop", "all"} {
-		_, err := listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{Status: bad})
+	for _, bad := range []string{"in_progress", "started", "waiting;drop", "none", "all"} {
+		_, err := listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{State: bad})
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), bad)
 	}
 	assert.Empty(t, lin.asked)
-	_, err := listWork(context.Background(), s, &agentv1.ListWorkItemsRequest{Status: "todo"})
+	_, err := listWork(context.Background(), s, &agentv1.ListWorkItemsRequest{State: "working"})
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err),
 		"nobody signed in learns nothing, not even which columns there are")
 }
@@ -68,13 +68,12 @@ func TestOneProviderIsEveryProvider(t *testing.T) {
 	s := workService(lin)
 
 	got, err := listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{
-		Status: " In_Progress ", Team: "ENG", State: "attention", Mine: true,
-		Page: &agentv1.Page{Limit: 10, Cursor: "x"},
+		Team: "ENG", State: " Waiting ", Page: &agentv1.Page{Limit: 10, Cursor: "x"},
 	})
 	require.NoError(t, err)
 	require.Len(t, lin.asked, 1)
 	assert.Equal(t, work.Filter{
-		Mine: true, Team: "ENG", State: "attention", Status: work.StatusInProgress, Limit: 10, Cursor: "x",
+		Team: "ENG", State: work.StateWaiting, Limit: 10, Cursor: "x",
 	}, lin.asked[0])
 	require.Len(t, got.GetItems(), 1)
 	item := got.GetItems()[0]
@@ -91,6 +90,29 @@ func TestOneProviderIsEveryProvider(t *testing.T) {
 	require.NoError(t, err, "a provider is named in any case")
 	_, err = listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{Provider: "jira"})
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "a provider Podium does not list")
+}
+
+// TestOnlyAnAdminListsEveryIssue: anybody else lists what they are involved in, and asking for
+// every issue is refused rather than quietly answered with their own.
+func TestOnlyAnAdminListsEveryIssue(t *testing.T) {
+	lin := &fakeWork{provider: "linear"}
+	s := workService(lin)
+
+	_, err := listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{All: true})
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	assert.Empty(t, lin.asked)
+
+	_, err = listWork(loginCtx("ana@acme.com"), s, &agentv1.ListWorkItemsRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, work.Filter{}, lin.asked[0], "a member's own list")
+
+	admin := context.WithValue(loginCtx("root@acme.com"), infraKey{}, true)
+	_, err = listWork(admin, s, &agentv1.ListWorkItemsRequest{All: true})
+	require.NoError(t, err)
+	assert.Equal(t, work.Filter{SeeAll: true, All: true}, lin.asked[1])
+	_, err = listWork(admin, s, &agentv1.ListWorkItemsRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, work.Filter{SeeAll: true}, lin.asked[2], "an admin's own list is the default")
 }
 
 func TestSeveralProvidersAreListedOneAtATime(t *testing.T) {

@@ -53,6 +53,11 @@ type IssueRecord struct {
 	// People are who the delivery says touched it.
 	People []IssuePerson
 	At     time.Time
+	// org is the delivery's workspace, and mentions the handles its texts @mention: the
+	// people they name are looked up when the record is handed on (issueSeen), off the
+	// webhook's own request.
+	org      string
+	mentions []string
 }
 
 // Key is the conversation the record is about.
@@ -87,6 +92,7 @@ func (s *AppSource) issueSeen(ctx context.Context, r *IssueRecord) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, issueSeenTimeout)
 	defer cancel()
+	r.People = append(r.People, s.mentionedPeople(ctx, r.org, r.mentions)...)
 	if err := s.issues.LinearIssueSeen(ctx, *r); err != nil {
 		s.logger.WarnContext(ctx, "linear: recording what a delivery said about an issue failed",
 			"kind", r.Kind, "id", r.ID, "error", err)
@@ -119,6 +125,9 @@ func (s *AppSource) sessionIssue(p *webhookPayload) *IssueRecord {
 		r.TeamKey = iss.Team.Key
 	}
 	org := p.OrganizationID
+	if sess.Comment != nil {
+		r.org, r.mentions = org, mentionHandles(sess.Comment.Body)
+	}
 	if p.Action == ActionCreated && sess.Creator != nil {
 		via := ViaMentioned
 		if sess.delegated() {
@@ -150,12 +159,16 @@ type dataEntity struct {
 	Title      string `json:"title"`
 	Name       string `json:"name"`
 	URL        string `json:"url"`
-	CreatorID  string `json:"creatorId"`
-	AssigneeID string `json:"assigneeId"`
-	UserID     string `json:"userId"`
-	IssueID    string `json:"issueId"`
-	ProjectID  string `json:"projectId"`
-	State      *struct {
+	// Description is an Issue's, Body a Comment's: markdown somebody wrote, read only for the
+	// people it @mentions.
+	Description string `json:"description"`
+	Body        string `json:"body"`
+	CreatorID   string `json:"creatorId"`
+	AssigneeID  string `json:"assigneeId"`
+	UserID      string `json:"userId"`
+	IssueID     string `json:"issueId"`
+	ProjectID   string `json:"projectId"`
+	State       *struct {
 		Name string `json:"name"`
 		Type string `json:"type"`
 	} `json:"state"`
@@ -226,6 +239,14 @@ func (s *AppSource) dataIssue(p *webhookPayload, teamKey string) *IssueRecord {
 	}
 	if r.ID == "" {
 		return nil
+	}
+	if p.Action != ActionRemove {
+		switch p.Type {
+		case "Issue":
+			r.org, r.mentions = org, mentionHandles(d.Description)
+		case "Comment":
+			r.org, r.mentions = org, mentionHandles(d.Body)
+		}
 	}
 	if p.Action == ActionRemove {
 		// What a removal says about the entity is that it is gone; its last title stands.

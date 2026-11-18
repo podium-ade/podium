@@ -6,15 +6,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStatusFilterIsAStatusOrNone(t *testing.T) {
-	for _, in := range []string{"", "triage", "backlog", "todo", " In_Progress ", "done", "canceled", "none"} {
-		_, ok := ParseStatusFilter(in)
+func TestStateFilterIsAStateOrAttention(t *testing.T) {
+	for _, in := range []string{"", "new", "working", " Waiting ", "failed", "done", "attention"} {
+		_, ok := ParseStateFilter(in)
 		assert.True(t, ok, in)
 	}
-	got, _ := ParseStatusFilter(" In_Progress ")
-	assert.Equal(t, StatusInProgress, got)
-	for _, in := range []string{"cancelled", "started", "in progress", "all"} {
-		_, ok := ParseStatusFilter(in)
+	got, _ := ParseStateFilter(" Waiting ")
+	assert.Equal(t, StateWaiting, got)
+	for _, in := range []string{"in_progress", "started", "none", "all"} {
+		_, ok := ParseStateFilter(in)
 		assert.False(t, ok, in)
 	}
 }

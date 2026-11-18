@@ -9674,8 +9674,10 @@ type WorkItem struct {
 	CostUsd float64 `protobuf:"fixed64,14,opt,name=cost_usd,json=costUsd,proto3" json:"cost_usd,omitempty"`
 	// my_role is the caller's role in it; an admin who reads it only as an admin is "viewer".
 	MyRole string `protobuf:"bytes,15,opt,name=my_role,json=myRole,proto3" json:"my_role,omitempty"`
-	// mine is a conversation the caller touched, spoke in, owns or was shared.
-	Mine          bool `protobuf:"varint,16,opt,name=mine,proto3" json:"mine,omitempty"`
+	// involved is an item the caller is involved in: they were assigned or created it, asked
+	// Podium about it (delegated it, @mentioned the app on it, prompted it, or spoke in its
+	// conversation), or were @mentioned in its description or a comment.
+	Involved      bool `protobuf:"varint,16,opt,name=involved,proto3" json:"involved,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9815,9 +9817,9 @@ func (x *WorkItem) GetMyRole() string {
 	return ""
 }
 
-func (x *WorkItem) GetMine() bool {
+func (x *WorkItem) GetInvolved() bool {
 	if x != nil {
-		return x.Mine
+		return x.Involved
 	}
 	return false
 }
@@ -9878,18 +9880,17 @@ func (x *WorkTeam) GetKey() string {
 type ListWorkItemsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Page  *Page                  `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
-	// mine lists only the items the caller touched, spoke in, owns or was shared.
-	Mine bool `protobuf:"varint,2,opt,name=mine,proto3" json:"mine,omitempty"`
+	// all lists every item the caller may read rather than those they are involved in. Only an
+	// admin or an owner may ask for it; anybody else is permission_denied.
+	All bool `protobuf:"varint,7,opt,name=all,proto3" json:"all,omitempty"`
 	// provider is one issue tracker ("linear"), or "" for every one. Every one is served only
 	// while Podium has a single provider; with more, name one.
 	Provider string `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
 	// team is a team key of the provider, empty for every team.
 	Team string `protobuf:"bytes,4,opt,name=team,proto3" json:"team,omitempty"`
-	// state is "", one of WorkItem.state, or "attention" (waiting and failed).
-	State string `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
-	// status is one column of the board: "" for every item, one of WorkItem.status's categories,
-	// or "none" for the rest — projects, and issues whose state is unknown.
-	Status        string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	// state is "", one of WorkItem.state, or "attention" (waiting and failed). A board's column
+	// is one state.
+	State         string `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9931,9 +9932,9 @@ func (x *ListWorkItemsRequest) GetPage() *Page {
 	return nil
 }
 
-func (x *ListWorkItemsRequest) GetMine() bool {
+func (x *ListWorkItemsRequest) GetAll() bool {
 	if x != nil {
-		return x.Mine
+		return x.All
 	}
 	return false
 }
@@ -9959,19 +9960,12 @@ func (x *ListWorkItemsRequest) GetState() string {
 	return ""
 }
 
-func (x *ListWorkItemsRequest) GetStatus() string {
-	if x != nil {
-		return x.Status
-	}
-	return ""
-}
-
 type ListWorkItemsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Items []*WorkItem            `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	// Empty when there is no further page.
 	NextCursor string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
-	// teams are the teams of every item the caller may list, for the team filter.
+	// teams are the teams of every item the caller lists (all, or involved), for the team filter.
 	Teams []*WorkTeam `protobuf:"bytes,3,rep,name=teams,proto3" json:"teams,omitempty"`
 	// providers are the issue trackers Podium lists items from, for a provider filter.
 	Providers []string `protobuf:"bytes,4,rep,name=providers,proto3" json:"providers,omitempty"`
@@ -18432,7 +18426,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x04page\x18\x01 \x01(\v2\x15.podium.agent.v1.PageR\x04page\x12-\n" +
 	"\x12filter_personality\x18\x02 \x01(\bR\x11filterPersonality\x12%\n" +
 	"\x0epersonality_id\x18\x03 \x01(\tR\rpersonalityId\x12\x18\n" +
-	"\asection\x18\x04 \x01(\tR\asection\"\xb8\x03\n" +
+	"\asection\x18\x04 \x01(\tR\asection\"\xc0\x03\n" +
 	"\bWorkItem\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x12\n" +
@@ -18449,18 +18443,17 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x10last_activity_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\x0elastActivityAt\x12\x1b\n" +
 	"\tlast_text\x18\r \x01(\tR\blastText\x12\x19\n" +
 	"\bcost_usd\x18\x0e \x01(\x01R\acostUsd\x12\x17\n" +
-	"\amy_role\x18\x0f \x01(\tR\x06myRole\x12\x12\n" +
-	"\x04mine\x18\x10 \x01(\bR\x04mine\"8\n" +
+	"\amy_role\x18\x0f \x01(\tR\x06myRole\x12\x1a\n" +
+	"\binvolved\x18\x10 \x01(\bR\binvolved\"8\n" +
 	"\bWorkTeam\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\"\xb3\x01\n" +
 	"\x14ListWorkItemsRequest\x12)\n" +
-	"\x04page\x18\x01 \x01(\v2\x15.podium.agent.v1.PageR\x04page\x12\x12\n" +
-	"\x04mine\x18\x02 \x01(\bR\x04mine\x12\x1a\n" +
+	"\x04page\x18\x01 \x01(\v2\x15.podium.agent.v1.PageR\x04page\x12\x10\n" +
+	"\x03all\x18\a \x01(\bR\x03all\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x12\n" +
 	"\x04team\x18\x04 \x01(\tR\x04team\x12\x14\n" +
-	"\x05state\x18\x05 \x01(\tR\x05state\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\"\xce\x01\n" +
+	"\x05state\x18\x05 \x01(\tR\x05stateJ\x04\b\x02\x10\x03J\x04\b\x06\x10\aR\x04mineR\x06status\"\xce\x01\n" +
 	"\x15ListWorkItemsResponse\x12/\n" +
 	"\x05items\x18\x01 \x03(\v2\x19.podium.agent.v1.WorkItemR\x05items\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
