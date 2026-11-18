@@ -113,7 +113,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceListChatsProcedure:         store.RoleMember,
 	// The Linear view: the conductor lists a member only the issues they touched, and an admin
 	// or owner (X-Podium-Infra) every one.
-	agentv1connect.AgentServiceListLinearConversationsProcedure: store.RoleMember,
+	agentv1connect.AgentServiceListWorkItemsProcedure: store.RoleMember,
 	// A chat's ticket chips and an issue conversation's panel: the conductor shows a member an
 	// issue only when they could see it in Linear, and the panel only to a reader of the chat.
 	agentv1connect.AgentServiceGetLinearIssuesProcedure:            store.RoleMember,
