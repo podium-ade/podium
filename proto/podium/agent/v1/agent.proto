@@ -256,6 +256,11 @@ service AgentService {
   // puts it back. It comes back by itself once something new is said in it, and stays in the
   // Linear view throughout.
   rpc SetChatRailHidden(SetChatRailHiddenRequest) returns (SetChatRailHiddenResponse);
+  // SetChatWatched keeps a chat the caller may read in their chat rail, or stops. Watching
+  // grants nothing: a chat they cannot read is not_found, and one they can no longer read drops
+  // out of the rail. Watching a hidden ticket conversation un-hides it, and hiding a watched one
+  // unwatches it: one preference per chat and person.
+  rpc SetChatWatched(SetChatWatchedRequest) returns (SetChatWatchedResponse);
   // ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
   rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
   // MarkNotificationsRead marks some, or all, of the caller's notifications read.
@@ -1481,6 +1486,9 @@ message Chat {
   // one in the caller's rail (a Linear issue's people see its conversation there) and unset
   // for every other chat.
   ChatLinearIssue linear_issue = 30;
+  // watched is a chat the caller keeps in their rail by choice (SetChatWatched). Set by
+  // ListChats and GetChat.
+  bool watched = 31;
 }
 
 // ChatLinearIssue is a Linear issue as the chat rail draws it: "EME-6 · title" with a dot for
@@ -2012,6 +2020,13 @@ message SetChatRailHiddenRequest {
 }
 
 message SetChatRailHiddenResponse {}
+
+message SetChatWatchedRequest {
+  string chat_id = 1;
+  bool watched = 2;
+}
+
+message SetChatWatchedResponse {}
 
 message MarkChatReadRequest {
   string chat_id = 1;

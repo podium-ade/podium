@@ -96,7 +96,8 @@ select c.*,
   coalesce(li.state_name, '')::text as linear_state_name,
   coalesce(li.state_type, '')::text as linear_state_type,
   li.asked_at                       as linear_asked_at,
-  coalesce(li.asked_of, '')::text   as linear_asked_of
+  coalesce(li.asked_of, '')::text   as linear_asked_of,
+  (rp.pref is not null and rp.pref = 'watched')::bool as watched
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
@@ -109,6 +110,7 @@ left join (
      and not (cm.role = 'progress' and mc.origin = 'linear')
 ) m on m.chat_id = c.id and m.rn = 1
 left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
+left join chat_rail_prefs rp on rp.chat_id = c.id and rp.login = @viewer::text
 -- include_all is the shared dev token, which has no per-user identity and is the operator
 -- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
 -- any other named login) is the other branch and sees what chat_visible_to allows: what
@@ -119,10 +121,22 @@ left join linear_issues li on li.source_key = c.source_key and c.origin = 'linea
 -- in, or shared with them — chat_visible_to. 'shared' is the part of that somebody else owns.
 -- 'workspace' is the chats shared with every member that are NOT already in their own list:
 -- a members-shared chat appears there until they open it, and in their own list after.
+--
+-- A chat the caller watches (chat_rail_prefs, 0055) is in their own list too, while they may
+-- still read it: a role in it (chat_role), or, for admin — an admin or an owner — a system
+-- routine's chat or a Linear conversation, which they read as admins. Watching grants nothing,
+-- so a chat they can no longer read drops out.
 where (
     (@include_all::bool and @section::text = '')
     or (@section::text in ('', 'shared') and chat_visible_to(c.id, c.login, @viewer::text)
         and (@section::text = '' or c.login is distinct from @viewer::text))
+    or (@section::text = '' and not @include_all::bool
+        and rp.pref = 'watched'
+        and c.deleted_at is null
+        and (chat_role(c.id, @viewer::text) <> ''
+             or (@admin::bool and (
+                   c.source_key like 'linear:%'
+                   or exists (select 1 from routines r where r.chat_id = c.id and r.scope = 'system')))))
     or (@section::text = 'workspace'
         and c.general_access = 'members'
         and c.deleted_at is null
@@ -157,8 +171,11 @@ where (
   -- Linear account (linear_people, resolved through identities when they read), or they spoke
   -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
   -- in the Issues view. One they hid stays out until something new is said in it.
+  --
+  -- A conversation the caller watches is let back in as well, on the same terms as above.
   and not (
     @exclude_linear::bool and c.origin = 'linear'
+    and not (@section::text = '' and not @include_all::bool and rp.pref = 'watched')
     and not (
       @linear_rail::bool and not @include_all::bool and @section::text = ''
       and c.source_key like 'linear:%'
@@ -174,10 +191,7 @@ where (
              -- A mention alone makes nobody one of its people (0054).
              and lp.via <> 'person_mentioned')
       )
-      and not exists (
-        select 1 from chat_rail_hidden h
-         where h.chat_id = c.id and h.login = @viewer::text
-           and h.hidden_at >= coalesce(m.ts, c.created_at))
+      and not (rp.pref is not null and rp.pref = 'hidden' and rp.set_at >= coalesce(m.ts, c.created_at))
     )
   )
 order by c.id desc
@@ -413,12 +427,18 @@ returning *;
 -- name: CountChatsStartedByTurn :one
 select count(*)::int from chats where started_by_turn = @started_by_turn::text;
 
--- HideChatFromRail takes a chat out of viewer's rail until something new is said in it (0049).
--- name: HideChatFromRail :exec
-insert into chat_rail_hidden (chat_id, login, hidden_at)
-values (@chat_id, @login, @hidden_at)
-on conflict (chat_id, login) do update set hidden_at = excluded.hidden_at;
+-- SetChatRailPref is login's one preference for a chat in their rail (0055): 'watched' or
+-- 'hidden', replacing the one before.
+-- name: SetChatRailPref :exec
+insert into chat_rail_prefs (chat_id, login, pref, set_at)
+values (@chat_id, @login, @pref, @set_at)
+on conflict (chat_id, login) do update set pref = excluded.pref, set_at = excluded.set_at;
 
--- UnhideChatFromRail puts it back.
--- name: UnhideChatFromRail :exec
-delete from chat_rail_hidden where chat_id = @chat_id and login = @login;
+-- ClearChatRailPref drops login's preference for a chat, when it is pref: unwatching a chat
+-- leaves a hide alone, and unhiding one leaves a watch alone.
+-- name: ClearChatRailPref :exec
+delete from chat_rail_prefs where chat_id = @chat_id and login = @login and pref = @pref;
+
+-- ChatRailPref is login's preference for a chat in their rail (0055), '' for none.
+-- name: ChatRailPref :one
+select coalesce((select pref from chat_rail_prefs where chat_id = @chat_id and login = @login), '')::text as pref;

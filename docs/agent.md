@@ -2270,7 +2270,9 @@ through a linked Linear account, and those who spoke in it — not of everybody 
 an admin finds every one in the Issues view. Its row reads `EME-6 · title`, with a dot for the
 issue's state in Linear and *Waiting on you* while a question asked by your turn, or by nobody's,
 is unanswered. It is ordered by its last activity with the other chats. *Hide* in its menu takes
-it out of your rail until something new is said in it; it stays in the Issues view.
+it out of your rail until something new is said in it; it stays in the Issues view. Anybody else
+who may read it — an admin, a commenter — can **Watch** it to keep it in their rail
+([Chat](#chat)); hiding a watched conversation unwatches it.
 
 **Writing from Podium.** What you send in an issue's conversation is posted to the issue as a
 comment under your name and picture (the app posts it, with Linear's `createAsUser`), whether or
@@ -3629,6 +3631,20 @@ task it delegates, and may choose several while answering once.
   every admin and owner ([The Issues view](#the-issues-view)), and in Chat for the first two only. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
+- **The chat rail is what you take part in, and what you watch.** It lists the chats you own,
+  spoke in or were shared, and the ticket conversations whose people you are one of. Writing in a
+  chat you may write in makes you a participant, so it is in your rail from then on with nothing
+  else to do. A chat you open that it has no row for on screen — a routine's chat you read as an
+  admin, a Linear issue's conversation, somebody's chat shared with every member, or one of your
+  own that the search or the source filter is hiding — is shown on its own at the top, under
+  **Viewing**, selected, with a word on what it is (*Routine*, *Linear issue*, *alice's chat*).
+  Nothing is stored for it: it is the open chat, and it goes when you open another. **Watch**, on
+  that entry or in the chat's header, keeps it in your rail for good (`SetChatWatched`); a watched
+  chat offers **Unwatch** in its row's menu and its header. Watching grants nothing: only a chat
+  you may already read can be watched, and one you can no longer read drops out of your rail by
+  itself. It is one rail preference with *Hide* (`chat_rail_prefs`, 0055): watching a hidden
+  ticket conversation un-hides it, and hiding a watched one unwatches it. It adds no
+  notifications and no unread counts beyond what the rail already shows.
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
   of its own (see [Several people, one conversation](#several-people-one-conversation)).
 - **Progress is a message.** Every `progress` message is stored under the role `progress` and
@@ -4115,6 +4131,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 | `ListWorkItems` | the Issues view: one row per issue conversation the caller is involved in from an issue tracker (`provider`, today `linear`), or with `all` every one they may read (admins and owners only; anybody else is `permission_denied`), filtered (`state` is also a board column) and paged on the server; the first page carries the filters' total, and every page the teams and providers for the filters. With several providers a request names one |
 | `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
+| `SetChatWatched` | the chat rail: keep a chat the caller may read in their rail while they may read it, or stop; one preference with hiding |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server

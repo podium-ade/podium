@@ -31,6 +31,7 @@ import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
+import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { mentionsPodium } from "../../lib/mentions";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
@@ -67,6 +68,7 @@ import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
 import { TicketState, TicketTitle } from "./chat/Ticket";
 import { ShareButton } from "./chat/ShareDialog";
+import { ViewingEntry, WatchButton } from "./chat/ViewingEntry";
 import { ConductorDown } from "./ConductorDown";
 import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
@@ -254,6 +256,24 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  // Watching keeps a chat the viewer may read in their rail for good; unwatching takes it out.
+  // It grants nothing, so the server checks they may read it.
+  const watch = useMutation({
+    mutationFn: (v: { chat: Chat; on: boolean }) => agent.setChatWatched({ chatId: v.chat.id, watched: v.on }),
+    onSuccess: async (_res, v) => {
+      toast(v.on ? `${v.chat.title || "This chat"} stays in your chats.` : `${v.chat.title || "This chat"} is no longer watched.`, "ok");
+      setOpened((prev) => (prev && prev.id === v.chat.id ? { ...prev, watched: v.on } : prev));
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+  // The open chat as its stream described it, for the rail's Viewing entry when the rail has
+  // no row for it. It is only ever the open chat's: another id is ignored.
+  const [opened, setOpened] = useState<Chat | undefined>(undefined);
+  const viewer = useViewer();
+  // The dev token's list is every chat already: it has nothing to watch.
+  const mayWatch = viewer !== undefined && viewer.kind !== IdentityKind.LOCAL_TOKEN;
+
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
@@ -307,6 +327,14 @@ export function ChatPanel() {
   // they have not opened. A chat in both (just opened) is shown once, from their own list.
   const own = new Set(list.map((c) => c.id));
   const railChats = [...list, ...(workspace.data?.chats ?? []).filter((c) => !own.has(c.id))];
+  const listedActive = railChats.find((c) => c.id === active);
+  // The open chat, for the Viewing entry and the header's Watch: its rail row when it has one,
+  // else what its stream said. A members-shared chat not opened yet is in no list of theirs.
+  const viewing = listedActive ?? (opened?.id === active ? opened : undefined);
+  const inRail = listedActive !== undefined && listedActive.accessReason !== "workspace";
+  const onWatch = (on: boolean) => {
+    if (viewing) watch.mutate({ chat: viewing, on });
+  };
   // What the assistant may delegate to. It is shown, never picked: the turn chooses a
   // playbook per piece of work, and naming them is how a reader learns the conversation can
   // reach a machine at all.
@@ -346,6 +374,8 @@ export function ChatPanel() {
           onDelete={setPendingDelete}
           onLeave={(c) => leave.mutate(c)}
           onHide={(c) => hide.mutate(c)}
+          onUnwatch={(c) => watch.mutate({ chat: c, on: false })}
+          viewing={viewing}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -385,6 +415,12 @@ export function ChatPanel() {
               listedEmpty={railChats.find((c) => c.id === active)?.preview === ""}
               onRename={(title) => renameChat(active, title)}
               onLeave={() => navigate(blank)}
+              onChat={setOpened}
+              watch={
+                mayWatch && viewing && (!inRail || viewing.watched)
+                  ? { watched: viewing.watched, busy: watch.isPending, onWatch }
+                  : undefined
+              }
               assistant={answeredBy}
               playbookNames={playbookNames}
             />
@@ -587,6 +623,8 @@ function ChatRail({
   onDelete,
   onLeave,
   onHide,
+  onUnwatch,
+  viewing,
   deletingId,
   viewerLogin,
   voices,
@@ -604,6 +642,9 @@ function ChatRail({
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
   onHide: (chat: Chat) => void;
+  onUnwatch: (chat: Chat) => void;
+  /** viewing is the open chat, from its rail row or its stream; undefined until known. */
+  viewing?: Chat;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -662,6 +703,13 @@ function ChatRail({
   // How many chats each origin lists. A search lists every match: the point of searching is
   // finding the one that was not on screen.
   const [shown, setShown] = useState<Record<string, number>>({});
+  // The open chat is drawn when a group on screen, not folded away, has its row. When none
+  // does — it is in no list of the viewer's, or the search or the source filter is hiding it —
+  // the rail shows it on its own at the top, as Viewing, so the reader keeps their place.
+  const drawn = listed.some(
+    (o) => !(split && !searching && collapsed.has(o.key)) && o.chats.some((c) => c.id === active),
+  );
+  const viewingEntry = active !== "" && !drawn && viewing?.id === active ? viewing : undefined;
 
   return (
     <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-rail sm:w-[264px] sm:self-stretch sm:border-r sm:border-b-0">
@@ -830,6 +878,9 @@ function ChatRail({
           className="min-w-0 w-full flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
         >
           <option value="">Pick a chat…</option>
+          {viewingEntry && !ordered.some((c) => c.id === active) ? (
+            <option value={active}>{viewingEntry.title || "Untitled chat"}</option>
+          ) : null}
           {split
             ? origins.map((origin) => (
                 <optgroup key={origin.key} label={origin.label}>
@@ -875,6 +926,12 @@ function ChatRail({
               </li>
             ))
           : null}
+        {viewingEntry ? (
+          <ViewingEntry
+            chat={viewingEntry}
+            viewerLogin={viewerLogin}
+          />
+        ) : null}
         {!loading && ordered.length === 0 ? (
           <li className="px-2.5 py-2 text-sm leading-relaxed text-muted">
             {newDisabled
@@ -941,6 +998,7 @@ function ChatRail({
                       onDelete={onDelete}
                       onLeave={onLeave}
                       onHide={onHide}
+                      onUnwatch={onUnwatch}
                       deleting={deletingId === c.id}
                       viewerLogin={viewerLogin}
                       routine={c.routineId ? routineByChat.get(c.id) : undefined}
@@ -1007,6 +1065,7 @@ function ChatRow({
   onDelete,
   onLeave,
   onHide,
+  onUnwatch,
   deleting,
   viewerLogin,
   routine,
@@ -1020,6 +1079,7 @@ function ChatRow({
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
   onHide: (chat: Chat) => void;
+  onUnwatch: (chat: Chat) => void;
   deleting: boolean;
   viewerLogin: string;
 }) {
@@ -1043,7 +1103,9 @@ function ChatRow({
   const mayDelete = !ticket && (role === "" ? !foreign : role === "owner");
   const mayLeave = !ticket && !workspaceOnly && (role === "editor" || role === "viewer");
   const mayHide = Boolean(ticket);
-  const menu = mayRename || mayDelete || mayLeave || mayHide;
+  // A chat the viewer watches is in the rail by their choice, and leaves it the same way.
+  const mayUnwatch = chat.watched;
+  const menu = mayRename || mayDelete || mayLeave || mayHide || mayUnwatch;
   const unreadCount = active ? 0 : unread(chat);
   const shared = sharedByLabel(chat);
 
@@ -1287,6 +1349,12 @@ function ChatRow({
               Rename
             </DropdownMenuItem>
           ) : null}
+          {mayUnwatch ? (
+            <DropdownMenuItem data-testid="chat-unwatch" aria-label={`Unwatch ${chat.title}`} onSelect={() => onUnwatch(chat)}>
+              <EyeOff />
+              Unwatch
+            </DropdownMenuItem>
+          ) : null}
           {mayHide ? (
             <DropdownMenuItem data-testid="chat-hide" aria-label={`Hide ${chat.title}`} onSelect={() => onHide(chat)}>
               <EyeOff />
@@ -1442,6 +1510,8 @@ function Conversation({
   listedRoutineId,
   onRename,
   onLeave,
+  onChat,
+  watch,
   assistant,
   playbookNames,
 }: {
@@ -1478,6 +1548,10 @@ function Conversation({
   listedRoutineId?: string;
   onRename: (title: string) => Promise<void>;
   onLeave: () => void;
+  /** onChat is told what the stream says about the chat, for the rail's Viewing entry. */
+  onChat?: (chat: Chat) => void;
+  /** watch is the header's Watch or Unwatch, when the chat is unlisted or watched. */
+  watch?: { watched: boolean; busy: boolean; onWatch: (on: boolean) => void };
   assistant?: Assistant;
   playbookNames: string[];
 }) {
@@ -1562,6 +1636,9 @@ function Conversation({
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
   }, [qc, stream.chat]);
+  useEffect(() => {
+    if (stream.chat) onChat?.(stream.chat);
+  }, [onChat, stream.chat]);
 
   // Reading the chat moves the viewer's read mark to the newest message (phase 5), so its
   // unread count clears here and on every other screen that lists it. Only forward, and only
@@ -1743,6 +1820,9 @@ function Conversation({
                   <Monitor aria-hidden />
                   Desktop
                 </Button>
+              ) : null}
+              {watch && !stream.gone ? (
+                <WatchButton watched={watch.watched} busy={watch.busy} onWatch={watch.onWatch} />
               ) : null}
               {role !== "" && !routineId ? (
                 <ShareButton
