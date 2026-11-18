@@ -222,7 +222,7 @@ func TestALinearMentionThatNamesAPlaybookDelegatesIt(t *testing.T) {
 	assert.Equal(t, "dogfood", dlgs[0].Playbook)
 	assert.Equal(t, store.TurnRunning, dlgs[0].Status, "the conversation owns it after the turn")
 	assert.Equal(t, []string{testSpeaker}, startedBy(t, st, ev.SourceKey), "it is the person's turn")
-	assert.Contains(t, reactions(src.Records()), string(conductor.ReactionDone))
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	// An unknown name is the person's words, and the assistant's to read.
 	require.NoError(t, src.Send(ctx, mentionPrompt("s-32", "a-36", "/shrug what now")))
