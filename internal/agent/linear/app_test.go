@@ -915,3 +915,19 @@ func TestTheCatalogIsTheWorkspacesTeamsAndLabels(t *testing.T) {
 	assert.Equal(t, []TeamInfo{{Key: "ENG", Name: "Engineering"}}, teams)
 	assert.Equal(t, []LabelInfo{{Name: "bug"}, {Name: "infra", TeamKey: "ENG"}}, labels)
 }
+
+// The app's own token is what a run as Podium signs in to Linear's MCP server with: the one
+// its client spends, and none once Linear revoked the app.
+func TestTheAppsAccessTokenIsItsClients(t *testing.T) {
+	h := newAppHarness(t)
+	tok, err := h.src.AccessToken(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "lin_oauth_stub_1", tok)
+	again, err := h.src.AccessToken(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, tok, again, "a token with time left is not minted again")
+
+	revoked := newAppHarness(t, func(o *AppOptions) { o.Revoked = true })
+	_, err = revoked.src.AccessToken(t.Context())
+	assert.ErrorIs(t, err, ErrAppRevoked)
+}
