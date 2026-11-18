@@ -1,6 +1,7 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   ChevronDown,
+  EyeOff,
   Ellipsis,
   LogOut,
   Monitor,
@@ -19,6 +20,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   type Assistant,
   type Chat,
+  type ChatMessage,
   type Personality,
   type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
@@ -57,13 +59,16 @@ import {
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
+import { LinearMcpHint } from "./LinearMcpHint";
 import { OriginMark } from "./OriginMark";
 import { ChatPullRequests } from "./ChatPullRequests";
+import { LinearIssuePanel } from "./LinearIssuePanel";
 import { QuietRuns, RoutineCard } from "./RoutineCard";
 import { ChatPeople, ChatSurfaces } from "./chat/ChatPeople";
+import { TicketState, TicketTitle } from "./chat/Ticket";
 import { ShareButton } from "./chat/ShareDialog";
 import { ConductorDown } from "./ConductorDown";
-import { toThread } from "../../lib/chatThread";
+import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
@@ -237,6 +242,18 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  // Hiding takes a Linear ticket's conversation out of the rail until something new is said
+  // in it. It stays in the Issues view, so there is nothing to confirm.
+  const hide = useMutation({
+    mutationFn: (chat: Chat) => agent.setChatRailHidden({ chatId: chat.id, hidden: true }),
+    onSuccess: async (_res, chat) => {
+      toast(`${chat.linearIssue?.identifier || chat.title} is hidden until something new is said in it.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      if (active === chat.id) navigate(blank);
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
@@ -328,6 +345,7 @@ export function ChatPanel() {
           onRename={renameChat}
           onDelete={setPendingDelete}
           onLeave={(c) => leave.mutate(c)}
+          onHide={(c) => hide.mutate(c)}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
           voices={voiceRows}
@@ -465,10 +483,11 @@ function originLabel(key: string): string {
   if (key === "workspace") return "Workspace";
   if (key === "slack") return "Slack";
   if (key === "github") return "GitHub";
+  if (key === "linear") return "Linear";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
-const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "workspace"];
+const ORIGIN_ORDER = ["web", "routine", "shared", "slack", "github", "linear", "workspace"];
 
 /** Web chats and Slack threads are separate lists. Anything else keeps its own heading. */
 function groupByOrigin(chats: Chat[]): { key: string; label: string; chats: Chat[] }[] {
@@ -567,6 +586,7 @@ function ChatRail({
   onRename,
   onDelete,
   onLeave,
+  onHide,
   deletingId,
   viewerLogin,
   voices,
@@ -583,6 +603,7 @@ function ChatRail({
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
+  onHide: (chat: Chat) => void;
   deletingId?: string;
   viewerLogin: string;
   voices: VoiceRow[];
@@ -919,6 +940,7 @@ function ChatRail({
                       onRename={onRename}
                       onDelete={onDelete}
                       onLeave={onLeave}
+                      onHide={onHide}
                       deleting={deletingId === c.id}
                       viewerLogin={viewerLogin}
                       routine={c.routineId ? routineByChat.get(c.id) : undefined}
@@ -984,6 +1006,7 @@ function ChatRow({
   onRename,
   onDelete,
   onLeave,
+  onHide,
   deleting,
   viewerLogin,
   routine,
@@ -996,6 +1019,7 @@ function ChatRow({
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
   onLeave: (chat: Chat) => void;
+  onHide: (chat: Chat) => void;
   deleting: boolean;
   viewerLogin: string;
 }) {
@@ -1012,10 +1036,14 @@ function ChatRow({
   const role = roleOf(chat);
   const foreign = role === "" && chat.login !== "" && viewerLogin !== "" && chat.login !== viewerLogin;
   const workspaceOnly = chat.accessReason === "workspace";
-  const mayRename = role === "" ? !foreign : canWrite(role) && !workspaceOnly;
-  const mayDelete = role === "" ? !foreign : role === "owner";
-  const mayLeave = !workspaceOnly && (role === "editor" || role === "viewer");
-  const menu = mayRename || mayDelete || mayLeave;
+  // A Linear ticket's conversation is in the rail because the viewer touched the issue: it is
+  // named after the issue, and nobody leaves or deletes it — they hide it until it moves.
+  const ticket = chat.linearIssue;
+  const mayRename = !ticket && (role === "" ? !foreign : canWrite(role) && !workspaceOnly);
+  const mayDelete = !ticket && (role === "" ? !foreign : role === "owner");
+  const mayLeave = !ticket && !workspaceOnly && (role === "editor" || role === "viewer");
+  const mayHide = Boolean(ticket);
+  const menu = mayRename || mayDelete || mayLeave || mayHide;
   const unreadCount = active ? 0 : unread(chat);
   const shared = sharedByLabel(chat);
 
@@ -1153,7 +1181,9 @@ function ChatRow({
                       : "font-medium text-soft group-hover:text-fg",
                 )}
               >
-                {pr && pr[2] ? (
+                {ticket ? (
+                  <TicketTitle ticket={ticket} fallback={chat.title} />
+                ) : pr && pr[2] ? (
                   <>
                     <span className="font-semibold text-muted tabular-nums">#{pr[1]}</span> {pr[2]}
                   </>
@@ -1161,7 +1191,11 @@ function ChatRow({
                   chat.title
                 )}
               </span>
-            {subtitle.length > 0 ? (
+            {ticket ? (
+              <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
+                <TicketState ticket={ticket} />
+              </span>
+            ) : subtitle.length > 0 ? (
               <span data-testid="chat-row-where" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted">
                 {subtitle.map((part, i) => (
                   <Fragment key={i}>
@@ -1251,6 +1285,12 @@ function ChatRow({
             <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
               <Pencil />
               Rename
+            </DropdownMenuItem>
+          ) : null}
+          {mayHide ? (
+            <DropdownMenuItem data-testid="chat-hide" aria-label={`Hide ${chat.title}`} onSelect={() => onHide(chat)}>
+              <EyeOff />
+              Hide
             </DropdownMenuItem>
           ) : null}
           {mayLeave ? (
@@ -1499,7 +1539,7 @@ function Conversation({
     !sharedWithMe &&
     role !== "editor" &&
     role !== "viewer";
-  const multiplayer = stream.chat?.multiplayer === true || mirrored;
+  const multiplayer = stream.chat?.multiplayer === true;
   const personalityName = stream.chat?.personalityDisplay ?? "";
   const me = viewer?.login ?? "";
   // The chat's shared queue, as everybody in it sees it: what was put to Podium while it was
@@ -1559,8 +1599,11 @@ function Conversation({
   // arrival arrives as navigation state: the chat was created and the message stored
   // before this conversation mounted.
   const seeded = (location.state as { pendingText?: string } | null)?.pendingText;
-  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(
-    seeded ? { text: seeded, before: 0 } : null,
+  // `after` is the newest seq in hand when it was sent: the question is on the stream once a
+  // question with a higher seq is. A count of questions would not do — a page of older
+  // history landing meanwhile adds questions that are not this one.
+  const [pendingUser, setPendingUser] = useState<{ text: string; after: bigint } | null>(
+    seeded ? { text: seeded, after: 0n } : null,
   );
 
   const send = useMutation({
@@ -1580,7 +1623,7 @@ function Conversation({
       if (v.queues) return;
       setPendingUser({
         text: v.text,
-        before: stream.messages.filter((m) => m.role === "user").length,
+        after: stream.messages[stream.messages.length - 1]?.seq ?? 0n,
       });
     },
     onSuccess: (res) => {
@@ -1613,16 +1656,17 @@ function Conversation({
     onError: (err) => toast(errorMessage(err)),
   });
 
-  const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
-  const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  const pendingArrived =
+    pendingUser !== null && stream.messages.some((m) => m.role === "user" && m.seq > pendingUser.after);
+  const pendingVisible = pendingUser !== null && !pendingArrived;
   // The pending question is let go once the stream carries it and a turn has taken it up:
   // running, waiting on a reply, or already answered. Held past that, it kept the chat busy
   // (holdBusy, below) whenever the last row was not an answer, so anybody speaking after the
   // answer brought the waiting row back with nothing running.
   if (
     pendingUser !== null &&
-    userCount > pendingUser.before &&
+    pendingArrived &&
     (stream.running || stream.awaiting || last?.role === "assistant")
   ) {
     setPendingUser(null);
@@ -1648,18 +1692,22 @@ function Conversation({
   // Still loading until the stream says the replay is done: the chat's own frames arrive
   // before its messages, so going by the stream's phase showed the new-chat welcome for a
   // moment on every chat that has history.
-  const connecting =
-    !stream.replayed && stream.messages.length === 0 && !stream.gone && !pendingVisible && !listedEmpty;
-  const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
+  // The transcript is drawn once its replay is in, whole. Drawn row by row as the replay
+  // streamed, it grew under the reader at the bottom and pushed what was there up the screen
+  // — the chat moved after it had landed. The replay stays done across a reconnect, so a
+  // dropped stream does not take the transcript away.
+  const shown = stream.replayed ? stream.messages : NO_MESSAGES;
+  const connecting = !stream.replayed && !stream.gone && !pendingVisible && !listedEmpty;
+  const showWelcome = !connecting && shown.length === 0 && !pendingVisible;
   const thread = useMemo(
     () =>
       toThread({
-        messages: stream.messages,
+        messages: fromFirstTurn(shown, stream.hasOlder),
         busy,
         taskRunning: stream.chat?.taskRunning ?? false,
         pendingUser: pendingVisible ? pendingUser.text : undefined,
       }),
-    [stream.messages, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
+    [shown, stream.hasOlder, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
   );
 
   if (stream.gone) {
@@ -1720,6 +1768,10 @@ function Conversation({
           }
         />
         {routineId ? <RoutineCard chatId={chatId} /> : null}
+        {/* A Linear issue's conversation is headed by the issue as Linear has it now. */}
+        {origin === "linear" ? (
+          <LinearIssuePanel chatId={chatId} pullRequests={stream.pullRequests} refreshKey={stream.messages.length} />
+        ) : null}
         {/* While the transcript's code loads, the pane says it is loading. Empty, under the chat's
             title and above the composer, it read as a new chat. */}
         <Suspense fallback={<ThreadLoading />}>
@@ -1730,9 +1782,16 @@ function Conversation({
             progress={stream.progress}
             taskId={stream.taskId}
             onSend={(text) => submit(text, choice)}
+            history={{
+              more: stream.hasOlder,
+              loading: stream.loadingOlder,
+              error: stream.olderError,
+              load: stream.loadOlder,
+            }}
+            loading={connecting}
+            skeleton={<TranscriptSkeleton />}
             top={
               <>
-                {connecting ? <TranscriptSkeleton /> : null}
                 {stream.error ? (
                   <Alert variant="warn" title="The chat stream dropped and is reconnecting">
                     {stream.error}. Nothing was lost. The reconnect replays from the last message
@@ -1783,26 +1842,32 @@ function Conversation({
             This chat belongs to {owner}.
           </div>
         ) : (
-          <ChatComposer
-            // Never held: what is typed while a send is in flight is queued like anything else
-            // sent while Podium is busy, and a box that disabled itself as each send went out
-            // would take the caret away mid-sentence.
-            disabled={false}
-            running={stream.running && !stream.awaiting}
-            onStop={() => stop.mutate()}
-            queued={queued}
-            queueing={queueing}
-            onInterrupt={() => stop.mutate()}
-            onRemoveQueued={(id) => takeBack.mutate(id)}
-            multiplayer={multiplayer}
-            mirrored={mirrored ? origin : ""}
-            personality={personalityName}
-            agents={agents}
-            assistant={assistant}
-            choice={choice}
-            onChoiceChange={setChoice}
-            onSend={submit}
-          />
+          <>
+            {origin === "linear" ? (
+              // The assistant reaches Linear only through the person's own MCP server.
+              <LinearMcpHint className="mx-auto w-full max-w-3xl px-6 pt-2" />
+            ) : null}
+            <ChatComposer
+              // Never held: what is typed while a send is in flight is queued like anything else
+              // sent while Podium is busy, and a box that disabled itself as each send went out
+              // would take the caret away mid-sentence.
+              disabled={false}
+              running={stream.running && !stream.awaiting}
+              onStop={() => stop.mutate()}
+              queued={queued}
+              queueing={queueing}
+              onInterrupt={() => stop.mutate()}
+              onRemoveQueued={(id) => takeBack.mutate(id)}
+              multiplayer={multiplayer}
+              mirrored={mirrored ? origin : ""}
+              personality={personalityName}
+              agents={agents}
+              assistant={assistant}
+              choice={choice}
+              onChoiceChange={setChoice}
+              onSend={submit}
+            />
+          </>
         )}
       </div>
       {paneTask !== undefined ? (
@@ -1940,11 +2005,16 @@ function ArrivalWell({
   );
 }
 
+/** NO_MESSAGES is the transcript before its replay is in: one array, so the thread is not
+ *  rebuilt on every frame of the replay. */
+const NO_MESSAGES: ChatMessage[] = [];
+
 /** ThreadLoading is TranscriptSkeleton where ChatThread would draw it, for its Suspense fallback. */
 function ThreadLoading() {
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5">
+      {/* At the bottom, where the transcript will land: see ChatThread's bottomUp. */}
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-end gap-6 px-4 py-8 sm:px-5">
         <TranscriptSkeleton />
       </div>
     </div>
@@ -1972,7 +2042,8 @@ function TranscriptSkeleton() {
       {turns.map((t, i) => (
         <div
           key={i}
-          className="animate-in fade-in-0 slide-in-from-bottom-1 space-y-5 fill-mode-both duration-500"
+          // Fading in only: it sits where the messages will land, and nothing here moves.
+          className="animate-in fade-in-0 space-y-5 fill-mode-both duration-500"
           style={{ animationDelay: `${i * 120}ms` }}
         >
           <div className="flex justify-end">
@@ -1999,10 +2070,14 @@ function TranscriptSkeleton() {
  * view-only note) does not look like a control being taken away.
  */
 function ComposerPlaceholder() {
+  // The composer's own height: its box (the message row and the toolbar under it) and the
+  // note line beneath it, in the note's type. Shorter, the transcript above stood taller
+  // while the chat connected and dropped by the difference when the composer came in.
   return (
     <div aria-hidden className="pt-4">
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
-        <Skeleton className="h-[52px] rounded-3xl opacity-60" />
+        <Skeleton className="h-[98px] rounded-3xl opacity-60" />
+        <p className="mt-1.5 px-2 text-2xs">&nbsp;</p>
       </div>
     </div>
   );

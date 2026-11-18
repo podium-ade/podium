@@ -425,3 +425,147 @@ func newStorePair(t *testing.T) (*store.Store, *store.Store) {
 	t.Cleanup(b.Close)
 	return a, b
 }
+
+// A reply nobody tagged Podium in is still put to it while its speaker is the only human in
+// the conversation — a Slack thread with one person and any number of bots — and stops being
+// the moment a second human, in Podium or not, has spoken (EME-8).
+func TestAReplyIsAnsweredUntilASecondHumanSpeaks(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+	ctx := context.Background()
+
+	ask := inbound("C1/1.1", "what is this?")
+	ask.ExternalID = "1.1"
+	require.NoError(t, src.Send(ctx, ask))
+	waitFor(t, 30*time.Second, "the first turn", func() bool {
+		return turnStatus(st, ask.SourceKey) == store.TurnSucceeded
+	})
+
+	reply := func(ext, author string) {
+		ev := inbound("C1/1.1", "and then?")
+		ev.Author = author
+		ev.ExternalID = ext
+		ev.RecordOnly = true
+		ev.AnswerIfAlone = true
+		require.NoError(t, src.Send(ctx, ev))
+	}
+	recorded := func(ext string) (store.ChatMessage, bool) {
+		thread, err := st.ChatBySourceKey(ctx, ask.SourceKey)
+		if err != nil {
+			return store.ChatMessage{}, false
+		}
+		msgs, err := st.ListChatMessages(ctx, thread.ID, 0)
+		if err != nil {
+			return store.ChatMessage{}, false
+		}
+		for _, m := range msgs {
+			if m.ExternalID == ext {
+				return m, true
+			}
+		}
+		return store.ChatMessage{}, false
+	}
+
+	reply("1.2", "alice")
+	waitFor(t, 30*time.Second, "the untagged reply of the only human to start a turn", func() bool {
+		return len(fake.Specs()) == 2
+	})
+	got, ok := recorded("1.2")
+	require.True(t, ok)
+	assert.True(t, got.Addressed, "it was put to Podium")
+
+	// Somebody who never linked an account speaks: two humans, so only a tag is a turn.
+	reply("1.3", "bob")
+	waitFor(t, 10*time.Second, "bob's reply recorded", func() bool { _, ok := recorded("1.3"); return ok })
+	reply("1.4", "alice")
+	waitFor(t, 10*time.Second, "alice's second reply recorded", func() bool { _, ok := recorded("1.4"); return ok })
+	time.Sleep(500 * time.Millisecond) // give a third turn every chance to start
+
+	assert.Len(t, fake.Specs(), 2, "with two humans an untagged reply starts nothing")
+	for _, ext := range []string{"1.3", "1.4"} {
+		got, _ := recorded(ext)
+		assert.False(t, got.Addressed, ext)
+	}
+}
+
+// A bot's comment on a pull request is recorded and is not a human in it: one person and
+// dependabot do not make the chat multiplayer, and a second person does (EME-8). The source
+// says which speaker is a bot (InboundEvent.AuthorBot); a message that is not flagged is a
+// person, which is all a machine user can be told as.
+func TestABotOnAPullRequestDoesNotMakeItsChatMultiplayer(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	gh := fakesource.New(conductor.SourceGitHub)
+	gh.Mirrors()
+	t.Cleanup(gh.Close)
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium"})
+	require.NoError(t, err)
+	startWith(t, st, fake, gh, func(o *conductor.Options) { o.Mirror = web })
+	ctx := context.Background()
+
+	// A pull request Podium already holds, with one person who has spoken in it.
+	ask := inbound("acme/1", "looks fine")
+	ask.SourceKind, ask.BriefKind = conductor.SourceGitHub, conductor.SourceGitHub
+	ask.SourceKey = conductor.SourceGitHub + ":acme:1"
+	chat0, err := st.CreateMirrorChat(ctx, ask.SourceKey, store.OriginGitHub, "alice", "acme/repo#1")
+	require.NoError(t, err)
+	_, _, err = st.RecordChatMessage(ctx, store.ChatMessage{
+		ChatID: chat0.ID, Role: store.RoleUser, Author: "alice", Text: "looks fine",
+		Via: store.ViaGitHub, ExternalID: "issue_comment:1", Addressed: true,
+	})
+	require.NoError(t, err)
+
+	say := func(ext, author string, bot bool) {
+		ev := ask
+		ev.Author, ev.ExternalID, ev.AuthorBot, ev.RecordOnly = author, ext, bot, true
+		ev.Text, ev.RecordText = "a comment", "a comment"
+		require.NoError(t, gh.Send(ctx, ev))
+		waitFor(t, 10*time.Second, ext+" recorded", func() bool {
+			c, err := st.ChatBySourceKey(ctx, ask.SourceKey)
+			if err != nil {
+				return false
+			}
+			msgs, err := st.ListChatMessages(ctx, c.ID, 0)
+			if err != nil {
+				return false
+			}
+			for _, m := range msgs {
+				if m.ExternalID == ext {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	multiplayer := func() bool {
+		c, err := st.ChatBySourceKey(ctx, ask.SourceKey)
+		require.NoError(t, err)
+		return c.Multiplayer
+	}
+
+	say("issue_comment:2", "dependabot[bot]", true)
+	say("issue_comment:3", "codecov[bot]", true)
+	assert.False(t, multiplayer(), "one person and two bots")
+
+	say("issue_comment:4", "bob", false)
+	assert.True(t, multiplayer(), "a second person")
+
+	c, err := st.ChatBySourceKey(ctx, ask.SourceKey)
+	require.NoError(t, err)
+	msgs, err := st.ListChatMessages(ctx, c.ID, 0)
+	require.NoError(t, err)
+	bots := 0
+	for _, m := range msgs {
+		if m.AuthorBot {
+			bots++
+		}
+	}
+	assert.Equal(t, 2, bots, "what the bots said is still in the record")
+}

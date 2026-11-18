@@ -101,6 +101,70 @@ describe("PlaybookEditor", () => {
     });
   });
 
+  it("says the Linear switch is the poller's, and that delegations go by teams and labels", async () => {
+    mount();
+    const toggle = screen.getByRole("switch", { name: "Runs polled Linear tickets" });
+    expect(screen.getByText("This is the playbook polled Linear tickets run")).toBeInTheDocument();
+    expect(screen.getByText(/The Linear app\s+does not use it/)).toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(toggle).toBeChecked();
+  });
+
+  it("picks Linear teams from the workspace, takes typed labels, and says when the playbook runs", async () => {
+    mount({
+      linearTeams: [
+        { key: "ENG", name: "Engineering" },
+        { key: "OPS", name: "Operations" },
+      ],
+      linearLabels: [
+        { name: "bug", teamKey: "" },
+        { name: "infra", teamKey: "OPS" },
+      ],
+    });
+    const rule = screen.getByTestId("playbook-linear-rule");
+    expect(rule).toHaveTextContent("No Linear rule");
+
+    await userEvent.type(screen.getByLabelText("Playbook name"), "bugs");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/bugs:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Fix bugs.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+
+    await userEvent.click(screen.getByRole("button", { name: "ENG · Engineering" }));
+    expect(rule).toHaveTextContent("Runs when an issue in ENG is delegated to Podium in Linear.");
+    expect(screen.queryByRole("button", { name: "ENG · Engineering" })).toBeNull();
+
+    await userEvent.type(screen.getByLabelText("Linear labels"), "bug{Enter}Regression,");
+    expect(rule).toHaveTextContent("Runs when an issue in ENG labelled bug or Regression is delegated");
+    await userEvent.type(screen.getByLabelText("Linear labels"), "BUG{Enter}");
+
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      linearTeams: ["ENG"],
+      linearLabels: ["bug", "Regression"],
+    });
+  });
+
+  it("keeps a playbook's Linear rules, and drops one that is removed", async () => {
+    mount({
+      playbook: create(PlaybookDefinitionSchema, {
+        name: "ops",
+        image: "podium-agent-runtime:dev",
+        systemPrompt: "Run ops.",
+        allowedTools: ["read"],
+        editable: true,
+        linearTeams: ["OPS", "SRE"],
+        linearLabels: ["incident"],
+      }),
+    });
+    expect(screen.getByTestId("playbook-linear-rule")).toHaveTextContent(
+      "Runs when an issue in OPS or SRE labelled incident is delegated",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove SRE" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ linearTeams: ["OPS"], linearLabels: ["incident"] });
+  });
+
   // The gap Phase 2 left open: a playbook made in a browser had no way to name a skill, so
   // the allow-list only existed in a file.
   it("sends the skills allow-list, and nothing when none is named", async () => {
@@ -158,6 +222,19 @@ describe("PlaybookEditor", () => {
 
     await userEvent.click(screen.getByLabelText("Reviews pull requests"));
     expect(screen.queryByLabelText("Offered on pull requests to")).toBeNull();
+  });
+
+  it("sends the repositories a playbook reviews, and offers it to nobody else by role", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "api-review");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/review:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Review the API.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+    await userEvent.type(screen.getByLabelText("Reviews pull requests in"), "acme/api, acme/billing");
+    expect(screen.queryByLabelText("Offered on pull requests to")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit.mock.calls[0][0].githubRepos).toEqual(["acme/api", "acme/billing"]);
+    expect(onSubmit.mock.calls[0][0].githubRequires).toBe("");
   });
 
   // Same three states a skill has, because the turn fails the same way in two of them: a

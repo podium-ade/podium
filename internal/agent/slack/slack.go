@@ -333,6 +333,9 @@ func (s *Source) record(ctx context.Context, channel, ts, threadTS, user, text s
 	ev.RecordOnly = true
 	ev.Mentioned = false
 	ev.MirrorKey = s.boundReview(ctx, channel, threadOf(threadTS, ts))
+	// A pull request's conversation is everybody's, so a thread bound to one never takes a reply
+	// to be for the bot.
+	ev.AnswerIfAlone = ev.MirrorKey == ""
 	s.offer(ctx, ev)
 }
 

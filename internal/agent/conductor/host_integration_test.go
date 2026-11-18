@@ -241,6 +241,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 
 	// Nothing was asked of the control plane. That is the point of a host turn.
 	assert.Empty(t, fake.Specs(), "a host turn creates no task")
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	records := src.Records()
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionDone)},
@@ -270,7 +271,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	assert.Equal(t, "why does it 500?", report.Instruction)
 
 	// The assistant: the short tool list, and no repository to point a tool at.
-	assert.Equal(t, []string{"webfetch", "todoread", "todowrite"}, report.Tools)
+	assert.Equal(t, []string{"webfetch", "todowrite"}, report.Tools)
 	assert.Zero(t, report.Repos)
 
 	// The jail: a HOME of its own, not the operator's, and a working directory beside it.
@@ -330,6 +331,7 @@ func TestAHostTurnThatFailsSaysSoAndRecordsIt(t *testing.T) {
 	waitFor(t, 30*time.Second, "the host turn to fail", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnFailed
 	})
+	awaitOutcome(t, src, conductor.ReactionFailed)
 
 	records := src.Records()
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionFailed)},

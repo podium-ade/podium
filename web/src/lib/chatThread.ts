@@ -29,6 +29,9 @@ export { parseActivity, type Activity } from "./activity";
  * speaks again after answering — a follow-up — opens a new block where that happens.
  */
 
+/** PENDING_USER is the id of the question sent from this screen and not yet on the stream. */
+export const PENDING_USER = "pending-user";
+
 /** TASK_TOOL is the tool name a delegated task is drawn under. It is Podium's, not the model's. */
 export const TASK_TOOL = "podium_task";
 
@@ -60,6 +63,26 @@ export interface MessageCustom {
    * landed, and for a conversation Podium holds itself.
    */
   undelivered?: Undelivered[];
+  /**
+   * ranAs is who the turn that said this ran as, in words: a person's name, or "the routine
+   * Nightly triage". Set in a Linear issue's conversation, where people read turns somebody
+   * else ran with their own secrets and accounts.
+   */
+  ranAs?: string;
+  /**
+   * hiddenSteps is how many steps of somebody else's turn the server withheld from this
+   * reader: its tool calls, thoughts and progress lines. The view counts them, and that is
+   * all there is to show.
+   */
+  hiddenSteps?: number;
+}
+
+/** ranAsLabel is who a bot row's turn ran as, in words, or undefined when the row does not say. */
+export function ranAsLabel(m: ChatMessage): string | undefined {
+  if (m.ranAsRoutine) return `the routine ${m.ranAsRoutine}`;
+  if (m.ranAsName) return m.ranAsName;
+  if (m.ranAs) return m.ranAs;
+  return undefined;
 }
 
 /** Undelivered is one answer's copy that did not reach where it was owed. */
@@ -95,6 +118,8 @@ function userCustom(m: ChatMessage): MessageCustom {
     addressed: m.via ? m.addressed : true,
     edited: m.editedAt !== undefined,
     deleted: m.deleted || undefined,
+    // A person's message in a Linear issue's conversation is owed to the issue as theirs.
+    undelivered: undeliveredOf(m),
   };
 }
 
@@ -127,6 +152,22 @@ interface Assistant {
   tasks: Map<string, TaskBlock>;
   attachments: ChatAttachment[];
   undelivered: Undelivered[];
+  ranAs?: string;
+  hiddenSteps: number;
+}
+
+/**
+ * fromFirstTurn is the rows to draw while there is history above them: from the first row
+ * that starts a turn — a question, or a divider — on. A page of history can begin halfway
+ * through a turn, and that part-turn is drawn again, under a new id, once the page above
+ * brings its beginning: everything in it was thrown away and re-made, focus with it. Held
+ * back until then, every message drawn keeps its id as pages land. A tail with no turn
+ * start in it at all is drawn whole: nothing would be left to draw.
+ */
+export function fromFirstTurn(messages: readonly ChatMessage[], more: boolean): readonly ChatMessage[] {
+  if (!more) return messages;
+  const at = messages.findIndex((m) => m.role === "user" || m.role === "notice");
+  return at > 0 ? messages.slice(at) : messages;
 }
 
 export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInput): ThreadMessageLike[] {
@@ -188,9 +229,17 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
       tasks: new Map(),
       attachments: [],
       undelivered: [],
+      hiddenSteps: 0,
     };
     current.attachments.push(...m.attachments);
     current.undelivered.push(...undeliveredOf(m));
+    current.ranAs ??= ranAsLabel(m);
+
+    if (m.redacted) {
+      // A step of somebody else's turn: the server sent that it happened and nothing else.
+      current.hiddenSteps++;
+      continue;
+    }
 
     if (m.taskId === "") {
       const part = rowPart(m);
@@ -226,7 +275,7 @@ export function toThread({ messages, busy, taskRunning, pendingUser }: ThreadInp
   const thread = out.map((m) => ("role" in m ? m : finish(m, live)));
 
   if (pendingUser !== undefined) {
-    thread.push({ id: "pending-user", role: "user", content: pendingUser });
+    thread.push({ id: PENDING_USER, role: "user", content: pendingUser });
   }
   const tail = thread[thread.length - 1];
   if (busy && tail?.role !== "assistant") {
@@ -305,7 +354,12 @@ function finish(a: Assistant, live: boolean): ThreadMessageLike {
       isError: status.type === "incomplete",
     };
   }
-  const custom: MessageCustom = { attachments: a.attachments, undelivered: a.undelivered };
+  const custom: MessageCustom = {
+    attachments: a.attachments,
+    undelivered: a.undelivered,
+    ranAs: a.ranAs,
+    hiddenSteps: a.hiddenSteps || undefined,
+  };
   return {
     id: a.id,
     role: "assistant",

@@ -132,3 +132,23 @@ from (
 ) r
 group by r.started_by
 order by cost_usd desc, turns desc;
+
+-- ListChatTurnRunners is every turn of the conversation a chat records, oldest first, with who
+-- it ran as and the tasks it ran: its own (a playbook's turn) and every one it delegated. It is
+-- what tells a reader of a Linear issue's conversation which of its rows are somebody else's
+-- work (0049, api/runner.go): a row with a task id belongs to the turn that ran that task, and
+-- the assistant's own rows to the turn that was running when they were said — a conversation
+-- runs one turn at a time. routine_name and routine_system name a routine's run.
+-- name: ListChatTurnRunners :many
+select t.id, coalesce(t.task_id, '')::text as task_id, t.started_by, t.started_at,
+       coalesce(r.name, '')::text as routine_name,
+       coalesce(r.scope = 'system', false)::bool as routine_system,
+       coalesce(r.owner_login, '')::text as routine_owner,
+       coalesce((select array_agg(d.task_id order by d.created_at) from delegations d
+                  where d.turn_id = t.id and d.task_id is not null), '{}')::text[] as delegated
+  from turns t
+  join sessions s on s.id = t.session_id
+  left join routine_runs rr on rr.id = t.routine_run_id
+  left join routines r on r.id = rr.routine_id
+ where s.source_key = (select c.source_key from chats c where c.id = @chat_id)
+ order by t.started_at, t.id;

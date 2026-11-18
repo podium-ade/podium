@@ -71,6 +71,8 @@ type turnRun struct {
 	warm bool
 	// spoke is set once the turn has said anything, so its first word is timed once.
 	spoke bool
+	// watch is this turn's task as the watchdog sees it (watchdog.go).
+	watch *watch
 }
 
 // noteFirstMessage times the turn's first word, once: the boot a person waited through.
@@ -84,6 +86,10 @@ func (r *turnRun) noteFirstMessage() {
 
 // run relays the task's messages and then records how the turn ended.
 func (r *turnRun) run(ctx context.Context) {
+	// A turn's instruction is not kept anywhere a new task could be started from, so a
+	// wedged one can only be ended; one that is only quiet can still be interrupted.
+	r.watch = &watch{taskID: r.turn.TaskID, sessionID: r.sess.ID, playbook: r.job.playbook.Name, sink: r.sink}
+	defer r.c.startWatch(r.watch)()
 	f := &follower{
 		tasks:       r.c.podium.Tasks,
 		taskID:      r.turn.TaskID,
@@ -123,6 +129,7 @@ func (r *turnRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.job.playbook.Timeout.Std())
+	r.c.noteRefusal(ctx, r.turn.Backend.Provider, r.answer(), result.Status == store.TurnFailed)
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.
@@ -130,7 +137,10 @@ func (r *turnRun) run(ctx context.Context) {
 			"turn_id", r.turn.ID, "task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason(),
 			"error_event", r.errText)
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post})
+		r.c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, false); note != "" {
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Speaker: r.speaker, Text: note})
@@ -269,8 +279,13 @@ func (c *Conductor) linkPullRequests(ctx context.Context, src Source, ref, answe
 // onEvent is the relay. Only MESSAGE events say anything; ERROR is remembered for the log;
 // everything else, log chunks included, is ignored — the conductor is not a log consumer.
 func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
+	r.c.observeWatch(ctx, r.watch, e)
 	switch e.GetKind() {
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:
+		if msg := e.GetMessage(); msg.GetType() == MsgHeartbeat {
+			// Liveness for the watchdog, and nothing anybody should see.
+			return
+		}
 		if msg := e.GetMessage(); msg.GetType() == MsgAccounting {
 			// Deliberately not through the relayed ledger: accounting is never said out
 			// loud, so exactly-once does not apply to it, and leaving its seq unclaimed is

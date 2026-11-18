@@ -104,6 +104,9 @@ type fakeTask struct {
 	events   []*podiumv1.TaskEvent
 	done     chan struct{}
 	doneOnce sync.Once
+	// cancelReason is what a CancelTask said, which the real server writes as the task's
+	// failure_reason once it is cancelled.
+	cancelReason string
 }
 
 func newFakePodium(t *testing.T) *fakePodium {
@@ -248,6 +251,12 @@ func (f *fakePodium) GetTask(
 		out.Status = terminal
 		out.ExitCode = exit
 		out.FailureReason = reason
+		f.mu.Lock()
+		if ft.cancelReason != "" {
+			// The server's own rule: a stop's reason wins over whatever the exit implied.
+			out.FailureReason = ft.cancelReason
+		}
+		f.mu.Unlock()
 		out.FinishedAt = timestamppb.Now()
 	default:
 		if queued {
@@ -307,6 +316,7 @@ func (f *fakePodium) CancelTask(
 	}
 	f.mu.Lock()
 	ft.task.Status = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	ft.cancelReason = req.Msg.GetReason()
 	f.mu.Unlock()
 	ft.doneOnce.Do(func() { close(ft.done) })
 	return connect.NewResponse(&podiumv1.CancelTaskResponse{}), nil

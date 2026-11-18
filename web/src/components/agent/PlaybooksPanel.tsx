@@ -386,6 +386,12 @@ function useEditorContext(): Omit<PlaybookEditorProps, "playbook" | "onSubmit" |
     retry: false,
   });
   const runsOn = useQuery({ queryKey: ["agent", "runsOn"], queryFn: () => agent.getRunsOn({}), retry: false });
+  // Only fills the Linear pickers: without it the editor takes typed team keys and labels.
+  const linearCatalog = useQuery({
+    queryKey: ["agent", "linearCatalog"],
+    queryFn: () => agent.listLinearCatalog({}),
+    retry: false,
+  });
 
   return {
     agents,
@@ -403,6 +409,8 @@ function useEditorContext(): Omit<PlaybookEditorProps, "playbook" | "onSubmit" |
     mcpUnknown: mcpList.isError || mcpList.isPending,
     sandboxProviders: providerList.data?.providers,
     defaultRunsOn: runsOn.data?.runsOn?.runsOn,
+    linearTeams: linearCatalog.data?.teams.map((t) => ({ key: t.key, name: t.name })),
+    linearLabels: linearCatalog.data?.labels.map((l) => ({ name: l.name, teamKey: l.teamKey })),
   };
 }
 
@@ -449,8 +457,8 @@ function count(n: number, noun: string): string {
 function Triggers({ p }: { p: PlaybookDefinition }) {
   const chips = [
     (p.slackChannels ?? []).length > 0 ? "Slack" : "",
-    p.linear ? "Linear" : "",
-    p.github ? "GitHub" : "",
+    p.linear || (p.linearTeams ?? []).length > 0 || (p.linearLabels ?? []).length > 0 ? "Linear" : "",
+    p.github || (p.githubRepos ?? []).length > 0 ? "GitHub" : "",
   ].filter(Boolean);
   if (chips.length === 0) return <span className="text-xs text-faint">Chat</span>;
   return (
@@ -486,7 +494,10 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     git: draft.git,
     slackChannels: draft.slackChannels,
     linear: draft.linear,
+    linearTeams: draft.linearTeams,
+    linearLabels: draft.linearLabels,
     github: draft.github,
+    githubRepos: draft.githubRepos,
     githubRequires: draft.githubRequires,
     interactive: draft.interactive,
     docker: draft.docker,

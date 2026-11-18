@@ -97,6 +97,11 @@ func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", nil
 	}
+	if err == nil && role == "" && Infra(ctx) && store.IsLinearConversation(c.SourceKey) {
+		// An admin or owner reads every Linear issue's conversation (0048), and only reads it:
+		// what they may do in one beyond that is what their own part in it gives them.
+		return store.RoleViewer, nil
+	}
 	return role, err
 }
 
@@ -112,6 +117,11 @@ func (s *AgentService) openChat(ctx context.Context, c store.Chat, login, linkTo
 	if c.Login == "" && c.RoutineID != "" {
 		// A system routine's chat is read through the admin's role, never joined: opening it
 		// writes no access row, so it stays out of their chat list and is never shared.
+		return role, nil
+	}
+	if store.IsLinearConversation(c.SourceKey) && role != "" && !validLinkToken(c, linkToken) {
+		// A Linear issue's conversation read by having touched the issue, or as an admin, is
+		// not joined either: who may read it follows the issue, not a row opening it wrote.
 		return role, nil
 	}
 	via := ""
@@ -202,7 +212,20 @@ func (s *AgentService) ownedChat(ctx context.Context, chatID, login string) (sto
 // is warned about as possibly private. A pull request is as visible as its repository, which
 // Podium does not know — GitHub's own access is the boundary, and nobody reaches a PR's chat
 // here without having been in the PR.
+//
+// A Linear agent session is as private as its issue's team. The Linear source asks Linear
+// whether that team is private and the mirror records it in the same column; a team it could
+// not ask about is warned about as possibly private, never assumed public.
 func sourcePrivacy(c store.Chat) (private, unknown bool) {
+	if c.Origin == store.OriginLinear {
+		switch c.ChannelPrivacy {
+		case store.ChannelPublic:
+			return false, false
+		case store.ChannelPrivate:
+			return true, false
+		}
+		return false, true
+	}
 	if c.Origin != store.OriginSlack {
 		return false, false
 	}
@@ -336,9 +359,6 @@ func (s *AgentService) UpdateChatSharing(
 			s.auditChat(ctx, login, AuditChatLinkReset, row.ID, nil)
 		}
 	}
-	if row.GeneralAccess != store.AccessRestricted {
-		s.chat.Multiplayer(ctx, row.ID, true, "")
-	}
 	s.chat.ChatChanged(ctx, row.ID)
 	out, err := s.sharingToProto(ctx, row, store.RoleOwner)
 	if err != nil {
@@ -382,7 +402,6 @@ func (s *AgentService) ShareChat(
 	s.auditChat(ctx, login, AuditChatShare, row.ID, map[string]any{
 		"login": target, "role": req.Msg.GetRole(), "first": first,
 	})
-	s.chat.Multiplayer(ctx, row.ID, true, "")
 	s.chat.ChatChanged(ctx, row.ID)
 	out, err := s.sharingToProto(ctx, row, store.RoleOwner)
 	if err != nil {
@@ -525,6 +544,7 @@ func (s *AgentService) ListNotifications(
 		out = append(out, &agentv1.Notification{
 			Id: n.ID, Kind: n.Kind, ChatId: n.ChatID, ChatTitle: n.ChatTitle, Seq: n.Seq,
 			Actor: n.Actor, Detail: n.Detail, CreatedAt: timestamppb.New(n.CreatedAt), Read: n.Read,
+			LinearIdentifier: n.LinearIdentifier, LinearTitle: n.LinearTitle,
 		})
 	}
 	return connect.NewResponse(&agentv1.ListNotificationsResponse{Notifications: out}), nil

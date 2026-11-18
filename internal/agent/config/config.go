@@ -125,10 +125,19 @@ const DefaultMemoryBank = "podium"
 // not a "which Linear" knob.
 const DefaultLinearURL = "https://api.linear.app/graphql"
 
+// DefaultLinearTokenURL is Linear's OAuth token endpoint, where the agent app's client
+// credentials are exchanged for an access token. Overridable for the same reasons as
+// DefaultLinearURL, and it is not a "which Linear" knob either.
+const DefaultLinearTokenURL = "https://api.linear.app/oauth/token"
+
 // DefaultLinearPollInterval is how often the Linear source asks for issues that changed.
 // Linear bills 2,500 requests an hour against a personal API key, so 30s of one query is
 // two orders of magnitude inside the budget.
 const DefaultLinearPollInterval = 30 * time.Second
+
+// DefaultWatchdogQuiet is how long a running task may report nothing before the conductor
+// asks its conversation whether to wait, restart it or end it.
+const DefaultWatchdogQuiet = 10 * time.Minute
 
 // MinLinearPollInterval is the floor. Polling harder than this buys nothing a human would
 // notice and spends a quota shared by every key that user owns.
@@ -258,16 +267,40 @@ type Config struct {
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
 	// every turn's container gets it. SENSITIVE: never log it.
 	MemoryAPIKey string
+	// MemoryLLMToken is PODIUM_AGENT_MEMORY_LLM_TOKEN: the bearer the memory service presents
+	// when it calls this conductor for fact extraction (the /memory-llm/ route). It is set on
+	// the memory service as its LLM API key and its base URL points here, so the provider key
+	// and model behind it are chosen in the UI rather than in the memory service's
+	// environment. Empty means the route is not served and the memory service uses its own
+	// key. It is deliberately NOT MemoryAPIKey: every turn's container holds that one, and a
+	// turn must not be able to spend the organisation's model key through this route.
+	// SENSITIVE: never log it.
+	MemoryLLMToken string
 	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
-	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
-	// turns the Linear source off entirely. SENSITIVE: never log it.
+	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). It is the
+	// poller's, which runs only while no Linear app is saved. Empty turns the poller off.
+	// SENSITIVE: never log it.
 	LinearAPIKey string
 	// LinearURL is PODIUM_AGENT_LINEAR_URL, default DefaultLinearURL.
 	LinearURL string
 	// LinearPollInterval is PODIUM_AGENT_LINEAR_POLL_INTERVAL, default 30s, floor 10s.
-	// Linear is polled and never listened to: the conductor dials out, like every other
-	// thing on this host.
+	// The poller dials out, like every other thing on this host. A saved Linear app is
+	// listened to instead, on its webhook.
 	LinearPollInterval time.Duration
+	// LinearClientID is the Linear agent app's OAuth client id, saved under Settings →
+	// Connections. It is not read from the environment: PODIUM_AGENT_LINEAR_API_KEY is
+	// the poller's key and nothing else. Empty turns the app off.
+	LinearClientID string
+	// LinearClientSecret is that app's client secret, saved with it. SENSITIVE: never log it.
+	LinearClientSecret string
+	// LinearWebhookSecret is the signing secret of the app's webhook, saved with it. Linear
+	// signs each delivery with it. SENSITIVE: never log it.
+	LinearWebhookSecret string
+	// LinearWebhookListen is the host:port the app's webhook handler binds, saved with it.
+	// It may be the GitHub App's address, and then the two share one listener.
+	LinearWebhookListen string
+	// LinearTokenURL is PODIUM_AGENT_LINEAR_TOKEN_URL, default DefaultLinearTokenURL.
+	LinearTokenURL string
 	// GitHubWebhookSecret is the webhook secret saved with the App under Settings →
 	// Connections. Empty turns the review source off even when the App is configured
 	// for clone. SENSITIVE: never log it.
@@ -363,6 +396,10 @@ type Config struct {
 	// NotifyAway is PODIUM_AGENT_NOTIFY_AWAY: how long a person has said nothing in a
 	// conversation before a task ending there is sent to them. Zero is the conductor's default.
 	NotifyAway time.Duration
+	// WatchdogQuiet is PODIUM_AGENT_WATCHDOG_QUIET: how long a running task may report
+	// nothing before its conversation is asked whether to wait, restart it or end it.
+	// Default DefaultWatchdogQuiet; 0s turns the watchdog off.
+	WatchdogQuiet time.Duration
 	// ReplicaID is PODIUM_AGENT_REPLICA_ID: this conductor's identity among the conductors
 	// that share its database, which its leases on sessions and delegations are held under.
 	// Default ReplicaIDFor(hostname, Listen): stable across this conductor's restarts, so it
@@ -425,8 +462,10 @@ func FromEnv() Config {
 		MemorySandboxURL:     strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_SANDBOX_URL")),
 		MemoryBank:           envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
 		MemoryAPIKey:         os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
+		MemoryLLMToken:       strings.TrimSpace(os.Getenv("PODIUM_AGENT_MEMORY_LLM_TOKEN")),
 		LinearAPIKey:         os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
 		LinearURL:            envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		LinearTokenURL:       envOr("PODIUM_AGENT_LINEAR_TOKEN_URL", DefaultLinearTokenURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
 		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
@@ -448,6 +487,7 @@ func FromEnv() Config {
 		SMTPURL:               strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_URL")),
 		SMTPFrom:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_SMTP_FROM")),
 		NotifyAway:            envDuration("PODIUM_AGENT_NOTIFY_AWAY", 0),
+		WatchdogQuiet:         envDuration("PODIUM_AGENT_WATCHDOG_QUIET", DefaultWatchdogQuiet),
 		ReplicaID:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_REPLICA_ID")),
 		SandboxURL:            strings.TrimSpace(os.Getenv("PODIUM_AGENT_SANDBOX_URL")),
 		SurfaceListen:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_SURFACE_LISTEN")),
@@ -461,9 +501,16 @@ func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
 }
 
-// LinearEnabled reports whether the Linear source should be started. One variable turns it
-// on: an API key belonging to the bot user.
+// LinearEnabled reports whether the poller's key is set: an API key belonging to the bot
+// user. A saved app still wins: the poller runs only while LinearAppEnabled is false.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// LinearAppEnabled reports whether a Linear agent app is saved: a client id and its
+// secret. When it is, the app's webhooks run and the poller does not, whatever
+// LinearEnabled says: the two would start every ticket twice.
+func (c Config) LinearAppEnabled() bool {
+	return c.LinearClientID != "" && c.LinearClientSecret != ""
+}
 
 // GitHubSourceEnabled reports whether the GitHub review source should start: the App is
 // configured (so it can post) and the webhook listener is fully set.
@@ -572,6 +619,9 @@ func (c Config) Validate() error {
 	if err := c.validateGitHubSource(); err != nil {
 		return err
 	}
+	if err := c.validateLinearApp(); err != nil {
+		return err
+	}
 	if err := c.validateHostAndSurface(); err != nil {
 		return err
 	}
@@ -659,6 +709,11 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("linear", c.LinearEnabled()),
 		slog.String("linear_url", c.LinearURL),
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
+		// The client id is public OAuth client metadata, like the xAI and OpenAI ones above.
+		slog.Bool("linear_app", c.LinearAppEnabled()),
+		slog.String("linear_client_id", c.LinearClientID),
+		slog.String("linear_webhook_listen", c.LinearWebhookListen),
+		slog.String("linear_token_url", c.LinearTokenURL),
 		slog.String("ui_url", c.WebURL()),
 		slog.Bool("github_app", c.GitHubAppEnabled()),
 		slog.Bool("github_source", c.GitHubSourceEnabled()),
@@ -670,6 +725,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("host_isolation", c.HostIsolation),
 		slog.String("host_memory_max", c.HostMemoryMax),
 		slog.Duration("host_warm", c.HostWarm),
+		slog.Duration("watchdog_quiet", c.WatchdogQuiet),
 		slog.String("chat_host", c.ChatHost),
 		slog.String("chat_host_claude", c.ChatHostClaude),
 		slog.String("public_url", c.PublicURL),
@@ -776,6 +832,11 @@ func (c Config) validateLinear() error {
 				"URL ending in the GraphQL path (default %s)", c.LinearURL, DefaultLinearURL)
 		}
 	}
+	if c.LinearTokenURL != "" {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_LINEAR_TOKEN_URL", c.LinearTokenURL); err != nil {
+			return err
+		}
+	}
 	switch {
 	case c.LinearPollInterval < 0:
 		// envDuration reports an unparseable value this way, so the name is reported here
@@ -799,6 +860,33 @@ func (c Config) validateLinear() error {
 		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateLinearApp refuses a half-configured Linear app. Settings → Connections saves all
+// four fields together, so a half here is a hand-built Config or a damaged row, and it is
+// cheaper to say so than to run an app that cannot sign in or cannot check a delivery.
+func (c Config) validateLinearApp() error {
+	switch {
+	case c.LinearClientID == "" && c.LinearClientSecret == "" &&
+		c.LinearWebhookSecret == "" && c.LinearWebhookListen == "":
+		return nil
+	case c.LinearClientID == "":
+		return errors.New("the Linear app's client id is missing: the client secret, webhook " +
+			"secret and listen address name no app without it")
+	case c.LinearClientSecret == "":
+		return errors.New("the Linear app's client secret is missing: the client id alone " +
+			"cannot sign in")
+	case c.LinearWebhookSecret == "":
+		return errors.New("the Linear app's webhook signing secret is missing: without it a " +
+			"delivery cannot be told from a forgery")
+	case c.LinearWebhookListen == "":
+		return errors.New("the Linear app's webhook listen address is missing")
+	}
+	if _, _, err := net.SplitHostPort(c.LinearWebhookListen); err != nil {
+		return fmt.Errorf("the Linear app's webhook listen address %q must be host:port, such as "+
+			"0.0.0.0:8091", c.LinearWebhookListen)
 	}
 	return nil
 }
@@ -843,6 +931,11 @@ func (c Config) validateMemory() error {
 		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +
 			"is set: Hindsight has no authentication until it is given a key, so an install " +
 			"without one is a memory anybody who can reach the port can read and rewrite")
+	}
+	if c.MemoryLLMToken != "" && c.MemoryLLMToken == c.MemoryAPIKey {
+		return errors.New("PODIUM_AGENT_MEMORY_LLM_TOKEN must differ from PODIUM_AGENT_MEMORY_API_KEY: " +
+			"every turn's container is given the memory API key, and the LLM token spends the " +
+			"organisation's model key")
 	}
 	if !bankNameRE.MatchString(c.MemoryBank) {
 		return fmt.Errorf("PODIUM_AGENT_MEMORY_BANK=%q must match %s: it becomes a path segment "+
@@ -954,6 +1047,9 @@ func (c Config) validateHostAndSurface() error {
 	}
 	if c.HostWarm < 0 {
 		return errors.New("PODIUM_AGENT_HOST_WARM must not be negative; 0s turns the warm window off")
+	}
+	if c.WatchdogQuiet < 0 {
+		return errors.New("PODIUM_AGENT_WATCHDOG_QUIET must be a duration such as 10m; 0s turns the watchdog off")
 	}
 	if (c.SMTPURL == "") != (c.SMTPFrom == "") {
 		return errors.New("PODIUM_AGENT_SMTP_URL and PODIUM_AGENT_SMTP_FROM go together")

@@ -38,7 +38,7 @@ in this image, and its source is in the Debian archive for Debian 13 (trixie).
 |---|---|
 | Podium agent runtime | Apache-2.0 |
 | Node.js | MIT |
-| opencode (`opencode-ai`) | MIT |
+| opencode (`@opencode/cli`) | MIT |
 | GitHub CLI (`gh`) | MIT |
 | git | GPL-2.0 |
 | bash | GPL-3+ |

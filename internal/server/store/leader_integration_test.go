@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,4 +73,38 @@ func TestOneServerLeadsAndAnotherTakesOver(t *testing.T) {
 	defer mu.Unlock()
 	assert.True(t, leading["b"], "the other takes over")
 	assert.Equal(t, 1, most)
+}
+
+// TestAJobThatReturnsIsDone: a job that returns nil while it still leads — one that is
+// switched off, say — is finished. It is not run again, and RunAsLeader returns, rather than
+// taking the lock and a connection over and over as fast as Postgres answers.
+func TestAJobThatReturnsIsDone(t *testing.T) {
+	old := leaderRetry
+	leaderRetry = 50 * time.Millisecond
+	t.Cleanup(func() { leaderRetry = old })
+
+	s, err := New(context.Background(), newDatabase(t))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	var runs atomic.Int32
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, s.RunAsLeader(ctx, "podium.test.off", func(context.Context) error {
+		runs.Add(1)
+		return nil
+	}))
+	assert.NoError(t, ctx.Err(), "RunAsLeader returned on its own, not at the deadline")
+	assert.Equal(t, int32(1), runs.Load(), "a finished job runs once")
+
+	// And the lock went with it: another caller can lead at once.
+	got := make(chan struct{})
+	go func() {
+		_ = s.RunAsLeader(ctx, "podium.test.off", func(context.Context) error { close(got); return nil })
+	}()
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the lock was not released")
+	}
 }

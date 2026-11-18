@@ -25,7 +25,7 @@ export const ProtocolVersion = "2025-06-18";
 
 /** SupportedProtocols are the versions this server will echo. Anything else gets
  * ProtocolVersion, and the client decides whether it can live with that — which is what
- * opencode 1.19.5 does: it asks for 2025-11-25, is answered with an older one, and carries
+ * opencode does: 1.19.5 asked for 2025-11-25, is answered with an older one, and carries
  * on to tools/list. The list is what has been seen rather than what is imaginable. */
 export const SupportedProtocols = new Set(["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]);
 
@@ -146,7 +146,9 @@ export const tools: ToolDefinition[] = [
     name: "cancel_delegation",
     description:
       "Stop a delegated task. Use it when the work is no longer wanted or is plainly stuck — " +
-      "a task nobody is waiting for still holds a machine and still costs money.",
+      "a task nobody is waiting for still holds a machine and still costs money. A task that has " +
+      "already answered and is only waiting for a follow-up is told to stop waiting instead: it " +
+      "ends as finished, and its answer stands.",
     inputSchema: {
       type: "object",
       properties: {

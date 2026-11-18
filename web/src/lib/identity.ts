@@ -16,6 +16,10 @@ export type Viewer = {
   googleAuthEnabled: boolean;
   claimDomain: string;
   pictureUrl: string;
+  /** What OrganizationService calls this deployment ("Acme AI"); empty when never set. See lib/brand. */
+  deploymentName?: string;
+  /** The organization this deployment serves ("Acme Corp"); empty when never set. */
+  organizationName?: string;
 };
 
 export function viewerFrom(res: WhoAmIResponse): Viewer {
@@ -34,6 +38,8 @@ export function viewerFrom(res: WhoAmIResponse): Viewer {
     googleAuthEnabled: res.googleAuthEnabled,
     claimDomain: res.claimDomain,
     pictureUrl: res.pictureUrl,
+    deploymentName: res.deploymentName,
+    organizationName: res.organizationName,
   };
 }
 
@@ -55,7 +61,7 @@ export function viewerLabel(v: Viewer | undefined): { text: string; title: strin
           : `signed in as ${v.login}`,
       };
     case IdentityKind.NODE:
-      return { text: v.login, title: "a Podium node, identified by its Tailscale ACL tag" };
+      return { text: v.login, title: "a node, identified by its Tailscale ACL tag" };
     case IdentityKind.LOCAL_TOKEN:
       return {
         text: "local",

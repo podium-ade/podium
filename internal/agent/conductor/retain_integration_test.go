@@ -290,6 +290,7 @@ func TestARetainSaysNothingToTheConversation(t *testing.T) {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
 	})
 	awaitRetains(t, hs, 1)
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	assert.Len(t, posts(src.Records(), conductor.OutFinal), 1)
 	assert.Empty(t, posts(src.Records(), conductor.OutFailure))
@@ -393,6 +394,7 @@ func TestAMemoryOutageDoesNotCostTheAnswer(t *testing.T) {
 	waitFor(t, 30*time.Second, "the retain to have been attempted", func() bool {
 		return len(hs.Auths()) > 0
 	})
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	records := src.Records()
 	require.Len(t, posts(records, conductor.OutFinal), 1)

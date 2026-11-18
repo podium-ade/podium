@@ -407,17 +407,35 @@ type Playbook struct {
 	// agent-runtime-desktop` builds and nobody publishes. See docs/agent.md#desktop-true.
 	Desktop bool `yaml:"desktop" json:"desktop,omitempty"`
 
-	// Linear marks the one playbook Linear tickets run. Tickets are not chat, so there is no
-	// /playbook prefix to route them and no channel to match: the flag is the routing rule.
-	// At most one playbook may set it; zero means this bot does not take tickets, which is
-	// only a misconfiguration when a Linear API key is also set — and the conductor says
-	// so at start-up, where the key is known.
+	// Linear marks the one playbook the Linear poller runs: every ticket it finds assigned to the
+	// bot's seat. The agent app does not route with it: an issue delegated to the app runs the
+	// playbook whose linear_teams and linear_labels claim it, and otherwise the assistant
+	// decides. Only a conductor with no host runtime still runs it for the app — a delegation,
+	// or an @mention — since there is no assistant there to ask. At most one playbook may set
+	// it; zero means the poller has nothing to run, which it says when it starts.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
-	// GitHub marks the one playbook a pull-request review runs. It is always on a pull
-	// request's menu, and only its answer becomes the review. At most one playbook may set
-	// it. Zero means a review is refused until one does.
+	// LinearTeams and LinearLabels claim an issue delegated to the Linear agent app, as
+	// slack_channels claims a Slack channel. LinearTeams are team keys ("ENG") and LinearLabels
+	// label names, both compared without case. A playbook claims a delegated issue when it sets
+	// either list, the issue's team is in LinearTeams (or LinearTeams is empty), and one of the
+	// issue's labels is in LinearLabels (or LinearLabels is empty). An issue exactly one
+	// playbook claims runs that playbook directly; one that several or none claim goes to the
+	// assistant, which delegates or asks. Unlike slack_channels, two playbooks may name the
+	// same team or label: the overlap is resolved by the assistant, not refused.
+	LinearTeams  []string `yaml:"linear_teams" json:"linear_teams,omitempty"`
+	LinearLabels []string `yaml:"linear_labels" json:"linear_labels,omitempty"`
+
+	// GitHub marks the playbook a pull-request review runs when no playbook names the pull
+	// request's repository in github_repos. It is always on that pull request's menu, and
+	// only its answer becomes the review. At most one playbook may set it. Zero, with no
+	// github_repos naming the repository either, means a review there is refused.
 	GitHub bool `yaml:"github" json:"github,omitempty"`
+
+	// GitHubRepos are the repositories, as owner/name, whose pull requests this playbook
+	// reviews instead of the github: true one. A repository may be named by at most one
+	// playbook, compared without case, as GitHub compares them.
+	GitHubRepos []string `yaml:"github_repos" json:"github_repos,omitempty"`
 
 	// GitHubRequires offers this playbook on a pull request, to a commenter whose role on the
 	// repository is at least this: read, triage, write, maintain or admin. Empty is not
@@ -889,6 +907,27 @@ func (s Playbook) validate(path string) error {
 			errs = append(errs, errors.New("slack_channels holds an empty entry"))
 		}
 	}
+	for _, team := range s.LinearTeams {
+		if strings.TrimSpace(team) == "" {
+			errs = append(errs, errors.New("linear_teams holds an empty entry"))
+		}
+	}
+	for _, label := range s.LinearLabels {
+		if strings.TrimSpace(label) == "" {
+			errs = append(errs, errors.New("linear_labels holds an empty entry"))
+		}
+	}
+	seenRepos := map[string]bool{}
+	for _, r := range s.GitHubRepos {
+		key := gitHubRepoKey(r)
+		switch {
+		case key == "":
+			errs = append(errs, fmt.Errorf("github_repos entry %q must be owner/name", r))
+		case seenRepos[key]:
+			errs = append(errs, fmt.Errorf("github_repos names %s twice", r))
+		}
+		seenRepos[key] = true
+	}
 	// The secrets, resources and env of a playbook are validated by exactly the code that
 	// validates a task spec's, because that is where they end up.
 	if err := ValidateRunsOn(s.RunsOn); err != nil {
@@ -966,8 +1005,8 @@ func (p *Profile) validate(path string) error {
 	if p.Timeout < 0 {
 		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", p.Timeout))
 	}
-	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — there
-	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.
+	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — a polled
+	// ticket and a delegated issue name no playbook — so it is refused at load.
 	var linear []string
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
@@ -976,7 +1015,7 @@ func (p *Profile) validate(path string) error {
 	}
 	if len(linear) > 1 {
 		errs = append(errs, fmt.Errorf("playbooks %s all set linear: true; exactly one playbook may, "+
-			"because a ticket has no channel and no /playbook prefix to choose with",
+			"because it is what a ticket the Linear poller finds runs",
 			strings.Join(linear, ", ")))
 	}
 	var github []string
@@ -989,6 +1028,22 @@ func (p *Profile) validate(path string) error {
 		errs = append(errs, fmt.Errorf("playbooks %s all set github: true; exactly one playbook may, "+
 			"because a pull-request review has no choice of playbook",
 			strings.Join(github, ", ")))
+	}
+	// Two playbooks reviewing one repository is ambiguous routing, refused for the same
+	// reason two playbooks claiming one Slack channel are.
+	reviewers := map[string]string{}
+	for _, name := range p.PlaybookNames() {
+		for _, r := range p.Playbooks[name].GitHubRepos {
+			key := gitHubRepoKey(r)
+			if key == "" {
+				continue
+			}
+			if other, ok := reviewers[key]; ok && other != name {
+				errs = append(errs, fmt.Errorf("playbooks %q and %q both review %s in github_repos", other, name, r))
+				continue
+			}
+			reviewers[key] = name
+		}
 	}
 	errs = append(errs, p.validateGitHubMenu()...)
 	// Two playbooks claiming one channel is ambiguous routing, and ambiguous routing that
@@ -1020,10 +1075,18 @@ func GitHubRoleAtLeast(role, want string) bool {
 
 // validateGitHubMenu checks what a pull request may be offered. Every playbook on that menu
 // works in the session's one workspace snapshot, which is laid out around its first
-// repository, so each must name the same first repository as the review playbook.
+// repository, so each must name the same first repository as a review playbook: it is then
+// offered on the pull requests that review playbook reviews, and nowhere else.
 func (p *Profile) validateGitHubMenu() []error {
 	var errs []error
-	review := p.GitHubPlaybook()
+	reviewRepos := map[string]bool{}
+	anyReviewer := false
+	for _, name := range p.PlaybookNames() {
+		if s := p.Playbooks[name]; s.Reviews() {
+			anyReviewer = true
+			reviewRepos[firstRepo(s)] = true
+		}
+	}
 	for _, name := range p.PlaybookNames() {
 		s := p.Playbooks[name]
 		if s.GitHubRequires == "" {
@@ -1034,14 +1097,14 @@ func (p *Profile) validateGitHubMenu() []error {
 				name, s.GitHubRequires, strings.Join(GitHubRoles, ", ")))
 			continue
 		}
-		if s.GitHub {
+		if s.Reviews() {
 			errs = append(errs, fmt.Errorf("playbook %q: github_requires is for other playbooks; "+
-				"the review playbook is always offered on a pull request", name))
+				"a review playbook is always offered on the pull requests it reviews", name))
 			continue
 		}
-		if review != "" && firstRepo(s) != firstRepo(p.Playbooks[review]) {
+		if anyReviewer && !reviewRepos[firstRepo(s)] {
 			errs = append(errs, fmt.Errorf("playbook %q: github_requires needs the same first repository "+
-				"as the review playbook %q, because both work in the pull request's one workspace", name, review))
+				"as a review playbook, because both work in the pull request's one workspace", name))
 		}
 	}
 	return errs
@@ -1054,8 +1117,8 @@ func firstRepo(s Playbook) string {
 	return s.Repos[0].URL
 }
 
-// LinearPlaybook is the name of the playbook Linear tickets run, or "" when no playbook claims
-// them. validate has already refused more than one.
+// LinearPlaybook is the name of the playbook the Linear poller runs, the one marked
+// linear: true, or "" when no playbook is. validate has already refused more than one.
 func (p *Profile) LinearPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
@@ -1065,8 +1128,56 @@ func (p *Profile) LinearPlaybook() string {
 	return ""
 }
 
-// GitHubPlaybook is the name of the playbook a pull-request review runs, or "" when no
-// playbook claims reviews. validate has already refused more than one.
+// ClaimsLinear reports whether this playbook's linear_teams and linear_labels claim an issue
+// of team (its key) carrying labels. A playbook that sets neither claims nothing.
+func (s Playbook) ClaimsLinear(team string, labels []string) bool {
+	if len(s.LinearTeams) == 0 && len(s.LinearLabels) == 0 {
+		return false
+	}
+	if len(s.LinearTeams) > 0 && !containsFold(s.LinearTeams, team) {
+		return false
+	}
+	if len(s.LinearLabels) == 0 {
+		return true
+	}
+	for _, l := range labels {
+		if containsFold(s.LinearLabels, l) {
+			return true
+		}
+	}
+	return false
+}
+
+// LinearClaims is every playbook whose Linear rules claim an issue of team carrying labels,
+// sorted by name.
+func (p *Profile) LinearClaims(team string, labels []string) []string {
+	var out []string
+	for _, name := range p.PlaybookNames() {
+		if p.Playbooks[name].ClaimsLinear(team, labels) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// containsFold reports whether list holds want, trimmed and compared without case. An empty
+// want is in no list.
+func containsFold(list []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, v := range list {
+		if strings.EqualFold(strings.TrimSpace(v), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// GitHubPlaybook is the name of the playbook marked github: true — the review playbook for
+// every repository no github_repos names — or "" when none is. validate has already refused
+// more than one.
 func (p *Profile) GitHubPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].GitHub {
@@ -1074,6 +1185,46 @@ func (p *Profile) GitHubPlaybook() string {
 		}
 	}
 	return ""
+}
+
+// GitHubPlaybookFor is the name of the playbook that reviews pull requests in repo
+// (owner/name): the one naming it in github_repos, else the github: true one, else "".
+func (p *Profile) GitHubPlaybookFor(repo string) string {
+	if key := gitHubRepoKey(repo); key != "" {
+		for _, name := range p.PlaybookNames() {
+			for _, r := range p.Playbooks[name].GitHubRepos {
+				if gitHubRepoKey(r) == key {
+					return name
+				}
+			}
+		}
+	}
+	return p.GitHubPlaybook()
+}
+
+// Reviews reports whether this playbook reviews pull requests in some repository: it is
+// the github: true fallback, or names repositories in github_repos.
+func (s Playbook) Reviews() bool {
+	return s.GitHub || len(s.GitHubRepos) > 0
+}
+
+// FirstRepoURL is the URL of the repository a playbook's workspace is laid out around, or
+// "" when it names none.
+func FirstRepoURL(s Playbook) string { return firstRepo(s) }
+
+// gitHubRepoKey is repo as github_repos compares it: owner/name, trimmed and lowercased,
+// with an optional https://github.com/ prefix and .git suffix dropped. "" is not a
+// repository.
+func gitHubRepoKey(repo string) string {
+	r := strings.ToLower(strings.TrimSpace(repo))
+	r = strings.TrimPrefix(r, "https://github.com/")
+	r = strings.TrimSuffix(strings.TrimSuffix(r, "/"), ".git")
+	owner, name, ok := strings.Cut(r, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") ||
+		strings.ContainsAny(r, " \t:") {
+		return ""
+	}
+	return owner + "/" + name
 }
 
 // PlaybookNames is every loaded playbook, sorted.
@@ -1093,33 +1244,41 @@ type Selection struct {
 	// Instruction is the triggering text with a /playbook prefix stripped.
 	Instruction string
 	// Explicit is true when the caller named the playbook — a /playbook prefix, or a source that
-	// chose one itself. An explicit playbook that disagrees with an existing session's playbook is
-	// refused rather than honoured: one session, one playbook. A default is never explicit.
+	// chose one itself. In a Slack thread an explicit playbook that disagrees with the session's
+	// is refused rather than honoured: one thread, one playbook. In a Linear agent session it
+	// runs for that turn alone. A default is never explicit.
 	Explicit bool
 }
 
 // Routing is what Select decides from.
 //
-// It only ever describes a TASK: a Slack thread or a Linear ticket, which are one piece of
-// work and run one playbook in a container. A conversation does not appear here at all — it
-// is answered by the assistant, and the playbooks are what that turn delegates to rather
-// than something a routing rule picks for it.
+// It describes a TASK: a Slack thread on a conductor with no host runtime, a ticket the Linear
+// poller found, or a Linear agent session on a conductor with no host runtime, where there is
+// no assistant to answer it. A conversation the assistant answers does not appear here at all:
+// the playbooks are what that turn delegates to rather than something a routing rule picks for
+// it. (A Linear issue delegated to the app is routed by linear_teams and linear_labels before
+// the assistant is asked; see Profile.LinearClaims.)
 type Routing struct {
 	// Playbook is a playbook the source KNOWS is right, and which no routing rule may
-	// second-guess: Linear's linear: true playbook. Empty means the rules decide. Slack
-	// always leaves it empty.
+	// second-guess: the Linear poller's linear: true playbook. Empty means the rules decide.
+	// Slack and the Linear agent app always leave it empty.
 	Playbook string
 	// Channel is the routing key matched against a playbook's slack_channels.
 	Channel string
 	// Text is what the human said, a /playbook prefix included.
 	Text string
+	// Default is the playbook a source runs when nothing else picked one: the linear: true
+	// playbook, for a Linear agent session on a conductor with no host runtime. Unlike
+	// Playbook it is not explicit, so a /playbook the human typed comes before it.
+	Default string
 }
 
 // Select applies the routing rules in order: a playbook the source knows, then a leading
-// /playbook the human typed, then the channel's claim. There is no default playbook: an
-// operator registers the ones the assistant may delegate to, and a ticket or /name that
-// matches none of them is refused. An unknown /name is deliberately not an error —
-// somebody typing /shrug must not break the bot — it is left in the text and falls through.
+// /playbook the human typed, then the channel's claim, then the source's default. There is
+// no profile-wide default playbook: an operator registers the ones the assistant may
+// delegate to, and a ticket or /name that matches none of them is refused. An unknown /name
+// is deliberately not an error — somebody typing /shrug must not break the bot — it is left
+// in the text and falls through.
 func (p *Profile) Select(r Routing) Selection {
 	if r.Playbook != "" {
 		if s, ok := p.Playbooks[r.Playbook]; ok {
@@ -1144,6 +1303,9 @@ func (p *Profile) Select(r Routing) Selection {
 				}
 			}
 		}
+	}
+	if s, ok := p.Playbooks[r.Default]; ok && r.Default != "" {
+		return Selection{Playbook: s, Instruction: instruction}
 	}
 	return Selection{Instruction: instruction}
 }

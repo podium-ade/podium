@@ -1254,3 +1254,97 @@ func TestAnApprovalOfAPullRequestThatCannotBeReadIsAComment(t *testing.T) {
 		assert.NotEqual(t, "APPROVE", r["event"])
 	}
 }
+
+// With Serve set, Run binds nothing itself: it hands the webhook handler to whoever owns the
+// listener, on the configured address and the GitHub path, and stops with it.
+func TestRunHandsTheWebhookHandlerToTheListenersOwner(t *testing.T) {
+	h := newHarness(t)
+	type mount struct {
+		listen, path string
+		h            http.Handler
+	}
+	mounted := make(chan mount, 1)
+	h.src.serve = func(ctx context.Context, listen, path string, handler http.Handler) error {
+		mounted <- mount{listen, path, handler}
+		<-ctx.Done()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- h.src.Run(ctx) }()
+
+	var m mount
+	select {
+	case m = <-mounted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run never mounted its handler")
+	}
+	assert.Equal(t, "127.0.0.1:0", m.listen)
+	assert.Equal(t, WebhookPath, m.path)
+	rec := httptest.NewRecorder()
+	m.h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, WebhookPath, strings.NewReader("{}")))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "it is the signed handler, refusing an unsigned delivery")
+
+	cancel()
+	require.NoError(t, <-done)
+	_, open := <-h.src.Events()
+	assert.False(t, open, "the source's events close when it stops")
+}
+
+// A bot's comment is part of the record and is flagged as a bot's, so the conductor does not
+// count it as a human (EME-8). The App's bot user is told by its type or by its [bot] login;
+// a person is neither. The author's account is what is judged, not the sender's.
+func TestABotsCommentIsOfferedForTheRecordFlaggedAsABot(t *testing.T) {
+	for _, tc := range []struct {
+		name, login, typ string
+		want             bool
+	}{
+		{"a [bot] login", "dependabot[bot]", "User", true},
+		{"a Bot-type account without the suffix", "ci-helper", "Bot", true},
+		{"a person", "alice", "User", false},
+		{"a machine user is type User and passes for a person", "release-robot", "User", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.session("github:acme/repo#12")
+			payload := prComment("bump foo to 1.2")
+			payload["sender"] = map[string]any{"login": tc.login, "type": tc.typ}
+			payload["comment"].(map[string]any)["user"] = map[string]any{"login": tc.login, "type": tc.typ}
+			postWebhook(t, h, "issue_comment", "d-bot", payload)
+			evs := h.drainAll()
+			require.Len(t, evs, 1)
+			assert.True(t, evs[0].RecordOnly)
+			assert.Equal(t, tc.login, evs[0].Author)
+			assert.Equal(t, tc.want, evs[0].AuthorBot)
+		})
+	}
+}
+
+// IgnoreBots keeps a bot from starting a turn, not from being recorded: the dropped comment
+// still reaches the record, still flagged, so it is kept without being counted as a person.
+func TestACommentDroppedByIgnoreBotsIsStillRecordedAsABots(t *testing.T) {
+	h := newHarness(t)
+	h.src.filters = func(context.Context) (Filters, error) { return Filters{IgnoreBots: true}, nil }
+	h.session("github:acme/repo#12")
+	payload := prComment("@podium please review")
+	payload["sender"] = map[string]any{"login": "renovate[bot]", "type": "Bot"}
+	payload["comment"].(map[string]any)["user"] = map[string]any{"login": "renovate[bot]", "type": "Bot"}
+	postWebhook(t, h, "issue_comment", "d-ignored", payload)
+
+	evs := h.drainAll()
+	require.Len(t, evs, 1)
+	assert.True(t, evs[0].RecordOnly, "a bot sender starts nothing")
+	assert.True(t, evs[0].AuthorBot)
+	assert.Equal(t, "renovate[bot]", evs[0].Author)
+}
+
+// A pull request a bot opened is recorded as the bot's, and a person's is not flagged.
+func TestAPullRequestOpenedByABotIsFlagged(t *testing.T) {
+	h := newHarness(t)
+	payload := readyForReview()
+	payload["sender"] = map[string]any{"login": "dependabot[bot]", "type": "Bot"}
+	postWebhook(t, h, "pull_request", "d-pr", payload)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.True(t, evs[0].AuthorBot)
+}

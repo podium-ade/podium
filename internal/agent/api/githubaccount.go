@@ -259,7 +259,7 @@ func githubAccountOwner(ctx context.Context) (string, error) {
 
 // githubApp is the saved App, refused unless it has an OAuth client.
 func (s *AgentService) githubApp(ctx context.Context) (*connections.GitHub, error) {
-	_, app, err := s.loadConnections(ctx)
+	_, app, _, err := s.loadConnections(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (s *AgentService) githubApp(ctx context.Context) (*connections.GitHub, erro
 }
 
 func (s *AgentService) githubAccountView(ctx context.Context, login string) (*agentv1.GitHubAccount, error) {
-	_, app, err := s.loadConnections(ctx)
+	_, app, _, err := s.loadConnections(ctx)
 	if err != nil {
 		return nil, err
 	}

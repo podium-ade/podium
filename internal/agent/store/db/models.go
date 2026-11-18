@@ -64,6 +64,7 @@ type ChatMessage struct {
 	EditedAt     *time.Time
 	DeletedAt    *time.Time
 	Mentions     []string
+	AuthorBot    bool
 }
 
 type ChatOutbox struct {
@@ -101,6 +102,12 @@ type ChatPullRequest struct {
 	DetachedAt *time.Time
 }
 
+type ChatRailHidden struct {
+	ChatID   string
+	Login    string
+	HiddenAt time.Time
+}
+
 type ChatRead struct {
 	ChatID      string
 	Login       string
@@ -127,6 +134,7 @@ type Delegation struct {
 	Effort      *string
 	Provider    *string
 	ReadOnly    bool
+	AnsweredAt  *time.Time
 }
 
 type GithubAccount struct {
@@ -151,6 +159,30 @@ type Identity struct {
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time
+}
+
+type LinearIssue struct {
+	SourceKey  string
+	Kind       string
+	LinearID   string
+	Identifier string
+	Title      string
+	Url        string
+	TeamKey    string
+	StateName  string
+	StateType  string
+	AskedAt    *time.Time
+	AskedOf    string
+	UpdatedAt  time.Time
+}
+
+type LinearPerson struct {
+	SourceKey  string
+	LinearUser string
+	Login      string
+	Via        string
+	FirstSeen  time.Time
+	LastSeen   time.Time
 }
 
 type McpServer struct {
@@ -226,7 +258,7 @@ type Routine struct {
 	PausedReason         string
 	State                []byte
 	StateUpdatedAt       *time.Time
-	ChatID               string
+	ChatID               *string
 	NextRunAt            time.Time
 	LastRunAt            *time.Time
 	IdleCount            int32
@@ -236,6 +268,22 @@ type Routine struct {
 	DailyCapUsd          *float64
 	PausedUntil          *time.Time
 	CreatedBy            string
+	TriggerKind          string
+	Events               []string
+	Teams                []string
+	ChatMode             string
+}
+
+type RoutineEvent struct {
+	ID           int64
+	RoutineID    string
+	DeliveryID   string
+	Event        string
+	Payload      []byte
+	ReceivedAt   time.Time
+	RunID        *string
+	SubjectKey   *string
+	SubjectTitle *string
 }
 
 type RoutineRevision struct {
@@ -261,6 +309,7 @@ type RoutineRun struct {
 	CostUsd      *float64
 	CreatedAt    time.Time
 	FinishedAt   *time.Time
+	ChatID       *string
 }
 
 type Session struct {
@@ -285,6 +334,11 @@ type SlackChannel struct {
 	Name        string
 	Description string
 	UpdatedAt   time.Time
+}
+
+type SlackChannelSync struct {
+	ID          bool
+	RefreshedAt time.Time
 }
 
 type Turn struct {

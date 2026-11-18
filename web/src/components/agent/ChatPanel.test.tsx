@@ -18,6 +18,7 @@ import {
 } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { ChatPanel } from "./ChatPanel";
+import { CHAT_PAGE } from "../../hooks/useChatStream";
 import { ViewerContext, type Viewer } from "../../lib/identity";
 import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 
@@ -280,7 +281,7 @@ describe("ChatPanel", () => {
     );
     await waitFor(() =>
       expect(streamChat).toHaveBeenCalledWith(
-        { chatId: "chat_01abc", fromSeq: 0n },
+        { chatId: "chat_01abc", fromSeq: 0n, tail: CHAT_PAGE },
         expect.anything(),
       ),
     );
@@ -445,6 +446,7 @@ describe("ChatPanel", () => {
 
     stream.push(message(1, "user", "how many active accounts last month"));
     stream.push(message(2, "assistant", "**4,812** in August."));
+    stream.push(replayed());
 
     const bubbles = await waitFor(() => {
       const found = screen.getAllByTestId("chat-message");
@@ -457,6 +459,25 @@ describe("ChatPanel", () => {
     expect(bubbles[1].querySelector("strong")?.textContent).toBe("4,812");
     // The bot's name labels its run of bubbles. The rail also says Podium.
     expect(bubbles[1].parentElement).toHaveTextContent("Podium");
+  });
+
+  it("draws the history once its replay is in, not row by row as it arrives", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    // Drawn as they came, the rows grew the transcript under the reader after it had
+    // landed. Until the replay is done, the skeleton holds the place.
+    stream.push(message(1, "user", "how many active accounts last month"));
+    stream.push(message(2, "assistant", "**4,812** in August."));
+    expect(await screen.findByLabelText("Loading the conversation")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryAllByTestId("chat-message")).toHaveLength(0);
+
+    stream.push(replayed());
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
+    expect(screen.queryByLabelText("Loading the conversation")).toBeNull();
   });
 
   it("shows the pull requests a turn produced without opening anything", async () => {
@@ -481,6 +502,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "chart it"));
     stream.push(status("started", "task_01xyz"));
@@ -516,6 +539,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "shrink the settings text"));
     stream.push(message(2, "progress", "Delegating this to the podium playbook."));
@@ -534,6 +559,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "user", "twice please"));
     stream.push(message(2, "progress", "first task working", [], "task_01aaa"));
@@ -550,6 +577,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "assistant", "| month | active |\n| --- | --- |\n| Aug | 4,812 |"));
     const table = await screen.findByRole("table");
@@ -653,6 +682,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(message(1, "assistant", "See report.csv."));
     await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(1));
@@ -882,6 +913,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(
       message(
@@ -1084,6 +1117,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"] }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
@@ -1106,6 +1141,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(
       chatRow({
@@ -1163,6 +1200,69 @@ describe("ChatPanel", () => {
     expect(people[1]).toHaveAttribute("aria-label", "octocat (not in Podium) · GitHub");
   });
 
+  it("links a Linear session's chat back to the session and says who spoke from Linear", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, origin: "linear", title: "EME-5 Test issue" }], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+    stream.push(replayed());
+
+    stream.push(
+      chatRow({
+        origin: "linear",
+        title: "EME-5 Test issue",
+        people: [create(ChatPersonSchema, { login: "ada@acme.com", name: "Ada", via: "linear" })],
+        surfaces: [
+          create(ChatSurfaceSchema, {
+            kind: "linear",
+            label: "Linear session",
+            url: "https://linear.app/acme/agent-session/1c306b38",
+          }),
+        ],
+      }),
+    );
+    stream.push(pullRequests());
+    const frame = said(1, "user", "@podium what is the time?", "Ada");
+    if (frame.frame.case === "message") {
+      Object.assign(frame.frame.value, {
+        authorLogin: "ada@acme.com",
+        via: "linear",
+        addressed: true,
+        externalUrl: "https://linear.app/acme/issue/EME-5/test-issue",
+      });
+    }
+    stream.push(frame);
+
+    const surface = await screen.findByTestId("chat-surface");
+    expect(surface).toHaveAttribute("href", "https://linear.app/acme/agent-session/1c306b38");
+    expect(surface).toHaveTextContent("Linear session");
+    await waitFor(() => expect(screen.getAllByTestId("chat-author")).toHaveLength(1));
+    // The surface chip draws the same mark, unlinked: the message's own is the link.
+    const linked = screen.getAllByTestId("chat-origin").filter((o) => o.tagName === "A");
+    expect(linked.map((o) => [o.dataset.via, o.getAttribute("href")])).toEqual([
+      ["linear", "https://linear.app/acme/issue/EME-5/test-issue"],
+    ]);
+    expect(screen.getByTestId("chat-person")).toHaveAttribute("aria-label", "Ada · Linear");
+  });
+
+  it("lists Linear sessions apart, after the threads and pull requests", async () => {
+    listChats.mockResolvedValue({
+      chats: [
+        { ...chat, id: "chat_linear", title: "EME-5 Test issue", origin: "linear", startedBy: "Ada" },
+        { ...chat, id: "chat_slack", title: "in the channel", origin: "slack", startedBy: "carol" },
+        chat,
+      ],
+      nextCursor: "",
+    });
+    mount();
+
+    const linear = await screen.findByTestId("chat-origin-linear");
+    expect(linear).toHaveTextContent("Linear");
+    const list = screen.getByTestId("chat-list");
+    expect(list).toHaveTextContent("EME-5 Test issue");
+    expect(list.textContent?.indexOf("Slack")).toBeLessThan(list.textContent?.indexOf("Linear") ?? -1);
+  });
+
   it("lets a participant write a conversation that lives somewhere else, one way", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
@@ -1202,6 +1302,8 @@ describe("ChatPanel", () => {
     const stream = live();
     streamChat.mockImplementation(() => stream);
     mount("/agent/chat/chat_01abc");
+    // Nothing stored yet: the replay is empty, and what follows arrives live.
+    stream.push(replayed());
 
     stream.push(chatRow({ origin: "web" }));
     stream.push(message(1, "user", "how many active accounts"));
@@ -1234,6 +1336,7 @@ describe("ChatPanel", () => {
     // And it stays once the stream confirms what the list already said.
     stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice"] }));
     stream.push(said(1, "user", "what does this repo do?", "alice"));
+    stream.push(replayed());
     await screen.findByTestId("chat-author");
     expect(screen.getByTestId("chat-composer-note")).toHaveTextContent("aren't posted to Slack");
   });

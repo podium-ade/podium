@@ -78,6 +78,7 @@ where (
       and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
 )
 and ($4::text = '' or s.id < $4::text)
+and not (c.origin is not distinct from 'linear' and s.source_key not like 'linear:session:%')
 order by s.id desc
 limit $5::int
 `
@@ -114,6 +115,8 @@ type ListSessionsRow struct {
 // Phase 5 adds the same sections ListChats has, and what a row needs to say about sharing:
 // the chat it is the record of, the caller's role and why they can see it, who shared it, and
 // how much of it they have not read. A session with no chat (Linear, dev) has none of these.
+// A Linear issue's or project's conversation (0048) is listed in the Linear view instead: a
+// company has hundreds. One keyed by an agent session, from before, stays here.
 func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]ListSessionsRow, error) {
 	rows, err := q.db.Query(ctx, listSessions,
 		arg.Viewer,

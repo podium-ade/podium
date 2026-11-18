@@ -35,6 +35,15 @@ func TestAParticipantReadsAMirroredThreadThroughTheService(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.store.ClaimChatOwner(ctx, thread.ID, "bob")
 	require.NoError(t, err)
+	// A second human in the thread, who never linked an account, is what makes it multiplayer.
+	_, _, err = f.store.RecordChatMessage(ctx, store.ChatMessage{
+		ChatID: thread.ID, Role: store.RoleUser, Text: "hello", TS: time.Now().UTC(), Author: "Dana",
+		Via: store.ViaSlack, ExternalID: "1.2",
+	})
+	require.NoError(t, err)
+	_, changed, err := f.store.MarkChatMultiplayer(ctx, thread.ID)
+	require.NoError(t, err)
+	require.True(t, changed)
 
 	for _, tc := range []struct {
 		name    string
@@ -75,7 +84,7 @@ func TestAParticipantReadsAMirroredThreadThroughTheService(t *testing.T) {
 		})
 	}
 
-	// Phase 4: a participant may write the thread from the web too. It is multiplayer, so a
+	// Phase 4: a participant may write the thread from the web too. It is multiplayer (two humans, one not in Podium), so a
 	// message has to mention Podium to be put to it; what does not is recorded and starts
 	// nothing. Somebody who has not taken part cannot write it at all.
 	said, err := f.clientAs("bob").SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{

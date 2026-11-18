@@ -24,7 +24,13 @@ export type PlaybookDraft = {
   git?: { name: string; email: string }
   slackChannels: string[]
   linear: boolean
+  /** Team keys whose delegated issues this playbook claims. */
+  linearTeams: string[]
+  /** Label names whose delegated issues this playbook claims, compared without case. */
+  linearLabels: string[]
   github: boolean
+  /** Repositories, owner/name, whose pull requests this playbook reviews in place of the github one. */
+  githubRepos: string[]
   /** The role a commenter needs for this playbook to be offered on a pull request. Empty is never. */
   githubRequires: string
   interactive: boolean
@@ -84,7 +90,10 @@ export type PlaybookDoc = {
   browser?: boolean
   desktop?: boolean
   linear?: boolean
+  linear_teams?: string[]
+  linear_labels?: string[]
   github?: boolean
+  github_repos?: string[]
   github_requires?: string
   interactive?: boolean
   runs_on?: string
@@ -124,7 +133,10 @@ const PLAYBOOK_KEYS = [
   "browser",
   "desktop",
   "linear",
+  "linear_teams",
+  "linear_labels",
   "github",
+  "github_repos",
   "github_requires",
   "interactive",
   "runs_on",
@@ -142,20 +154,21 @@ const SANDBOX_KEYS = ["boat", "modal"]
 const BOAT_KEYS = ["type", "template", "org"]
 const MODAL_KEYS = ["runtime", "environment"]
 
+// opencode 2's tools, mirroring Tools in internal/agent/profiles/agents.go. LEGACY_TOOLS are
+// opencode 1's names, still accepted: the runtime turns each into the tool it became.
 const TOOLS = [
-  "bash",
+  "shell",
   "edit",
+  "write",
+  "read",
   "glob",
   "grep",
-  "list",
-  "patch",
-  "read",
-  "task",
-  "todoread",
-  "todowrite",
   "webfetch",
-  "write",
+  "websearch",
+  "subagent",
+  "todowrite",
 ]
+const LEGACY_TOOLS = ["bash", "task", "list", "patch", "todoread"]
 
 export function parsePlaybookYaml(text: string): ParsedPlaybook {
   const parsed = parseYaml(text, { emptyMessage: "the playbook is empty" })
@@ -286,8 +299,21 @@ export function parsePlaybookValue(
   if (desktop !== undefined) out.desktop = desktop
   const linear = r.bool("linear", root.linear)
   if (linear !== undefined) out.linear = linear
+  const linearTeams = r.strings("linear_teams", root.linear_teams)
+  if (linearTeams !== undefined) out.linear_teams = linearTeams
+  const linearLabels = r.strings("linear_labels", root.linear_labels)
+  if (linearLabels !== undefined) out.linear_labels = linearLabels
   const github = r.bool("github", root.github)
   if (github !== undefined) out.github = github
+  const githubRepos = r.strings("github_repos", root.github_repos)
+  if (githubRepos !== undefined) {
+    out.github_repos = githubRepos
+    for (const repo of githubRepos) {
+      if (!/^[^/\s]+\/[^/\s]+$/.test(repo.trim())) {
+        r.bad("github_repos", `${JSON.stringify(repo)} is not owner/name`)
+      }
+    }
+  }
   const githubRequires = r.string("github_requires", root.github_requires)
   if (githubRequires !== undefined) {
     out.github_requires = githubRequires
@@ -340,7 +366,7 @@ export function parsePlaybookValue(
     for (const [i, tool] of out.allowed_tools.entries()) {
       if (tool.trim() === "") {
         r.bad(`allowed_tools[${i}]`, "holds an empty entry")
-      } else if (!TOOLS.includes(tool)) {
+      } else if (!TOOLS.includes(tool) && !LEGACY_TOOLS.includes(tool)) {
         r.bad(
           `allowed_tools[${i}]`,
           `names ${JSON.stringify(tool)}, which is not a tool this harness has (have ${TOOLS.join(", ")})`,
@@ -411,7 +437,13 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   const mcp = playbook.mcpServers ?? []
   if (mcp.length > 0) doc.mcp_servers = [...mcp]
   if (playbook.linear) doc.linear = true
+  const linearTeams = playbook.linearTeams ?? []
+  if (linearTeams.length > 0) doc.linear_teams = [...linearTeams]
+  const linearLabels = playbook.linearLabels ?? []
+  if (linearLabels.length > 0) doc.linear_labels = [...linearLabels]
   if (playbook.github) doc.github = true
+  const githubRepos = playbook.githubRepos ?? []
+  if (githubRepos.length > 0) doc.github_repos = [...githubRepos]
   if (playbook.githubRequires) doc.github_requires = playbook.githubRequires
   if (playbook.interactive) doc.interactive = true
   if (playbook.docker) doc.docker = true
@@ -491,7 +523,10 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
   if (draft.skills.length > 0) doc.skills = [...draft.skills]
   if (draft.mcpServers.length > 0) doc.mcp_servers = [...draft.mcpServers]
   if (draft.linear) doc.linear = true
+  if (draft.linearTeams.length > 0) doc.linear_teams = [...draft.linearTeams]
+  if (draft.linearLabels.length > 0) doc.linear_labels = [...draft.linearLabels]
   if (draft.github) doc.github = true
+  if (draft.githubRepos.length > 0) doc.github_repos = [...draft.githubRepos]
   if (draft.githubRequires) doc.github_requires = draft.githubRequires
   if (draft.interactive) doc.interactive = true
   if (draft.docker) doc.docker = true
@@ -547,7 +582,10 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
         : undefined,
     slackChannels: doc.slack_channels ?? [],
     linear: doc.linear ?? false,
+    linearTeams: doc.linear_teams ?? [],
+    linearLabels: doc.linear_labels ?? [],
     github: doc.github ?? false,
+    githubRepos: doc.github_repos ?? [],
     githubRequires: (doc.github_requires ?? "").trim(),
     interactive: doc.interactive ?? false,
     skills: doc.skills ?? [],

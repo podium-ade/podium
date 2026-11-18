@@ -13,13 +13,11 @@
 -- name: CreateChat :one
 insert into chats (
   id, title, login, created_at, auto_title, source_key, started_by, origin,
-  personality_id, personality_display, multiplayer
+  personality_id, personality_display
 )
 values (
   @id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin,
-  sqlc.narg('personality_id'), @personality_display,
-  -- A mirrored conversation always has other people in it (decision 33).
-  @origin::text <> 'web'
+  sqlc.narg('personality_id'), @personality_display
 )
 returning *;
 
@@ -89,14 +87,28 @@ select c.*,
     else ''
   end)::text as access_reason,
   coalesce((select a.granted_by from chat_access a where a.chat_id = c.id and a.login = @viewer::text), '')::text as shared_by,
-  chat_unread(c.id, @viewer::text)::bigint as unread_count
+  chat_unread(c.id, @viewer::text)::bigint as unread_count,
+  -- What the webhooks said about the Linear issue a ticket's conversation is about (0048), for
+  -- the rail's "EME-6 · title" with its state, and whether it waits on somebody. Empty and
+  -- null for every other chat.
+  coalesce(li.identifier, '')::text as linear_identifier,
+  coalesce(li.title, '')::text      as linear_title,
+  coalesce(li.state_name, '')::text as linear_state_name,
+  coalesce(li.state_type, '')::text as linear_state_type,
+  li.asked_at                       as linear_asked_at,
+  coalesce(li.asked_of, '')::text   as linear_asked_of
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
+    join chats mc on mc.id = cm.chat_id
    where cm.role not in ('activity', 'notice')
+     -- A ticket's conversation is read by people who did not run its turns (0049): what a turn
+     -- thought on its way is its runner's, so the preview is never one of its progress lines.
+     and not (cm.role = 'progress' and mc.origin = 'linear')
 ) m on m.chat_id = c.id and m.rn = 1
+left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
 -- include_all is the shared dev token, which has no per-user identity and is the operator
 -- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
 -- any other named login) is the other branch and sees what chat_visible_to allows: what
@@ -137,6 +149,37 @@ where (
           and (@include_all::bool or c.login = @viewer::text))
     )
   )
+  -- A Linear issue's or project's conversation (0048) is not in the chat list: a company has
+  -- hundreds of them. The Issues view lists them (ListLinearConversations).
+  --
+  -- linear_rail lets one kind back in (0049): an issue's conversation, in a signed-in caller's
+  -- own list, when they are one of its people — they touched the issue through their linked
+  -- Linear account (linear_people, resolved through identities when they read), or they spoke
+  -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
+  -- in the Issues view. One they hid stays out until something new is said in it.
+  and not (
+    @exclude_linear::bool and c.origin = 'linear'
+    and not (
+      @linear_rail::bool and not @include_all::bool and @section::text = ''
+      and c.source_key like 'linear:%'
+      and c.source_key not like 'linear:project:%'
+      and c.source_key not like 'linear:session:%'
+      and c.deleted_at is null
+      and (
+        exists (select 1 from chat_participants p where p.chat_id = c.id and p.login = @viewer::text)
+        or exists (
+          select 1 from linear_people lp
+            join identities i on i.provider = 'linear' and i.external_id = lp.linear_user
+           where lp.source_key = c.source_key and lp.linear_user <> '' and i.login = @viewer::text
+             -- A mention alone makes nobody one of its people (0054).
+             and lp.via <> 'person_mentioned')
+      )
+      and not exists (
+        select 1 from chat_rail_hidden h
+         where h.chat_id = c.id and h.login = @viewer::text
+           and h.hidden_at >= coalesce(m.ts, c.created_at))
+    )
+  )
 order by c.id desc
 limit @page_limit::int;
 
@@ -151,11 +194,11 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       sqlc.narg('external_id'), @external_url, @addressed, @mentions::text[]
+       sqlc.narg('external_id'), @external_url, @addressed, @mentions::text[], @author_bot
   from next
 returning *;
 
@@ -171,11 +214,11 @@ with next as (
 insert into chat_messages (
   chat_id, seq, role, text, attachments, ts, task_id, author,
   author_login, author_handle, author_avatar, via, external_id, external_url, addressed,
-  mentions
+  mentions, author_bot
 )
 select @chat_id, next.last_seq, @role, @text, @attachments, @ts, @task_id, @author,
        sqlc.narg('author_login'), @author_handle, @author_avatar, @via,
-       @external_id::text, @external_url, @addressed, @mentions::text[]
+       @external_id::text, @external_url, @addressed, @mentions::text[], @author_bot
   from next
 on conflict (chat_id, via, external_id) where external_id is not null do nothing
 returning *;
@@ -204,6 +247,14 @@ select * from chat_messages where chat_id = @chat_id and seq = @seq;
 select * from chat_messages
 where chat_id = @chat_id and seq > @from_seq::bigint
 order by seq;
+
+-- ListChatMessagesBefore is one page of history read backwards: the newest @lim messages
+-- below @before_seq, newest first. The caller flips it back into seq order.
+-- name: ListChatMessagesBefore :many
+select * from chat_messages
+where chat_id = @chat_id and seq < @before_seq::bigint
+order by seq desc
+limit @lim::int;
 
 -- name: LastAssistantMessage :one
 select * from chat_messages
@@ -322,12 +373,15 @@ select * from chats where source_key = @source_key;
 --
 -- via and avatar are the surface and picture of the author's first message, which is what
 -- the header draws beside a name that has no Podium identity behind it.
+--
+-- A bot account's messages are not counted: it is not a human, and the record carries no
+-- one it could be speaking for (author_bot, set by the source that could tell).
 -- name: ChatAuthors :many
 select author,
        (array_agg(via order by seq))[1]::text           as via,
        (array_agg(author_avatar order by seq))[1]::text as avatar
   from chat_messages
- where chat_id = @chat_id and role = 'user' and author <> ''
+ where chat_id = @chat_id and role = 'user' and author <> '' and not author_bot
  group by author
  order by min(seq);
 
@@ -340,14 +394,12 @@ where chat_id = @chat_id and role = 'user' and via = 'web' and author = ''
   and coalesce(author_login, '') <> '';
 
 -- MarkChatMultiplayer makes a chat multiplayer for good (0034) and returns it only when this
--- call is what changed it, so the caller announces the change once. force is a share or a
--- mirrored conversation; otherwise it takes a second Podium person among the participants.
+-- call is what changed it, so the caller announces the change once. Whether a chat has the
+-- second human it takes is store.MarkChatMultiplayer's to decide: it counts the people who
+-- are not in Podium, which no query here can.
 -- name: MarkChatMultiplayer :one
 update chats set multiplayer = true
-where id = @id and not multiplayer and (
-  @force::bool
-  or (select count(*) from chat_participants p where p.chat_id = chats.id) >= 2
-)
+where id = @id and not multiplayer
 returning *;
 
 -- SetChatStartedFrom records that a chat was opened by a turn of another conversation.
@@ -360,3 +412,13 @@ returning *;
 -- CountChatsStartedByTurn is how many chats one turn has opened.
 -- name: CountChatsStartedByTurn :one
 select count(*)::int from chats where started_by_turn = @started_by_turn::text;
+
+-- HideChatFromRail takes a chat out of viewer's rail until something new is said in it (0049).
+-- name: HideChatFromRail :exec
+insert into chat_rail_hidden (chat_id, login, hidden_at)
+values (@chat_id, @login, @hidden_at)
+on conflict (chat_id, login) do update set hidden_at = excluded.hidden_at;
+
+-- UnhideChatFromRail puts it back.
+-- name: UnhideChatFromRail :exec
+delete from chat_rail_hidden where chat_id = @chat_id and login = @login;

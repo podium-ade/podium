@@ -16,7 +16,6 @@ package conductor
 // A turn that has already finished is not needed for any of that — it is only what asked.
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -169,24 +168,34 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Desktop: p.Desktop,
 			Repos:   repoNames(p),
 			Preview: p.Expose != nil,
-			GitHub:  p.GitHub,
+			GitHub:  p.Reviews(),
 		})
 	}
 	return out
 }
 
 // menuFor is the playbooks a turn from src may delegate to. Every playbook, except on a pull
-// request: anybody the GitHub triggers allow can comment there, so it is offered the review
-// playbook, and a playbook naming github_requires only when the speaker's role meets it.
-func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
+// request: anybody the GitHub triggers allow can comment there, so it is offered the playbook
+// that reviews its repository, and a playbook naming github_requires only when the speaker's
+// role meets it and it works in the same first repository as that review playbook. No other
+// review playbook is on it, so GitHub on an entry there means this pull request's review.
+func (c *Conductor) menuFor(src Source, sourceKey, role string) []DelegablePlaybook {
 	all := c.DelegablePlaybooks()
 	if src == nil || src.Kind() != SourceGitHub {
 		return all
 	}
-	playbooks := c.profiles.Current().Playbooks
+	profile := c.profiles.Current()
+	playbooks := profile.Playbooks
+	review := profile.GitHubPlaybookFor(pullRequestRepo(sourceKey))
 	out := make([]DelegablePlaybook, 0, len(all))
 	for _, p := range all {
-		if p.GitHub || profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) {
+		switch {
+		case p.Name == review:
+			out = append(out, p)
+		case p.GitHub:
+			// Another repository's review playbook.
+		case profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) &&
+			(review == "" || profiles.FirstRepoURL(playbooks[p.Name]) == profiles.FirstRepoURL(playbooks[review])):
 			out = append(out, p)
 		}
 	}
@@ -206,8 +215,8 @@ type DelegablePlaybook struct {
 	Repos   []string `json:"repos,omitempty"`
 	// Preview says the task stays up afterwards with its ports published for people.
 	Preview bool `json:"preview,omitempty"`
-	// GitHub says this is the playbook that reviews pull requests. Only its answer becomes
-	// the review on one.
+	// GitHub says this is a playbook that reviews pull requests. On a pull request's menu it
+	// is the one for that repository, and only its answer becomes the review there.
 	GitHub bool `json:"github,omitempty"`
 }
 
@@ -558,6 +567,10 @@ const (
 // workspacePoll is how often a waiting delegation looks at the writers ahead of it.
 var workspacePoll = time.Second
 
+// workspaceReleaseReason is why a waiting task is cancelled when it does not stop waiting
+// for another task that needs its pull request's workspace.
+const workspaceReleaseReason = "released: another task needs this pull request's workspace"
+
 // endWaitGrace is how long a released task has to stop waiting before it is cancelled. Its
 // runtime exits as soon as it hears, but the task only ends once the node has stored its
 // workspace, so this covers a large tar too. A runtime too old to know the signal keeps
@@ -582,9 +595,9 @@ func (c *Conductor) awaitWorkspace(ctx context.Context, sess store.Session, play
 			switch {
 			case run == nil:
 			case !run.released.Load():
-				run.release(ctx)
+				run.release(ctx, workspaceReleaseReason)
 			case run.releasedFor() > endWaitGrace:
-				run.cancelRelease(ctx)
+				run.cancelRelease(ctx, workspaceReleaseReason)
 			}
 		}
 		if time.Now().After(deadline) {
@@ -758,7 +771,13 @@ func (c *Conductor) startDelegatedTask(
 	// automatic review, a review command from outside Podium, Linear — falls back to asker,
 	// which is nobody outside a web chat, so a playbook that names personal secrets fails
 	// here, before a task exists.
-	login := cmp.Or(g.login, c.asker(ctx, g.src, sess))
+	//
+	// A routine's run never falls back: it is its owner's, or nobody's, and the chat it runs in
+	// may be a Linear issue's conversation whose owner is somebody else entirely.
+	login := g.login
+	if login == "" && !c.isRoutineTurn(g.turnID) {
+		login = c.asker(ctx, g.src, sess)
+	}
 	persona, err := c.githubPersona(ctx, login, playbook)
 	if err != nil {
 		return nil, err
@@ -767,6 +786,9 @@ func (c *Conductor) startDelegatedTask(
 		return nil, err
 	}
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
+	if text, refused := c.keyRefused(ctx, choice, false); refused {
+		return nil, errors.New(text)
+	}
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login
@@ -827,6 +849,9 @@ func (c *Conductor) followDelegation(
 		playbook: playbook,
 		lastSeq:  lastSeq,
 	}
+	// A task resumed after its answer was relayed will not say it again, so the row is how
+	// this conductor knows it is only waiting for a follow-up.
+	run.answered.Store(dlg.AnsweredAt != nil)
 	c.mu.Lock()
 	if c.liveDelegations == nil {
 		c.liveDelegations = map[string]*delegationRun{}
@@ -929,12 +954,21 @@ func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string
 		// Working again: a new instruction is not a follow-up it may be stopped for.
 		run.answered.Store(false)
 	}
+	if err := c.store.SetDelegationAnswered(ctx, dlg.ID, false); err != nil {
+		c.logger.WarnContext(ctx, "recording that a delegated task is working again failed",
+			"delegation_id", dlg.ID, "error", err)
+	}
 	return dlg, nil
 }
 
 // CancelDelegation stops a delegated task. It is the same cancel `podium task cancel`
 // performs, so the node sends the same SIGTERM and honours the same grace, and the run
 // following it records the outcome as it would for any other ending.
+//
+// A task that has already answered and is only waiting for a follow-up is not cancelled:
+// its work is done and was said, and a cancel would record it as cancelled and tell the
+// conversation so, under the answer it just gave. It is released instead, as it is when
+// another task needs its workspace: told to stop waiting, it exits 0 and ends succeeded.
 func (c *Conductor) CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error) {
 	dlg, _, err := c.GetDelegation(ctx, token, id)
 	if err != nil {
@@ -949,10 +983,47 @@ func (c *Conductor) CancelDelegation(ctx context.Context, token, id, reason stri
 	if reason == "" {
 		reason = "the turn that delegated this cancelled it"
 	}
+	c.mu.Lock()
+	run := c.liveDelegations[dlg.ID]
+	c.mu.Unlock()
+	switch {
+	case run != nil && run.answered.Load():
+		c.logger.InfoContext(ctx, "a delegated task asked to stop had already answered; releasing it",
+			"delegation_id", dlg.ID, "task_id", dlg.TaskID, "reason", reason)
+		c.endAnswered(run, reason)
+		return dlg, nil
+	case run == nil && dlg.AnsweredAt != nil:
+		// Followed by another conductor, or not resumed here yet: the row is what says it
+		// is waiting. Told to stop, it exits 0 and whoever follows it records it succeeded.
+		err := c.podium.EndTaskWait(ctx, dlg.TaskID)
+		if err == nil {
+			c.logger.InfoContext(ctx, "a delegated task asked to stop had already answered; told it to stop waiting",
+				"delegation_id", dlg.ID, "task_id", dlg.TaskID, "reason", reason)
+			return dlg, nil
+		}
+		c.logger.WarnContext(ctx, "telling an answered task to stop waiting failed; cancelling it",
+			"delegation_id", dlg.ID, "task_id", dlg.TaskID, "error", err)
+	}
 	if err := c.podium.CancelTask(ctx, dlg.TaskID, reason); err != nil {
 		return store.Delegation{}, fmt.Errorf("conductor: cancelling the delegated task failed: %w", err)
 	}
 	return dlg, nil
+}
+
+// endAnswered releases a task that has answered and, if it is still running endWaitGrace
+// later — a runtime too old to know end_wait keeps waiting — cancels it. Either way it ends
+// succeeded: a released task's cancel is not a failure (delegationRun.run).
+func (c *Conductor) endAnswered(run *delegationRun, reason string) {
+	ctx := c.background()
+	run.release(ctx, reason)
+	time.AfterFunc(endWaitGrace, func() {
+		c.mu.Lock()
+		live := c.liveDelegations[run.dlg.ID] == run
+		c.mu.Unlock()
+		if live && ctx.Err() == nil {
+			run.cancelRelease(ctx, reason)
+		}
+	})
 }
 
 // delegationProgress is the last thing a live delegated task said on its way to an answer,
@@ -986,6 +1057,9 @@ type delegationRun struct {
 	releasedAt atomic.Int64
 	cancelled  atomic.Bool
 
+	// watch is this task as the watchdog sees it (watchdog.go).
+	watch *watch
+
 	mu       sync.Mutex
 	progress string
 	// acct is what the task said it cost, nil until it says so. Unlike a turn's there is no
@@ -1008,6 +1082,19 @@ func (r *delegationRun) readAccounting(ctx context.Context, raw []byte) {
 
 func (r *delegationRun) run(ctx context.Context) {
 	c := r.c
+	dlg := r.dlg
+	r.watch = &watch{
+		taskID: dlg.TaskID, sessionID: dlg.SessionID, playbook: dlg.Playbook, sink: r.sink,
+		// A wedged task cannot be interrupted, only replaced: the same playbook and
+		// instruction, in the same conversation, once the old one has let the workspace go.
+		restart: func(ctx context.Context) error {
+			g := turnGrant{turnID: dlg.TurnID, sessionID: dlg.SessionID, ref: dlg.TriggerRef, src: r.src}
+			_, err := c.delegate(ctx, g, dlg.Playbook, restartedInstruction(dlg.Instruction),
+				DelegateOptions{ReadOnly: dlg.ReadOnly, Wait: true})
+			return err
+		},
+	}
+	defer c.startWatch(r.watch)()
 	f := &follower{
 		tasks:       c.podium.Tasks,
 		taskID:      r.dlg.TaskID,
@@ -1049,6 +1136,7 @@ func (r *delegationRun) run(ctx context.Context) {
 
 	r.settle(ctx, task)
 	result := classify(task, r.playbook.Timeout.Std())
+	c.noteRefusal(ctx, r.dlg.Backend.Provider, r.answer(), result.Status == store.TurnFailed)
 	if r.released.Load() && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_CANCELLED {
 		// It had answered and was waiting for a follow-up when another task needed its
 		// workspace, and did not stop waiting when told. Its work is done and was said;
@@ -1060,7 +1148,10 @@ func (r *delegationRun) run(ctx context.Context) {
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
-		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post})
+		c.post(ctx, r.src, r.ref, Outbound{
+			Type: OutFailure, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: result.Post,
+			CancelReason: result.CancelReason,
+		})
 	}
 	if note := previewNote(task, true); note != "" {
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Speaker: r.speaker, Text: note})
@@ -1076,11 +1167,12 @@ func (r *delegationRun) run(ctx context.Context) {
 // chat asks for. The cost went to a Debug log line — which is off — and from there nowhere.
 // The row carries it now, and the usage screen reads it beside a turn's.
 func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
+	r.c.observeWatch(ctx, r.watch, e)
 	if e.GetKind() != podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE {
 		return
 	}
 	msg := e.GetMessage()
-	if msg == nil {
+	if msg == nil || msg.GetType() == MsgHeartbeat {
 		return
 	}
 	if msg.GetType() == MsgAccounting {
@@ -1099,8 +1191,11 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 		r.setProgress(msg.GetText())
 	}
 	r.relay(ctx, e)
-	if msg.GetType() == OutFinal {
-		r.answered.Store(true)
+	if msg.GetType() == OutFinal && !r.answered.Swap(true) {
+		if err := r.c.store.SetDelegationAnswered(ctx, r.dlg.ID, true); err != nil {
+			r.c.logger.WarnContext(ctx, "recording that a delegated task has answered failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
 	}
 	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
 		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)
@@ -1169,17 +1264,17 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)
 }
 
-// release tells a task that has answered and is waiting for a follow-up to stop waiting, so
-// another task can have its workspace. It exits as it does when the wait runs out: the node
-// stores the snapshot and the task finishes succeeded. Only when the task cannot be told is
-// it cancelled.
-func (r *delegationRun) release(ctx context.Context) {
+// release tells a task that has answered and is waiting for a follow-up to stop waiting: so
+// another task can have its workspace, or because the turn asked for it to stop. It exits as
+// it does when the wait runs out: the node stores the snapshot and the task finishes
+// succeeded. Only when the task cannot be told is it cancelled, with reason.
+func (r *delegationRun) release(ctx context.Context, reason string) {
 	r.releasedAt.Store(time.Now().UnixNano())
 	r.released.Store(true)
 	if err := r.c.podium.EndTaskWait(ctx, r.dlg.TaskID); err != nil {
 		r.c.logger.WarnContext(ctx, "telling a waiting task to stop waiting failed; cancelling it",
 			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
-		r.cancelRelease(ctx)
+		r.cancelRelease(ctx, reason)
 	}
 }
 
@@ -1190,12 +1285,11 @@ func (r *delegationRun) releasedFor() time.Duration {
 
 // cancelRelease cancels a released task that did not stop waiting. The node stores the
 // snapshot on the way out, as it does for any cancel.
-func (r *delegationRun) cancelRelease(ctx context.Context) {
+func (r *delegationRun) cancelRelease(ctx context.Context, reason string) {
 	if r.cancelled.Swap(true) {
 		return
 	}
-	if err := r.c.podium.CancelTask(ctx, r.dlg.TaskID,
-		"released: another task needs this pull request's workspace"); err != nil {
+	if err := r.c.podium.CancelTask(ctx, r.dlg.TaskID, reason); err != nil {
 		r.c.logger.WarnContext(ctx, "cancelling a released task failed", "delegation_id", r.dlg.ID,
 			"task_id", r.dlg.TaskID, "error", err)
 	}
@@ -1240,7 +1334,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 				"delegation_id", dlg.ID, "error", err)
 			continue
 		}
-		src := c.sourceOf(sess.SourceKind)
+		src := c.sourceForRef(ctx, sess.SourceKind, dlg.TriggerRef)
 		c.mu.Lock()
 		_, following := c.liveDelegations[dlg.ID]
 		c.mu.Unlock()

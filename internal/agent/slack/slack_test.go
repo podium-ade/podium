@@ -180,6 +180,7 @@ func TestInnerRecordsAThreadReplyWithoutAMention(t *testing.T) {
 
 	ev := takeInbound(t, s)
 	assert.True(t, ev.RecordOnly, "chatter is recorded, never a turn")
+	assert.True(t, ev.AnswerIfAlone, "unless its speaker is the only human in the thread")
 	assert.False(t, ev.Mentioned)
 	assert.Equal(t, "slack:C1:100.1", ev.SourceKey)
 	assert.Equal(t, "100.2", ev.ExternalID)
@@ -206,6 +207,7 @@ func TestInnerRecordsABoundThreadIntoThePullRequest(t *testing.T) {
 	ev := takeInbound(t, s)
 	assert.True(t, ev.RecordOnly)
 	assert.Equal(t, "github:acme/api#12", ev.MirrorKey)
+	assert.False(t, ev.AnswerIfAlone, "a pull request's conversation is everybody's")
 	assert.Equal(t, "100.2", ev.ExternalID)
 
 	s.inner(t.Context(), slackevents.EventsAPIEvent{InnerEvent: slackevents.EventsAPIInnerEvent{

@@ -290,4 +290,11 @@ describe("ChatComposer", () => {
       "Messages here stay in Podium — they aren't posted to GitHub.",
     );
   });
+
+  it("says a Linear issue's conversation is posted to the issue", () => {
+    mount({ mirrored: "linear", multiplayer: true });
+    expect(screen.getByTestId("chat-composer-note")).toHaveTextContent(
+      "Messages here are posted to the Linear issue as yours, and so is Podium's answer.",
+    );
+  });
 });

@@ -189,7 +189,7 @@ function ToolOutput({ entry }: { entry: Entry }) {
     <div className="space-y-2.5">
       {args.primary ? (
         <p className="font-mono text-xs break-all text-muted">
-          {a.tool === "bash" ? <span className="text-faint select-none">$ </span> : null}
+          {a.tool === "bash" || a.tool === "shell" ? <span className="text-faint select-none">$ </span> : null}
           {args.primary.value}
         </p>
       ) : null}

@@ -102,7 +102,7 @@ var hostDrainGrace = 100 * time.Millisecond
 //
 // The first turn of a chat still names the conversation. It does not get `write` to do that.
 // The runtime adds title_set, which writes only chat-title.txt inside this turn's jail.
-var hostTools = []string{"webfetch", "todoread", "todowrite"}
+var hostTools = []string{"webfetch", "todowrite"}
 
 // Everything a host turn ever says about its own failures. None of them names a path, a
 // binary or a provider: that is what the log is for.
@@ -500,6 +500,10 @@ func (h *hostRun) run(ctx context.Context) {
 			r.readAccounting(ctx, acctFromMessage, []byte(ev.Text))
 			continue
 		}
+		if ev.Type == MsgHeartbeat {
+			// The watchdog watches tasks; a host turn's liveness is this socket.
+			continue
+		}
 		r.noteFirstMessage()
 		r.deliver(ctx, ev.Type, ev.Text, ev.Attachments)
 		if inbox != nil && ev.Type == OutFinal {
@@ -552,6 +556,7 @@ func (h *hostRun) run(ctx context.Context) {
 				hostTimedOut, r.job.assistantTimeout())})
 		}
 	}
+	c.noteRefusal(done, r.turn.Backend.Provider, r.answer(), status == store.TurnFailed)
 	if status != store.TurnSucceeded {
 		c.logger.WarnContext(done, "a host turn did not succeed", "turn_id", r.turn.ID,
 			"exit_code", cmd.ProcessState.ExitCode(), "status", status, "error", waitErr)

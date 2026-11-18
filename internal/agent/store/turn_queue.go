@@ -167,11 +167,21 @@ func (s *Store) OwnerWarm(ctx context.Context, key, caller string) (WarmTask, bo
 	return WarmTask{TaskID: row.WarmTaskID, Login: row.WarmLogin, Kind: row.WarmKind}, true, nil
 }
 
-// MarkChatMultiplayer makes a chat multiplayer for good. force is a share or a mirrored
-// conversation; without it the chat must have a second Podium participant. changed is true
-// only for the call that flipped it, which is the one that announces it.
-func (s *Store) MarkChatMultiplayer(ctx context.Context, chatID string, force bool) (Chat, bool, error) {
-	row, err := s.q.MarkChatMultiplayer(ctx, db.MarkChatMultiplayerParams{ID: chatID, Force: force})
+// MarkChatMultiplayer makes a chat multiplayer for good once more than one human is in it: a
+// Podium person who took part, or an author who is not in Podium (a Slack or Linear user who
+// never linked an account) — which is what ChatParticipants counts. A bot is neither, so one
+// person and any number of bots stay single-player, and a share changes nothing until a
+// second person is actually in the conversation. changed is true only for the call that
+// flipped it, which is the one that announces it.
+func (s *Store) MarkChatMultiplayer(ctx context.Context, chatID string) (Chat, bool, error) {
+	people, err := s.ChatParticipants(ctx, chatID)
+	if err != nil {
+		return Chat{}, false, err
+	}
+	if len(people) < 2 {
+		return Chat{}, false, nil
+	}
+	row, err := s.q.MarkChatMultiplayer(ctx, chatID)
 	if noRows(err) {
 		return Chat{}, false, nil
 	}
@@ -194,4 +204,26 @@ func (s *Store) QueuePosition(ctx context.Context, sessionID string, id int64) (
 		return 0, fmt.Errorf("read the queue position of turn %d in session %s: %w", id, sessionID, err)
 	}
 	return int(n), nil
+}
+
+// ListQueuedTurns is every turn waiting in a session, oldest first.
+func (s *Store) ListQueuedTurns(ctx context.Context, sessionID string) ([]QueuedTurn, error) {
+	rows, err := s.q.ListQueuedTurns(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list the queued turns of session %s: %w", sessionID, err)
+	}
+	out := make([]QueuedTurn, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, queuedTurnFromRow(r))
+	}
+	return out, nil
+}
+
+// DeleteQueuedTurn drops one queued turn, and reports whether it was still queued.
+func (s *Store) DeleteQueuedTurn(ctx context.Context, id int64) (bool, error) {
+	n, err := s.q.DeleteQueuedTurn(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("drop queued turn %d: %w", id, err)
+	}
+	return n > 0, nil
 }

@@ -43,6 +43,17 @@ const (
 	failedText = "❌ Failed"
 )
 
+// noPlaybook starts the refusal of a Linear source with nothing to run. The poller and the
+// agent app say the same thing and differ only in how to turn themselves off.
+const noPlaybook = "linear: no playbook sets `linear: true`, so there is nothing to run a " +
+	"ticket with. Set it on exactly one playbook — a playbooks/*.yaml, or one made in the web " +
+	"UI — "
+
+// sessionThreadOpener starts the comment Linear opens an agent session's thread with ("This
+// thread is for an agent session with podium."). Linear writes it as a bot with no user, and
+// it is not anything anybody said, so a transcript leaves it out.
+const sessionThreadOpener = "This thread is for an agent session"
+
 // SessionLookup reports whether a source key already has a session and, if so, when its
 // last turn started. It is injected rather than read from the store because a source never
 // touches the store.
@@ -103,6 +114,10 @@ type Source struct {
 	// me is the bot user, learned once in Run. Its id is the assignee filter and its
 	// comments are the ones that never start a turn.
 	me User
+	// byPosition makes the started state the team's first one of type started, whatever it
+	// is called. It is Linear's own rule for an agent app; the poller keeps looking for a
+	// state called In Progress first, as its setup instructions tell a team to name one.
+	byPosition bool
 
 	mu sync.Mutex
 	// states caches each team's "In Progress" state id for the process's lifetime. A
@@ -143,9 +158,7 @@ var _ conductor.Source = (*Source)(nil)
 func New(opts Options) (*Source, error) {
 	switch {
 	case opts.Playbook == nil || opts.Playbook() == "":
-		return nil, errors.New("linear: no playbook sets `linear: true`, so there is nothing to run a " +
-			"ticket with. Set it on exactly one playbook — a playbooks/*.yaml, or one made in the web " +
-			"UI — or unset PODIUM_AGENT_LINEAR_API_KEY")
+		return nil, errors.New(noPlaybook + "or unset PODIUM_AGENT_LINEAR_API_KEY")
 	case opts.PollInterval <= 0:
 		return nil, errors.New("linear: a poll interval is required")
 	case opts.Session == nil:
@@ -444,6 +457,13 @@ func (s *Source) human(c Comment) bool {
 	return true
 }
 
+// postedAsPerson reports whether a comment an integration posted was posted as a person
+// (createAsUser): what somebody said in Podium, relayed by the app, is their words and not the
+// app's answer. It is never a prompt — human still says no — only who said it in a transcript.
+func postedAsPerson(c Comment) bool {
+	return c.BotActor != nil && c.BotActor.UserDisplayName != ""
+}
+
 // ---------------------------------------------------------------------------
 // FetchTranscript
 // ---------------------------------------------------------------------------
@@ -469,11 +489,11 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 	}}
 	for _, c := range issue.Comments.Nodes {
 		text := strings.TrimSpace(c.Body)
-		if text == "" {
+		if text == "" || (c.User == nil && strings.HasPrefix(text, sessionThreadOpener)) {
 			continue
 		}
 		role := conductor.RoleUser
-		if !s.human(c) {
+		if !s.human(c) && !postedAsPerson(c) {
 			if isScaffolding(text) {
 				continue
 			}
@@ -629,9 +649,26 @@ func (s *Source) start(ctx context.Context, issueID, teamID string) error {
 	return nil
 }
 
+// startUnlessUnderway moves an issue to its team's started state unless its state already
+// says the work is underway or over: started, completed or cancelled. Linear asks an agent
+// app to do exactly this when it picks an issue up, and never to drag an issue somebody has
+// already moved on back to the start of the board.
+func (s *Source) startUnlessUnderway(ctx context.Context, issueID, teamID string) error {
+	state, team, err := s.client.IssueState(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("linear: read the state of %s: %w", issueID, err)
+	}
+	switch state.Type {
+	case StateTypeStarted, StateTypeCompleted, StateTypeCanceled:
+		return nil
+	}
+	return s.start(ctx, issueID, firstNonEmpty(teamID, team.ID))
+}
+
 // inProgressState resolves and caches a team's In Progress state id: by name first, because
 // that is the convention a team can see, then the lowest-positioned state with
-// type: started, because a renamed column is still the column that means started.
+// type: started, because a renamed column is still the column that means started. With
+// byPosition the name is not looked at.
 func (s *Source) inProgressState(ctx context.Context, teamID string) (string, error) {
 	s.mu.Lock()
 	cached, ok := s.states[teamID]
@@ -646,6 +683,9 @@ func (s *Source) inProgressState(ctx context.Context, teamID string) (string, er
 	}
 	chosen := ""
 	for _, st := range states {
+		if s.byPosition {
+			break
+		}
 		if strings.EqualFold(strings.TrimSpace(st.Name), InProgressStateName) {
 			chosen = st.ID
 			break
@@ -661,9 +701,11 @@ func (s *Source) inProgressState(ctx context.Context, teamID string) (string, er
 		sort.SliceStable(started, func(i, j int) bool { return started[i].Position < started[j].Position })
 		if len(started) > 0 {
 			chosen = started[0].ID
-			s.logger.InfoContext(ctx, "no workflow state is called "+InProgressStateName+
-				"; using the first one of type "+StateTypeStarted,
-				"team_id", teamID, "state", started[0].Name)
+			if !s.byPosition {
+				s.logger.InfoContext(ctx, "no workflow state is called "+InProgressStateName+
+					"; using the first one of type "+StateTypeStarted,
+					"team_id", teamID, "state", started[0].Name)
+			}
 		}
 	}
 	// An empty answer is cached too: the query is the expensive part and the board will
@@ -852,19 +894,61 @@ func Ref(issueID, teamID, identifier string) string {
 	return issueID + "/" + teamID + "/" + identifier
 }
 
-// ParseRef splits a Ref. Only the issue id is required: an issue with no team or no
-// identifier is not something Linear produces, but a ref written by an older version must
-// not make a resumed turn unpostable.
-func ParseRef(ref string) (issueID, teamID, identifier string, err error) {
-	parts := strings.Split(ref, "/")
-	if len(parts) != 3 || parts[0] == "" {
-		return "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier ref", ref)
-	}
-	return parts[0], parts[1], parts[2], nil
+// SessionRef is a Ref for a turn the agent app started: the same three parts and the agent
+// session as a fourth, because an app answers into the session rather than the issue.
+func SessionRef(issueID, teamID, identifier, sessionID string) string {
+	return Ref(issueID, teamID, identifier) + "/" + sessionID
 }
 
-// SourceKey is a session's identity: the issue, for the life of the ticket.
+// delegatedMark is the fifth part of a session ref whose session was opened by delegating the
+// issue to the app, rather than by an @mention.
+const delegatedMark = "delegated"
+
+// DelegatedSessionRef is a SessionRef for a session opened by delegating the issue. Which of
+// the two opened a session decides whether a turn moves the issue, and the ref is where that
+// is kept because it is the one thing that survives a restart with the turn: it is persisted
+// as turns.trigger_ref and inside every queued turn.
+func DelegatedSessionRef(issueID, teamID, identifier, sessionID string) string {
+	return SessionRef(issueID, teamID, identifier, sessionID) + "/" + delegatedMark
+}
+
+// delegatedRef reports whether a ref is a DelegatedSessionRef.
+func delegatedRef(ref string) bool {
+	parts := strings.Split(ref, "/")
+	return len(parts) == 5 && parts[4] == delegatedMark
+}
+
+// ParseRef splits a Ref or a SessionRef, without the session. Only the issue id is
+// required: an issue with no team or no identifier is not something Linear produces, but a
+// ref written by an older version must not make a resumed turn unpostable.
+func ParseRef(ref string) (issueID, teamID, identifier string, err error) {
+	issueID, teamID, identifier, _, err = ParseSessionRef(ref)
+	return issueID, teamID, identifier, err
+}
+
+// ParseSessionRef splits a ref into its parts. The session is empty for a three-part ref:
+// one the poller wrote, which may outlive the poller in a queued or resumed turn. A
+// delegated session's mark is checked and not returned: delegatedRef reads it.
+func ParseSessionRef(ref string) (issueID, teamID, identifier, sessionID string, err error) {
+	parts := strings.Split(ref, "/")
+	ok := len(parts) == 3 || len(parts) == 4 || (len(parts) == 5 && parts[4] == delegatedMark)
+	if !ok || parts[0] == "" || (len(parts) > 3 && parts[3] == "") {
+		return "", "", "", "", fmt.Errorf("linear: %q is not an issue/team/identifier[/session[/delegated]] ref", ref)
+	}
+	if len(parts) >= 4 {
+		sessionID = parts[3]
+	}
+	return parts[0], parts[1], parts[2], sessionID, nil
+}
+
+// SourceKey is an issue's conversation, for the life of the ticket: the poller's session, and
+// the agent app's, which every agent session on the issue is a turn of.
 func SourceKey(issueID string) string { return Kind + ":" + issueID }
+
+// SessionKey is one Linear agent session within its issue's conversation: the thread a turn's
+// replies go to, and what a Stop pressed in it stops (AppSource.ThreadKey). Before issues were
+// conversations it was a conversation's own key, and chats from then are still keyed by it.
+func SessionKey(sessionID string) string { return Kind + ":session:" + sessionID }
 
 // withFooter adds the one line that says which Podium task said this. It is the thread a
 // human pulls when they want the logs, and it is the only thing this source adds to text

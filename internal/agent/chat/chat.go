@@ -76,8 +76,15 @@ type Store interface {
 	RecordChatMessage(ctx context.Context, msg store.ChatMessage) (store.ChatMessage, bool, error)
 	ChatRole(ctx context.Context, chatID, viewer string) (string, error)
 	AddChatParticipant(ctx context.Context, chatID, login, via string, at time.Time) (bool, error)
-	MarkChatMultiplayer(ctx context.Context, chatID string, force bool) (store.Chat, bool, error)
+	MarkChatMultiplayer(ctx context.Context, chatID string) (store.Chat, bool, error)
 	ListQueuedTurnsForChat(ctx context.Context, chatID string) ([]store.QueuedTurn, error)
+}
+
+// QuestionStore is the optional half of Store that says whether a Linear ticket's conversation
+// waits on a question, and whom it was asked of (answersQuestion). A store without it never
+// takes a message as an answer.
+type QuestionStore interface {
+	GetLinearIssue(ctx context.Context, sourceKey string) (store.LinearIssue, error)
 }
 
 // Options is what a Source needs.
@@ -149,6 +156,39 @@ type Source struct {
 
 	mu   sync.Mutex
 	live map[string]*live
+	// relayer posts what a person says in a Linear issue's conversation to the issue
+	// (conductor/relay.go). The conductor hands itself over; nil relays nothing.
+	relayer conductor.Relayer
+}
+
+// SetRelayer implements the conductor's relaySetter.
+func (s *Source) SetRelayer(r conductor.Relayer) {
+	s.mu.Lock()
+	s.relayer = r
+	s.mu.Unlock()
+}
+
+// relayTimeout bounds posting one person's message to a Linear issue, which happens off the
+// send: the outbox retries what this first attempt does not land.
+const relayTimeout = 30 * time.Second
+
+// relayToIssue posts a person's message in a Linear issue's conversation to the issue as
+// theirs, off the request. Every other chat's messages stay in Podium.
+func (s *Source) relayToIssue(ctx context.Context, chat store.Chat, msg store.ChatMessage) {
+	if kind, _ := store.LinearKind(chat.SourceKey); kind != store.LinearKindIssue {
+		return
+	}
+	s.mu.Lock()
+	r := s.relayer
+	s.mu.Unlock()
+	if r == nil {
+		return
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), relayTimeout)
+	go func() {
+		defer cancel()
+		r.RelayMessage(rctx, chat.ID, msg)
+	}()
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -266,7 +306,8 @@ type SendResult struct {
 // refused for a turn being in flight any more: a message sent while one runs is a turn of its
 // own, queued in order, and run as its sender (conductor/queue.go). A mirrored conversation
 // can be written here too, and stays one-way — the message and its answer live in Podium and
-// are never posted to Slack or GitHub (decision 18).
+// are never posted to Slack or GitHub (decision 18). A Linear issue's conversation is the
+// exception (0049): the message is posted to the issue as its author's, and so is its answer.
 func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, error) {
 	res, err := s.SendMessage(ctx, req)
 	return res.Message, err
@@ -304,7 +345,12 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	//
 	// The assistant answers to its name and to the display name the chat was opened with, which
 	// is the one a participant who does not own it can see (and the one the composer inserts).
-	addressed := !chat.Multiplayer || MentionsPodium(req.Text, personalityName) ||
+	//
+	// In a Linear ticket's conversation that waits on a question, the person it was asked of
+	// answers it without naming anybody: what they send is put to Podium (answersQuestion). The
+	// inbox's reply box sends here, so answering there is the same as answering in the chat.
+	answering := s.answersQuestion(ctx, chat, req.Login)
+	addressed := !chat.Multiplayer || answering || MentionsPodium(req.Text, personalityName) ||
 		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay))
 
 	now := time.Now().UTC()
@@ -319,7 +365,9 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 		ahead = s.ahead(ctx, req.ChatID)
 	}
 	// A task that asked a question is waiting for exactly this: the answer goes in now.
-	held := addressed && ahead > 0 && !s.awaiting(req.ChatID)
+	// So is an answer to a question asked in a Linear ticket's conversation, whichever surface
+	// asked it: the turn that asked is the one in progress, waiting for it.
+	held := addressed && ahead > 0 && !s.awaiting(req.ChatID) && !answering
 	var msg store.ChatMessage
 	if !held {
 		msg, err = s.record(ctx, chat, req.Login, req.Text, now, addressed)
@@ -423,6 +471,7 @@ func (s *Source) record(
 		return store.ChatMessage{}, err
 	}
 	s.bcast.Publish(chat.ID, Frame{Kind: FrameMessage, Message: msg})
+	s.relayToIssue(ctx, chat, msg)
 	return msg, nil
 }
 
@@ -447,6 +496,25 @@ func (s *Source) RecordHeld(ctx context.Context, ev *conductor.InboundEvent) err
 	ev.ChatSeq = msg.Seq
 	ev.Held = false
 	return nil
+}
+
+// answersQuestion reports whether login is who the open question in chat's Linear ticket
+// conversation was asked of (linear_issues.asked_of, 0048). A conversation that waits on
+// nobody, or on somebody else, and any other chat, is not answered this way. A read that fails
+// is no answer: the message is then what it would otherwise have been.
+func (s *Source) answersQuestion(ctx context.Context, chat store.Chat, login string) bool {
+	if login == "" || !store.IsLinearConversation(chat.SourceKey) {
+		return false
+	}
+	qs, ok := s.store.(QuestionStore)
+	if !ok {
+		return false
+	}
+	li, err := qs.GetLinearIssue(ctx, chat.SourceKey)
+	if err != nil {
+		return false
+	}
+	return li.AskedAt != nil && li.AskedOf != "" && li.AskedOf == login
 }
 
 // DefaultPlacedWait is how long Send waits to hear where its message went before it answers
@@ -482,7 +550,7 @@ func (s *Source) mayWrite(ctx context.Context, chat store.Chat, login string) er
 }
 
 // joined makes the sender a participant of the chat, and the chat multiplayer once a second
-// Podium person is in it. The moment it becomes multiplayer is announced in the thread, once.
+// human is in it. The moment it becomes multiplayer is announced in the thread, once.
 func (s *Source) joined(ctx context.Context, chat store.Chat, login string) {
 	if _, err := s.store.AddChatParticipant(ctx, chat.ID, login, store.JoinedWeb, time.Now().UTC()); err != nil {
 		s.logger.WarnContext(ctx, "recording a chat's participant failed", "chat_id", chat.ID, "error", err)
@@ -491,15 +559,14 @@ func (s *Source) joined(ctx context.Context, chat store.Chat, login string) {
 	if chat.Multiplayer {
 		return
 	}
-	s.Multiplayer(ctx, chat.ID, false, "")
+	s.Multiplayer(ctx, chat.ID, "")
 }
 
-// Multiplayer makes a chat multiplayer, if it is not yet: force for a share (phase 5),
-// otherwise only once a second Podium person has taken part. The call that changes it posts
-// the notice that says so; who, when the caller knows it, is the person whose arrival made
-// it so.
-func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who string) {
-	updated, changed, err := s.store.MarkChatMultiplayer(ctx, chatID, force)
+// Multiplayer makes a chat multiplayer, if it is not yet and has a second human in it (a
+// share alone does not, nor does a bot). The call that changes it posts the notice that says
+// so; who, when the caller knows it, is the person whose arrival made it so.
+func (s *Source) Multiplayer(ctx context.Context, chatID, who string) {
+	updated, changed, err := s.store.MarkChatMultiplayer(ctx, chatID)
 	if err != nil {
 		s.logger.WarnContext(ctx, "marking a chat multiplayer failed", "chat_id", chatID, "error", err)
 		return
@@ -507,12 +574,9 @@ func (s *Source) Multiplayer(ctx context.Context, chatID string, force bool, who
 	if !changed {
 		return
 	}
-	text := "This chat is shared now — Podium only answers when mentioned."
-	if !force {
-		text = "More than one person is in this chat now — Podium only answers when mentioned."
-		if who != "" {
-			text = who + " is in this chat too now — Podium only answers when mentioned."
-		}
+	text := "More than one person is in this chat now — Podium only answers when mentioned."
+	if who != "" {
+		text = who + " is in this chat too now — Podium only answers when mentioned."
 	}
 	notice, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 		ChatID: chatID,

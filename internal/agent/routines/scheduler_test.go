@@ -207,6 +207,24 @@ func (f *fakeStore) RoutineFailuresSince(_ context.Context, routineID string, si
 	return n, nil
 }
 
+// GetChat is no chat: a routine's chat is a web chat, keyed chat:<id>, unless a test says so.
+func (f *fakeStore) GetChat(_ context.Context, id string) (store.Chat, error) {
+	return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
+}
+
+// EnsureRoutineChat opens chat_<routine id> for a routine with none, and records it.
+func (f *fakeStore) EnsureRoutineChat(_ context.Context, r store.Routine) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cur := f.routines[r.ID]
+	if cur.ChatID != "" {
+		return cur.ChatID, false, nil
+	}
+	cur.ChatID = "chat_" + r.ID
+	f.routines[r.ID] = cur
+	return cur.ChatID, true, nil
+}
+
 func (f *fakeStore) GetSessionByKey(_ context.Context, key string) (store.Session, error) {
 	return store.Session{ID: "sess:" + key}, nil
 }

@@ -98,7 +98,8 @@ type Session struct {
 	// GitHubReviewID is the pull-request review this session submitted. Zero means none.
 	GitHubReviewID int64
 	// Sharing is what a list says about the caller and the chat this session is the record
-	// of (phase 5). Zero for a session read by id, and for one with no chat (Linear, dev).
+	// of (phase 5). Zero for a session read by id, and for one with no chat (a ticket the
+	// Linear poller saw, dev).
 	Sharing ChatSharing
 }
 
@@ -622,11 +623,13 @@ const ChatSourceKeyPrefix = "chat:"
 func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 
 // The origins a chat can have. OriginWeb is a conversation Podium owns and may be written
-// to; OriginSlack is one it mirrors for reading, which lives in Slack and is answered there.
+// to; the others are ones it mirrors, which live on their own surface and are answered there:
+// a Slack thread, a pull request, a Linear agent session.
 const (
 	OriginWeb    = "web"
 	OriginSlack  = "slack"
 	OriginGitHub = "github"
+	OriginLinear = "linear"
 )
 
 // DefaultChatTitle is what a chat created with no title is called.
@@ -707,9 +710,9 @@ type Chat struct {
 	// chat, the Slack thread or the pull request for a mirrored one. The API reads the
 	// conversation's surfaces from it.
 	SourceKey string
-	// Multiplayer is sticky (0034): set once a chat has had a second Podium person in it, is
-	// shared, or mirrors a conversation that lives elsewhere. A web message must then tag
-	// Podium to start a turn.
+	// Multiplayer is sticky (0034): set once more than one human has been in a chat, in Podium
+	// or not (MarkChatMultiplayer). Bots do not count, and neither does a share on its own.
+	// A message must then tag Podium to start a turn.
 	Multiplayer bool
 	// GeneralAccess is who beyond the named grants may open it (0035): AccessRestricted,
 	// AccessMembers or AccessLink. GeneralRole is what they get: RoleViewer or RoleEditor.
@@ -720,6 +723,21 @@ type Chat struct {
 	LinkToken string
 	// Sharing is the caller's relationship to the chat, filled by ListChats (phase 5).
 	Sharing ChatSharing
+	// Linear is what the webhooks said about the issue a Linear conversation is about, filled
+	// by ListChats (0049) and nil for every other chat.
+	Linear *ChatLinearIssue
+}
+
+// ChatLinearIssue is a Linear issue as a chat in the rail shows it: "EME-6 · title" with its
+// Linear state, and whether its conversation waits on somebody (AskedAt) and whom (AskedOf,
+// the login whose turn asked, "" when that was nobody's).
+type ChatLinearIssue struct {
+	Identifier string
+	Title      string
+	StateName  string
+	StateType  string
+	AskedAt    *time.Time
+	AskedOf    string
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -755,7 +773,11 @@ type ChatMessage struct {
 	AuthorLogin  string
 	AuthorHandle string
 	AuthorAvatar string
-	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaBot).
+	// AuthorBot is a message from a bot account on its surface, not a person. It stays in the
+	// record, and does not make anybody a human in the chat (ChatAuthors).
+	AuthorBot bool
+	// Via is the surface the message came in through (ViaWeb, ViaSlack, ViaGitHub, ViaLinear,
+	// ViaBot).
 	// Empty on a write means ViaWeb for a user message and ViaBot for anything else.
 	Via string
 	// ExternalID is the message's identity on its own surface, and empty for a web message.
@@ -791,6 +813,7 @@ const (
 	ViaWeb    = "web"
 	ViaSlack  = "slack"
 	ViaGitHub = "github"
+	ViaLinear = "linear"
 	// ViaBot is what the conductor itself wrote: an answer, a progress line, a failure.
 	ViaBot = "bot"
 )
@@ -948,6 +971,14 @@ type ListChatsScope struct {
 	FilterPersonality bool
 	PersonalityID     string
 	Section           string
+	// ExcludeLinear leaves out Linear issues' and projects' conversations (0048), which the
+	// Linear view lists: the chat rail asks for this.
+	ExcludeLinear bool
+	// LinearRail lets back in, from what ExcludeLinear leaves out, the issues' conversations
+	// whose people the caller is one of (0049): they touched the issue through their linked
+	// Linear account, or spoke in it. Only in a signed-in caller's own list, never the dev
+	// token's, and not one they hid (HideChatFromRail) until something new is said in it.
+	LinearRail bool
 }
 
 // ListChats returns chats newest first. all is the dev token and returns every chat,
@@ -974,6 +1005,8 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 		AfterID:           cursor,
 		FilterPersonality: sc.FilterPersonality,
 		PersonalityID:     sc.PersonalityID,
+		ExcludeLinear:     sc.ExcludeLinear,
+		LinearRail:        sc.LinearRail,
 		PageLimit:         int32(limit),
 	})
 	if err != nil {
@@ -1013,6 +1046,13 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			at := r.LastMessageAt.UTC()
 			c.LastMessageAt = &at
 			c.Preview = preview(r.LastText, ChatPreviewChars)
+		}
+		if r.LinearIdentifier != "" || r.LinearTitle != "" || r.LinearAskedAt != nil {
+			c.Linear = &ChatLinearIssue{
+				Identifier: r.LinearIdentifier, Title: r.LinearTitle,
+				StateName: r.LinearStateName, StateType: r.LinearStateType,
+				AskedAt: utcPtr(r.LinearAskedAt), AskedOf: r.LinearAskedOf,
+			}
 		}
 		out = append(out, c)
 	}
@@ -1058,6 +1098,7 @@ func (s *Store) appendChatMessage(ctx context.Context, msg ChatMessage, addresse
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    addressed,
 		Mentions:     nonNilStrings(msg.Mentions),
+		AuthorBot:    msg.AuthorBot,
 	})
 	if noRows(err) {
 		return ChatMessage{}, fmt.Errorf("%w: chat %s", ErrNotFound, msg.ChatID)
@@ -1104,6 +1145,7 @@ func (s *Store) RecordChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		ExternalUrl:  msg.ExternalURL,
 		Addressed:    msg.Addressed,
 		Mentions:     nonNilStrings(msg.Mentions),
+		AuthorBot:    msg.AuthorBot,
 	})
 	if noRows(err) {
 		// Either the message is already here, or the chat is not. The chat is the caller's
@@ -1175,12 +1217,13 @@ func (s *Store) GetChatMessage(ctx context.Context, chatID string, seq uint64) (
 	return out[0], nil
 }
 
-// attachDeliveries fills Deliveries on the bot's messages in msgs from one read of the
-// chat's outbox. A chat with no bot messages is not read at all.
+// attachDeliveries fills Deliveries on the bot's messages in msgs, and on the web messages a
+// person sent in a Linear issue's conversation (0049: posted to the issue as theirs), from one
+// read of the chat's outbox. A chat with neither is not read at all.
 func (s *Store) attachDeliveries(ctx context.Context, chatID string, msgs []ChatMessage) error {
 	bot := false
 	for _, m := range msgs {
-		if m.Via == ViaBot {
+		if owed(m) {
 			bot = true
 			break
 		}
@@ -1202,11 +1245,17 @@ func (s *Store) attachDeliveries(ctx context.Context, chatID string, msgs []Chat
 		})
 	}
 	for i := range msgs {
-		if d, ok := bySeq[msgs[i].Seq]; ok && msgs[i].Via == ViaBot {
+		if d, ok := bySeq[msgs[i].Seq]; ok && owed(msgs[i]) {
 			msgs[i].Deliveries = d
 		}
 	}
 	return nil
+}
+
+// owed is whether a message is one the outbox may owe somewhere: the bot's, or a person's
+// from the web.
+func owed(m ChatMessage) bool {
+	return m.Via == ViaBot || (m.Via == ViaWeb && m.Role == RoleUser)
 }
 
 // ListChatMessages returns a chat's messages with seq > fromSeq, in seq order. fromSeq is
@@ -1233,6 +1282,43 @@ func (s *Store) ListChatMessages(ctx context.Context, chatID string, fromSeq uin
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListChatMessagesBefore returns the newest limit messages of a chat with seq < beforeSeq,
+// in seq order, and whether any older ones remain. beforeSeq 0 means the end of the chat, so
+// (0, n) is the conversation's last n messages: the tail a chat opens on.
+func (s *Store) ListChatMessagesBefore(
+	ctx context.Context, chatID string, beforeSeq uint64, limit int,
+) ([]ChatMessage, bool, error) {
+	if beforeSeq == 0 || beforeSeq > 1<<62 {
+		beforeSeq = 1 << 62
+	}
+	if limit <= 0 {
+		return nil, false, fmt.Errorf("chat %s: limit %d must be positive", chatID, limit)
+	}
+	// One more than asked is how "is there more" is answered without a count.
+	rows, err := s.q.ListChatMessagesBefore(ctx, db.ListChatMessagesBeforeParams{
+		ChatID: chatID, BeforeSeq: int64(beforeSeq), Lim: int32(limit + 1),
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("list messages of chat %s before %d: %w", chatID, beforeSeq, err)
+	}
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	out := make([]ChatMessage, len(rows))
+	for i, r := range rows {
+		msg, err := chatMessageFromRow(r)
+		if err != nil {
+			return nil, false, err
+		}
+		out[len(rows)-1-i] = msg
+	}
+	if err := s.attachDeliveries(ctx, chatID, out); err != nil {
+		return nil, false, err
+	}
+	return out, more, nil
 }
 
 // AttachToLastAssistantMessage adds one file to the newest assistant message of a chat and
@@ -1601,6 +1687,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Via:          r.Via,
 		ExternalURL:  r.ExternalUrl,
 		Addressed:    r.Addressed,
+		AuthorBot:    r.AuthorBot,
 		EditedAt:     utcPtr(r.EditedAt),
 		DeletedAt:    utcPtr(r.DeletedAt),
 		Mentions:     r.Mentions,

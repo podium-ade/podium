@@ -256,3 +256,9 @@ export function conversationLabel(
 export function turnCost(t: Pick<Turn, "costUsd">): string {
   return t.costUsd === undefined ? "-" : `$${t.costUsd.toFixed(4)}`;
 }
+
+/** tokens renders a context window the way the provider's own docs do. */
+export function tokens(n: number): string {
+  if (n >= 1_000_000) return `${n / 1_000_000}M ctx`;
+  return `${Math.round(n / 1000)}K ctx`;
+}

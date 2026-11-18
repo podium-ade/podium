@@ -114,6 +114,11 @@ func (c *Conductor) NoteRoutineTurnForTest(ctx context.Context, turnID string, e
 	c.noteRoutineTurn(ctx, turnID, ev)
 }
 
+// BriefRoutineForTest is the routine block a turn for ev in src is briefed with.
+func (c *Conductor) BriefRoutineForTest(ctx context.Context, src Source, ev InboundEvent) *BriefRoutine {
+	return c.briefRoutine(ctx, src, ev)
+}
+
 // PostForTest says out through src, as a turn would.
 func (c *Conductor) PostForTest(ctx context.Context, src Source, ref string, out Outbound) string {
 	return c.post(ctx, src, ref, out)
@@ -146,4 +151,22 @@ func (c *Conductor) CheckRoutineDelegationsForTest(ctx context.Context, token st
 		return ErrNoTurn
 	}
 	return c.checkRoutineDelegations(ctx, g)
+}
+
+// CheckQuietTasksForTest is one look by the watchdog, at now.
+func (c *Conductor) CheckQuietTasksForTest(ctx context.Context, now time.Time) {
+	c.checkQuietTasks(ctx, now)
+}
+
+// HeardHeartbeatForTest reports whether the watchdog has seen taskID's heartbeat.
+func (c *Conductor) HeardHeartbeatForTest(taskID string) bool {
+	c.mu.Lock()
+	w := c.watches[taskID]
+	c.mu.Unlock()
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return !w.lastHeartbeat.IsZero()
 }

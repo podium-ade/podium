@@ -36,6 +36,7 @@ type Over = {
   myRole?: string;
   origin?: string;
   privateSource?: boolean;
+  sourcePrivacyUnknown?: boolean;
 };
 
 function sharing(over: Over = {}): ChatSharing {
@@ -49,6 +50,7 @@ function sharing(over: Over = {}): ChatSharing {
     myRole: over.myRole ?? "owner",
     origin: over.origin ?? "web",
     privateSource: over.privateSource ?? false,
+    sourcePrivacyUnknown: over.sourcePrivacyUnknown ?? false,
   });
 }
 
@@ -148,7 +150,7 @@ describe("ShareDialog", () => {
     expect(screen.queryByTestId("share-link")).toBeNull();
   });
 
-  it("warns the owner that a first share moves the chat to the company key", async () => {
+  it("warns the owner that a second person moves the chat to the company key", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount();
     expect(await screen.findByTestId("share-key-warning")).toHaveTextContent("company’s model key");
@@ -156,17 +158,17 @@ describe("ShareDialog", () => {
     expect(screen.queryByTestId("share-key-note")).toBeNull();
   });
 
-  it("says a shared chat runs on the company key, without the warning", async () => {
+  it("does not say a chat runs on the company key just because it is shared", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing() });
     mount();
-    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
-    expect(screen.queryByTestId("share-key-warning")).toBeNull();
+    expect(await screen.findByTestId("share-key-warning")).toBeInTheDocument();
+    expect(screen.queryByTestId("share-key-note")).toBeNull();
   });
 
-  it("treats a chat the conductor marked multiplayer as shared", async () => {
+  it("says a chat with more than one person runs on the company key, without the warning", async () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
     mount(true);
-    expect(await screen.findByTestId("share-key-note")).toBeInTheDocument();
+    expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
     expect(screen.queryByTestId("share-key-warning")).toBeNull();
   });
 
@@ -174,5 +176,19 @@ describe("ShareDialog", () => {
     getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "slack", privateSource: true }) });
     mount();
     expect(await screen.findByTestId("share-private-warning")).toHaveTextContent("private Slack conversation");
+  });
+
+  it("warns in Linear's words before a private team's issue is shared", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "linear", privateSource: true }) });
+    mount();
+    const warning = await screen.findByTestId("share-private-warning");
+    expect(warning).toHaveTextContent("an issue in a private Linear team");
+    expect(warning).not.toHaveTextContent("Slack");
+  });
+
+  it("warns about a Linear issue whose team may be private", async () => {
+    getChatSharing.mockResolvedValue({ sharing: sharing({ origin: "linear", sourcePrivacyUnknown: true }) });
+    mount();
+    expect(await screen.findByTestId("share-private-warning")).toHaveTextContent("whose team may be private");
   });
 });

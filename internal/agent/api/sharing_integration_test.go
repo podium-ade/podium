@@ -212,7 +212,7 @@ func TestLinkSharing(t *testing.T) {
 	require.Contains(t, listed, chatID, "opening by link keeps it in her list")
 	assert.Equal(t, store.RoleEditor, listed[chatID].GetMyRole())
 	assert.Equal(t, store.GrantedByLink, listed[chatID].GetSharedBy())
-	assert.True(t, listed[chatID].GetMultiplayer(), "a shared chat is multiplayer")
+	assert.False(t, listed[chatID].GetMultiplayer(), "sharing alone puts no second human in the chat")
 
 	sh, err := f.clientAs("dana").GetChatSharing(ctx, connect.NewRequest(&agentv1.GetChatSharingRequest{ChatId: chatID}))
 	require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestNotificationsAndReadMarksThroughTheService(t *testing.T) {
 }
 
 // The share dialog warns about a mirrored Slack conversation: certainly private for a DM,
-// possibly private for a channel Podium cannot tell.
+// possibly private for a channel Podium cannot tell. A Linear session's team is the same.
 func TestSourcePrivacy(t *testing.T) {
 	for _, tc := range []struct {
 		origin, key, privacy string
@@ -463,6 +463,11 @@ func TestSourcePrivacy(t *testing.T) {
 		{store.OriginSlack, "slack:G123:1.1", "", true, false},
 		{store.OriginSlack, "slack:C123:1.1", "", false, true},
 		{store.OriginGitHub, "github:acme/repo#1", "", false, false},
+		// A Linear session is as private as its issue's team, and a team nobody could ask
+		// about may be private.
+		{store.OriginLinear, "linear:session:s-1", store.ChannelPublic, false, false},
+		{store.OriginLinear, "linear:session:s-1", store.ChannelPrivate, true, false},
+		{store.OriginLinear, "linear:session:s-1", "", false, true},
 	} {
 		p, u := sourcePrivacy(store.Chat{Origin: tc.origin, SourceKey: tc.key, ChannelPrivacy: tc.privacy})
 		assert.Equal(t, tc.private, p, tc.key)

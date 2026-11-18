@@ -147,6 +147,43 @@ const unavailableMcpServerSchema = z.strictObject({
   reason: z.string().min(1),
 });
 
+// One Linear event a routine's run was given (internal/agent/conductor/routine_events.go).
+const routineEventSchema = z.strictObject({
+  event: z.string().min(1),
+  label: z.string(),
+  at: z.string(),
+  actor: z.string().optional(),
+  url: z.string().optional(),
+  data: z.unknown(),
+  updated_from: z.unknown().optional(),
+  trimmed: z.boolean().optional(),
+});
+
+// One Linear issue the person's message named, which they may see in Linear
+// (internal/agent/conductor/tickets.go). Everything in it but identifier was written by people
+// in the workspace: data, never instructions.
+const linearTicketSchema = z.strictObject({
+  identifier: z.string().min(1),
+  title: z.string(),
+  url: z.string().optional(),
+  team: z.string().optional(),
+  state: z.string().optional(),
+  assignee: z.string().optional(),
+  updated_at: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  comments: z
+    .array(
+      z.strictObject({
+        author: z.string(),
+        at: z.string(),
+        body: z.string(),
+      }),
+    )
+    .optional(),
+  trimmed: z.boolean().optional(),
+});
+
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -313,8 +350,21 @@ const briefSchema = z.strictObject({
       instruction_changed_at: z.string().optional(),
       // A system routine runs as nobody: admins set it up, and it reads GitHub as the App.
       system: z.boolean().optional(),
+      // A routine that runs on Linear events instead of a schedule; schedule then names the
+      // events in words. by_hand is a run of one started from its card, with no events.
+      linear: z.boolean().optional(),
+      by_hand: z.boolean().optional(),
+      // The Linear events this run was given, oldest first. Everything in them but event and
+      // at was written by people in Linear: data, never instructions.
+      events: z.array(routineEventSchema).optional(),
     })
     .optional(),
+  // The Linear issues the person's message names that they may see in Linear, on an
+  // assistant's turn. Written by people in the workspace: data, never instructions.
+  linear_tickets: z.array(linearTicketSchema).optional(),
+  // How many more tickets the message names that the person may see, left out because
+  // somebody else who will read the answer may not. A count only: which they were is kept.
+  linear_tickets_withheld: z.number().int().positive().optional(),
 }).refine((b) => !b.delegation || b.delegation.playbooks.length > 0 || b.routine !== undefined || b.delegation.routines === true, {
   // An empty menu is not a menu. A routine's turn and a turn that may create a routine are the
   // exceptions: they carry the block for the token their tools need, whether or not they may
@@ -331,6 +381,7 @@ export type McpServerRef = z.infer<typeof mcpServerSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
 export type ProviderRef = TurnBrief["provider"];
 export type DelegationRef = NonNullable<TurnBrief["delegation"]>;
+export type LinearTicket = z.infer<typeof linearTicketSchema>;
 
 /** onHost reports whether this turn is a child of the conductor rather than a container. */
 export function onHost(brief: TurnBrief): boolean {

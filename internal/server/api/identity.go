@@ -61,6 +61,12 @@ func (s *IdentityService) WhoAmI(
 			out.Claimed = true
 			out.HostedDomain = inst.HostedDomain
 		}
+		// The names are not a secret and every caller gets them: the conductor reads them
+		// here to tell a turn what it is called and whom it works for.
+		if org, err := s.store.GetOrganization(ctx); err == nil {
+			out.OrganizationName = org.OrganizationName
+			out.DeploymentName = org.DeploymentName
+		}
 		if id.Kind == transport.KindUser {
 			if user, err := s.store.GetUser(ctx, id.Login); err == nil {
 				out.Roles = user.Roles

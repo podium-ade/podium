@@ -146,6 +146,9 @@ export class EntryStream {
     if (ev.kind === TaskEventKind.LOG) {
       return this.acc.append(ev).map((l, i) => this.lineEntry(l, `${ev.seq}.${i}`));
     }
+    // A heartbeat only says the runtime is alive, once a minute, for the conductor's
+    // watchdog: there is nothing in it for a person to read.
+    if (ev.payload.case === "message" && ev.payload.value.type === "heartbeat") return [];
     return [this.eventEntry(ev)];
   }
 

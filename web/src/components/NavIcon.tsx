@@ -7,6 +7,8 @@ import { cn } from "../lib/utils";
 export const NAV_ICON_PATHS = {
   chat: "M4 5h16v11H9l-5 4V5Z M7 9h10 M7 12h7",
   sessions: "M4 4v5h5 M4.8 9a8 8 0 1 1-.6 5 M12 7v5l3 2",
+  // An issue, in any tracker: a ring with its dot.
+  issues: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-7.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
   memory:
     "M8 5a3 3 0 0 0-3 3 3 3 0 0 0 0 5 3 3 0 0 0 3 5c1.3 0 2.2-.7 3-1.6V6.6C10.2 5.7 9.3 5 8 5Zm8 0a3 3 0 0 1 3 3 3 3 0 0 1 0 5 3 3 0 0 1-3 5c-1.3 0-2.2-.7-3-1.6V6.6c.8-.9 1.7-1.6 3-1.6Z",
   assistants:

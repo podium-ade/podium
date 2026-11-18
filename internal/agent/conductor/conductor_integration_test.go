@@ -122,9 +122,11 @@ allowed_tools: [read, grep]
 timeout: 15m
 slack_channels: [C1]
 `), 0o600))
+	// coder is what a Linear issue runs when nobody names a playbook.
 	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
 allowed_tools: [read, edit, bash]
+linear: true
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/playbooks/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: build podium
@@ -136,6 +138,7 @@ priority: -3
 system_prompt: look at the page
 allowed_tools: [read, bash]
 browser: true
+linear_teams: [OPS]
 `), 0o600))
 
 	require.NoError(t, os.WriteFile(dir+"/playbooks/desk.yaml", []byte(`system_prompt: work on the desktop
@@ -287,6 +290,16 @@ func posts(records []fakesource.Record, kind string) []fakesource.Record {
 	return out
 }
 
+// awaitOutcome waits for the reaction a finished turn leaves on its message. finish stores the
+// turn's status before it reacts, so a test that has only seen the status may be a moment early
+// for the reaction.
+func awaitOutcome(t *testing.T, src *fakesource.Source, outcome conductor.Reaction) {
+	t.Helper()
+	waitFor(t, 30*time.Second, "the turn to show its outcome", func() bool {
+		return slices.Contains(reactions(src.Records()), string(outcome))
+	})
+}
+
 func reactions(records []fakesource.Record) []string {
 	var out []string
 	for _, r := range records {
@@ -356,6 +369,7 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
 	})
+	awaitOutcome(t, src, conductor.ReactionDone)
 
 	records := src.Records()
 
@@ -1171,11 +1185,7 @@ func TestARestartResumesTheTurnAndPostsTheFinalOnce(t *testing.T) {
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, relayed, "the ledger holds one row per thing said, and no more")
-	// finish stores the status before it reacts, so the reaction is waited for rather than
-	// read the moment the status says succeeded.
-	waitFor(t, 30*time.Second, "the resumed turn to show its outcome", func() bool {
-		return slices.Contains(reactions(src.Records()), string(conductor.ReactionDone))
-	})
+	awaitOutcome(t, src, conductor.ReactionDone)
 }
 
 // Two conductors following one task is what a botched rolling restart looks like. Both
@@ -1239,6 +1249,7 @@ func TestAFailedTurnPostsPlainWordsAndNoRawError(t *testing.T) {
 	waitFor(t, 30*time.Second, "the turn to fail", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnFailed
 	})
+	awaitOutcome(t, src, conductor.ReactionFailed)
 
 	records := src.Records()
 	failures := posts(records, conductor.OutFailure)
@@ -1395,7 +1406,7 @@ func TestAnImpossibleBriefFailsTheTurnWithoutATask(t *testing.T) {
 	failures := posts(src.Records(), conductor.OutFailure)
 	require.Len(t, failures, 1)
 	assert.Contains(t, failures[0].Text, "too large")
-	assert.Contains(t, reactions(src.Records()), string(conductor.ReactionFailed))
+	awaitOutcome(t, src, conductor.ReactionFailed)
 }
 
 // A turn recorded but never bound to a task is what a crash between CreateTurn and
@@ -1415,9 +1426,11 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	start(t, st, fake, src)
-	waitFor(t, 30*time.Second, "the orphan to be failed", func() bool {
+	// The turn is failed before the failure is posted, so wait for both.
+	waitFor(t, 30*time.Second, "the orphan to be failed and said so", func() bool {
 		got, err := st.GetTurn(ctx, orphan.ID)
-		return err == nil && got.Status == store.TurnFailed
+		return err == nil && got.Status == store.TurnFailed &&
+			len(posts(src.Records(), conductor.OutFailure)) > 0
 	})
 
 	assert.Empty(t, fake.Specs(), "nothing ran, so nothing is resumed")
