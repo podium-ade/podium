@@ -102,10 +102,11 @@ type ChatPullRequest struct {
 	DetachedAt *time.Time
 }
 
-type ChatRailHidden struct {
-	ChatID   string
-	Login    string
-	HiddenAt time.Time
+type ChatRailPref struct {
+	ChatID string
+	Login  string
+	Pref   string
+	SetAt  time.Time
 }
 
 type ChatRead struct {

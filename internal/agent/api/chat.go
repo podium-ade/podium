@@ -190,6 +190,9 @@ func (s *AgentService) ListChats(
 		// tickets they touched, by last activity like any chat, and not the ones they hid.
 		ExcludeLinear: true,
 		LinearRail:    true,
+		// A chat the caller watches is in it too, while they may read it: an admin reads every
+		// system routine's chat and Linear conversation, which the store cannot tell alone.
+		Admin: Infra(ctx),
 	})
 	if err != nil {
 		return nil, storeError(err)
@@ -200,6 +203,7 @@ func (s *AgentService) ListChats(
 		c.SharedWithMe = sharedWithMe(r, login, SeesAll(ctx))
 		withSharing(ctx, c, r.Sharing)
 		c.LinearIssue = linearIssueToProto(r.Linear, login)
+		c.Watched = r.Sharing.Watched
 		out = append(out, c)
 	}
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
@@ -261,6 +265,61 @@ func (s *AgentService) SetChatRailHidden(
 		return nil, storeError(err)
 	}
 	return connect.NewResponse(&agentv1.SetChatRailHiddenResponse{}), nil
+}
+
+// SetChatWatched keeps a chat in the caller's rail, or stops. Only a chat they may read
+// (chatRole, which is also how an admin reads a system routine's chat or a Linear
+// conversation): watching grants nothing, and a chat they cannot read is not_found, as it is
+// everywhere else. Unwatching is answered for any chat, so leaving one you lost access to is not
+// an error.
+func (s *AgentService) SetChatWatched(
+	ctx context.Context, req *connect.Request[agentv1.SetChatWatchedRequest],
+) (*connect.Response[agentv1.SetChatWatchedResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if SeesAll(ctx) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("watch chat: the dev token's list is every chat already"))
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("watch chat: chat_id is required"))
+	}
+	if req.Msg.GetWatched() {
+		row, err := s.store.GetChat(ctx, chatID)
+		if err != nil {
+			return nil, storeError(err)
+		}
+		ok, err := s.mayReadChat(ctx, row, login)
+		if err != nil {
+			return nil, storeError(err)
+		}
+		if !ok {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+		}
+	}
+	if err := s.store.SetChatWatched(ctx, chatID, login, req.Msg.GetWatched(), time.Now()); err != nil {
+		return nil, storeError(err)
+	}
+	return connect.NewResponse(&agentv1.SetChatWatchedResponse{}), nil
+}
+
+// chatWatched is whether login watches a chat, for a chat frame. A failed read is not watched:
+// the toggle then offers Watch, which is harmless to press again.
+func (s *AgentService) chatWatched(ctx context.Context, chatID, login string) bool {
+	if s.store == nil || SeesAll(ctx) {
+		return false
+	}
+	w, err := s.store.ChatWatched(ctx, chatID, login)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading whether a chat is watched failed", "chat_id", chatID, "error", err)
+	}
+	return w
 }
 
 // DeleteChat removes one of the caller's chats and every message in it.
@@ -699,6 +758,7 @@ func (s *AgentService) StreamChat(
 	head.SharedWithMe = sharedWithMe(row, login, SeesAll(ctx))
 	head.MyRole = role
 	head.TaskRunning = s.chatTaskRunning(ctx, chatID)
+	head.Watched = s.chatWatched(ctx, chatID, login)
 	if err := stream.Send(&agentv1.ChatFrame{
 		Frame: &agentv1.ChatFrame_Chat{Chat: head},
 	}); err != nil {
@@ -793,6 +853,7 @@ func (s *AgentService) StreamChat(
 				c.MyRole = role
 				c.SharedWithMe = sharedWithMe(f.Chat, login, SeesAll(ctx))
 				c.TaskRunning = s.chatTaskRunning(ctx, chatID)
+				c.Watched = s.chatWatched(ctx, chatID, login)
 			}
 			if err := stream.Send(out); err != nil {
 				return err

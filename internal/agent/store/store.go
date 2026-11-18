@@ -117,6 +117,8 @@ type ChatSharing struct {
 	SharedBy string
 	// UnreadCount is what somebody else said after their read mark.
 	UnreadCount int64
+	// Watched is a chat the caller keeps in their rail by choice (chat_rail_prefs, 0055).
+	Watched bool
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -977,8 +979,11 @@ type ListChatsScope struct {
 	// LinearRail lets back in, from what ExcludeLinear leaves out, the issues' conversations
 	// whose people the caller is one of (0049): they touched the issue through their linked
 	// Linear account, or spoke in it. Only in a signed-in caller's own list, never the dev
-	// token's, and not one they hid (HideChatFromRail) until something new is said in it.
+	// token's, and not one they hid (SetChatRailHidden) until something new is said in it.
 	LinearRail bool
+	// Admin is an admin or an owner, who read every system routine's chat and every Linear
+	// conversation: one of those they watch is in their list while they are one.
+	Admin bool
 }
 
 // ListChats returns chats newest first. all is the dev token and returns every chat,
@@ -1007,6 +1012,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 		PersonalityID:     sc.PersonalityID,
 		ExcludeLinear:     sc.ExcludeLinear,
 		LinearRail:        sc.LinearRail,
+		Admin:             sc.Admin,
 		PageLimit:         int32(limit),
 	})
 	if err != nil {
@@ -1039,7 +1045,7 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			RoutineID:          deref(r.RoutineID),
 			Sharing: ChatSharing{
 				MyRole: r.MyRole, AccessReason: r.AccessReason,
-				SharedBy: r.SharedBy, UnreadCount: r.UnreadCount,
+				SharedBy: r.SharedBy, UnreadCount: r.UnreadCount, Watched: r.Watched,
 			},
 		}
 		if r.HasMessage {

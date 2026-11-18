@@ -105,6 +105,53 @@ func TestATicketsConversationIsInItsPeoplesRail(t *testing.T) {
 	}
 }
 
+// Watching a ticket's conversation keeps it in the rail of somebody who may read it, whom the
+// rail leaves it out of otherwise; watching and hiding are one preference, the latest winning.
+func TestAWatchedTicketConversationIsInTheRail(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	chat, _, err := s.EnsureLinearConversation(ctx, "linear:iss-9", "EME-9 Export")
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "rita@acme.com", Provider: ProviderLinear, ExternalID: "org/rita"}))
+	require.NoError(t, s.RecordLinearPeople(ctx, "linear:iss-9", []LinearPerson{
+		{LinearUser: "org/rita", Via: LinearViaCommented},
+	}, time.Now()))
+	rail := func(login string, admin bool) map[string]Chat {
+		t.Helper()
+		rows, _, err := s.ListChats(ctx, login, false, 100, "", ListChatsScope{ExcludeLinear: true, LinearRail: true, Admin: admin})
+		require.NoError(t, err)
+		out := map[string]Chat{}
+		for _, c := range rows {
+			out[c.ID] = c
+		}
+		return out
+	}
+	// Rita commented, so she reads it (0048) and it is in her rail; an admin reads it and it is
+	// not in theirs.
+	require.NoError(t, s.SetChatWatched(ctx, chat.ID, "root@acme.com", true, time.Now()))
+	assert.Contains(t, rail("root@acme.com", true), chat.ID, "an admin watching a ticket's conversation")
+	assert.True(t, rail("root@acme.com", true)[chat.ID].Sharing.Watched)
+	assert.NotContains(t, rail("root@acme.com", false), chat.ID, "and not once they are no longer one")
+	assert.NotContains(t, rail("nobody@acme.com", false), chat.ID)
+
+	// Hidden then watched: watching un-hides it. Watched then hidden: hiding unwatches it.
+	require.NoError(t, s.SetChatRailHidden(ctx, chat.ID, "rita@acme.com", true, time.Now().Add(time.Minute)))
+	assert.NotContains(t, rail("rita@acme.com", false), chat.ID)
+	require.NoError(t, s.SetChatWatched(ctx, chat.ID, "rita@acme.com", true, time.Now()))
+	assert.Contains(t, rail("rita@acme.com", false), chat.ID)
+	w, err := s.ChatWatched(ctx, chat.ID, "rita@acme.com")
+	require.NoError(t, err)
+	assert.True(t, w)
+	require.NoError(t, s.SetChatRailHidden(ctx, chat.ID, "rita@acme.com", true, time.Now().Add(time.Minute)))
+	assert.NotContains(t, rail("rita@acme.com", false), chat.ID)
+	w, err = s.ChatWatched(ctx, chat.ID, "rita@acme.com")
+	require.NoError(t, err)
+	assert.False(t, w)
+	// Unwatching leaves a hide alone, and unhiding a watch.
+	require.NoError(t, s.SetChatWatched(ctx, chat.ID, "rita@acme.com", false, time.Now()))
+	assert.NotContains(t, rail("rita@acme.com", false), chat.ID)
+}
+
 // Each turn of a conversation says who it ran as and which tasks it ran, a routine's run its
 // routine.
 func TestAConversationsTurnsSayWhoTheyRanAs(t *testing.T) {
