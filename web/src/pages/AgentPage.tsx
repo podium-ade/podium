@@ -59,7 +59,7 @@ const tabs: Tab[] = [
   {
     path: "issues",
     title: "Issues",
-    lead: "Every issue your assistants work on, from your issue trackers, one conversation each, however it was started: a delegation, a mention, or a routine.",
+    lead: "The issues you're involved in, from your issue trackers, one conversation each: those you're assigned or created, asked Podium about, or were @mentioned in.",
     element: <WorkTable />,
   },
   {

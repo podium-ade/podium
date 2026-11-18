@@ -6,6 +6,8 @@ import type { WorkItem } from "../../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../../lib/client";
 import { absolute, relative } from "../../../lib/format";
 import { money } from "../../../lib/routines";
+import { useViewer } from "../../../lib/identity";
+import { canManageInfra } from "../../../lib/rbac";
 import { cn } from "../../../lib/utils";
 import { Badge } from "../../Badge";
 import { Empty } from "../../Empty";
@@ -23,6 +25,7 @@ import {
   type StateFilter,
   type View,
   type WorkFilters,
+  FIRST_COLUMN,
   boardColumnQuery,
   itemLabel,
   podiumState,
@@ -47,36 +50,41 @@ const SELECT = "h-[2.625rem] min-h-0 rounded-lg border-border px-2.5 text-xs fon
 const teamValue = (provider: string, key: string) => `${provider}:${key}`;
 
 /** workKey is where one filter's pages of the list are cached. */
-const workKey = (f: WorkFilters) => ["agent", "work", f.mine, f.provider, f.team, f.state];
+const workKey = (f: WorkFilters) => ["agent", "work", f.all, f.provider, f.team, f.state];
 
 /**
- * WorkTable is the Issues view: one row per issue (or project) an assistant works on, from every
- * issue tracker Podium is connected to — today Linear — each a conversation of its own however it
- * was started: the issue delegated to the app, the app @mentioned on it, or a routine that ran
- * about it. There are too many for the chat rail, so they are listed here, newest activity first,
- * and filtered on the server.
+ * WorkTable is the Issues view: one row per issue (or project) the viewer is involved in, from
+ * every issue tracker Podium is connected to — today Linear — each a conversation of its own
+ * however it was started: the issue delegated to the app, the app @mentioned on it, or a routine
+ * that ran about it. There are too many for the chat rail, so they are listed here, newest
+ * activity first, and filtered on the server.
  *
  * What a row says about the issue — its key, title, team and state in its tracker — is what the
  * tracker's webhooks said, kept by the conductor; nothing here asks the tracker. A row opens the
  * issue's conversation, read-only as a pull request's is, and its key opens the issue where it
  * lives.
  *
- * Admins and owners see every issue; anybody else sees the issues they touched in the tracker
- * (once their account there is linked to Podium), spoke in, or were shared.
+ * Involved is assigned or created the issue, asked Podium about it (delegated it, @mentioned the
+ * app, prompted it, or spoke in its conversation), or was @mentioned in it — in the tracker, once
+ * the viewer's account there is linked to Podium. Admins and owners have one more toggle, All
+ * issues, which lists every one. Who may open a conversation is wider than the list: a person who
+ * commented on an issue, or was shared its conversation, opens it from a link.
  *
- * The same issues lay out as a table or as a board of statuses (WorkBoard), under the same
- * filters. The layout is ?view=board in the URL, so a board can be linked, and the browser
+ * The same issues lay out as a table or as a board of Podium's states (WorkBoard), under the same
+ * filters; on the board the columns are the state filter, so its toggle is the table's only. The layout is ?view=board in the URL, so a board can be linked, and the browser
  * remembers the last one chosen for a visit whose URL names none.
  */
 export function WorkTable() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [remembered, setRemembered] = useState<View>(storedView);
-  const [mine, setMine] = useState(false);
+  const admin = canManageInfra(useViewer());
+  const [everyIssue, setEveryIssue] = useState(false);
+  const all = admin && everyIssue;
   const [provider, setProvider] = useState("");
   const [team, setTeam] = useState("");
   const [state, setState] = useState<StateFilter>("");
-  const filters: WorkFilters = { mine, provider, team, state };
+  const filters: WorkFilters = { all, provider, team, state };
 
   const asked = params.get("view");
   const view: View = asked === "board" || asked === "table" ? asked : remembered;
@@ -96,7 +104,7 @@ export function WorkTable() {
   const list = useInfiniteQuery({
     queryKey: workKey(filters),
     queryFn: ({ pageParam }) =>
-      agent.listWorkItems({ mine, provider, team, state, page: { limit: PAGE, cursor: pageParam } }),
+      agent.listWorkItems({ all, provider, team, state, page: { limit: PAGE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor || undefined,
     refetchInterval: POLL_MS,
@@ -105,10 +113,10 @@ export function WorkTable() {
     placeholderData: keepPreviousData,
     enabled: view === "table",
   });
-  // The board's Backlog column, always on it: its pages carry the teams and providers for the
+  // The board's first column, always on it: its pages carry the teams and providers for the
   // filters, and its failure is the board's.
-  const backlog = useInfiniteQuery({ ...boardColumnQuery(filters, "backlog"), enabled: view === "board" });
-  const shown = view === "table" ? list : backlog;
+  const firstColumn = useInfiniteQuery({ ...boardColumnQuery(filters, FIRST_COLUMN), enabled: view === "board" });
+  const shown = view === "table" ? list : firstColumn;
 
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   const first = shown.data?.pages[0];
@@ -116,30 +124,34 @@ export function WorkTable() {
   const several = providers.length > 1;
   // With several providers a team is one provider's, so the list names whose.
   const teams = (first?.teams ?? []).filter((t) => provider === "" || t.provider === provider);
-  const filtered = mine || provider !== "" || team !== "" || state !== "";
+  const filtered = provider !== "" || team !== "" || (view === "table" && state !== "");
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2" data-testid="work-filters">
-        <ToggleGroup
-          type="single"
-          value={mine ? "mine" : "all"}
-          onValueChange={(v) => v && setMine(v === "mine")}
-          aria-label="Whose issues"
-        >
-          <ToggleGroupItem value="all" className={ITEM}>All I can see</ToggleGroupItem>
-          <ToggleGroupItem value="mine" className={ITEM}>Mine</ToggleGroupItem>
-        </ToggleGroup>
-        <ToggleGroup
-          type="single"
-          value={state || "any"}
-          onValueChange={(v) => v && setState(v === "any" ? "" : (v as StateFilter))}
-          aria-label="Podium's state"
-        >
-          <ToggleGroupItem value="any" className={ITEM}>Any state</ToggleGroupItem>
-          <ToggleGroupItem value="working" className={ITEM}>Working</ToggleGroupItem>
-          <ToggleGroupItem value="attention" className={ITEM}>Needs attention</ToggleGroupItem>
-        </ToggleGroup>
+        {admin ? (
+          <ToggleGroup
+            type="single"
+            value={all ? "all" : "mine"}
+            onValueChange={(v) => v && setEveryIssue(v === "all")}
+            aria-label="Whose issues"
+          >
+            <ToggleGroupItem value="mine" className={ITEM}>Mine</ToggleGroupItem>
+            <ToggleGroupItem value="all" className={ITEM}>All issues</ToggleGroupItem>
+          </ToggleGroup>
+        ) : null}
+        {view === "table" ? (
+          <ToggleGroup
+            type="single"
+            value={state || "any"}
+            onValueChange={(v) => v && setState(v === "any" ? "" : (v as StateFilter))}
+            aria-label="Podium's state"
+          >
+            <ToggleGroupItem value="any" className={ITEM}>Any state</ToggleGroupItem>
+            <ToggleGroupItem value="working" className={ITEM}>Working</ToggleGroupItem>
+            <ToggleGroupItem value="attention" className={ITEM}>Needs attention</ToggleGroupItem>
+          </ToggleGroup>
+        ) : null}
         {several || provider !== "" ? (
           <Select
             value={provider || ALL}
@@ -222,6 +234,7 @@ export function WorkTable() {
           rows={rows}
           filtered={filtered}
           linear={providers.includes("linear")}
+          all={all}
           pending={list.isPending}
           success={list.isSuccess}
           dimmed={list.isPlaceholderData}
@@ -240,6 +253,7 @@ function WorkTableBody({
   rows,
   filtered,
   linear,
+  all,
   pending,
   success,
   dimmed,
@@ -252,6 +266,8 @@ function WorkTableBody({
   filtered: boolean;
   /** linear is Linear among the trackers, which the empty view says how to reach. */
   linear: boolean;
+  /** all is every issue listed, not the viewer's own. */
+  all: boolean;
   pending: boolean;
   success: boolean;
   dimmed: boolean;
@@ -267,13 +283,15 @@ function WorkTableBody({
       {success && rows.length === 0 ? (
         <Empty
           icon={SquareKanban}
-          title={filtered ? "No issues match." : "No issues yet."}
+          title={filtered ? "No issues match." : all ? "No issues yet." : "No issues of yours yet."}
           hint={
             filtered
               ? "Clear a filter to see more."
-              : !linear
+              : all
                 ? "An issue appears here once an assistant works on it in a connected issue tracker."
-                : "In Linear, delegate an issue to the Podium app or @mention it in a comment. An issue you touched appears here once your Linear account is linked to Podium."
+                : !linear
+                  ? "An issue is yours here once you are assigned it, created it, asked Podium about it, or were @mentioned in it."
+                  : "An issue is yours here once you are assigned it, created it, asked Podium about it, or were @mentioned in it in Linear. Delegate an issue to the Podium app or @mention it in a comment; your Linear account has to be linked to Podium."
           }
         />
       ) : null}

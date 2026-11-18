@@ -6,18 +6,17 @@ import { errorMessage } from "../../../lib/client";
 import { absolute, relative } from "../../../lib/format";
 import { money } from "../../../lib/routines";
 import { cn } from "../../../lib/utils";
-import { Badge } from "../../Badge";
 import { Skeleton } from "../../Skeleton";
 import { Button } from "../../ui/button";
 import { ProviderMark } from "./ProviderMark";
-import { COLUMNS, type Column, type WorkFilters, boardColumnQuery, itemLabel, podiumState, providerName } from "./workView";
+import { COLUMNS, type Column, type WorkFilters, boardColumnQuery, itemLabel, providerName } from "./workView";
 
 /**
- * WorkBoard is the Issues view as columns, one per status: the category each issue tracker's own
- * state falls in (Linear's "In Review" is In progress). Each column is its own paged query, so a
- * busy Done column never holds back In progress, and Load more reads the next ten of that column
- * alone. Cards move when the tracker says they did; the board does not move them, since that
- * would be writing to the tracker.
+ * WorkBoard is the Issues view as columns, one per Podium state: not started, working, waiting on
+ * someone, failed, done. Each column is its own paged query, so a busy Done column never holds
+ * back Working, and Load more reads the next ten of that column alone. A card moves when Podium's
+ * work on it does; it is not dragged, since nothing about where Podium is can be set by hand. The
+ * issue's own state in its tracker is on the card.
  */
 export function WorkBoard({ filters }: { filters: WorkFilters }) {
   return (
@@ -26,27 +25,26 @@ export function WorkBoard({ filters }: { filters: WorkFilters }) {
       className="-mx-1 flex items-start gap-3 overflow-x-auto px-1 pb-2"
     >
       {COLUMNS.map((col) => (
-        <BoardColumn key={col.status} col={col} filters={filters} />
+        <BoardColumn key={col.state} col={col} filters={filters} />
       ))}
     </div>
   );
 }
 
 function BoardColumn({ col, filters }: { col: Column; filters: WorkFilters }) {
-  const q = useInfiniteQuery(boardColumnQuery(filters, col.status));
+  const q = useInfiniteQuery(boardColumnQuery(filters, col.state));
   const cards = q.data?.pages.flatMap((p) => p.items) ?? [];
-  if (col.optional && cards.length === 0) return null;
 
   const total = q.data?.pages[0]?.total ?? 0;
   // A server that counts nothing: say what is loaded, and that more exist.
   const count = total > 0 ? String(total) : `${cards.length}${q.hasNextPage ? "+" : ""}`;
   const Icon = col.icon;
-  const heading = `work-col-${col.status}`;
+  const heading = `work-col-${col.state}`;
 
   return (
     <section
       aria-labelledby={heading}
-      data-testid={`work-column-${col.status}`}
+      data-testid={`work-column-${col.state}`}
       className="flex max-h-[max(24rem,calc(100dvh-16rem))] min-w-[16rem] flex-1 basis-0 flex-col rounded-xl border border-border bg-panel"
     >
       <header className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
@@ -103,14 +101,13 @@ function BoardColumn({ col, filters }: { col: Column; filters: WorkFilters }) {
 /**
  * BoardCard is one issue. Its title is the link to the issue's conversation, stretched over the
  * whole card, so the card opens with a click anywhere or with Enter on the focused title; its
- * key, raised above that, opens the issue in its tracker, whose own name for its state is beside
- * the team.
+ * key, raised above that, opens the issue in its tracker, and beside it is the tracker's own name
+ * for the issue's state. The column says where Podium is with it, so the card does not, beyond
+ * whose answer a waiting one needs.
  */
 function BoardCard({ c }: { c: WorkItem }) {
-  const state = podiumState(c.state);
   const label = itemLabel(c);
   const where = providerName(c.provider);
-  const meta = [c.team, c.statusLabel].filter(Boolean).join(" · ");
   return (
     <li
       data-testid="work-card"
@@ -133,12 +130,17 @@ function BoardCard({ c }: { c: WorkItem }) {
           ) : (
             <span className="font-mono text-xs text-muted">{label}</span>
           )}
+          {c.statusLabel ? (
+            <span
+              className="truncate rounded-sm bg-raised px-1.5 py-px text-2xs text-muted"
+              title={`In ${where}: ${c.statusLabel}`}
+              data-testid="work-card-status"
+            >
+              {c.statusLabel}
+            </span>
+          ) : null}
         </span>
-        {meta ? (
-          <span className="truncate text-2xs text-faint" title={c.statusLabel ? `In ${where}: ${c.statusLabel}` : undefined}>
-            {meta}
-          </span>
-        ) : null}
+        {c.team ? <span className="shrink-0 text-2xs text-faint">{c.team}</span> : null}
       </div>
       <Link
         to={`/agent/chat/${c.chatId}`}
@@ -153,10 +155,12 @@ function BoardCard({ c }: { c: WorkItem }) {
         {c.title || "Untitled"}
       </Link>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <Badge tone={state.tone} className="px-2 py-0.5">
-          {state.label}
-        </Badge>
-        <span className="truncate text-2xs tabular-nums text-faint" title={absolute(c.lastActivityAt)}>
+        {c.state === "waiting" && c.askedOf ? (
+          <span className="min-w-0 truncate text-2xs text-faint">asked of {c.askedOf}</span>
+        ) : (
+          <span />
+        )}
+        <span className="shrink-0 truncate text-2xs tabular-nums text-faint" title={absolute(c.lastActivityAt)}>
           {relative(c.lastActivityAt)}
           {c.costUsd > 0 ? ` · ${money(c.costUsd)}` : ""}
         </span>
