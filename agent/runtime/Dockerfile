@@ -81,10 +81,10 @@ COPY package.json /opt/podium-agent/package.json
 # opencode 2 (`@opencode/cli`), the same release the chat host is tested against
 # (internal/agent/chathost). It refuses a model its own catalog does not list, before any
 # request: 1.18.29 did not know claude-opus-5-5, so every turn on the default model failed
-# with "Unexpected server error". 2.2.5 knows every model in internal/agent/profiles/agents.go;
+# with "Unexpected server error". 2.3.2 knows every model in internal/agent/profiles/agents.go;
 # move this pin with that file.
 RUN set -eux; \
-    npm install --global @opencode/cli@2.2.5; \
+    npm install --global @opencode/cli@2.3.2; \
     opencode --version
 
 # Build-time assertion: if optional dependencies were skipped, or the wrong platform's

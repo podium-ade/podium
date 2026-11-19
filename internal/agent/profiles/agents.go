@@ -55,6 +55,9 @@ var grokEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
 // high. It has no xhigh or max, and its `minimal` is not a level here.
 var geminiEfforts = []string{EffortLow, EffortMedium, EffortHigh}
 
+// geminiEffortsXHigh is for the Gemini models that also take xhigh (Gemini 4 Hydrogen).
+var geminiEffortsXHigh = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
+
 // grokEffortsNoXHigh is for the Grok models that document xhigh as a synonym for high.
 // Offering a level that silently means another one is worse than not offering it.
 var grokEffortsNoXHigh = []string{EffortLow, EffortMedium, EffortHigh}
@@ -168,12 +171,22 @@ var Backends = []Backend{{
 	DisplayName:  "OpenAI",
 	Provider:     ProviderOpenAI,
 	Note:         "The same harness, pointed at OpenAI's API — or at ChatGPT's Codex backend after a subscription sign-in.",
-	DefaultModel: "gpt-6.1-sol",
+	DefaultModel: "gpt-6.2-sol",
 	Models: []Model{
 		{
-			ID: "gpt-6.1-sol", DisplayName: "GPT-6.1 Sol",
-			Note: "The default. Near-Astra performance for complex work, at a lower cost.", ContextTokens: 1_050_000,
+			ID: "gpt-6.2-sol", DisplayName: "GPT-6.2 Sol",
+			Note: "The default. For everyday work and multi-step workflows, at 6.1 Sol's price.", ContextTokens: 1_050_000,
 			Efforts: fullEfforts,
+		},
+		{
+			ID: "gpt-6.2-astra", DisplayName: "GPT-6.2 Astra",
+			Note:          "The most capable model, and the most expensive. For demanding professional work.",
+			ContextTokens: 1_050_000, Efforts: fullEfforts,
+		},
+		{
+			ID: "gpt-6.1-sol", DisplayName: "GPT-6.1 Sol",
+			Note:          "The previous Sol. Pin it when a playbook is tuned to it.",
+			ContextTokens: 1_050_000, Efforts: fullEfforts,
 		},
 		{
 			ID: "gpt-6.1-terra", DisplayName: "GPT-6.1 Terra",
@@ -187,7 +200,7 @@ var Backends = []Backend{{
 		},
 		{
 			ID: "gpt-6-astra", DisplayName: "GPT-6 Astra",
-			Note:          "The most capable model, and the most expensive.",
+			Note:          "The previous Astra. Pin it when a playbook is tuned to it.",
 			ContextTokens: 1_050_000, Efforts: fullEfforts,
 		},
 	},
@@ -207,6 +220,16 @@ var Backends = []Backend{{
 			ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon",
 			Note:          "The most capable Gemini model, and the most expensive.",
 			ContextTokens: 1_048_576, Efforts: geminiEfforts,
+		},
+		{
+			ID: "gemini-4-carbon", DisplayName: "Gemini 4 Carbon",
+			Note:          "Gemini 4 for less than Argon.",
+			ContextTokens: 1_048_576, Efforts: geminiEfforts,
+		},
+		{
+			ID: "gemini-4-hydrogen", DisplayName: "Gemini 4 Hydrogen",
+			Note:          "The cheapest Gemini 4, and the only Gemini here that thinks at xhigh.",
+			ContextTokens: 1_048_576, Efforts: geminiEffortsXHigh,
 		},
 		{
 			ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash",

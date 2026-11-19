@@ -710,7 +710,7 @@ export interface Run {
 }
 
 /** HarnessVersion is the @opencode/cli the runtime image installs, and a host should too. */
-export const HarnessVersion = "2.2.5";
+export const HarnessVersion = "2.3.2";
 
 /**
  * NotInstalledText is what a turn says when the harness is not installed where it runs — a
