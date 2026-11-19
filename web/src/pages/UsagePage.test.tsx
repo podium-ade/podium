@@ -229,6 +229,18 @@ describe("UsagePage", () => {
     expect(totals.getByText("1 reported no cost")).toBeVisible();
   });
 
+  it("gives the exact token counts behind the shortened ones on hover", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+    const totals = within(screen.getByRole("group", { name: "Totals" }));
+    await user.hover(totals.getByText("1.3M / 34k"));
+    const tip = await screen.findByRole("tooltip");
+    expect(tip).toHaveTextContent(
+      `${(1_250_000).toLocaleString()} in, ${(34_000).toLocaleString()} out, ${(9_000_000).toLocaleString()} read from cache`,
+    );
+  });
+
   it("compares billed spend with the window before, from the day rows", async () => {
     // Ten days ago is in the previous seven-day window. Its $2 billed against $0.0182 billed
     // now is a fall of 99%; the subscription's $0.50 is not in either figure.

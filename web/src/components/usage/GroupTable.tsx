@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { billed, tokens, usd, type Totals } from "../../lib/usage";
+import { billed, tokenBreakdown, tokens, usd, type Totals } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Tooltip } from "../ui/tooltip";
@@ -106,9 +106,7 @@ export function GroupTable({
               </TableCell>
               <TableCell className="text-right text-xs tabular whitespace-nowrap text-muted">
                 {r.t.input + r.t.output > 0 ? (
-                  <Tooltip
-                    label={`${r.t.input.toLocaleString()} in, ${r.t.output.toLocaleString()} out, ${r.t.cacheRead.toLocaleString()} read from cache`}
-                  >
+                  <Tooltip label={tokenBreakdown(r.t)}>
                     <span>
                       {tokens(r.t.input)}
                       <span className="text-faint"> / </span>
