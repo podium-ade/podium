@@ -51,7 +51,11 @@ export function OriginMark({ via, url, className }: { via?: string; url?: string
       rel="noreferrer"
       title={label}
       aria-label={label}
-      className={cn(box, "hover:border-accent focus-visible:outline-2 focus-visible:outline-accent")}
+      className={cn(
+        box,
+        tile ? "hover:ring-1 hover:ring-accent" : "hover:border-accent",
+        "focus-visible:outline-2 focus-visible:outline-accent",
+      )}
     >
       {mark}
     </a>
