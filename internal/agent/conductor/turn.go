@@ -90,6 +90,10 @@ func (r *turnRun) run(ctx context.Context) {
 	// wedged one can only be ended; one that is only quiet can still be interrupted.
 	r.watch = &watch{taskID: r.turn.TaskID, sessionID: r.sess.ID, playbook: r.job.playbook.Name, sink: r.sink}
 	defer r.c.startWatch(r.watch)()
+	if err := r.recall(ctx, r.c.podium.Tasks, r.lastSeq); err != nil {
+		r.c.logger.WarnContext(ctx, "reading back what a resumed turn's task already said failed",
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "error", err)
+	}
 	f := &follower{
 		tasks:       r.c.podium.Tasks,
 		taskID:      r.turn.TaskID,
@@ -299,6 +303,8 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 		if msg := e.GetMessage(); msg != nil {
 			r.noteInteractive(ctx, msg.GetType())
 		}
+	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ARTIFACT:
+		r.onArtifact(ctx, e)
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
 		if err := e.GetError(); err != nil && !err.GetRetryable() {
 			r.errText = err.GetMessage()

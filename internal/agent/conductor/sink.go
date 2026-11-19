@@ -21,8 +21,11 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/podium-ade/podium/internal/agent/podium"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
 type sink struct {
@@ -49,6 +52,19 @@ type sink struct {
 	finals []string
 	// attachments are artifact names the finals asked for, in order, deduplicated.
 	attachments []string
+	// stored is every artifact the task's stream said it stored, by name, with the seq of
+	// that event. A file the answer names is attached as soon as both are known, whichever
+	// comes first, rather than when the task exits: a warm task answers and then waits
+	// minutes for a follow-up, and its screenshots belong with its answer.
+	stored map[string]storedArtifact
+	// attached is every name this run has put into the conversation, or found already put.
+	attached map[string]bool
+}
+
+// storedArtifact is one artifact event: what was stored, and where in the stream.
+type storedArtifact struct {
+	art *podiumv1.Artifact
+	seq uint64
 }
 
 // answer is every final joined back into the one thing the task said.
@@ -63,7 +79,11 @@ func (s *sink) said() bool { return len(s.finals) > 0 }
 // want attached — the chat title is runtime-owned and is never a download.
 func (s *sink) attachAll(ctx context.Context, byName map[string]*podiumv1.Artifact, skip ...string) {
 	for _, name := range s.attachments {
-		if slices.Contains(skip, name) {
+		if slices.Contains(skip, name) || s.attached[name] {
+			continue
+		}
+		if _, ok := s.stored[name]; ok {
+			s.attachStored(ctx, name)
 			continue
 		}
 		art, ok := byName[name]
@@ -75,6 +95,60 @@ func (s *sink) attachAll(ctx context.Context, byName map[string]*podiumv1.Artifa
 			continue
 		}
 		s.attach(ctx, art)
+	}
+}
+
+// onArtifact notes one artifact event, and attaches the file now if the answer already
+// asked for it.
+func (s *sink) onArtifact(ctx context.Context, e *podiumv1.TaskEvent) {
+	if !s.noteArtifact(e) {
+		return
+	}
+	if name := e.GetArtifact().GetName(); slices.Contains(s.attachments, name) {
+		s.attachStored(ctx, name)
+	}
+}
+
+// noteArtifact records an artifact event in stored, and says whether it was one.
+func (s *sink) noteArtifact(e *podiumv1.TaskEvent) bool {
+	ref := e.GetArtifact()
+	if e.GetKind() != podiumv1.TaskEventKind_TASK_EVENT_KIND_ARTIFACT || ref.GetName() == "" {
+		return false
+	}
+	if s.stored == nil {
+		s.stored = map[string]storedArtifact{}
+	}
+	s.stored[ref.GetName()] = storedArtifact{seq: e.GetSeq(), art: &podiumv1.Artifact{
+		Id:          ref.GetArtifactId(),
+		TaskId:      s.taskID,
+		Name:        ref.GetName(),
+		ObjectKey:   ref.GetObjectKey(),
+		SizeBytes:   ref.GetSizeBytes(),
+		ContentType: ref.GetContentType(),
+	}}
+	return true
+}
+
+// attachStored attaches a file the stream said it stored, exactly once: the attached ledger
+// is what keeps a conductor that restarted between the answer and the task's exit from
+// attaching it a second time.
+func (s *sink) attachStored(ctx context.Context, name string) {
+	st, ok := s.stored[name]
+	if !ok || s.attached[name] {
+		return
+	}
+	if s.attached == nil {
+		s.attached = map[string]bool{}
+	}
+	s.attached[name] = true
+	first, err := s.c.store.MarkAttached(ctx, s.taskID, st.seq)
+	if err != nil {
+		s.c.logger.ErrorContext(ctx, "claiming an artifact for attaching failed; not attaching it",
+			"task_id", s.taskID, "seq", st.seq, "name", name, "error", err)
+		return
+	}
+	if first {
+		s.attach(ctx, st.art)
 	}
 }
 
@@ -134,17 +208,65 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 	// A held progress edit is flushed before the answer lands, so the thread never shows
 	// a stale "working on it" above the final.
 	s.flushProgress(ctx)
+	s.noteFinal(text, attachments)
+	if text != "" {
+		s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Text: text})
+	}
+	// After the text, so the files sit under the answer that asked for them. One stored
+	// before the answer arrived is attached now; one stored after, when its event does.
+	for _, name := range attachments {
+		s.attachStored(ctx, name)
+	}
+}
+
+// noteFinal records one final's text and the files it asked for.
+func (s *sink) noteFinal(text string, attachments []string) {
 	s.finals = append(s.finals, text)
 	for _, name := range attachments {
 		if !slices.Contains(s.attachments, name) {
 			s.attachments = append(s.attachments, name)
 		}
 	}
-	if text == "" {
-		return
-	}
-	s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Text: text})
 }
+
+// recall reads back what a task said up to and including seq upTo, which this conductor
+// relayed before it restarted: the answer, the files it asked for and the files stored. It
+// says none of it again. A resumed follow starts after upTo, so without this a task that
+// answered before the restart and exited after it is recorded with no answer, and the
+// files its answer named are never attached.
+func (s *sink) recall(ctx context.Context, tasks podiumv1connect.TaskServiceClient, upTo uint64) error {
+	if upTo == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, recallTimeout)
+	defer cancel()
+	stream, err := tasks.StreamTaskEvents(ctx, connect.NewRequest(&podiumv1.StreamTaskEventsRequest{TaskId: s.taskID}))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.Close() }()
+	for stream.Receive() {
+		e := stream.Msg()
+		if e.GetSeq() > upTo {
+			return nil
+		}
+		if !s.noteArtifact(e) {
+			if msg := e.GetMessage(); e.GetKind() == podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE &&
+				msg.GetType() == OutFinal {
+				s.noteFinal(msg.GetText(), msg.GetAttachments())
+			}
+		}
+		if e.GetSeq() == upTo {
+			return nil
+		}
+	}
+	return stream.Err()
+}
+
+// recallTimeout bounds recall. Everything it reads is already stored, so it is fast or the
+// control plane is not answering, and a follow that cannot start is worse than a recall
+// that gave up.
+const recallTimeout = 30 * time.Second
 
 // activity hands one activity document to a source that draws it, and always to the mirrored
 // copy of the conversation, when there is one. A Linear agent session does both: it shows the

@@ -1,6 +1,8 @@
 // Everything a turn says on its way out: stderr for the operator, runner messages for the
 // conversation, and the accounting the conductor records.
 
+import { join } from "node:path";
+
 import { ArtifactsDir, turnSummaryJSON, writeTurn, type TurnSummary } from "./artifacts.js";
 import { emitMessage, type MessageType, type RunnerInvoke } from "./emit.js";
 
@@ -73,4 +75,22 @@ export async function reportTurn(
 
 export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * storeArtifacts hands the named files under dir to the node now, with `podium-runner
+ * artifact add`, rather than leaving them for the collection when the container exits. A
+ * warm turn reports its answer and then waits for a follow-up, so that collection is the
+ * whole window away. The node stores a file once: the collection skips one stored here
+ * that has not changed since. Never fails the turn: a file that cannot be handed over now
+ * is still collected on the way out.
+ */
+export async function storeArtifacts(invoke: RunnerInvoke, names: string[], dir = ArtifactsDir): Promise<void> {
+  for (const name of names) {
+    try {
+      await invoke(["artifact", "add", join(dir, name), "--name", name], "");
+    } catch (err) {
+      warn(`could not store ${name} before answering: ${messageOf(err)}`);
+    }
+  }
 }

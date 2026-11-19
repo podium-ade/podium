@@ -33,7 +33,7 @@ import { startHeartbeat } from "./heartbeat.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { installRequestedBy } from "./requestedby.js";
-import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
+import { messageOf, reportTurn, say, storeArtifacts, warn, type Summary } from "./report.js";
 import { TurnInput } from "./turninput.js";
 import { nextInboxLine, warmMillis } from "./warm.js";
 import {
@@ -555,7 +555,15 @@ async function main(): Promise<number> {
       // so the node can tar the workspace.
       const warmMs = warmMillis(process.env);
       if (warmMs > 0 && !cancelled && summary.code === ExitOK && inboxIter) {
-        await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
+        const attachments = matchAttachments(finalText, artifacts);
+        // The node collects the artifacts directory only when the container exits, which a
+        // warm turn puts off by the whole window: the answer would reach the chat with its
+        // screenshots still in here. The files it names are stored now instead. A host turn
+        // has no node to hand them to.
+        if (!onHost(brief)) {
+          await storeArtifacts(invoke, attachments, artifacts);
+        }
+        await reportTurn(invoke, summary, finalText, attachments, artifacts);
         const waited = await nextInboxLine(
           () => inboxIter.next(),
           input.takePendingInject(),

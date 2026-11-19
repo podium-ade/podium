@@ -961,6 +961,7 @@ func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string
 		c.logger.WarnContext(ctx, "recording that a delegated task is working again failed",
 			"delegation_id", dlg.ID, "error", err)
 	}
+	c.delegationChanged(ctx, dlg.SessionID)
 	return dlg, nil
 }
 
@@ -1098,6 +1099,10 @@ func (r *delegationRun) run(ctx context.Context) {
 		},
 	}
 	defer c.startWatch(r.watch)()
+	if err := r.recall(ctx, c.podium.Tasks, r.lastSeq); err != nil {
+		c.logger.WarnContext(ctx, "reading back what a resumed delegated task already said failed",
+			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
+	}
 	f := &follower{
 		tasks:       c.podium.Tasks,
 		taskID:      r.dlg.TaskID,
@@ -1171,6 +1176,10 @@ func (r *delegationRun) run(ctx context.Context) {
 // The row carries it now, and the usage screen reads it beside a turn's.
 func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	r.c.observeWatch(ctx, r.watch, e)
+	if e.GetKind() == podiumv1.TaskEventKind_TASK_EVENT_KIND_ARTIFACT {
+		r.onArtifact(ctx, e)
+		return
+	}
 	if e.GetKind() != podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE {
 		return
 	}
@@ -1199,6 +1208,9 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			r.c.logger.WarnContext(ctx, "recording that a delegated task has answered failed",
 				"delegation_id", r.dlg.ID, "error", err)
 		}
+		// An answered task is not the chat's work any more (Chat.TaskRunning), though it
+		// stays up for a follow-up: open screens stop saying "working" now, not when it exits.
+		r.c.delegationChanged(ctx, r.dlg.SessionID)
 	}
 	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
 		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)
