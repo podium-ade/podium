@@ -10,21 +10,30 @@ import { cn } from "../../../lib/utils";
 const MARKS: Record<string, string> = { github, linear, slack };
 
 /**
+ * TILES are marks drawn as a square tile, background and all (Linear's app icon). They fill the
+ * badge edge to edge and take its shape; drawn smaller on the white badge, as the others are,
+ * the square shows a white ring in a round badge and its corners poke out of the circle.
+ */
+const TILES = new Set(["linear"]);
+
+/**
  * OriginMark is the small badge saying where a message was said: the Slack, GitHub or Linear
  * mark, or a globe for the web chat. With a url it is a link to the message there.
  */
 export function OriginMark({ via, url, className }: { via?: string; url?: string; className?: string }) {
   if (!via || via === "bot") return null;
   const src = MARKS[via];
+  const tile = TILES.has(via);
   const label = url ? `Open in ${surfaceName(via)}` : `Said in ${surfaceName(via)}`;
   const mark = src ? (
-    <img src={src} alt="" className="size-3.5" />
+    <img src={src} alt="" className={tile ? "size-full" : "size-3.5"} />
   ) : (
     <Globe aria-hidden className="size-3.5 text-muted" />
   );
   const box = cn(
     "inline-grid size-5 shrink-0 place-items-center rounded-sm border border-line-strong bg-white",
     className,
+    tile && "overflow-hidden border-0 bg-transparent",
   );
   if (!url) {
     return (
@@ -42,7 +51,11 @@ export function OriginMark({ via, url, className }: { via?: string; url?: string
       rel="noreferrer"
       title={label}
       aria-label={label}
-      className={cn(box, "hover:border-accent focus-visible:outline-2 focus-visible:outline-accent")}
+      className={cn(
+        box,
+        tile ? "hover:ring-1 hover:ring-accent" : "hover:border-accent",
+        "focus-visible:outline-2 focus-visible:outline-accent",
+      )}
     >
       {mark}
     </a>

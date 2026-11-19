@@ -31,6 +31,7 @@ import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
+import { assistantName, useBrand } from "../../lib/brand";
 import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { mentionsPodium } from "../../lib/mentions";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
@@ -219,6 +220,7 @@ export function ChatPanel() {
   });
 
   const viewerLogin = useViewer()?.login ?? "";
+  const brand = useBrand();
   const [pendingDelete, setPendingDelete] = useState<Chat | null>(null);
   const remove = useMutation({
     mutationFn: (chat: Chat) => agent.deleteChat({ chatId: chat.id }),
@@ -335,12 +337,9 @@ export function ChatPanel() {
   const onWatch = (on: boolean) => {
     if (viewing) watch.mutate({ chat: viewing, on });
   };
-  // What the assistant may delegate to. It is shown, never picked: the turn chooses a
-  // playbook per piece of work, and naming them is how a reader learns the conversation can
-  // reach a machine at all.
-  const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
   const selectedVoice = personalities.find((p) => p.id === personalityId);
-  const arrivalName = selectedVoice?.displayName || playbooks.data?.assistant?.displayName || "Podium";
+  // The house assistant goes by the deployment's name; a personal one keeps its own.
+  const arrivalName = assistantName(selectedVoice?.displayName || playbooks.data?.assistant?.displayName, brand);
   // Bubbles keep Podium's display name. The chip shows this voice's model when it has one.
   const answeredBy = inheritedAssistant(playbooks.data?.assistant, selectedVoice);
   const deleteStopsTask = pendingDelete?.turnRunning === true || pendingDelete?.taskRunning === true;
@@ -392,7 +391,6 @@ export function ChatPanel() {
           ) : active === "" ? (
             <Arrival
               botName={arrivalName}
-              playbookNames={playbookNames}
               sending={ask.isPending}
               assistant={answeredBy}
               onSend={(text, choice) => ask.mutate({ text, choice })}
@@ -422,7 +420,6 @@ export function ChatPanel() {
                   : undefined
               }
               assistant={answeredBy}
-              playbookNames={playbookNames}
             />
           )}
         </div>
@@ -1513,7 +1510,6 @@ function Conversation({
   onChat,
   watch,
   assistant,
-  playbookNames,
 }: {
   chatId: string;
   title: string;
@@ -1553,7 +1549,6 @@ function Conversation({
   /** watch is the header's Watch or Unwatch, when the chat is unlisted or watched. */
   watch?: { watched: boolean; busy: boolean; onWatch: (on: boolean) => void };
   assistant?: Assistant;
-  playbookNames: string[];
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -1580,7 +1575,7 @@ function Conversation({
   const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
   const desktopStyle =
     desktopWidth === undefined ? undefined : ({ "--desktop-width": `${desktopWidth}px` } as CSSProperties);
-  const botName = assistant?.displayName ?? "Podium";
+  const botName = assistantName(assistant?.displayName, useBrand());
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
   // to a chat with no owning login is refused — so this is the affordance, not the rule.
@@ -1613,7 +1608,9 @@ function Conversation({
     !sharedWithMe &&
     role !== "editor" &&
     role !== "viewer";
-  const multiplayer = stream.chat?.multiplayer === true;
+  // Until the chat loads, the rail's row says whether it is shared, so the composer opens
+  // with the hint it keeps rather than the private chat's.
+  const multiplayer = (stream.chat?.multiplayer ?? listedMultiplayer) === true;
   const personalityName = stream.chat?.personalityDisplay ?? "";
   const me = viewer?.login ?? "";
   // The chat's shared queue, as everybody in it sees it: what was put to Podium while it was
@@ -1886,7 +1883,6 @@ function Conversation({
               ) : showWelcome ? (
                 <ArrivalWell
                   botName={botName}
-                  playbookNames={playbookNames}
                   onSuggest={(text) => submit(text, choice)}
                   suggesting={busy}
                 />
@@ -1946,6 +1942,7 @@ function Conversation({
               choice={choice}
               onChoiceChange={setChoice}
               onSend={submit}
+              botName={botName}
             />
           </>
         )}
@@ -1967,10 +1964,12 @@ function Conversation({
   );
 }
 
+// What a new chat offers to ask: one each for a task that went wrong, the routines the
+// assistant can set up, and the playbooks it can run.
 const SUGGESTIONS = [
-  "Why did the nightly ETL fail?",
-  "Summarise the last failed task",
-  "What can you do on this stack?",
+  "Why did my last task fail?",
+  "Set up a routine to triage new Linear issues",
+  "Which playbooks can you run?",
 ];
 
 /**
@@ -1980,13 +1979,11 @@ const SUGGESTIONS = [
  */
 function Arrival({
   botName,
-  playbookNames,
   sending,
   assistant,
   onSend,
 }: {
   botName: string;
-  playbookNames: string[];
   sending: boolean;
   assistant?: Assistant;
   onSend: (text: string, choice: AgentChoice) => void;
@@ -2001,7 +1998,6 @@ function Arrival({
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-5">
           <ArrivalWell
             botName={botName}
-            playbookNames={playbookNames}
             suggesting={sending}
             onSuggest={(text) => onSend(text, choice)}
           />
@@ -2015,6 +2011,7 @@ function Arrival({
         choice={choice}
         onChoiceChange={setPicked}
         onSend={onSend}
+        botName={botName}
       />
     </div>
   );
@@ -2038,12 +2035,10 @@ function RoutineWelcome({ system, routineId }: { system: boolean; routineId: str
 
 function ArrivalWell({
   botName,
-  playbookNames,
   onSuggest,
   suggesting,
 }: {
   botName: string;
-  playbookNames: string[];
   onSuggest: (text: string) => void;
   suggesting: boolean;
 }) {
@@ -2069,18 +2064,6 @@ function ArrivalWell({
           </button>
         ))}
       </div>
-      {playbookNames.length > 0 ? (
-        <p className="max-w-md text-2xs text-faint">
-          It can run{" "}
-          {playbookNames.map((name, i) => (
-            <span key={name}>
-              {i > 0 ? ", " : ""}
-              <span className="font-mono text-muted">{name}</span>
-            </span>
-          ))}
-          .
-        </p>
-      ) : null}
     </div>
   );
 }
