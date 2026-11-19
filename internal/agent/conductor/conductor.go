@@ -1341,7 +1341,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	persona, err := c.githubPersona(ctx, login, j.playbook)
+	persona, err := c.githubPersona(ctx, login, j.playbook, c.runsAsPodium(ctx, login, ev.Routine))
 	if err == nil {
 		_, err = userSecretRefs(login, j.playbook.UserSecrets)
 	}

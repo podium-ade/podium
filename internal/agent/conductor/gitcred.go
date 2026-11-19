@@ -283,26 +283,41 @@ func (c *Conductor) provisionGitCapability(
 // that cannot be written as them is refused. A turn with nobody behind it writes as the App
 // unless the policy is "person_only".
 //
+// asPodium is a run as Podium (a system routine's, runsAsPodium): it writes as the App
+// whatever the policy says, as every other capability of such a run does.
+//
 // The error is written for the person who asked.
-func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
+func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook, asPodium bool) (*BriefGit, error) {
 	if !playbook.UsesGitHubAccount() {
 		return nil, nil
 	}
 	policy := c.identityPolicy(ctx).GitHubWrite
+	if asPodium {
+		policy = store.IdentityApp
+	}
 	standIn := policy != store.IdentityPersonOnly && c.canWriteAsApp(playbook)
-	if turnOwner(login) == "" {
+	if turnOwner(login) == "" && policy != store.IdentityApp {
 		if standIn {
 			c.logger.InfoContext(ctx, "nobody in podium is behind this turn; it writes as the app", "playbook", playbook.Name)
 			return nil, nil
 		}
-		return nil, errors.New("this playbook opens pull requests as the person who asked, and " +
-			"this conversation has no Podium user. Ask from the Podium web chat instead")
+		name := displayNameFor("", c.branding(ctx))
+		if policy == store.IdentityPersonOnly {
+			return nil, fmt.Errorf("this playbook opens pull requests as the person who asked, nobody in %s "+
+				"asked, and this %s writes to GitHub only as the person who asked. Ask from the %s web chat instead",
+				name, name, name)
+		}
+		return nil, fmt.Errorf("this playbook opens pull requests as the person who asked, nobody in %s asked, "+
+			"and its GitHub App cannot stand in: %s", name, c.whyNotApp(playbook, name))
 	}
 	if policy == store.IdentityApp {
 		if !c.canWriteAsApp(playbook) {
-			return nil, errors.New("this Podium writes to GitHub only as the Podium App, and the App is not " +
-				"connected or this playbook names no repositories of one owner. An admin can connect it under " +
-				"Organization settings → Connections")
+			name := displayNameFor("", c.branding(ctx))
+			why := "this " + name + " writes to GitHub only as its GitHub App"
+			if asPodium {
+				why = "this run acts as " + name + ", which writes to GitHub as its GitHub App"
+			}
+			return nil, fmt.Errorf("%s, and %s", why, c.whyNotApp(playbook, name))
 		}
 		c.logger.InfoContext(ctx, "the identity policy writes as the app; the turn writes as the app on their behalf",
 			"login", login, "playbook", playbook.Name)
@@ -361,6 +376,21 @@ func (c *Conductor) canWriteAsApp(playbook profiles.Playbook) bool {
 	}
 	scope, err := gitScopeOf(playbook)
 	return err == nil && len(scope.Repos) > 0
+}
+
+// whyNotApp is why a playbook's turn cannot write as the App (canWriteAsApp is false), for
+// the person who asked. name is the deployment's.
+func (c *Conductor) whyNotApp(playbook profiles.Playbook, name string) string {
+	if c.githubApp() == nil {
+		return "no GitHub App is connected to " + name + ". An admin can connect one under " +
+			"Organization settings → Connections"
+	}
+	if _, err := gitScopeOf(playbook); err != nil {
+		return "the playbook's repositories belong to more than one GitHub account, and one App token " +
+			"covers one. Split the playbook, or give it repositories of one owner"
+	}
+	return "the playbook lists no repositories, so there is nothing to scope the App's token to. " +
+		"Add its repositories to the playbook"
 }
 
 func githubPersonaOf(acct store.GitHubAccount) *BriefGit {

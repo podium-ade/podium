@@ -778,7 +778,7 @@ func (c *Conductor) startDelegatedTask(
 	if login == "" && !c.isRoutineTurn(g.turnID) {
 		login = c.asker(ctx, g.src, sess)
 	}
-	persona, err := c.githubPersona(ctx, login, playbook)
+	persona, err := c.githubPersona(ctx, login, playbook, c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID)))
 	if err != nil {
 		return nil, err
 	}
