@@ -1910,12 +1910,13 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // Either kind fails on what nobody in the conversation can fix: a registry that cannot be
 // read, or a saved config that no longer parses.
 //
-// linear is where the turn's Linear comes from (linearAccess). A run as Podium's is the Linear
-// app's (linearapp.go), in the place the job named it, and a run with no app gets none without
-// failing, whichever kind of job it is. A turn from Linear has the person's own Linear, else
-// the app's; the assistant has it whether or not it names it, a playbook only if it does.
+// linear is where the turn's Linear comes from (linearAccess): the Linear app's (linearapp.go)
+// in the place the job named it, or the person's own, or the person's and else the app's, as
+// the identity policy says; a run as Podium's is always the app's. A turn with no app gets
+// none without failing, whichever kind of job it is. A turn from Linear has Linear in its
+// assistant whether or not it names it; a playbook has it only if it does.
 func (c *Conductor) mcpServers(ctx context.Context, j job, login string, linear linearAccess) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
-	if len(j.mcpServers) == 0 && (linear != linearFromLinear || !j.onHost) {
+	if len(j.mcpServers) == 0 && (!linear.fromLinear || !j.onHost) {
 		return nil, nil, nil
 	}
 	if c.store == nil {
@@ -1934,22 +1935,20 @@ func (c *Conductor) turnMCPServers(
 	ctx context.Context, j job, login string, linear linearAccess, rows []mcp.Server,
 ) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	names, order, app := j.mcpServers, j.mcpServers, false
-	switch linear {
-	case linearAsApp:
+	// The assistant in a turn from Linear has Linear, named or not, after what it named. A
+	// playbook keeps to what it declares.
+	if linear.fromLinear && j.onHost && !slices.Contains(names, mcp.LinearName) {
+		names = append(slices.Clone(names), mcp.LinearName)
+		order = names
+	}
+	if linear.mode == store.IdentityApp {
 		names, app = withLinearApp(names)
-	case linearFromLinear:
-		// The assistant in a turn from Linear has Linear, named or not, after what it named.
-		// A playbook keeps to what it declares.
-		if j.onHost && !slices.Contains(names, mcp.LinearName) {
-			names = append(slices.Clone(names), mcp.LinearName)
-			order = names
-		}
 	}
 	servers, unavailable, err := resolveMCPServers(turnOwner(login), names, rows)
 	if err != nil {
 		return nil, nil, err
 	}
-	if linear == linearFromLinear {
+	if linear.mode == store.IdentityPersonThenApp {
 		// The person's own Linear when they have it; the app stands in when they do not.
 		if i := slices.IndexFunc(unavailable, func(u BriefUnavailableMCPServer) bool {
 			return u.Name == mcp.LinearName && appMayStandIn(u.Reason)
@@ -2016,9 +2015,14 @@ func (c *Conductor) logUnavailableMCP(ctx context.Context, turnID, job string, u
 // onChatHost is whether the turn is answered on the chat host. A Claude subscription sign-in
 // is spent only there, by opencode's claude-agent provider running Claude Code: every other
 // turn runs a harness that would send the token as an API key, so it spends the global key.
+//
+// The identity policy's model_key "app" spends the global one for everybody.
 func (c *Conductor) credentialOwner(ctx context.Context, login, agent string, onChatHost bool) string {
 	owner := turnOwner(login)
 	if owner == "" || c.podium == nil {
+		return ""
+	}
+	if c.identityPolicy(ctx).ModelKey == store.IdentityApp {
 		return ""
 	}
 	b, ok := profiles.FindBackend(agent)

@@ -18,6 +18,7 @@ import (
 	"slices"
 
 	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // mcpReasonNoLinearApp is why a run as Podium has no Linear, as the agent is told it.
@@ -40,33 +41,28 @@ func (c *Conductor) runsAsPodium(ctx context.Context, login string, ref *Routine
 }
 
 // linearAccess is where a turn's Linear MCP server comes from.
-type linearAccess int
-
-const (
-	// linearAsNamed is the registry's, resolved as for any other server the job names.
-	linearAsNamed linearAccess = iota
-	// linearAsApp is a run as Podium (runsAsPodium): always the app's, never a person's.
-	linearAsApp
-	// linearFromLinear is a turn that came from Linear: the person's own Linear when they
-	// connected it, else the app's. Whoever wrote in Linear is in that workspace already, so
-	// the turn may read it; what it writes is theirs when it can be, the app's otherwise.
-	linearFromLinear
-)
-
-// linearAccessOf is where a turn's Linear comes from: the app's for a run as Podium, the
-// person's or else the app's for a turn from Linear (kind), and the registry's otherwise.
-func (c *Conductor) linearAccessOf(ctx context.Context, login string, ref *RoutineRef, kind string) linearAccess {
-	switch {
-	case c.runsAsPodium(ctx, login, ref):
-		return linearAsApp
-	case kind == SourceLinear:
-		return linearFromLinear
-	}
-	return linearAsNamed
+type linearAccess struct {
+	// mode is the identity policy's choice for Linear: store.IdentityApp (always the app's),
+	// store.IdentityPersonThenApp (the person's own, else the app's) or
+	// store.IdentityPersonOnly (the person's own, else none). A run as Podium is always
+	// store.IdentityApp.
+	mode string
+	// fromLinear is a turn that came from Linear. Its assistant has Linear whether or not it
+	// names it: whoever wrote there is in that workspace, and the turn is about an issue.
+	fromLinear bool
 }
 
-// appMayStandIn is whether a turn from Linear may use the app's Linear for one the person
-// cannot use. Not when they, or an operator, turned Linear off: that was a choice.
+// linearAccessOf is where a turn's Linear comes from: the app's for a run as Podium, and the
+// identity policy's choice otherwise. kind is the surface the turn came from.
+func (c *Conductor) linearAccessOf(ctx context.Context, login string, ref *RoutineRef, kind string) linearAccess {
+	a := linearAccess{mode: c.identityPolicy(ctx).Linear, fromLinear: kind == SourceLinear}
+	if c.runsAsPodium(ctx, login, ref) {
+		a.mode = store.IdentityApp
+	}
+	return a
+}
+
+// appMayStandIn is whether the app's Linear may stand in for a person's they cannot use. Not when they, or an operator, turned Linear off: that was a choice.
 func appMayStandIn(reason string) bool {
 	return reason != mcpReasonPersonOff && reason != mcpReasonOff
 }

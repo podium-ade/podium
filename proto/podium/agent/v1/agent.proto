@@ -322,6 +322,11 @@ service AgentService {
   // GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
   rpc GetRoutineLimits(GetRoutineLimitsRequest) returns (GetRoutineLimitsResponse);
   rpc SetRoutineLimits(SetRoutineLimitsRequest) returns (SetRoutineLimitsResponse);
+  // GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+  // and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+  // can see whose Linear or GitHub their turns will use; setting is admins only.
+  rpc GetIdentityPolicy(GetIdentityPolicyRequest) returns (GetIdentityPolicyResponse);
+  rpc SetIdentityPolicy(SetIdentityPolicyRequest) returns (SetIdentityPolicyResponse);
   // GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
   // each ref the caller could see in Linear — an admin or owner, somebody who touched the
   // issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -545,6 +550,38 @@ message RoutineLimits {
   // person_daily_cap_usd is what one person's routines may spend together in 24 hours; 0 is no cap.
   double person_daily_cap_usd = 2;
 }
+
+// IdentityPolicy is who a turn acts as. A turn's actor is the Podium person behind it, or
+// nobody; each capability then uses that person's own credential or Podium's. A system
+// routine's run always uses Podium's. An empty field in a request is its default.
+message IdentityPolicy {
+  // linear is a turn's Linear: "person_then_app" (default), "person_only" or "app".
+  string linear = 1;
+  // github_write is who a playbook pushes and opens pull requests as: "person_then_app"
+  // (default), "person_only" or "app".
+  string github_write = 2;
+  // github_read is who the assistant reads GitHub as: "person_only" (default) or
+  // "person_then_app".
+  string github_read = 3;
+  // model_key is whose model key a private conversation spends: "person_then_app" (default)
+  // or "app". A shared conversation always spends the company's.
+  string model_key = 4;
+  // slack_outsiders is what a Slack member who is not a Podium person gets: "refuse"
+  // (default) or "answer".
+  string slack_outsiders = 5;
+  // linear_outsiders is what a Linear member who is not a Podium person gets: "refuse"
+  // (default), "fixed" (an issue delegated to Podium is worked on, and nothing they wrote is
+  // a prompt) or "answer".
+  string linear_outsiders = 6;
+  // github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
+  // "review" (default: the review command) or "refuse".
+  string github_outsiders = 7;
+}
+
+message GetIdentityPolicyRequest {}
+message GetIdentityPolicyResponse { IdentityPolicy policy = 1; }
+message SetIdentityPolicyRequest { IdentityPolicy policy = 1; }
+message SetIdentityPolicyResponse { IdentityPolicy policy = 1; }
 
 message GetRoutineLimitsRequest {}
 message GetRoutineLimitsResponse { RoutineLimits limits = 1; }
