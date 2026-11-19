@@ -5,6 +5,7 @@ import {
   credentialLabel,
   groupTotals,
   isUnrecorded,
+  originLabel,
   personLabel,
   routineNames,
   totals,
@@ -19,7 +20,11 @@ import { ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
 /** Slice is one row of a breakdown: what it is, drawn, and what it cost. */
 type Slice = { key: string; name: string; cell: ReactNode; t: Totals };
 
-type Dimension = { id: string; label: string; slices: (u: GetUsageResponse) => Slice[] };
+type Dimension = {
+  id: string;
+  label: string;
+  slices: (u: GetUsageResponse) => Slice[];
+};
 
 /**
  * The questions worth asking of a bill: where the work came from, what model did it, whose it
@@ -31,7 +36,12 @@ const DIMENSIONS: Dimension[] = [
     id: "source",
     label: "Source",
     slices: (u) =>
-      u.sources.map((g) => ({ key: g.key, name: g.key, cell: <SourceCell origin={g.key} />, t: totals(g.totals) })),
+      u.sources.map((g) => ({
+        key: g.key,
+        name: originLabel(g.key),
+        cell: <SourceCell origin={g.key} />,
+        t: totals(g.totals),
+      })),
   },
   {
     id: "model",
@@ -40,7 +50,14 @@ const DIMENSIONS: Dimension[] = [
       u.backends.map((b) => ({
         key: `${b.provider}/${b.agent}/${b.model}/${b.effort}`,
         name: isUnrecorded(b) ? "Unrecorded" : b.model,
-        cell: <ModelCell provider={b.provider} model={b.model} effort={b.effort} agent={b.agent} />,
+        cell: (
+          <ModelCell
+            provider={b.provider}
+            model={b.model}
+            effort={b.effort}
+            agent={b.agent}
+          />
+        ),
         t: groupTotals(b),
       })),
   },
@@ -64,7 +81,14 @@ const DIMENSIONS: Dimension[] = [
       u.credentials.map((g) => ({
         key: g.key,
         name: credentialLabel(g),
-        cell: <PaidWith authKind={g.authKind} owner={g.owner} account={g.account} provider={g.provider} />,
+        cell: (
+          <PaidWith
+            authKind={g.authKind}
+            owner={g.owner}
+            account={g.account}
+            provider={g.provider}
+          />
+        ),
         t: totals(g.totals),
       })),
   },
@@ -78,10 +102,20 @@ const SHOWN = 6;
  * group's whole cost, its billed part solid and its subscription-covered part lighter, the
  * same two tones the trend uses.
  */
-export function UsageBreakdown({ usage, loading }: { usage: GetUsageResponse | undefined; loading?: boolean }) {
+export function UsageBreakdown({
+  usage,
+  loading,
+}: {
+  usage: GetUsageResponse | undefined;
+  loading?: boolean;
+}) {
   const [dim, setDim] = useState(DIMENSIONS[0].id);
   const d = DIMENSIONS.find((x) => x.id === dim) ?? DIMENSIONS[0];
-  const slices = usage ? [...d.slices(usage)].sort((a, b) => b.t.cost - a.t.cost || b.t.turns - a.t.turns) : [];
+  const slices = usage
+    ? [...d.slices(usage)].sort(
+        (a, b) => b.t.cost - a.t.cost || b.t.turns - a.t.turns,
+      )
+    : [];
   const max = slices[0]?.t.cost ?? 0;
 
   return (
@@ -104,7 +138,9 @@ export function UsageBreakdown({ usage, loading }: { usage: GetUsageResponse | u
         </ToggleGroup>
       </CardHeader>
 
-      <CardContent className={cn("flex-1 transition-opacity", loading && "opacity-60")}>
+      <CardContent
+        className={cn("flex-1 transition-opacity", loading && "opacity-60")}
+      >
         {slices.length === 0 ? (
           <p className="py-8 text-center text-xs text-muted">
             Nothing ran in this range, so there is nothing to attribute.
@@ -118,7 +154,8 @@ export function UsageBreakdown({ usage, loading }: { usage: GetUsageResponse | u
         )}
         {slices.length > SHOWN ? (
           <p className="mt-3 text-2xs text-faint">
-            and {slices.length - SHOWN} more, each below {usd(slices[SHOWN - 1].t.cost)}
+            and {slices.length - SHOWN} more, each below{" "}
+            {usd(slices[SHOWN - 1].t.cost)}
           </p>
         ) : null}
       </CardContent>
@@ -134,7 +171,9 @@ function Bar({ slice, max }: { slice: Slice; max: number }) {
   const paidShare = t.cost > 0 ? billed(t) / t.cost : 0;
   const tip =
     `${slice.name}: ${usd(billed(t))} billed` +
-    (t.subscription > 0 ? `, ${usd(t.subscription)} covered by subscription` : "") +
+    (t.subscription > 0
+      ? `, ${usd(t.subscription)} covered by subscription`
+      : "") +
     ` over ${t.turns} ${t.turns === 1 ? "turn" : "turns"}`;
   return (
     <li>
@@ -147,9 +186,20 @@ function Bar({ slice, max }: { slice: Slice; max: number }) {
           </span>
         </span>
       </div>
-      <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-raised" role="img" aria-label={tip} title={tip}>
-        <div className="flex h-full" style={{ width: `${Math.max(width * 100, width > 0 ? 2 : 0)}%` }}>
-          <div className="h-full bg-accent" style={{ width: `${paidShare * 100}%` }} />
+      <div
+        className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-raised"
+        role="img"
+        aria-label={tip}
+        title={tip}
+      >
+        <div
+          className="flex h-full"
+          style={{ width: `${Math.max(width * 100, width > 0 ? 2 : 0)}%` }}
+        >
+          <div
+            className="h-full bg-accent"
+            style={{ width: `${paidShare * 100}%` }}
+          />
           <div className="h-full flex-1 bg-accent/35" />
         </div>
       </div>

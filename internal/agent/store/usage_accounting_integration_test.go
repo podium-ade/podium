@@ -124,6 +124,32 @@ func TestUsageReportsWhatPaidAndTheTokens(t *testing.T) {
 	assert.Zero(t, none.Totals.Turns, "every row here recorded what paid")
 }
 
+// Unpriced is a row that ended without a cost. One still running has no cost yet, and a
+// delegated task stays running while it waits for a follow-up: counting it would report
+// spend as missing that has simply not arrived.
+func TestUsageDoesNotCountARunningRowAsUnpriced(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	sess := newUsageSessionOf(t, s, "chat", "chat:c1", "")
+	opus := Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
+
+	running, err := s.CreateTurnFor(ctx, sess, "c1", "ana@acme.com", opus)
+	require.NoError(t, err)
+	_, err = s.CreateDelegation(ctx, NewDelegation{
+		SessionID: sess, TurnID: running.ID, TriggerRef: "c1", Playbook: "fix", Instruction: "fix it", Backend: opus,
+	})
+	require.NoError(t, err)
+	ended, err := s.CreateTurnFor(ctx, sess, "c2", "ana@acme.com", opus)
+	require.NoError(t, err)
+	require.NoError(t, s.FinishTurn(ctx, ended.ID, TurnSucceeded, nil, nil, "ok"))
+
+	now := time.Now()
+	u, err := s.Usage(ctx, UsageQuery{From: now.Add(-time.Hour), To: now.Add(time.Hour), Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 3, u.Totals.Turns)
+	assert.Equal(t, 1, u.Totals.Unpriced, "only the turn that ended without a cost")
+}
+
 // A summary is spend no turn held. It is counted, under its own kind and origin.
 func TestUsageCountsHousekeeping(t *testing.T) {
 	ctx := context.Background()
