@@ -1959,8 +1959,11 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    and the playbooks it loaded.
 7. **Reinstall the app** if you created it from an older manifest: `channels:read`,
    `groups:read` and `im:read` were added so the conductor can resolve `#support` from `C0123`
-   and so **Channels** in the sidebar can list membership. Existing tokens keep the old scopes
-   until you reinstall.
+   and so **Channels** in the sidebar can list membership, and `users:read.email` was added
+   because without it no Slack account can be matched to a Podium login (below) and every
+   mention is refused as `not in podium`. Existing tokens keep the old scopes until you
+   reinstall: add the scope under **OAuth & Permissions → Bot Token Scopes** and press
+   **Reinstall to Workspace**. The bot token normally stays the same.
 
 ### Channel context
 
@@ -3518,7 +3521,7 @@ as a person only once it has been **proven** to be a Podium login (`identities` 
 | Account | Proven by |
 |---|---|
 | Podium (web) | signing in through podium-server; the first proxied call records it |
-| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. The app reads that email through the `users:read.email` scope |
 | Linear (the agent app) | the person who wrote the prompt, an active, full member of the app's workspace — not a guest, not an app user — whose email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Keyed `<organization>/<user>` |
 | GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
 
