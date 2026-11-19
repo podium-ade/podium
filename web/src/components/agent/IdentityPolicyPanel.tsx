@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { IdentityPolicy } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -62,7 +62,7 @@ const ACCOUNTS: Field[] = [
 const OUTSIDERS: Field[] = [
   {
     key: "slackOutsiders",
-    label: "Slack",
+    label: "Slack members",
     hint: "A workspace member whose email is not somebody here.",
     options: (b) => [
       { value: "refuse", label: "Refuse" },
@@ -71,7 +71,7 @@ const OUTSIDERS: Field[] = [
   },
   {
     key: "linearOutsiders",
-    label: "Linear",
+    label: "Linear members",
     hint: "A workspace member whose email is not somebody here. Delegated issues only works the issue and takes no instructions from them.",
     options: (b) => [
       { value: "refuse", label: "Refuse" },
@@ -81,8 +81,8 @@ const OUTSIDERS: Field[] = [
   },
   {
     key: "githubOutsiders",
-    label: "GitHub",
-    hint: "Anybody who has not connected GitHub here, members included. A review is rate limited and reads nothing they wrote.",
+    label: "GitHub users",
+    hint: "Anybody who has not connected GitHub here, members included. A review is rate limited and takes no instructions from them.",
     options: () => [
       { value: "review", label: "Review command only" },
       { value: "refuse", label: "Refuse" },
@@ -140,12 +140,20 @@ function PolicyForm({ loaded }: { loaded: Values }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [values, setValues] = useState<Values>(loaded);
-  const dirty = (Object.keys(loaded) as Field["key"][]).some((k) => loaded[k] !== values[k]);
+  // Only what this admin changed is sent; the server keeps the rest as it is stored, so a page
+  // loaded before somebody else's save does not put their settings back. The answer is the
+  // whole policy as it now stands, which the form then shows.
+  const changed = (Object.keys(loaded) as Field["key"][]).filter((k) => loaded[k] !== values[k]);
+  // A second click before the first save's state reaches the button would send it twice.
+  const sending = useRef(false);
   const save = useMutation({
-    mutationFn: (v: Values) => agent.setIdentityPolicy({ policy: v }),
+    mutationFn: (v: Partial<Values>) => agent.setIdentityPolicy({ policy: v }),
     onSuccess: (res) => {
       qc.setQueryData(policyKey, { policy: res.policy });
       toast("Identity settings saved.", "ok");
+    },
+    onSettled: () => {
+      sending.current = false;
     },
   });
   const set = (k: Field["key"], v: string) => setValues((cur) => ({ ...cur, [k]: v }));
@@ -155,7 +163,9 @@ function PolicyForm({ loaded }: { loaded: Values }) {
       className="divide-y divide-border"
       onSubmit={(e) => {
         e.preventDefault();
-        if (dirty) save.mutate(values);
+        if (changed.length === 0 || sending.current) return;
+        sending.current = true;
+        save.mutate(Object.fromEntries(changed.map((k) => [k, values[k]])));
       }}
     >
       <Group
@@ -177,7 +187,7 @@ function PolicyForm({ loaded }: { loaded: Values }) {
         onChange={set}
       />
       <div className="flex items-center gap-3 p-4">
-        <Button type="submit" size="sm" disabled={!dirty || save.isPending} data-testid="identity-save">
+        <Button type="submit" size="sm" disabled={changed.length === 0 || save.isPending} data-testid="identity-save">
           {save.isPending ? "Saving…" : "Save"}
         </Button>
         {save.isError ? (

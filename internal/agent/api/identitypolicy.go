@@ -27,8 +27,9 @@ func (s *AgentService) GetIdentityPolicy(
 	return connect.NewResponse(&agentv1.GetIdentityPolicyResponse{Policy: identityPolicyToProto(p)}), nil
 }
 
-// SetIdentityPolicy sets who turns act as. Admins and owners only. Every field is set: an
-// empty one is its default, not "unchanged".
+// SetIdentityPolicy sets who turns act as. Admins and owners only. Only the fields a request
+// sets change; an empty one leaves its setting as it is. So an admin saving from a page loaded
+// before somebody else's save changes what they changed, and does not put back the rest.
 func (s *AgentService) SetIdentityPolicy(
 	ctx context.Context, req *connect.Request[agentv1.SetIdentityPolicyRequest],
 ) (*connect.Response[agentv1.SetIdentityPolicyResponse], error) {
@@ -40,7 +41,7 @@ func (s *AgentService) SetIdentityPolicy(
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins and owners set who turns act as"))
 	}
 	in := req.Msg.GetPolicy()
-	p, err := s.store.PutIdentityPolicy(ctx, store.IdentityPolicy{
+	p, err := s.store.UpdateIdentityPolicy(ctx, store.IdentityPolicy{
 		Linear:          in.GetLinear(),
 		GitHubWrite:     in.GetGithubWrite(),
 		GitHubRead:      in.GetGithubRead(),

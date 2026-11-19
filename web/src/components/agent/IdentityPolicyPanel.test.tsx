@@ -47,7 +47,7 @@ beforeEach(() => {
   setIdentityPolicy.mockReset();
   getIdentityPolicy.mockResolvedValue({ policy: create(IdentityPolicySchema, defaults) });
   setIdentityPolicy.mockImplementation(({ policy }) =>
-    Promise.resolve({ policy: create(IdentityPolicySchema, policy) }),
+    Promise.resolve({ policy: create(IdentityPolicySchema, { ...defaults, ...policy }) }),
   );
 });
 
@@ -66,10 +66,25 @@ describe("IdentityPolicyPanel", () => {
 
     await waitFor(() =>
       expect(setIdentityPolicy).toHaveBeenCalledWith({
-        policy: { ...defaults, linearOutsiders: "fixed" },
+        policy: { linearOutsiders: "fixed" },
       }),
     );
     await waitFor(() => expect(screen.getByTestId("identity-save")).toBeDisabled());
+  });
+
+  it("sends one save for a double click", async () => {
+    mount();
+    await userEvent.click(await screen.findByTestId("identity-slackOutsiders"));
+    await userEvent.click(await screen.findByRole("option", { name: "Answer as Podium" }));
+    await userEvent.dblClick(screen.getByTestId("identity-save"));
+    await waitFor(() => expect(screen.getByTestId("identity-save")).toBeDisabled());
+    expect(setIdentityPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it("names each setting so the two Linear ones differ", async () => {
+    mount();
+    expect(await screen.findByRole("combobox", { name: "Linear" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Linear members" })).toBeInTheDocument();
   });
 
   it("offers GitHub reads no Always option", async () => {

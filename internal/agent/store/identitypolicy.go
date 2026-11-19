@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // IdentityPolicy is who a turn acts as, capability by capability, and what Podium does for
@@ -149,6 +151,31 @@ func (s *Store) GetIdentityPolicy(ctx context.Context) (IdentityPolicy, error) {
 		}
 	}
 	return p, nil
+}
+
+// UpdateIdentityPolicy changes the fields change sets and keeps the rest as they are stored,
+// in one transaction, so two admins changing different settings at once both keep theirs.
+func (s *Store) UpdateIdentityPolicy(ctx context.Context, change IdentityPolicy) (IdentityPolicy, error) {
+	var out IdentityPolicy
+	err := pgx.BeginFunc(ctx, s.pool, func(t pgx.Tx) error {
+		// Serialises updates: each reads what the one before it wrote.
+		if _, err := t.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", identityPolicyKey); err != nil {
+			return err
+		}
+		tx := &Store{pool: s.pool, q: s.q.WithTx(t)}
+		cur, err := tx.GetIdentityPolicy(ctx)
+		if err != nil {
+			return err
+		}
+		for _, c := range identityChoices {
+			if v := *c.field(&change); v != "" {
+				*c.field(&cur) = v
+			}
+		}
+		out, err = tx.PutIdentityPolicy(ctx, cur)
+		return err
+	})
+	return out, err
 }
 
 // PutIdentityPolicy stores the organization's identity policy, with empty fields as their

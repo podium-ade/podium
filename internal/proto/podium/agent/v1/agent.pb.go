@@ -2185,7 +2185,8 @@ func (x *RoutineLimits) GetPersonDailyCapUsd() float64 {
 
 // IdentityPolicy is who a turn acts as. A turn's actor is the Podium person behind it, or
 // nobody; each capability then uses that person's own credential or Podium's. A system
-// routine's run always uses Podium's. An empty field in a request is its default.
+// routine's run always uses Podium's. In SetIdentityPolicy an empty field leaves that setting
+// as it is, so a save changes only what it names.
 type IdentityPolicy struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// linear is a turn's Linear: "person_then_app" (default), "person_only" or "app".
