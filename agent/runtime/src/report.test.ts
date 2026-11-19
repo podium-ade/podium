@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TurnName } from "./artifacts.js";
 import type { RunnerInvoke } from "./emit.js";
-import { reportTurn, type Summary } from "./report.js";
+import { reportTurn, storeArtifacts, type Summary } from "./report.js";
 
 function recorder(): { calls: { argv: string[]; text: string }[]; invoke: RunnerInvoke } {
   const calls: { argv: string[]; text: string }[] = [];
@@ -87,5 +87,31 @@ describe("reportTurn", () => {
     await reportTurn(invoke, summary, "pong", [], mkdtempSync(join(tmpdir(), "podium-report-")));
 
     expect(calls).toEqual(["final", "accounting"]);
+  });
+});
+
+describe("storeArtifacts", () => {
+  it("hands each named file to the node under its own name", async () => {
+    const r = recorder();
+    await storeArtifacts(r.invoke, ["a.png", "b.png"], "/workspace/.podium/artifacts");
+
+    expect(r.calls.map((c) => c.argv)).toEqual([
+      ["artifact", "add", "/workspace/.podium/artifacts/a.png", "--name", "a.png"],
+      ["artifact", "add", "/workspace/.podium/artifacts/b.png", "--name", "b.png"],
+    ]);
+  });
+
+  it("carries on past a file the runner refused, so the answer is still reported", async () => {
+    const calls: string[] = [];
+    const invoke: RunnerInvoke = async (argv) => {
+      calls.push(argv[2] ?? "");
+      if (calls.length === 1) {
+        throw new Error("no node is listening");
+      }
+    };
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await expect(storeArtifacts(invoke, ["a.png", "b.png"], "/d")).resolves.toBeUndefined();
+    expect(calls).toEqual(["/d/a.png", "/d/b.png"]);
   });
 });

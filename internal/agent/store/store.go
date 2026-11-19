@@ -399,6 +399,17 @@ func (s *Store) MarkRelayed(ctx context.Context, taskID string, seq uint64) (boo
 	return true, nil
 }
 
+// MarkAttached claims the artifact event (taskID, seq) for attaching to the conversation,
+// with MarkRelayed's exactly-once rule. It is the same ledger under a key of its own, because
+// a follow resumes from MaxRelayedSeq: claiming an artifact's seq there would move that point
+// past an accounting message that is deliberately never claimed, and a restart would lose it.
+func (s *Store) MarkAttached(ctx context.Context, taskID string, seq uint64) (bool, error) {
+	return s.MarkRelayed(ctx, taskID+attachedSuffix, seq)
+}
+
+// attachedSuffix keeps MarkAttached's claims out of every task's own relay ledger.
+const attachedSuffix = "#attached"
+
 // MaxRelayedSeq is where a resumed follow starts: the highest seq this conductor has
 // already said out loud for a task.
 func (s *Store) MaxRelayedSeq(ctx context.Context, taskID string) (uint64, error) {
