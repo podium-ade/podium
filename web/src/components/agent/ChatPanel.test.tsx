@@ -238,7 +238,9 @@ describe("ChatPanel", () => {
   it("opens on a blank conversation you can already ask", async () => {
     mount();
     expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
-    expect(await screen.findByText("analyst")).toBeInTheDocument();
+    // The playbooks are not listed: asking is how a person finds out what it can run.
+    expect(screen.queryByText("analyst")).toBeNull();
+    expect(screen.getByTestId("chat-composer")).toHaveAttribute("placeholder", "Message Podium");
     expect(screen.getByRole("button", { name: "Why did my last task fail?" })).toBeEnabled();
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
     expect(screen.getByTestId("chat-new")).toBeEnabled();
