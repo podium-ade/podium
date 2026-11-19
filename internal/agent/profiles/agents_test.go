@@ -56,7 +56,13 @@ func TestValidateTriple(t *testing.T) {
 		{name: "a known triple", agent: AgentClaude, model: "claude-opus-5", effort: EffortMax},
 		{name: "grok at xhigh", agent: AgentGrok, model: "grok-4.7", effort: EffortXHigh},
 		{name: "openai at max", agent: AgentOpenAI, model: "gpt-6.1-sol", effort: EffortMax},
+		{name: "openai 6.2 at max", agent: AgentOpenAI, model: "gpt-6.2-astra", effort: EffortMax},
 		{name: "gemini at high", agent: AgentGemini, model: "gemini-3.8-flash", effort: EffortHigh},
+		{name: "hydrogen at xhigh", agent: AgentGemini, model: "gemini-4-hydrogen", effort: EffortXHigh},
+		{
+			name: "max on hydrogen", agent: AgentGemini, model: "gemini-4-hydrogen",
+			effort: EffortMax, wantErr: `effort "max" is not one gemini-4-hydrogen accepts`,
+		},
 		{
 			name: "xhigh on gemini", agent: AgentGemini, model: "gemini-3.8-flash",
 			effort: EffortXHigh, wantErr: `effort "xhigh" is not one gemini-3.8-flash accepts`,

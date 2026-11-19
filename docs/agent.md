@@ -343,7 +343,7 @@ That check is the revocation: a finished turn's token is refused everywhere at o
 
 ### The chat host
 
-Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.2.5`) and the
+Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.3.2`) and the
 assistant stops being a process per turn: every conversation is answered on one long-lived
 opencode service the conductor runs on its own machine, under the same bubblewrap fence as host
 turns when `PODIUM_AGENT_HOST_ISOLATION=bwrap` is set. Measured against a model that answers in
@@ -403,7 +403,7 @@ every one finishing within 4.7 s.
   sign-in *is* the global credential: it replaces the global key, and every turn without a
   credential of its own spends it, tasks included.
 
-opencode 2's API is young and moves between releases: the chat host is tested against 2.2.5.
+opencode 2's API is young and moves between releases: the chat host is tested against 2.3.2.
 Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.
 
 ### More than one conductor
@@ -1623,7 +1623,7 @@ built-in default — and the resolved triple travels in the brief, so the runtim
 | `gemini` | Google | `podium.agent.google_api_key` |
 
 **One runtime image, and no vendor in the code path.** The harness is
-[opencode](https://opencode.ai) 2 (`@opencode/cli@2.2.5`, the release the chat host is tested
+[opencode](https://opencode.ai) 2 (`@opencode/cli@2.3.2`, the release the chat host is tested
 against), which takes `--model provider/model` — so a backend is a flag rather than a dialect,
 and adding a third provider is a catalogue entry.
 
@@ -1638,8 +1638,8 @@ are denied to every turn.
 A host turn runs whatever `opencode` the conductor's machine has, and the global npm's comes
 first on its PATH. A machine set up for opencode 1 still has `opencode-ai` there, and npm will
 not install `@opencode/cli` over it, so remove it first:
-`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`. Until then every host turn
-answers, at once, that it found opencode 1 and needs 2.2.5, with that same command, rather than
+`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.3.2`. Until then every host turn
+answers, at once, that it found opencode 1 and needs 2.3.2, with that same command, rather than
 failing with an exit code.
 
 It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
