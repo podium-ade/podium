@@ -142,6 +142,17 @@ func TestFromEnvAppliesTheDefaults(t *testing.T) {
 	assert.False(t, cfg.DevSource)
 }
 
+func TestWebURLPrefersTheAddressAHumanUses(t *testing.T) {
+	cfg := Config{Server: "http://192.168.1.145:8080"}
+	assert.Equal(t, "http://192.168.1.145:8080", cfg.WebURL(), "a dev install links where the API is")
+	cfg.ServerPublicURL = "https://podium.example.com"
+	assert.Equal(t, "https://podium.example.com", cfg.WebURL(), "the server's public origin beats its LAN address")
+	cfg.PublicURL = "https://public.example.com"
+	assert.Equal(t, "https://public.example.com", cfg.WebURL())
+	cfg.UIURL = "https://ui.example.com"
+	assert.Equal(t, "https://ui.example.com", cfg.WebURL(), "PODIUM_AGENT_UI_URL wins")
+}
+
 func TestXAIOAuthClientID(t *testing.T) {
 	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
 	assert.Equal(t, DefaultXAIOAuthClientID, FromEnv().XAIOAuthClientID,
