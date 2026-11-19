@@ -1613,7 +1613,9 @@ function Conversation({
     !sharedWithMe &&
     role !== "editor" &&
     role !== "viewer";
-  const multiplayer = stream.chat?.multiplayer === true;
+  // Until the chat loads, the rail's row says whether it is shared, so the composer opens
+  // with the hint it keeps rather than the private chat's.
+  const multiplayer = (stream.chat?.multiplayer ?? listedMultiplayer) === true;
   const personalityName = stream.chat?.personalityDisplay ?? "";
   const me = viewer?.login ?? "";
   // The chat's shared queue, as everybody in it sees it: what was put to Podium while it was
