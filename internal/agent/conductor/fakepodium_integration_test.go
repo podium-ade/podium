@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,6 +170,16 @@ func (f *fakePodium) AddArtifact(taskID, name, contentType, body string) string 
 	return id
 }
 
+// AppendEvent adds an event to a task's script. A stream already open does not see it; the
+// next one, after a restart, does.
+func (f *fakePodium) AppendEvent(taskID string, e *podiumv1.TaskEvent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if ft := f.tasks[taskID]; ft != nil {
+		ft.events = append(ft.events, e)
+	}
+}
+
 // HoldTasks makes every task created from now on wait before going terminal, and returns
 // the function that releases them. It is how a test registers a task's artifacts before the
 // turn settles, and how it keeps one turn running while a second message arrives.
@@ -280,7 +291,10 @@ func (f *fakePodium) StreamTaskEvents(
 	if ft == nil {
 		return connect.NewError(connect.CodeNotFound, errors.New("no such task"))
 	}
-	for _, e := range ft.events {
+	f.mu.Lock()
+	events := slices.Clone(ft.events)
+	f.mu.Unlock()
+	for _, e := range events {
 		if !replayAll && e.GetSeq() <= req.Msg.GetFromSeq() {
 			continue
 		}
@@ -441,6 +455,19 @@ func messageEvent(taskID string, seq uint64, kind, text string, attachments ...s
 		Kind:   podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE,
 		Payload: &podiumv1.TaskEvent_Message{Message: &podiumv1.Message{
 			Type: kind, Text: text, Attachments: attachments,
+		}},
+	}
+}
+
+// artifactEvent is the node saying it stored a file, which AddArtifact registered as id.
+func artifactEvent(taskID string, seq uint64, id, name string) *podiumv1.TaskEvent {
+	return &podiumv1.TaskEvent{
+		TaskId: taskID,
+		Seq:    seq,
+		Ts:     timestamppb.Now(),
+		Kind:   podiumv1.TaskEventKind_TASK_EVENT_KIND_ARTIFACT,
+		Payload: &podiumv1.TaskEvent_Artifact{Artifact: &podiumv1.ArtifactRef{
+			ArtifactId: id, Name: name, SizeBytes: 3,
 		}},
 	}
 }

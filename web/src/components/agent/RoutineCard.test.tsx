@@ -485,6 +485,7 @@ describe("RoutineDialog for an admin", () => {
 
     await userEvent.click(screen.getByTestId("routine-scope-system"));
     expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("Runs as nobody");
+    expect(screen.getByTestId("routine-scope-hint")).toHaveTextContent("acts in Linear as the Podium app");
     await userEvent.click(screen.getByTestId("routine-template-ci"));
     expect(screen.getByTestId("routine-name")).toHaveValue("Fix failing CI");
     expect(screen.getByTestId("schedule-summary")).toHaveTextContent("Every 10 minutes");

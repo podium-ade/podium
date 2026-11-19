@@ -166,6 +166,10 @@ type Options struct {
 	// Tickets finds the Linear tickets a person's message to the assistant names that they may
 	// see, for the turn's brief (tickets.go). Nil briefs none.
 	Tickets TicketBriefer
+	// LinearAppToken is the Linear app's access token, minted or refreshed as needed, for a run
+	// that acts as Podium: its Linear MCP server is signed in as the app (linearapp.go). An
+	// error is no app connected, or one Linear revoked. Nil is no app, ever.
+	LinearAppToken func(ctx context.Context) (string, error)
 	// Notifiers tell a person their delegated task ended when they have left its conversation
 	// (notify.go), tried in order. None sends nothing.
 	Notifiers []Notifier
@@ -220,9 +224,13 @@ type Conductor struct {
 	sources []Source
 	// tickets is Options.Tickets.
 	tickets TicketBriefer
-	metrics *Metrics
-	logger  *slog.Logger
-	memory  *BriefMemory
+	// linearAppToken is Options.LinearAppToken, and linearAppStored the hash of the token
+	// last put in mcp.LinearAppTokenSecret by this process (guarded by mu).
+	linearAppToken  func(ctx context.Context) (string, error)
+	linearAppStored [32]byte
+	metrics         *Metrics
+	logger          *slog.Logger
+	memory          *BriefMemory
 	// memorySandboxMCPURL is Options.MemorySandboxMCPURL.
 	memorySandboxMCPURL string
 	// memories is the shared-memory client. See retain.go.
@@ -430,6 +438,7 @@ func New(opts Options) (*Conductor, error) {
 		profiles:            opts.Profiles,
 		sources:             opts.Sources,
 		tickets:             opts.Tickets,
+		linearAppToken:      opts.LinearAppToken,
 		metrics:             metrics,
 		logger:              logger,
 		memory:              opts.Memory,
@@ -1313,7 +1322,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if mcpOwner == "" {
 		mcpOwner = speaker
 	}
-	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner)
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, c.runsAsPodium(ctx, login, ev.Routine))
 	if err != nil {
 		// A playbook naming a server this turn cannot have, a registry that cannot be read,
 		// or a saved config that no longer parses. The assistant's missing servers are not
@@ -1900,7 +1909,11 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 //
 // Either kind fails on what nobody in the conversation can fix: a registry that cannot be
 // read, or a saved config that no longer parses.
-func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
+//
+// asPodium is a run that acts as Podium (runsAsPodium). Its Linear server is not the
+// registry's: it is the Linear app's (linearapp.go), in the place the job named it, and a run
+// with no app gets none without failing, whichever kind of job it is.
+func (c *Conductor) mcpServers(ctx context.Context, j job, login string, asPodium bool) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
 	if len(j.mcpServers) == 0 {
 		return nil, nil, nil
 	}
@@ -1911,14 +1924,45 @@ func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.
 	if err != nil {
 		return nil, nil, err
 	}
-	servers, unavailable, err := resolveMCPServers(turnOwner(login), j.mcpServers, rows)
+	return c.turnMCPServers(ctx, j, login, asPodium, rows)
+}
+
+// turnMCPServers is mcpServers on the registry's rows, read: what a turn gets of them, and of
+// the Linear app for a run as Podium. Separated from the read so it runs without a database.
+func (c *Conductor) turnMCPServers(
+	ctx context.Context, j job, login string, asPodium bool, rows []mcp.Server,
+) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
+	names, linear := j.mcpServers, false
+	if asPodium {
+		names, linear = withLinearApp(names)
+	}
+	servers, unavailable, err := resolveMCPServers(turnOwner(login), names, rows)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := requireMCPServers(j, unavailable); err != nil {
 		return nil, nil, err
 	}
+	if linear {
+		srv, reason := c.linearAppServer(ctx, j.onHost)
+		if reason != "" {
+			unavailable = append(unavailable, BriefUnavailableMCPServer{Name: mcp.LinearName, Reason: reason})
+		} else {
+			servers = insertNamed(servers, srv, j.mcpServers)
+		}
+	}
 	return servers, unavailable, nil
+}
+
+// insertNamed puts srv among servers in the place order names it, so the harness lists the
+// tools in the order the job did.
+func insertNamed(servers []mcp.Server, srv mcp.Server, order []string) []mcp.Server {
+	at := slices.Index(order, srv.Name)
+	i := 0
+	for i < len(servers) && slices.Index(order, servers[i].Name) < at {
+		i++
+	}
+	return slices.Insert(servers, i, srv)
 }
 
 // requireMCPServers is the playbook's strictness: any server it names that this turn cannot

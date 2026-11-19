@@ -816,6 +816,16 @@ func TestTheChatListReportsARunningDelegatedTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, taskRunning, "the open chat sees the delegated task running too")
 
+	// Answered, it stays up for minutes waiting for a follow-up. That wait is not the chat's
+	// work, and a follow-up injected into it is.
+	require.NoError(t, s.SetDelegationAnswered(ctx, dlg.ID, true))
+	assert.False(t, listed().TaskRunning, "an answered task is not working")
+	taskRunning, err = s.ChatTaskRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.False(t, taskRunning)
+	require.NoError(t, s.SetDelegationAnswered(ctx, dlg.ID, false))
+	assert.True(t, listed().TaskRunning, "a follow-up set it working again")
+
 	require.NoError(t, s.FinishDelegation(ctx, dlg.ID, TurnSucceeded, "4,812.", nil, nil))
 	assert.False(t, listed().TaskRunning)
 	taskRunning, err = s.ChatTaskRunning(ctx, chat.ID)

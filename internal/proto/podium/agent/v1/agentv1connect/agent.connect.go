@@ -231,6 +231,9 @@ const (
 	// AgentServiceSetChatRailHiddenProcedure is the fully-qualified name of the AgentService's
 	// SetChatRailHidden RPC.
 	AgentServiceSetChatRailHiddenProcedure = "/podium.agent.v1.AgentService/SetChatRailHidden"
+	// AgentServiceSetChatWatchedProcedure is the fully-qualified name of the AgentService's
+	// SetChatWatched RPC.
+	AgentServiceSetChatWatchedProcedure = "/podium.agent.v1.AgentService/SetChatWatched"
 	// AgentServiceListNotificationsProcedure is the fully-qualified name of the AgentService's
 	// ListNotifications RPC.
 	AgentServiceListNotificationsProcedure = "/podium.agent.v1.AgentService/ListNotifications"
@@ -562,6 +565,11 @@ type AgentServiceClient interface {
 	// puts it back. It comes back by itself once something new is said in it, and stays in the
 	// Linear view throughout.
 	SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error)
+	// SetChatWatched keeps a chat the caller may read in their chat rail, or stops. Watching
+	// grants nothing: a chat they cannot read is not_found, and one they can no longer read drops
+	// out of the rail. Watching a hidden ticket conversation un-hides it, and hiding a watched one
+	// unwatches it: one preference per chat and person.
+	SetChatWatched(context.Context, *connect.Request[v1.SetChatWatchedRequest]) (*connect.Response[v1.SetChatWatchedResponse], error)
 	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
@@ -1070,6 +1078,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetChatRailHidden")),
 			connect.WithClientOptions(opts...),
 		),
+		setChatWatched: connect.NewClient[v1.SetChatWatchedRequest, v1.SetChatWatchedResponse](
+			httpClient,
+			baseURL+AgentServiceSetChatWatchedProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetChatWatched")),
+			connect.WithClientOptions(opts...),
+		),
 		listNotifications: connect.NewClient[v1.ListNotificationsRequest, v1.ListNotificationsResponse](
 			httpClient,
 			baseURL+AgentServiceListNotificationsProcedure,
@@ -1308,6 +1322,7 @@ type agentServiceClient struct {
 	leaveChat                  *connect.Client[v1.LeaveChatRequest, v1.LeaveChatResponse]
 	markChatRead               *connect.Client[v1.MarkChatReadRequest, v1.MarkChatReadResponse]
 	setChatRailHidden          *connect.Client[v1.SetChatRailHiddenRequest, v1.SetChatRailHiddenResponse]
+	setChatWatched             *connect.Client[v1.SetChatWatchedRequest, v1.SetChatWatchedResponse]
 	listNotifications          *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
 	markNotificationsRead      *connect.Client[v1.MarkNotificationsReadRequest, v1.MarkNotificationsReadResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
@@ -1690,6 +1705,11 @@ func (c *agentServiceClient) MarkChatRead(ctx context.Context, req *connect.Requ
 // SetChatRailHidden calls podium.agent.v1.AgentService.SetChatRailHidden.
 func (c *agentServiceClient) SetChatRailHidden(ctx context.Context, req *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error) {
 	return c.setChatRailHidden.CallUnary(ctx, req)
+}
+
+// SetChatWatched calls podium.agent.v1.AgentService.SetChatWatched.
+func (c *agentServiceClient) SetChatWatched(ctx context.Context, req *connect.Request[v1.SetChatWatchedRequest]) (*connect.Response[v1.SetChatWatchedResponse], error) {
+	return c.setChatWatched.CallUnary(ctx, req)
 }
 
 // ListNotifications calls podium.agent.v1.AgentService.ListNotifications.
@@ -2076,6 +2096,11 @@ type AgentServiceHandler interface {
 	// puts it back. It comes back by itself once something new is said in it, and stays in the
 	// Linear view throughout.
 	SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error)
+	// SetChatWatched keeps a chat the caller may read in their chat rail, or stops. Watching
+	// grants nothing: a chat they cannot read is not_found, and one they can no longer read drops
+	// out of the rail. Watching a hidden ticket conversation un-hides it, and hiding a watched one
+	// unwatches it: one preference per chat and person.
+	SetChatWatched(context.Context, *connect.Request[v1.SetChatWatchedRequest]) (*connect.Response[v1.SetChatWatchedResponse], error)
 	// ListNotifications is the caller's in-app inbox: shares and mentions, newest first.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// MarkNotificationsRead marks some, or all, of the caller's notifications read.
@@ -2580,6 +2605,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetChatRailHidden")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceSetChatWatchedHandler := connect.NewUnaryHandler(
+		AgentServiceSetChatWatchedProcedure,
+		svc.SetChatWatched,
+		connect.WithSchema(agentServiceMethods.ByName("SetChatWatched")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceListNotificationsHandler := connect.NewUnaryHandler(
 		AgentServiceListNotificationsProcedure,
 		svc.ListNotifications,
@@ -2886,6 +2917,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceMarkChatReadHandler.ServeHTTP(w, r)
 		case AgentServiceSetChatRailHiddenProcedure:
 			agentServiceSetChatRailHiddenHandler.ServeHTTP(w, r)
+		case AgentServiceSetChatWatchedProcedure:
+			agentServiceSetChatWatchedHandler.ServeHTTP(w, r)
 		case AgentServiceListNotificationsProcedure:
 			agentServiceListNotificationsHandler.ServeHTTP(w, r)
 		case AgentServiceMarkNotificationsReadProcedure:
@@ -3231,6 +3264,10 @@ func (UnimplementedAgentServiceHandler) MarkChatRead(context.Context, *connect.R
 
 func (UnimplementedAgentServiceHandler) SetChatRailHidden(context.Context, *connect.Request[v1.SetChatRailHiddenRequest]) (*connect.Response[v1.SetChatRailHiddenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetChatRailHidden is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetChatWatched(context.Context, *connect.Request[v1.SetChatWatchedRequest]) (*connect.Response[v1.SetChatWatchedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetChatWatched is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {

@@ -1386,6 +1386,90 @@ func TestAnAttachmentThatMatchesNothingSaysSo(t *testing.T) {
 	assert.Contains(t, notes[0], "after.png")
 }
 
+// attachedNames is every file the conversation was handed, in order.
+func attachedNames(records []fakesource.Record) []string {
+	var out []string
+	for _, rec := range records {
+		if rec.Action == fakesource.ActionAttach {
+			out = append(out, rec.Name)
+		}
+	}
+	return out
+}
+
+// A warm task answers and then waits minutes for a follow-up before it exits. The files its
+// answer names are stored when it answers, and they reach the conversation then — not when
+// the task exits — and once, though the end of the task resolves attachments again.
+func TestAnAnswersFilesAreAttachedWhenStoredNotWhenTheTaskExits(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	start(t, st, fake, src)
+	// The task id is task_01 before it exists: the artifact has to be registered first.
+	id := fake.AddArtifact("task_01", "shot.png", "image/png", "PNG")
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutFinal, "done, see shot.png", "shot.png"),
+			artifactEvent(taskID, 2, id, "shot.png"),
+		}
+	}
+	ev := inbound("C1/1.1", "screenshot it")
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the screenshot, while the task is still up", func() bool {
+		return len(attachedNames(src.Records())) == 1
+	})
+	assert.Equal(t, store.TurnRunning, turnStatus(st, ev.SourceKey), "the task has not exited")
+
+	release()
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+	assert.Equal(t, []string{"shot.png"}, attachedNames(src.Records()), "attached once")
+}
+
+// A conductor that restarts after the answer was relayed resumes past it. The files it named
+// are still attached when they are stored, and the turn still records its answer.
+func TestARestartAfterTheAnswerStillAttachesItsFiles(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutFinal, "done, see shot.png", "shot.png"),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	first := start(t, st, fake, src)
+	ev := inbound("C1/1.1", "screenshot it")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the answer to be relayed", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) == 1
+	})
+	first.stop()
+
+	taskID := fake.TaskIDs()[0]
+	id := fake.AddArtifact(taskID, "shot.png", "image/png", "PNG")
+	fake.AppendEvent(taskID, artifactEvent(taskID, 2, id, "shot.png"))
+
+	start(t, st, fake, src)
+	release()
+	waitFor(t, 60*time.Second, "the resumed turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	assert.Equal(t, []string{"shot.png"}, attachedNames(src.Records()))
+	assert.Len(t, posts(src.Records(), conductor.OutFinal), 1, "the answer is not said again")
+	assert.Equal(t, "done, see shot.png", turnOf(t, st, ev.SourceKey).FinalText)
+}
+
 // A brief that cannot be made to fit fails the turn with something a human can act on,
 // rather than being sent for the runtime to refuse.
 func TestAnImpossibleBriefFailsTheTurnWithoutATask(t *testing.T) {

@@ -182,6 +182,23 @@ func (q *Queries) ChatAuthors(ctx context.Context, chatID string) ([]ChatAuthors
 	return items, nil
 }
 
+const chatRailPref = `-- name: ChatRailPref :one
+select coalesce((select pref from chat_rail_prefs where chat_id = $1 and login = $2), '')::text as pref
+`
+
+type ChatRailPrefParams struct {
+	ChatID string
+	Login  string
+}
+
+// ChatRailPref is login's preference for a chat in their rail (0055), ” for none.
+func (q *Queries) ChatRailPref(ctx context.Context, arg ChatRailPrefParams) (string, error) {
+	row := q.db.QueryRow(ctx, chatRailPref, arg.ChatID, arg.Login)
+	var pref string
+	err := row.Scan(&pref)
+	return pref, err
+}
+
 const chatTaskRunning = `-- name: ChatTaskRunning :one
 select exists (
   select 1 from delegations d
@@ -189,13 +206,14 @@ select exists (
     join sessions s on s.id = t.session_id
    where s.source_key = (select c.source_key from chats c where c.id = $1)
      and d.status = 'running'
+     and d.answered_at is null
 )::bool as running
 `
 
 // ChatTaskRunning is whether a task this conversation delegated is still running. A
 // delegated task outlives the turn that started it (an automatic review's turn ends the
-// moment it hands the work over), and it is the conversation's work for as long as it runs:
-// the same rule ListChats' task_running answers for the list.
+// moment it hands the work over), and it is the conversation's work until it answers: the
+// same rule ListChats' task_running answers for the list.
 func (q *Queries) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
 	row := q.db.QueryRow(ctx, chatTaskRunning, chatID)
 	var running bool
@@ -219,6 +237,23 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, chatID string) (bool, err
 	var running bool
 	err := row.Scan(&running)
 	return running, err
+}
+
+const clearChatRailPref = `-- name: ClearChatRailPref :exec
+delete from chat_rail_prefs where chat_id = $1 and login = $2 and pref = $3
+`
+
+type ClearChatRailPrefParams struct {
+	ChatID string
+	Login  string
+	Pref   string
+}
+
+// ClearChatRailPref drops login's preference for a chat, when it is pref: unwatching a chat
+// leaves a hide alone, and unhiding one leaves a watch alone.
+func (q *Queries) ClearChatRailPref(ctx context.Context, arg ClearChatRailPrefParams) error {
+	_, err := q.db.Exec(ctx, clearChatRailPref, arg.ChatID, arg.Login, arg.Pref)
+	return err
 }
 
 const countChatsStartedByTurn = `-- name: CountChatsStartedByTurn :one
@@ -575,24 +610,6 @@ func (q *Queries) GetChatMessage(ctx context.Context, arg GetChatMessageParams) 
 	return i, err
 }
 
-const hideChatFromRail = `-- name: HideChatFromRail :exec
-insert into chat_rail_hidden (chat_id, login, hidden_at)
-values ($1, $2, $3)
-on conflict (chat_id, login) do update set hidden_at = excluded.hidden_at
-`
-
-type HideChatFromRailParams struct {
-	ChatID   string
-	Login    string
-	HiddenAt time.Time
-}
-
-// HideChatFromRail takes a chat out of viewer's rail until something new is said in it (0049).
-func (q *Queries) HideChatFromRail(ctx context.Context, arg HideChatFromRailParams) error {
-	_, err := q.db.Exec(ctx, hideChatFromRail, arg.ChatID, arg.Login, arg.HiddenAt)
-	return err
-}
-
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
 select chat_id, seq, role, text, attachments, ts, task_id, author, author_login, author_handle, author_avatar, via, external_id, external_url, addressed, edited_at, deleted_at, mentions, author_bot from chat_messages
 where chat_id = $1 and role = 'assistant'
@@ -818,13 +835,15 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
        and t.status = 'running'
   ) as turn_running,
   -- A delegated task outlives the turn that started it, and it is the conversation's work
-  -- for as long as it runs.
+  -- for as long as it works. One that has answered and is only waiting for a follow-up is
+  -- not: it stays up for minutes after its answer, and the chat read as busy all that time.
   exists (
     select 1 from delegations d
       join turns t on t.id = d.turn_id
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and d.status = 'running'
+       and d.answered_at is null
   ) as task_running,
   -- Phase 5: what the caller may do here and why they can see it, for the list's sections
   -- and its owner/other menus. The dev token is answered by the API (it is the operator, an
@@ -847,7 +866,8 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
   coalesce(li.state_name, '')::text as linear_state_name,
   coalesce(li.state_type, '')::text as linear_state_type,
   li.asked_at                       as linear_asked_at,
-  coalesce(li.asked_of, '')::text   as linear_asked_of
+  coalesce(li.asked_of, '')::text   as linear_asked_of,
+  (rp.pref is not null and rp.pref = 'watched')::bool as watched
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
@@ -860,17 +880,25 @@ left join (
      and not (cm.role = 'progress' and mc.origin = 'linear')
 ) m on m.chat_id = c.id and m.rn = 1
 left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
+left join chat_rail_prefs rp on rp.chat_id = c.id and rp.login = $1::text
 where (
     ($2::bool and $3::text = '')
     or ($3::text in ('', 'shared') and chat_visible_to(c.id, c.login, $1::text)
         and ($3::text = '' or c.login is distinct from $1::text))
+    or ($3::text = '' and not $2::bool
+        and rp.pref = 'watched'
+        and c.deleted_at is null
+        and (chat_role(c.id, $1::text) <> ''
+             or ($4::bool and (
+                   c.source_key like 'linear:%'
+                   or exists (select 1 from routines r where r.chat_id = c.id and r.scope = 'system')))))
     or ($3::text = 'workspace'
         and c.general_access = 'members'
         and c.deleted_at is null
         and not chat_visible_to(c.id, c.login, $1::text)
         and exists (select 1 from identities i where i.provider = 'web' and i.external_id = $1::text))
   )
-  and ($4::text = '' or c.id < $4::text)
+  and ($5::text = '' or c.id < $5::text)
   -- filter_personality is opt-in. Left false, the list is every chat the caller could
   -- already see, which is what every existing caller asks for. Set, an empty
   -- personality_id is Podium (the column is null) and a set id is that voice only.
@@ -880,13 +908,13 @@ where (
   -- its id, so without this branch a conversation they take part in would be in no list at
   -- all. The UI shows it as shared, labelled with personality_display.
   and (
-    not $5::bool
+    not $6::bool
     or (
-      ($6::text = '' and (
+      ($7::text = '' and (
         c.personality_id is null
         or (not $2::bool and c.login is distinct from $1::text)
       ))
-      or ($6::text <> '' and c.personality_id = $6
+      or ($7::text <> '' and c.personality_id = $7
           and ($2::bool or c.login = $1::text))
     )
   )
@@ -898,10 +926,13 @@ where (
   -- Linear account (linear_people, resolved through identities when they read), or they spoke
   -- in it. Being an admin is not enough, nor is owning a routine that ran in it: those read it
   -- in the Issues view. One they hid stays out until something new is said in it.
+  --
+  -- A conversation the caller watches is let back in as well, on the same terms as above.
   and not (
-    $7::bool and c.origin = 'linear'
+    $8::bool and c.origin = 'linear'
+    and not ($3::text = '' and not $2::bool and rp.pref = 'watched')
     and not (
-      $8::bool and not $2::bool and $3::text = ''
+      $9::bool and not $2::bool and $3::text = ''
       and c.source_key like 'linear:%'
       and c.source_key not like 'linear:project:%'
       and c.source_key not like 'linear:session:%'
@@ -915,20 +946,18 @@ where (
              -- A mention alone makes nobody one of its people (0054).
              and lp.via <> 'person_mentioned')
       )
-      and not exists (
-        select 1 from chat_rail_hidden h
-         where h.chat_id = c.id and h.login = $1::text
-           and h.hidden_at >= coalesce(m.ts, c.created_at))
+      and not (rp.pref is not null and rp.pref = 'hidden' and rp.set_at >= coalesce(m.ts, c.created_at))
     )
   )
 order by c.id desc
-limit $9::int
+limit $10::int
 `
 
 type ListChatsParams struct {
 	Viewer            string
 	IncludeAll        bool
 	Section           string
+	Admin             bool
 	AfterID           string
 	FilterPersonality bool
 	PersonalityID     string
@@ -979,6 +1008,7 @@ type ListChatsRow struct {
 	LinearStateType    string
 	LinearAskedAt      *time.Time
 	LinearAskedOf      string
+	Watched            bool
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -1000,11 +1030,17 @@ type ListChatsRow struct {
 // in, or shared with them — chat_visible_to. 'shared' is the part of that somebody else owns.
 // 'workspace' is the chats shared with every member that are NOT already in their own list:
 // a members-shared chat appears there until they open it, and in their own list after.
+//
+// A chat the caller watches (chat_rail_prefs, 0055) is in their own list too, while they may
+// still read it: a role in it (chat_role), or, for admin — an admin or an owner — a system
+// routine's chat or a Linear conversation, which they read as admins. Watching grants nothing,
+// so a chat they can no longer read drops out.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats,
 		arg.Viewer,
 		arg.IncludeAll,
 		arg.Section,
+		arg.Admin,
 		arg.AfterID,
 		arg.FilterPersonality,
 		arg.PersonalityID,
@@ -1061,6 +1097,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.LinearStateType,
 			&i.LinearAskedAt,
 			&i.LinearAskedOf,
+			&i.Watched,
 		); err != nil {
 			return nil, err
 		}
@@ -1380,6 +1417,31 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 	return i, err
 }
 
+const setChatRailPref = `-- name: SetChatRailPref :exec
+insert into chat_rail_prefs (chat_id, login, pref, set_at)
+values ($1, $2, $3, $4)
+on conflict (chat_id, login) do update set pref = excluded.pref, set_at = excluded.set_at
+`
+
+type SetChatRailPrefParams struct {
+	ChatID string
+	Login  string
+	Pref   string
+	SetAt  time.Time
+}
+
+// SetChatRailPref is login's one preference for a chat in their rail (0055): 'watched' or
+// 'hidden', replacing the one before.
+func (q *Queries) SetChatRailPref(ctx context.Context, arg SetChatRailPrefParams) error {
+	_, err := q.db.Exec(ctx, setChatRailPref,
+		arg.ChatID,
+		arg.Login,
+		arg.Pref,
+		arg.SetAt,
+	)
+	return err
+}
+
 const setChatStartedFrom = `-- name: SetChatStartedFrom :one
 update chats
 set started_from_chat = $1, started_by_turn = $2
@@ -1503,19 +1565,4 @@ func (q *Queries) TombstoneChat(ctx context.Context, arg TombstoneChatParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const unhideChatFromRail = `-- name: UnhideChatFromRail :exec
-delete from chat_rail_hidden where chat_id = $1 and login = $2
-`
-
-type UnhideChatFromRailParams struct {
-	ChatID string
-	Login  string
-}
-
-// UnhideChatFromRail puts it back.
-func (q *Queries) UnhideChatFromRail(ctx context.Context, arg UnhideChatFromRailParams) error {
-	_, err := q.db.Exec(ctx, unhideChatFromRail, arg.ChatID, arg.Login)
-	return err
 }

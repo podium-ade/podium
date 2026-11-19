@@ -67,3 +67,19 @@ export function sharedByLabel(chat: Pick<Chat, "accessReason" | "sharedBy" | "my
 export function unread(chat: Pick<Chat, "unreadCount">): number {
   return Number(chat.unreadCount ?? 0n);
 }
+
+/**
+ * viewingKind is the hint the rail's Viewing entry gives about a chat the viewer opened but has
+ * no row for: what it is, from what the chat already says about itself.
+ */
+export function viewingKind(
+  chat: Pick<Chat, "routineId" | "origin" | "linearIssue" | "login" | "channel">,
+  viewerLogin: string,
+): string {
+  if (chat.routineId) return "Routine";
+  if (chat.linearIssue || chat.origin === "linear") return "Linear issue";
+  if (chat.origin === "slack") return chat.channel ? `Slack · #${chat.channel}` : "Slack thread";
+  if (chat.origin === "github") return "Pull request";
+  if (chat.login && chat.login !== viewerLogin) return `${chat.login}'s chat`;
+  return "Chat";
+}

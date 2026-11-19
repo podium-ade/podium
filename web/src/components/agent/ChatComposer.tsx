@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useBrand } from "../../lib/brand";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUp,
@@ -92,6 +93,8 @@ export interface ChatComposerProps {
   mirrored?: string;
   /** personality is the chat's personal assistant's name, which also starts a turn. */
   personality?: string;
+  /** botName is who answers, for the empty box's hint. */
+  botName?: string;
   /**
    * queued is the chat's shared queue (the server's turn queue): what anybody put to Podium
    * while it was answering, oldest first. Each goes out as a turn of its own, in order.
@@ -138,6 +141,7 @@ export function ChatComposer({
   multiplayer = false,
   mirrored = "",
   personality = "",
+  botName = "",
   queued = [],
   queueing = false,
   onInterrupt,
@@ -218,6 +222,7 @@ export function ChatComposer({
     });
   };
 
+  const brand = useBrand();
   const canSend = !disabled && (text.trim() !== "" || files.length > 0);
   // In a multiplayer chat only a mention is a turn; the button says which this will be.
   const toPodium = !multiplayer || mentionsPodium(text, personality);
@@ -372,7 +377,7 @@ export function ChatComposer({
                 ? "Working…"
                 : multiplayer
                   ? `Message the chat, or mention ${PODIUM_MENTION}`
-                  : "Ask anything about your stack"
+                  : `Message ${botName || brand}`
             }
             onChange={(e) => {
               setText(e.target.value);

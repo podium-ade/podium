@@ -81,6 +81,17 @@ type artifactCollector struct {
 
 	wg  sync.WaitGroup
 	seq sync.Mutex
+	// stored is every file an `artifact add` already uploaded, by its path in the container,
+	// held under seq. The collection on exit skips one that has not changed since: a warm
+	// turn stores the files its answer names when it answers, minutes before it exits, and
+	// the same file twice is two attachments with one name.
+	stored map[string]storedFile
+}
+
+// storedFile is what a file looked like when it was uploaded.
+type storedFile struct {
+	size    int64
+	modTime time.Time
 }
 
 func (e *Executor) newArtifactCollector(req Request, em *emitter, cid string) *artifactCollector {
@@ -149,7 +160,14 @@ func (c *artifactCollector) copyOne(ctx context.Context, name, containerPath, co
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
-		return c.upload(ctx, name, contentType, hdr.Size, tr)
+		if err := c.upload(ctx, name, contentType, hdr.Size, tr); err != nil {
+			return err
+		}
+		if c.stored == nil {
+			c.stored = map[string]storedFile{}
+		}
+		c.stored[path.Clean(containerPath)] = storedFile{size: hdr.Size, modTime: hdr.ModTime}
+		return nil
 	}
 }
 
@@ -201,6 +219,10 @@ func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 			continue
 		}
 		c.seq.Lock()
+		if prev, ok := c.stored[path.Join(dir, name)]; ok && prev.size == hdr.Size && prev.modTime.Equal(hdr.ModTime) {
+			c.seq.Unlock()
+			continue
+		}
 		err = c.upload(ctx, name, "", hdr.Size, tr)
 		c.seq.Unlock()
 		if err != nil {

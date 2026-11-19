@@ -170,3 +170,8 @@ func (c *Conductor) HeardHeartbeatForTest(taskID string) bool {
 	defer w.mu.Unlock()
 	return !w.lastHeartbeat.IsZero()
 }
+
+// RunsAsPodiumForTest is whether a turn started by login for a routine's run acts as Podium.
+func (c *Conductor) RunsAsPodiumForTest(ctx context.Context, login, routineID string) bool {
+	return c.runsAsPodium(ctx, login, &RoutineRef{RoutineID: routineID})
+}

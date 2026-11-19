@@ -13,20 +13,50 @@ import (
 	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
+// A person's one preference for a chat in their rail (chat_rail_prefs, 0055). Setting one
+// replaces the other: watching a hidden chat un-hides it, hiding a watched one unwatches it.
+const (
+	RailWatched = "watched"
+	RailHidden  = "hidden"
+)
+
 // SetChatRailHidden takes a chat out of login's chat rail, or puts it back. A hidden chat comes
 // back by itself once something new is said in it (ListChats).
 func (s *Store) SetChatRailHidden(ctx context.Context, chatID, login string, hidden bool, at time.Time) error {
+	return s.setRailPref(ctx, chatID, login, RailHidden, hidden, at)
+}
+
+// SetChatWatched keeps a chat in login's chat rail, or stops. It grants nothing: the rail lists a
+// watched chat only while login may read it, and checking that they may watch it at all is the
+// caller's (the API's chatRole).
+func (s *Store) SetChatWatched(ctx context.Context, chatID, login string, watched bool, at time.Time) error {
+	return s.setRailPref(ctx, chatID, login, RailWatched, watched, at)
+}
+
+// ChatWatched reports whether login watches a chat.
+func (s *Store) ChatWatched(ctx context.Context, chatID, login string) (bool, error) {
 	if chatID == "" || login == "" {
-		return fmt.Errorf("%w: hiding a chat needs a chat and a login", ErrNotFound)
+		return false, nil
+	}
+	pref, err := s.q.ChatRailPref(ctx, db.ChatRailPrefParams{ChatID: chatID, Login: login})
+	if err != nil {
+		return false, fmt.Errorf("read chat %s's place in %s's rail: %w", chatID, login, err)
+	}
+	return pref == RailWatched, nil
+}
+
+func (s *Store) setRailPref(ctx context.Context, chatID, login, pref string, on bool, at time.Time) error {
+	if chatID == "" || login == "" {
+		return fmt.Errorf("%w: a chat's place in a rail needs a chat and a login", ErrNotFound)
 	}
 	var err error
-	if hidden {
-		err = s.q.HideChatFromRail(ctx, db.HideChatFromRailParams{ChatID: chatID, Login: login, HiddenAt: at.UTC()})
+	if on {
+		err = s.q.SetChatRailPref(ctx, db.SetChatRailPrefParams{ChatID: chatID, Login: login, Pref: pref, SetAt: at.UTC()})
 	} else {
-		err = s.q.UnhideChatFromRail(ctx, db.UnhideChatFromRailParams{ChatID: chatID, Login: login})
+		err = s.q.ClearChatRailPref(ctx, db.ClearChatRailPrefParams{ChatID: chatID, Login: login, Pref: pref})
 	}
 	if err != nil {
-		return fmt.Errorf("hide chat %s from %s's rail: %w", chatID, login, err)
+		return fmt.Errorf("set chat %s %s in %s's rail: %w", chatID, pref, login, err)
 	}
 	return nil
 }

@@ -131,6 +131,18 @@ func (e mcpTokenStaleError) Error() string {
 // process, with no node to resolve a secret for it. A person's token stored before it
 // belonged on their own list is read from its old global name.
 func (c *Conductor) mcpToken(ctx context.Context, srv mcp.Server) (string, error) {
+	if srv.AuthKind == mcp.AuthLinearApp {
+		// The Linear app's own token, for a run as Podium (linearapp.go): read from the app,
+		// not the secret store, which holds a copy only for task containers.
+		if c.linearAppToken == nil {
+			return "", mcpTokenStaleError{server: srv.Name}
+		}
+		token, err := c.linearAppToken(ctx)
+		if err != nil || token == "" {
+			return "", mcpTokenStaleError{server: srv.Name}
+		}
+		return token, nil
+	}
 	value, err := c.podium.ReadSecret(ctx, srv.Owner, mcp.CredentialSecret(srv))
 	if connect.CodeOf(err) == connect.CodeNotFound && srv.Owner != "" {
 		value, err = c.podium.ReadSecret(ctx, "", mcp.LegacyPersonalTokenSecret(srv.Owner, srv.Name))

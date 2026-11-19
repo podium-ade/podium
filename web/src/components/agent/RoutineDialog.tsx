@@ -57,7 +57,7 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   {
     scope: "system",
     label: "Podium (system)",
-    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names. Admins see it; nobody writes in its chat.",
+    hint: "Runs as nobody, with the company’s credentials. Reads GitHub as the Podium App, in the repositories its instruction names, and acts in Linear as the Podium app. Admins see it; nobody writes in its chat.",
   },
 ];
 
@@ -254,7 +254,9 @@ function Section({
  * — its cron, its timezone and the floor — and its refusal is shown as it says it.
  *
  * An admin making a routine chooses who it runs as: themselves, or Podium (a system routine).
- * The choice is made once; editing shows it and does not offer it again.
+ * The choice is made once; editing shows it and does not offer it again. Duplicating a routine
+ * is how to have it run as somebody else: the copy starts on the original's choice, and an admin
+ * may change it before saving.
  */
 export function RoutineDialog({
   open,
@@ -262,6 +264,7 @@ export function RoutineDialog({
   initial,
   lockAssistant,
   scope: fixedScope,
+  defaultScope,
   canChooseScope,
   canChooseTrigger,
   onClose,
@@ -273,6 +276,8 @@ export function RoutineDialog({
   lockAssistant?: boolean;
   /** scope is the routine's, for one that exists. */
   scope?: Scope;
+  /** defaultScope is where "Runs as" starts for a new routine: a duplicate starts on its original's. */
+  defaultScope?: Scope;
   /** canChooseScope offers "Runs as": an admin making a new routine. */
   canChooseScope?: boolean;
   /** canChooseTrigger offers the sources other than a schedule, which only admins may set. */
@@ -281,7 +286,7 @@ export function RoutineDialog({
   onSave: (draft: RoutineDraft, scope: Scope) => Promise<void>;
 }) {
   const brand = useBrand();
-  const [scope, setScope] = useState<Scope>(fixedScope ?? "personal");
+  const [scope, setScope] = useState<Scope>(fixedScope ?? defaultScope ?? "personal");
   const system = scope === "system";
   const [name, setName] = useState(initial.name ?? "");
   const [instruction, setInstruction] = useState(initial.instruction ?? "");
@@ -474,7 +479,7 @@ export function RoutineDialog({
           </DialogTitle>
           <DialogDescription className="text-sm text-soft">
             {fixedScope === "system"
-              ? "Runs as Podium with the company’s credentials. Nobody writes in its chat: what it does is steered from here."
+              ? "Runs as Podium with the company’s credentials, and acts in Linear as the Podium app. Nobody writes in its chat: what it does is steered from here."
               : "A job an assistant does in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."}
           </DialogDescription>
         </DialogHeader>

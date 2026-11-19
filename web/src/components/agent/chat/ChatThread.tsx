@@ -92,7 +92,7 @@ export function ChatThread({
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const sending = messages.some((m) => m.id === PENDING_USER);
-  useScrollAnchor(viewport, content, sending);
+  const { away, jump } = useScrollAnchor(viewport, content, sending);
   useLoadOnTop(viewport, history, messages.length);
   // A chat opens on its last message, in place: the view is at the bottom before it is
   // first painted, rather than painted at the top and then scrolled down.
@@ -161,19 +161,24 @@ export function ChatThread({
             </div>
             {/* h-0: the footer takes no room in the transcript and the button hangs above it.
                 With height, the transcript grew by a button's height whenever the button showed
-                and shrank again when it hid at the bottom, which jumped the conversation. */}
+                and shrank again when it hid at the bottom, which jumped the conversation.
+                Whether it shows is useScrollAnchor's answer, not assistant-ui's: the library
+                calls a view at the bottom only within a pixel of it, which a fractional zoom
+                misses at the very bottom, and it looks again only on a scroll or a change it
+                can see — so once wrong, a turn that went quiet kept the button up for good. */}
             <ThreadPrimitive.ViewportFooter className="pointer-events-none sticky bottom-3 flex h-0 items-end justify-center">
-              <ThreadPrimitive.ScrollToBottom asChild>
+              {away ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md disabled:hidden"
+                  onClick={jump}
+                  className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md"
                 >
                   <ArrowDown />
                   Jump to latest
                 </Button>
-              </ThreadPrimitive.ScrollToBottom>
+              ) : null}
             </ThreadPrimitive.ViewportFooter>
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
@@ -234,6 +239,10 @@ function useLoadOnTop(viewport: RefObject<HTMLDivElement | null>, history: Histo
  * get there or take the scroll back themselves. Anybody else's message, or a turn starting,
  * leaves them where they are — the viewport's own scroll on a turn starting yanked a reader
  * out of the history in one frame whenever somebody else spoke, so it is turned off.
+ *
+ * away is whether the reader is somewhere other than the bottom, for Jump to latest; jump
+ * glides them there. It is decided where pinned is, on every scroll and every change of the
+ * content's or the view's size, so it cannot go stale while nothing scrolls.
  */
 function useScrollAnchor(
   viewport: RefObject<HTMLDivElement | null>,
@@ -242,6 +251,7 @@ function useScrollAnchor(
 ) {
   // chase is true while gliding to the reader's own question.
   const chase = useRef(false);
+  const [away, setAway] = useState(false);
 
   useLayoutEffect(() => {
     const vp = viewport.current;
@@ -251,7 +261,9 @@ function useScrollAnchor(
     // the reader's own scrolling — which moves both alike — is never taken for a change.
     let anchor: { el: Element | null; offset: number; height: number } | null = null;
     const offsetOf = (el: Element) => el.getBoundingClientRect().top - body.getBoundingClientRect().top;
-    const atBottom = () => vp.scrollHeight - vp.scrollTop - vp.clientHeight < 4;
+    // Within a few pixels is the bottom: at a fractional zoom the furthest the view scrolls
+    // can stop short of scrollHeight - clientHeight by a pixel or more of rounding.
+    const atBottom = () => vp.scrollHeight - vp.scrollTop - vp.clientHeight < BOTTOM_SLACK_PX;
 
     // pinned is true while the reader is at the bottom, and height is the content's height
     // when that was last seen. A change of content (another chat drawn in, a page landing,
@@ -267,7 +279,10 @@ function useScrollAnchor(
 
     const pick = () => {
       height = body.offsetHeight;
-      pinned = !chase.current && atBottom();
+      const bottom = atBottom();
+      pinned = !chase.current && bottom;
+      // Mid-glide the reader is on their way down, and the button that sent them is gone.
+      setAway(!chase.current && !bottom);
       if (chase.current || pinned) {
         anchor = null;
         return;
@@ -333,6 +348,9 @@ function useScrollAnchor(
 
     const resize = new ResizeObserver(onResize);
     resize.observe(body);
+    // The view's own height too — the composer growing, the window resized — which moves the
+    // bottom without changing the content.
+    resize.observe(vp);
     // The same, the moment the transcript's DOM changes: in the task that changed it, before
     // anything can paint or read it. A ResizeObserver alone answers later in the frame, and a
     // chat drawn in between the two could be seen, for that moment, where it first fell.
@@ -356,7 +374,20 @@ function useScrollAnchor(
     chase.current = true;
     vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
   }, [viewport, sending]);
+
+  const jump = () => {
+    const vp = viewport.current;
+    if (!vp) return;
+    chase.current = true;
+    setAway(false);
+    vp.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
+  };
+
+  return { away, jump };
 }
+
+/** BOTTOM_SLACK_PX is how near the bottom still counts as at it. */
+const BOTTOM_SLACK_PX = 4;
 
 /**
  * HistoryEdge is the top of the loaded transcript. While there is more it holds a row's

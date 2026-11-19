@@ -607,6 +607,22 @@ know before you write one.
   Podium without naming it, and goes into the task that asked whichever surface it began on
   (a Linear agent session, their routine's run) — their own words to a task already running as
   them. Somebody else's message is still a turn of its own.
+- **A run as Podium reads and writes Linear as the Podium app, across the whole workspace.** A
+  system routine's run (Runs as → Podium) that names `linear` gets Linear's MCP server signed in
+  with the app's own access token — the client-credentials, `actor=app` token the conductor's
+  Linear app holds, which reaches every team the app was installed with (`access: all`), private
+  ones included — and every tool the server offers: no allow-list, as a person's has none. A
+  routine on Linear events reads text anybody in the workspace wrote (a new issue's title and
+  description, a comment), so that text can prompt-inject the run into reading any issue the app
+  can and writing anywhere as the app: commenting, editing, moving, closing, in any team. This was
+  accepted on purpose, for routines such as one that investigates every new issue and posts a
+  comment in a set format: only admins and owners can make a system routine, and they choose its
+  instruction and playbook. What keeps it bounded is that choice, the fencing of ticket text as
+  data in the brief (which makes a successful injection less likely, not impossible), and Linear's
+  own record, which shows every such change as the app's. The token reaches a turn as other MCP
+  credentials do: a host turn's environment, or a task container's environment from a conductor
+  secret (`podium.agent.mcp.linear_app_token`, under the prefix no playbook may name); it is never
+  in a brief, a turn's record or a log. A run with a person behind it never gets it.
 - **The assistant reads and writes Linear as a person only through that person's own Linear MCP
   server.** There are no Linear tools of Podium's own: a turn that edits a ticket does it with the
   `linear` server the assistant (or a playbook) names, which for a person is the one they connected
@@ -1196,6 +1212,8 @@ Everything below is a real hole, not a hypothetical:
 - **Text in a Linear ticket can steer a turn that holds a person's Linear MCP server** into
   acting in Linear as that person. There is no approval step between the model and the server's
   tools. See *5. The conductor and the bot*.
+- **Text in a Linear ticket can steer a system routine's run into acting across the whole Linear
+  workspace as the Podium app.** See *5. The conductor and the bot*.
 - **With Linear's poller, anyone who can assign the bot user a ticket can run code on a worker.**
   Polling proves nobody, so a polled ticket runs as nobody for whoever assigned it. Slack and
   Linear's agent app answer only people signed in to Podium, but have no roles beyond that: any

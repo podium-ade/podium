@@ -314,9 +314,12 @@ type Config struct {
 	GitHubWebhookListen string
 	// UIURL is PODIUM_AGENT_UI_URL: the Podium web UI as a HUMAN reaches it, which is not
 	// always how this process reaches the API (a tailnet name, a reverse proxy). Default
-	// Server. It is used only to build the fallback link to a task page when an
-	// attachment cannot be uploaded into the conversation.
+	// PublicURL, then ServerPublicURL, then Server; see WebURL.
 	UIURL string
+	// ServerPublicURL is PODIUM_PUBLIC_URL, the origin podium-server tells browsers it is
+	// reached at. A conductor sharing the server's .env reads it so that its links into the
+	// UI need no second setting.
+	ServerPublicURL string
 	// AllowedDomains is PODIUM_ALLOWED_DOMAINS, a comma-separated list of the Google
 	// Workspace domains a Slack speaker's email must be on before it is matched to a
 	// Podium login. Empty skips that one check: the email must still be a login that has
@@ -470,6 +473,7 @@ func FromEnv() Config {
 		// every other bad value is reported too.
 		LinearPollInterval:    envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
 		UIURL:                 os.Getenv("PODIUM_AGENT_UI_URL"),
+		ServerPublicURL:       strings.TrimSpace(os.Getenv("PODIUM_PUBLIC_URL")),
 		AllowedDomains:        domainList(os.Getenv("PODIUM_ALLOWED_DOMAINS")),
 		SlackTeamIDs:          idList(os.Getenv("PODIUM_SLACK_TEAM_IDS")),
 		TranscriptBudgetBytes: envInt("PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES"),
@@ -518,12 +522,15 @@ func (c Config) GitHubSourceEnabled() bool {
 	return c.GitHubAppEnabled() && c.GitHubWebhookSecret != "" && c.GitHubWebhookListen != ""
 }
 
-// WebURL is the base URL a human uses for the Podium web UI. PODIUM_AGENT_UI_URL when set,
-// the API base URL otherwise — which is right for every dev install and wrong for exactly
-// the case the variable exists for.
+// WebURL is the base URL a human uses for the Podium web UI: PODIUM_AGENT_UI_URL, else
+// PODIUM_AGENT_PUBLIC_URL, else the server's PODIUM_PUBLIC_URL, else the API base URL. The
+// last is right for a dev install on one machine and wrong behind a tunnel or a proxy, where
+// one of the others is set.
 func (c Config) WebURL() string {
-	if c.UIURL != "" {
-		return c.UIURL
+	for _, u := range []string{c.UIURL, c.PublicURL, c.ServerPublicURL} {
+		if u != "" {
+			return u
+		}
 	}
 	return c.Server
 }

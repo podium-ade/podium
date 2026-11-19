@@ -547,6 +547,21 @@ func (s *AppSource) stop() {
 	s.wg.Wait()
 }
 
+// ErrAppRevoked is the app's token asked for after Linear revoked the app.
+var ErrAppRevoked = errors.New("linear: the app was revoked")
+
+// AccessToken is the app's own access token (actor=app), minted or refreshed as needed: what
+// a run that acts as Podium signs in to Linear's MCP server with. SENSITIVE.
+func (s *AppSource) AccessToken(ctx context.Context) (string, error) {
+	if s.Revoked() {
+		return "", ErrAppRevoked
+	}
+	if s.client == nil || s.client.tokens == nil {
+		return "", errors.New("linear: the app has no token source")
+	}
+	return s.client.tokens.Token(ctx)
+}
+
 // Revoked reports whether Linear has revoked the app since this source started, or had
 // before it did.
 func (s *AppSource) Revoked() bool {

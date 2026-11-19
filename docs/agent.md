@@ -669,7 +669,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_LINEAR_TOKEN_URL` | no | `https://api.linear.app/oauth/token` | the OAuth token endpoint the Linear app saved under Access → Connections signs in through; the same kind of seam. The app itself is never set in the environment |
 | `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
-| `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used for the Podium task links a Linear agent session shows, and for the link a Linear comment or activity falls back to when an attachment cannot be uploaded |
+| `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_PUBLIC_URL`, then `PODIUM_PUBLIC_URL`, then `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used for the Podium task links a Linear agent session shows, and for the link a Linear comment or activity falls back to when an attachment cannot be uploaded |
 | `PODIUM_ALLOWED_DOMAINS` | no | (none) | comma-separated Google Workspace domains. A Slack speaker's workspace email must be on one of them before it is matched to a Podium login. Empty skips the domain check; the email must still be a login that has signed in to Podium |
 | `PODIUM_SLACK_TEAM_IDS` | no | (none) | comma-separated Slack workspace (`T…`) and Enterprise Grid org (`E…`) ids whose full members may also be matched to a Podium login, beside the bot's own workspace from `auth.test`. Guests, Slack Connect users, deactivated users and bots are refused whatever workspace they are in |
 | `PODIUM_AGENT_TRANSCRIPT_BUDGET_BYTES` | no | 32768 | how much of a conversation's text a turn is handed before old chatter nobody put to Podium is condensed into one note (see [One record, one transcript](#one-record-one-transcript)) |
@@ -2270,7 +2270,9 @@ through a linked Linear account, and those who spoke in it — not of everybody 
 an admin finds every one in the Issues view. Its row reads `EME-6 · title`, with a dot for the
 issue's state in Linear and *Waiting on you* while a question asked by your turn, or by nobody's,
 is unanswered. It is ordered by its last activity with the other chats. *Hide* in its menu takes
-it out of your rail until something new is said in it; it stays in the Issues view.
+it out of your rail until something new is said in it; it stays in the Issues view. Anybody else
+who may read it — an admin, a commenter — can **Watch** it to keep it in their rail
+([Chat](#chat)); hiding a watched conversation unwatches it.
 
 **Writing from Podium.** What you send in an issue's conversation is posted to the issue as a
 comment under your name and picture (the app posts it, with Linear's `createAsUser`), whether or
@@ -2374,7 +2376,8 @@ tools of its own. A turn that reads or changes tickets — "what's on my plate",
 Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server ([`mcp_servers:`](#mcp_servers--tools-that-are-somebody-elses-api)):
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
-with what Linear lets them do. The Issues view (while Linear is among its trackers) and an issue's
+with what Linear lets them do. A system routine's run is nobody's, and gets the same server signed
+in as the Podium Linear app instead ([Routines](#routines)). The Issues view (while Linear is among its trackers) and an issue's
 conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
@@ -3628,6 +3631,20 @@ task it delegates, and may choose several while answering once.
   every admin and owner ([The Issues view](#the-issues-view)), and in Chat for the first two only. A ticket the Linear poller saw is not mirrored: nobody is proven behind it. The first Podium person
   to speak in it becomes its owner, who can rename or delete the copy (never the thread).
   "A Podium person" is proven, never guessed: see [Who is who](#who-is-who).
+- **The chat rail is what you take part in, and what you watch.** It lists the chats you own,
+  spoke in or were shared, and the ticket conversations whose people you are one of. Writing in a
+  chat you may write in makes you a participant, so it is in your rail from then on with nothing
+  else to do. A chat you open that it has no row for on screen — a routine's chat you read as an
+  admin, a Linear issue's conversation, somebody's chat shared with every member, or one of your
+  own that the search or the source filter is hiding — is shown on its own at the top, under
+  **Viewing**, selected, with a word on what it is (*Routine*, *Linear issue*, *alice's chat*).
+  Nothing is stored for it: it is the open chat, and it goes when you open another. **Watch**, on
+  that entry or in the chat's header, keeps it in your rail for good (`SetChatWatched`); a watched
+  chat offers **Unwatch** in its row's menu and its header. Watching grants nothing: only a chat
+  you may already read can be watched, and one you can no longer read drops out of your rail by
+  itself. It is one rail preference with *Hide* (`chat_rail_prefs`, 0055): watching a hidden
+  ticket conversation un-hides it, and hiding a watched one unwatches it. It adds no
+  notifications and no unread counts beyond what the rail already shows.
 - **One turn at a time per chat.** What is put to Podium while a turn runs is queued as a turn
   of its own (see [Several people, one conversation](#several-people-one-conversation)).
 - **Progress is a message.** Every `progress` message is stored under the role `progress` and
@@ -3753,14 +3770,31 @@ is the issue's, not the routine's.
 |---|---|---|
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
+| Linear | the owner's own Linear MCP server, as them | the Linear MCP server signed in as the **Podium Linear app**: what it writes in Linear is the app's |
 | GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
 | Floor | every 15 minutes | every minute |
 | `turns.started_by` | the owner, so Usage → By person counts it as theirs | `routine:<id>`, its own line in Usage |
 
-The scope is chosen once, when the routine is made. A system routine cannot open chats
+The scope is chosen once, when the routine is made. To have a routine run as somebody else, an
+admin duplicates it (Duplicate in its menu): the new-routine dialog opens prefilled with what it
+does, named as a copy and starting on the original's scope, which they may change before saving.
+The copy starts with no runs, chat or kept state of its own. A system routine cannot open chats
 (`start_chat` needs a Podium person to own them).
+
+**A run as Podium reaches Linear as the app.** When the assistant or a playbook a system routine's
+run uses names `linear` among its MCP servers, the run gets Linear's MCP server
+(`https://mcp.linear.app/mcp`) signed in with the Linear app's own access token (`actor=app`, the
+token the conductor's Linear app already holds), not any person's and not a `linear` row on the
+MCP servers screen. So an "on Linear issue created" routine that runs an investigate playbook
+posting its findings with `save_comment` posts them as the app, and Linear does not deliver the
+app's own change back as an event, so the comment does not set the routine off again. A task the
+run delegates gets the same. With no Linear app connected, or one Linear revoked, the run goes on
+without Linear and is told why; a playbook that names it does not fail for that. The app's token
+reaches all of Linear the app can (`access: all`), with every tool the server has: what that
+means is in [security.md](security.md#5-the-conductor-and-the-bot). Every run a person is behind —
+theirs, their routine's — keeps their own Linear MCP server, as before.
 
 ### Making one
 
@@ -3962,8 +3996,8 @@ other on one. Changing it affects later runs only, and history records the chang
   listed in the Issues view, not the rail. Events about a cycle, a label or nothing in particular
   are no conversation, and run in the routine's own chat, opened the first time one does.
 - **The run is still its routine's.** It runs as the routine's owner — their secrets, MCP servers
-  and GitHub account, with the routine's assistant — or as nobody for a system routine, never as
-  the conversation's owner. It is briefed with the routine block and its events, offered
+  and GitHub account, with the routine's assistant — or as nobody for a system routine, which
+  reaches Linear as the app ([Two scopes](#routines)), never as the conversation's owner. It is briefed with the routine block and its events, offered
   `routine_finish`, held while it runs and written in under a `Routine run · …` divider, and kept
   quietly when idle. A conversation is shared, so it spends the company's model key. The routine's
   owner is recorded as having touched the issue, which is what lets them read the conversation.
@@ -4100,6 +4134,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 | `ListWorkItems` | the Issues view: one row per issue conversation the caller is involved in from an issue tracker (`provider`, today `linear`), or with `all` every one they may read (admins and owners only; anybody else is `permission_denied`), filtered (`state` is also a board column) and paged on the server; the first page carries the filters' total, and every page the teams and providers for the filters. With several providers a request names one |
 | `SetChatRailHidden` | the chat rail: take a Linear ticket's conversation out of the caller's rail until something new is said in it, or put it back |
+| `SetChatWatched` | the chat rail: keep a chat the caller may read in their rail while they may read it, or stop; one preference with hiding |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server

@@ -174,3 +174,21 @@ export function browserZone(): string {
     return "UTC";
   }
 }
+
+/** NewRoutine is what the new-routine dialog opens on. */
+export type NewRoutine = { title: string; initial: Partial<RoutineDraft>; scope?: Scope };
+
+export const BLANK_ROUTINE: NewRoutine = { title: "New routine", initial: {} };
+
+/**
+ * duplicateOf is a new routine prefilled from r: everything it does, named as a copy, running as
+ * r does. Only an admin may make a system routine, so anybody else's copy runs as themselves.
+ * Nothing r has done comes along: its runs, its chat and what it kept stay with it.
+ */
+export function duplicateOf(r: Routine, admin: boolean): NewRoutine {
+  return {
+    title: "Duplicate routine",
+    initial: { ...draftOf(r), name: `${r.name} (copy)` },
+    scope: admin && isSystem(r) ? "system" : "personal",
+  };
+}
