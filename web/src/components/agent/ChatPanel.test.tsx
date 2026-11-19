@@ -239,7 +239,7 @@ describe("ChatPanel", () => {
     mount();
     expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
     expect(await screen.findByText("analyst")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Why did the nightly ETL fail?" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Why did my last task fail?" })).toBeEnabled();
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
     expect(screen.getByTestId("chat-new")).toBeEnabled();
     expect(streamChat).not.toHaveBeenCalled();

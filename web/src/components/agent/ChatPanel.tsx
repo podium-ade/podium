@@ -1964,10 +1964,12 @@ function Conversation({
   );
 }
 
+// What a new chat offers to ask: one each for a task that went wrong, the routines the
+// assistant can set up, and the playbooks it can run.
 const SUGGESTIONS = [
-  "Why did the nightly ETL fail?",
-  "Summarise the last failed task",
-  "What can you do on this stack?",
+  "Why did my last task fail?",
+  "Set up a routine to triage new Linear issues",
+  "Which playbooks can you run?",
 ];
 
 /**
