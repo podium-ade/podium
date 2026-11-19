@@ -278,21 +278,57 @@ func (c *Conductor) provisionGitCapability(
 // the person: it is how this playbook always pushed, and a push they cannot make fails as
 // it always did.
 //
+// The identity policy's github_write moves that line: "app" writes as the App for everybody
+// (where there is one), and "person_only" never stands the App in for the person, so a turn
+// that cannot be written as them is refused. A turn with nobody behind it writes as the App
+// unless the policy is "person_only".
+//
+// asPodium is a run as Podium (a system routine's, runsAsPodium): it writes as the App
+// whatever the policy says, as every other capability of such a run does.
+//
 // The error is written for the person who asked.
-func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
+func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook, asPodium bool) (*BriefGit, error) {
 	if !playbook.UsesGitHubAccount() {
 		return nil, nil
 	}
-	if turnOwner(login) == "" {
-		return nil, errors.New("this playbook opens pull requests as the person who asked, and " +
-			"this conversation has no Podium user. Ask from the Podium web chat instead")
+	policy := c.identityPolicy(ctx).GitHubWrite
+	if asPodium {
+		policy = store.IdentityApp
+	}
+	standIn := policy != store.IdentityPersonOnly && c.canWriteAsApp(playbook)
+	if turnOwner(login) == "" && policy != store.IdentityApp {
+		if standIn {
+			c.logger.InfoContext(ctx, "nobody in podium is behind this turn; it writes as the app", "playbook", playbook.Name)
+			return nil, nil
+		}
+		name := displayNameFor("", c.branding(ctx))
+		if policy == store.IdentityPersonOnly {
+			return nil, fmt.Errorf("this playbook opens pull requests as the person who asked, nobody in %s "+
+				"asked, and this %s writes to GitHub only as the person who asked. Ask from the %s web chat instead",
+				name, name, name)
+		}
+		return nil, fmt.Errorf("this playbook opens pull requests as the person who asked, nobody in %s asked, "+
+			"and its GitHub App cannot stand in: %s", name, c.whyNotApp(playbook, name))
+	}
+	if policy == store.IdentityApp {
+		if !c.canWriteAsApp(playbook) {
+			name := displayNameFor("", c.branding(ctx))
+			why := "this " + name + " writes to GitHub only as its GitHub App"
+			if asPodium {
+				why = "this run acts as " + name + ", which writes to GitHub as its GitHub App"
+			}
+			return nil, fmt.Errorf("%s, and %s", why, c.whyNotApp(playbook, name))
+		}
+		c.logger.InfoContext(ctx, "the identity policy writes as the app; the turn writes as the app on their behalf",
+			"login", login, "playbook", playbook.Name)
+		return nil, nil
 	}
 	if c.store == nil {
 		return nil, errors.New("this conductor has no database, so it cannot find your GitHub account")
 	}
 	acct, err := c.store.GitHubAccount(ctx, login)
 	if errors.Is(err, store.ErrNotFound) {
-		if c.canWriteAsApp(playbook) {
+		if standIn {
 			c.logger.InfoContext(ctx, "this person has not connected github; the turn writes as the app on their behalf",
 				"login", login, "playbook", playbook.Name)
 			return nil, nil
@@ -305,7 +341,7 @@ func (c *Conductor) githubPersona(ctx context.Context, login string, playbook pr
 		return nil, errors.New("your GitHub connection could not be read. An operator should check the logs")
 	}
 	if acct.NeedsReconnect {
-		if c.canWriteAsApp(playbook) {
+		if standIn {
 			c.logger.InfoContext(ctx, "this person's github connection needs reconnecting; the turn writes as the app on their behalf",
 				"login", login, "playbook", playbook.Name)
 			return nil, nil
@@ -319,6 +355,9 @@ func (c *Conductor) githubPersona(ctx context.Context, login string, playbook pr
 			case err != nil:
 				c.logger.WarnContext(ctx, "checking whether a person can push failed; the turn pushes as them",
 					"login", login, "github_login", acct.GitHubLogin, "owner", scope.Owner, "error", err)
+			case !ok && policy == store.IdentityPersonOnly:
+				return nil, fmt.Errorf("this playbook opens pull requests as you, and your GitHub account %s cannot "+
+					"push to its repositories", acct.GitHubLogin)
 			case !ok:
 				c.logger.InfoContext(ctx, "this person cannot push to the playbook's repos; the turn writes as the app on their behalf",
 					"login", login, "github_login", acct.GitHubLogin, "owner", scope.Owner, "repos", scope.Repos)
@@ -337,6 +376,21 @@ func (c *Conductor) canWriteAsApp(playbook profiles.Playbook) bool {
 	}
 	scope, err := gitScopeOf(playbook)
 	return err == nil && len(scope.Repos) > 0
+}
+
+// whyNotApp is why a playbook's turn cannot write as the App (canWriteAsApp is false), for
+// the person who asked. name is the deployment's.
+func (c *Conductor) whyNotApp(playbook profiles.Playbook, name string) string {
+	if c.githubApp() == nil {
+		return "no GitHub App is connected to " + name + ". An admin can connect one under " +
+			"Organization settings → Connections"
+	}
+	if _, err := gitScopeOf(playbook); err != nil {
+		return "the playbook's repositories belong to more than one GitHub account, and one App token " +
+			"covers one. Split the playbook, or give it repositories of one owner"
+	}
+	return "the playbook lists no repositories, so there is nothing to scope the App's token to. " +
+		"Add its repositories to the playbook"
 }
 
 func githubPersonaOf(acct store.GitHubAccount) *BriefGit {

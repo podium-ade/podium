@@ -18,6 +18,7 @@ import (
 	"slices"
 
 	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // mcpReasonNoLinearApp is why a run as Podium has no Linear, as the agent is told it.
@@ -37,6 +38,33 @@ func (c *Conductor) runsAsPodium(ctx context.Context, login string, ref *Routine
 	}
 	r, err := c.store.GetRoutine(ctx, ref.RoutineID)
 	return err == nil && r.System()
+}
+
+// linearAccess is where a turn's Linear MCP server comes from.
+type linearAccess struct {
+	// mode is the identity policy's choice for Linear: store.IdentityApp (always the app's),
+	// store.IdentityPersonThenApp (the person's own, else the app's) or
+	// store.IdentityPersonOnly (the person's own, else none). A run as Podium is always
+	// store.IdentityApp.
+	mode string
+	// fromLinear is a turn that came from Linear. Its assistant has Linear whether or not it
+	// names it: whoever wrote there is in that workspace, and the turn is about an issue.
+	fromLinear bool
+}
+
+// linearAccessOf is where a turn's Linear comes from: the app's for a run as Podium, and the
+// identity policy's choice otherwise. kind is the surface the turn came from.
+func (c *Conductor) linearAccessOf(ctx context.Context, login string, ref *RoutineRef, kind string) linearAccess {
+	a := linearAccess{mode: c.identityPolicy(ctx).Linear, fromLinear: kind == SourceLinear}
+	if c.runsAsPodium(ctx, login, ref) {
+		a.mode = store.IdentityApp
+	}
+	return a
+}
+
+// appMayStandIn is whether the app's Linear may stand in for a person's they cannot use. Not when they, or an operator, turned Linear off: that was a choice.
+func appMayStandIn(reason string) bool {
+	return reason != mcpReasonPersonOff && reason != mcpReasonOff
 }
 
 // routineRefOf is the routine run a turn this conductor is running belongs to, or nil.

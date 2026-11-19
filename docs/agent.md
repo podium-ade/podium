@@ -2377,7 +2377,9 @@ Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server 
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
 with what Linear lets them do. A system routine's run is nobody's, and gets the same server signed
-in as the Podium Linear app instead ([Routines](#routines)). The Issues view (while Linear is among its trackers) and an issue's
+in as the Podium Linear app instead ([Routines](#routines)). By default a person who has not
+connected their own gets that same server too, and a turn that came from Linear has Linear in its
+assistant whether or not it is ticked ([Who a turn acts as](#who-a-turn-acts-as) has the setting). The Issues view (while Linear is among its trackers) and an issue's
 conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
@@ -3526,7 +3528,8 @@ The Linear poller proves nobody: a polled ticket runs as nobody, whoever assigne
 
 What that decides:
 
-- **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
+- **Only Podium people start turns**, by default ([Who a turn acts as](#who-a-turn-acts-as) can
+  answer people outside it). A Slack mention from anybody else is recorded and gets
   🚫; nothing runs. A Linear agent session from anybody else is told so in the session, which
   ends; nothing runs. The Linear poller is the exception: it cannot tell who asked. On GitHub,
   a commenter who has not connected GitHub may ask for exactly one thing — a review, with
@@ -3563,6 +3566,42 @@ What that decides:
   `Opened by Podium on behalf of Name (@handle).` (the handle when the person connected
   GitHub) and to say "requested by Name" in comments. That part is asked, not enforced:
   nothing checks the pull request afterwards.
+
+### Who a turn acts as
+
+Every turn has an **actor**: the Podium person behind it, or nobody. Each kind of access then
+uses that person's own account or the organization's, as **Settings → Identity** says (admins and
+owners; `GetIdentityPolicy` / `SetIdentityPolicy`, stored as the `identity.policy` setting, read
+for every turn). A system routine's run always uses the organization's, whatever it says.
+
+| Access | Default | Choices | The organization's is |
+|---|---|---|---|
+| Linear | theirs, else the organization's | theirs only · always the organization's | the Linear MCP server signed in as the Podium Linear app |
+| GitHub pushes and pull requests | theirs, else the organization's | theirs only · always the organization's | the GitHub App, with `Requested-by` on every commit |
+| GitHub reads (routines) | theirs only | theirs, else the organization's | the GitHub App, read-only, one repository per token |
+| Model key, private conversations | theirs, else the organization's | always the organization's | the global key; a shared conversation always spends it |
+| Personal secrets | theirs only (fixed) | — | — |
+
+"Theirs, else the organization's" stands the organization's in only where the person has not
+connected the account. A person who switched their own `linear` server off, or an operator who
+switched the shared one off, is not overruled. A turn that came from Linear has Linear in its
+assistant whether or not the assistant ticks `linear`; a playbook has it only if it names it.
+
+**People outside Podium** — somebody whose Slack or Linear email is not a signed-in login, or a
+GitHub commenter who has not connected GitHub here — get what the same page says, per surface:
+
+| Surface | Default | Choices |
+|---|---|---|
+| Slack | refuse (🚫) | answer as Podium |
+| Linear | refuse (the session says so) | delegated issues only · answer as Podium |
+| GitHub | the review command only | refuse |
+
+Answered, they run as nobody: the global model key, the global MCP servers and secrets, the
+Linear app and the GitHub App as the access table says, and nobody's personal anything. "Delegated
+issues only" admits the opening of a delegation and nothing else from them: its instruction is the
+issue as Podium words it, never something they typed, and their mentions and replies are refused.
+The issue's own text is still what the turn reads, as a pull request's is for the review command.
+They are never recorded as anybody (`identities`), and their turns count as nobody's in Usage.
 
 ## One record, one transcript
 
