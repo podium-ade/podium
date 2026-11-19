@@ -287,6 +287,25 @@ describe("ChatPanel", () => {
     );
   });
 
+  it("greets under the name set in organization settings, in the arrival and the assistant list", async () => {
+    mount("/agent/chat", { ...alice, deploymentName: "Acme AI" });
+    expect(await screen.findByText(/Acme AI answers here/)).toBeInTheDocument();
+    expect(screen.getByText("Ask Acme AI something")).toBeInTheDocument();
+    expect(screen.queryByText(/Podium answers here/)).toBeNull();
+    expect(
+      within(screen.getByRole("navigation", { name: "Assistants" })).getByRole("link", { name: "Acme AI" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an assistant an admin named themselves when the deployment is renamed", async () => {
+    listPlaybooks.mockResolvedValue({
+      playbooks,
+      assistant: create(AssistantSchema, { displayName: "Sage", agent: "claude", model: "claude-opus-5" }),
+    });
+    mount("/agent/chat", { ...alice, deploymentName: "Acme AI" });
+    expect(await screen.findByText(/Sage answers here/)).toBeInTheDocument();
+  });
+
   it("lists and opens a chat for the assistant in the address", async () => {
     listPersonalities.mockResolvedValue({
       personalities: [

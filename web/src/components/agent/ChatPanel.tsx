@@ -30,6 +30,7 @@ import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
+import { assistantName, useBrand } from "../../lib/brand";
 import { useViewer } from "../../lib/identity";
 import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { mentionsPodium } from "../../lib/mentions";
@@ -130,6 +131,7 @@ export function ChatPanel() {
     void loadChatThread();
   }, []);
   const route = useMemo(() => parseChatPath(splat), [splat]);
+  const brand = useBrand();
   const active = route.chatId;
   const personalityId = route.personalityId;
   const qc = useQueryClient();
@@ -173,7 +175,7 @@ export function ChatPanel() {
   const assistantGone =
     personalityId !== "" && voices.isSuccess && !personalities.some((p) => p.id === personalityId);
   const blank = chatPath(personalityId);
-  const voiceRows = voiceRowsFor(personalities, personalityId, assistantGone, chats.data?.chats ?? []);
+  const voiceRows = voiceRowsFor(personalities, personalityId, assistantGone, chats.data?.chats ?? [], brand);
 
   // The first question creates the chat. The Chats +, and N, only return to this
   // arrival. Pressing them here does not insert an empty row. A deleted assistant
@@ -340,9 +342,14 @@ export function ChatPanel() {
   // reach a machine at all.
   const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
   const selectedVoice = personalities.find((p) => p.id === personalityId);
-  const arrivalName = selectedVoice?.displayName || playbooks.data?.assistant?.displayName || "Podium";
-  // Bubbles keep Podium's display name. The chip shows this voice's model when it has one.
-  const answeredBy = inheritedAssistant(playbooks.data?.assistant, selectedVoice);
+  // The house assistant follows the name set in organization settings, as the conductor names
+  // it in a turn. The playbooks list still carries the profile's own "Podium".
+  const house = playbooks.data?.assistant;
+  const houseName = assistantName(house?.displayName, brand);
+  const arrivalName = selectedVoice?.displayName || houseName;
+  // Bubbles keep the house assistant's display name. The chip shows this voice's model when it has one.
+  const inherited = inheritedAssistant(house, selectedVoice);
+  const answeredBy = inherited && { ...inherited, displayName: houseName };
   const deleteStopsTask = pendingDelete?.turnRunning === true || pendingDelete?.taskRunning === true;
 
   return (
@@ -1558,6 +1565,7 @@ function Conversation({
   const qc = useQueryClient();
   const toast = useToast();
   const viewer = useViewer();
+  const brand = useBrand();
   const location = useLocation();
   // k= is a share link's token (phase 5). It is only needed for the first open — that writes
   // the viewer a row of their own — and harmless after.
@@ -1580,7 +1588,7 @@ function Conversation({
   const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
   const desktopStyle =
     desktopWidth === undefined ? undefined : ({ "--desktop-width": `${desktopWidth}px` } as CSSProperties);
-  const botName = assistant?.displayName ?? "Podium";
+  const botName = assistant?.displayName ?? brand;
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
   // to a chat with no owning login is refused — so this is the affordance, not the rule.
@@ -2186,9 +2194,10 @@ function voiceRowsFor(
   personalityId: string,
   gone: boolean,
   chats: Chat[],
+  brand: string,
 ): VoiceRow[] {
   const rows: VoiceRow[] = [
-    { id: "", label: "Podium" },
+    { id: "", label: brand },
     ...[...personalities]
       .sort(comparePersonalities)
       .map((p) => ({ id: p.id, label: p.displayName || p.name })),
