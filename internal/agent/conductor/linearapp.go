@@ -39,6 +39,38 @@ func (c *Conductor) runsAsPodium(ctx context.Context, login string, ref *Routine
 	return err == nil && r.System()
 }
 
+// linearAccess is where a turn's Linear MCP server comes from.
+type linearAccess int
+
+const (
+	// linearAsNamed is the registry's, resolved as for any other server the job names.
+	linearAsNamed linearAccess = iota
+	// linearAsApp is a run as Podium (runsAsPodium): always the app's, never a person's.
+	linearAsApp
+	// linearFromLinear is a turn that came from Linear: the person's own Linear when they
+	// connected it, else the app's. Whoever wrote in Linear is in that workspace already, so
+	// the turn may read it; what it writes is theirs when it can be, the app's otherwise.
+	linearFromLinear
+)
+
+// linearAccessOf is where a turn's Linear comes from: the app's for a run as Podium, the
+// person's or else the app's for a turn from Linear (kind), and the registry's otherwise.
+func (c *Conductor) linearAccessOf(ctx context.Context, login string, ref *RoutineRef, kind string) linearAccess {
+	switch {
+	case c.runsAsPodium(ctx, login, ref):
+		return linearAsApp
+	case kind == SourceLinear:
+		return linearFromLinear
+	}
+	return linearAsNamed
+}
+
+// appMayStandIn is whether a turn from Linear may use the app's Linear for one the person
+// cannot use. Not when they, or an operator, turned Linear off: that was a choice.
+func appMayStandIn(reason string) bool {
+	return reason != mcpReasonPersonOff && reason != mcpReasonOff
+}
+
 // routineRefOf is the routine run a turn this conductor is running belongs to, or nil.
 func (c *Conductor) routineRefOf(turnID string) *RoutineRef {
 	c.mu.Lock()

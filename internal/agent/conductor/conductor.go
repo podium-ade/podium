@@ -1322,7 +1322,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if mcpOwner == "" {
 		mcpOwner = speaker
 	}
-	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, c.runsAsPodium(ctx, login, ev.Routine))
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, c.linearAccessOf(ctx, login, ev.Routine, sourceKindOf(src, sess)))
 	if err != nil {
 		// A playbook naming a server this turn cannot have, a registry that cannot be read,
 		// or a saved config that no longer parses. The assistant's missing servers are not
@@ -1910,11 +1910,12 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // Either kind fails on what nobody in the conversation can fix: a registry that cannot be
 // read, or a saved config that no longer parses.
 //
-// asPodium is a run that acts as Podium (runsAsPodium). Its Linear server is not the
-// registry's: it is the Linear app's (linearapp.go), in the place the job named it, and a run
-// with no app gets none without failing, whichever kind of job it is.
-func (c *Conductor) mcpServers(ctx context.Context, j job, login string, asPodium bool) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
-	if len(j.mcpServers) == 0 {
+// linear is where the turn's Linear comes from (linearAccess). A run as Podium's is the Linear
+// app's (linearapp.go), in the place the job named it, and a run with no app gets none without
+// failing, whichever kind of job it is. A turn from Linear has the person's own Linear, else
+// the app's; the assistant has it whether or not it names it, a playbook only if it does.
+func (c *Conductor) mcpServers(ctx context.Context, j job, login string, linear linearAccess) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
+	if len(j.mcpServers) == 0 && (linear != linearFromLinear || !j.onHost) {
 		return nil, nil, nil
 	}
 	if c.store == nil {
@@ -1924,31 +1925,47 @@ func (c *Conductor) mcpServers(ctx context.Context, j job, login string, asPodiu
 	if err != nil {
 		return nil, nil, err
 	}
-	return c.turnMCPServers(ctx, j, login, asPodium, rows)
+	return c.turnMCPServers(ctx, j, login, linear, rows)
 }
 
 // turnMCPServers is mcpServers on the registry's rows, read: what a turn gets of them, and of
 // the Linear app for a run as Podium. Separated from the read so it runs without a database.
 func (c *Conductor) turnMCPServers(
-	ctx context.Context, j job, login string, asPodium bool, rows []mcp.Server,
+	ctx context.Context, j job, login string, linear linearAccess, rows []mcp.Server,
 ) ([]mcp.Server, []BriefUnavailableMCPServer, error) {
-	names, linear := j.mcpServers, false
-	if asPodium {
-		names, linear = withLinearApp(names)
+	names, order, app := j.mcpServers, j.mcpServers, false
+	switch linear {
+	case linearAsApp:
+		names, app = withLinearApp(names)
+	case linearFromLinear:
+		// The assistant in a turn from Linear has Linear, named or not, after what it named.
+		// A playbook keeps to what it declares.
+		if j.onHost && !slices.Contains(names, mcp.LinearName) {
+			names = append(slices.Clone(names), mcp.LinearName)
+			order = names
+		}
 	}
 	servers, unavailable, err := resolveMCPServers(turnOwner(login), names, rows)
 	if err != nil {
 		return nil, nil, err
 	}
+	if linear == linearFromLinear {
+		// The person's own Linear when they have it; the app stands in when they do not.
+		if i := slices.IndexFunc(unavailable, func(u BriefUnavailableMCPServer) bool {
+			return u.Name == mcp.LinearName && appMayStandIn(u.Reason)
+		}); i >= 0 {
+			unavailable, app = slices.Delete(unavailable, i, i+1), true
+		}
+	}
 	if err := requireMCPServers(j, unavailable); err != nil {
 		return nil, nil, err
 	}
-	if linear {
+	if app {
 		srv, reason := c.linearAppServer(ctx, j.onHost)
 		if reason != "" {
 			unavailable = append(unavailable, BriefUnavailableMCPServer{Name: mcp.LinearName, Reason: reason})
 		} else {
-			servers = insertNamed(servers, srv, j.mcpServers)
+			servers = insertNamed(servers, srv, order)
 		}
 	}
 	return servers, unavailable, nil
@@ -2075,6 +2092,14 @@ func turnOwner(login string) string {
 	default:
 		return login
 	}
+}
+
+// sourceKindOf is the surface a turn came from: its source's, else its session's.
+func sourceKindOf(src Source, sess store.Session) string {
+	if src != nil && src.Kind() != "" {
+		return src.Kind()
+	}
+	return sess.SourceKind
 }
 
 // asker is who a turn falls back to when its speaker did not resolve (turnLogin). Slack,

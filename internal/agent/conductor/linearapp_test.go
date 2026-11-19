@@ -86,7 +86,7 @@ func TestARunAsPodiumGetsLinearAsTheApp(t *testing.T) {
 	c, vault, logs := linearAppConductor(t, appToken)
 	j := assistantJob(profiles.Assistant{MCPServers: []string{"wiki", "linear"}})
 
-	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", true, rowsWithAdasLinear)
+	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", linearAsApp, rowsWithAdasLinear)
 	require.NoError(t, err)
 	assert.Empty(t, unavailable)
 	require.Len(t, servers, 2)
@@ -124,11 +124,11 @@ func TestATaskRunAsPodiumReceivesTheAppsTokenAsASecret(t *testing.T) {
 	c, vault, logs := linearAppConductor(t, appToken)
 	j := playbookJob(profiles.Playbook{Name: "investigate", MCPServers: []string{"linear"}})
 
-	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", true, nil)
+	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", linearAsApp, nil)
 	require.NoError(t, err)
 	assert.Empty(t, unavailable, "a playbook naming linear has it, though the registry has none")
 	require.Equal(t, []mcp.Server{mcp.LinearAppServer()}, servers)
-	_, _, err = c.turnMCPServers(t.Context(), j, "", true, nil)
+	_, _, err = c.turnMCPServers(t.Context(), j, "", linearAsApp, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{appToken}, vault.writes(mcp.LinearAppTokenSecret), "the same token is written once")
 
@@ -151,7 +151,7 @@ func TestAPersonsRunKeepsTheirOwnLinear(t *testing.T) {
 	c, vault, _ := linearAppConductor(t, appToken)
 	j := assistantJob(profiles.Assistant{MCPServers: []string{"linear"}})
 
-	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "ada@acme.com", false, rowsWithAdasLinear)
+	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "ada@acme.com", linearAsNamed, rowsWithAdasLinear)
 	require.NoError(t, err)
 	assert.Empty(t, unavailable)
 	require.Len(t, servers, 1)
@@ -178,7 +178,7 @@ func TestARunAsPodiumWithNoLinearAppRunsWithoutLinear(t *testing.T) {
 		} {
 			rows := append([]mcp.Server{{Name: "linear", URL: mcp.LinearURL, Enabled: true, TokenSecretVersion: 1}},
 				rowsWithAdasLinear...)
-			servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", true, rows)
+			servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", linearAsApp, rows)
 			require.NoError(t, err, name)
 			require.Len(t, servers, 1, name)
 			assert.Equal(t, "wiki", servers[0].Name, name)
@@ -190,7 +190,7 @@ func TestARunAsPodiumWithNoLinearAppRunsWithoutLinear(t *testing.T) {
 func TestARunAsPodiumThatNamesNoLinearGetsNone(t *testing.T) {
 	c, vault, _ := linearAppConductor(t, appToken)
 	j := playbookJob(profiles.Playbook{Name: "digest", MCPServers: []string{"wiki"}})
-	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", true, rowsWithAdasLinear)
+	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "", linearAsApp, rowsWithAdasLinear)
 	require.NoError(t, err)
 	assert.Empty(t, unavailable)
 	require.Len(t, servers, 1)
@@ -204,4 +204,79 @@ func TestARunIsPodiumsOnlyWithNobodyBehindIt(t *testing.T) {
 	assert.False(t, c.runsAsPodium(t.Context(), "ada@acme.com", ref), "a personal routine's run is its owner's")
 	assert.False(t, c.runsAsPodium(t.Context(), "", nil), "a turn that is no routine's run")
 	assert.False(t, c.runsAsPodium(t.Context(), "", ref), "with no database there is no system routine to be")
+}
+
+// Somebody who is not in Podium, or has not connected Linear, assigns an issue to Podium: the
+// turn is from Linear, so the playbook it delegates to has Linear as the app rather than
+// failing for want of the person's own.
+func TestATurnFromLinearWithNobodysLinearUsesTheApp(t *testing.T) {
+	c, _, _ := linearAppConductor(t, appToken)
+	j := playbookJob(profiles.Playbook{Name: "investigate", MCPServers: []string{"wiki", "linear"}})
+	for _, login := range []string{"", "bo@acme.com"} {
+		servers, unavailable, err := c.turnMCPServers(t.Context(), j, login, linearFromLinear, rowsWithAdasLinear)
+		require.NoError(t, err, login)
+		assert.Empty(t, unavailable, login)
+		require.Len(t, servers, 2, login)
+		assert.Equal(t, "wiki", servers[0].Name)
+		assert.Equal(t, mcp.LinearAppServer(), servers[1], login)
+	}
+}
+
+// A person who connected their own Linear acts as themselves in a turn from Linear.
+func TestATurnFromLinearKeepsThePersonsOwnLinear(t *testing.T) {
+	c, vault, _ := linearAppConductor(t, appToken)
+	j := playbookJob(profiles.Playbook{Name: "investigate", MCPServers: []string{"linear"}})
+	servers, unavailable, err := c.turnMCPServers(t.Context(), j, "ada@acme.com", linearFromLinear, rowsWithAdasLinear)
+	require.NoError(t, err)
+	assert.Empty(t, unavailable)
+	require.Len(t, servers, 1)
+	assert.Equal(t, "ada@acme.com", servers[0].Owner)
+	assert.Empty(t, vault.writes(mcp.LinearAppTokenSecret))
+}
+
+// The assistant in a turn from Linear has Linear though it names none; a playbook keeps to
+// what it declares.
+func TestTheAssistantFromLinearHasLinearUnnamed(t *testing.T) {
+	c, _, _ := linearAppConductor(t, appToken)
+	servers, unavailable, err := c.turnMCPServers(t.Context(),
+		assistantJob(profiles.Assistant{MCPServers: []string{"wiki"}}), "", linearFromLinear, rowsWithAdasLinear)
+	require.NoError(t, err)
+	assert.Empty(t, unavailable)
+	require.Len(t, servers, 2)
+	assert.Equal(t, "wiki", servers[0].Name)
+	assert.Equal(t, mcp.LinearAppServer(), servers[1])
+
+	servers, unavailable, err = c.turnMCPServers(t.Context(),
+		assistantJob(profiles.Assistant{}), "ada@acme.com", linearFromLinear, rowsWithAdasLinear)
+	require.NoError(t, err)
+	assert.Empty(t, unavailable)
+	require.Len(t, servers, 1)
+	assert.Equal(t, "ada@acme.com", servers[0].Owner, "the person's own, when they have it")
+
+	servers, unavailable, err = c.turnMCPServers(t.Context(),
+		playbookJob(profiles.Playbook{Name: "digest", MCPServers: []string{"wiki"}}), "", linearFromLinear, rowsWithAdasLinear)
+	require.NoError(t, err)
+	assert.Empty(t, unavailable)
+	require.Len(t, servers, 1)
+	assert.Equal(t, "wiki", servers[0].Name)
+}
+
+// A person who turned their own Linear off is not overruled by the app.
+func TestATurnFromLinearRespectsLinearTurnedOff(t *testing.T) {
+	c, _, _ := linearAppConductor(t, appToken)
+	rows := []mcp.Server{{Owner: "ada@acme.com", Name: "linear", URL: mcp.LinearURL, Enabled: false,
+		AuthKind: mcp.AuthOAuth, TokenSecretVersion: 2}}
+	servers, unavailable, err := c.turnMCPServers(t.Context(),
+		assistantJob(profiles.Assistant{MCPServers: []string{"linear"}}), "ada@acme.com", linearFromLinear, rows)
+	require.NoError(t, err)
+	assert.Empty(t, servers)
+	assert.Equal(t, []BriefUnavailableMCPServer{{Name: "linear", Reason: mcpReasonPersonOff}}, unavailable)
+}
+
+func TestLinearAccessOf(t *testing.T) {
+	c := &Conductor{}
+	assert.Equal(t, linearFromLinear, c.linearAccessOf(t.Context(), "", nil, SourceLinear))
+	assert.Equal(t, linearFromLinear, c.linearAccessOf(t.Context(), "ada@acme.com", nil, SourceLinear))
+	assert.Equal(t, linearAsNamed, c.linearAccessOf(t.Context(), "", nil, SourceChat))
+	assert.Equal(t, linearAsNamed, c.linearAccessOf(t.Context(), "ada@acme.com", nil, SourceSlack))
 }

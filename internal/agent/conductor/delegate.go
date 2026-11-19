@@ -794,9 +794,10 @@ func (c *Conductor) startDelegatedTask(
 		mcpOwner = g.login
 	}
 	// A playbook is strict: a server it names that this person cannot have fails here.
-	// A task a run as Podium delegates acts as Podium too: its Linear is the Linear app's.
-	asPodium := c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID))
-	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, asPodium)
+	// A task a run as Podium delegates acts as Podium too: its Linear is the Linear app's. One
+	// delegated from Linear has Linear as its turn did: the person's own, else the app's.
+	linear := c.linearAccessOf(ctx, login, c.routineRefOf(g.turnID), sourceKindOf(g.src, sess))
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, linear)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}

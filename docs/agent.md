@@ -2377,7 +2377,12 @@ Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server 
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
 with what Linear lets them do. A system routine's run is nobody's, and gets the same server signed
-in as the Podium Linear app instead ([Routines](#routines)). The Issues view (while Linear is among its trackers) and an issue's
+in as the Podium Linear app instead ([Routines](#routines)). A turn that came from Linear — an
+issue delegated to Podium, a mention, a reply in its session, a routine on Linear events — always
+has Linear: the person's own server when they connected one, and otherwise the same server signed in
+as the app, so asking from Linear never fails for want of a personal connection. The assistant gets
+it there whether or not it is ticked; a playbook only when it names `linear`. A person who switched
+their own `linear` off, or an operator who switched off the shared one, is not overruled. The Issues view (while Linear is among its trackers) and an issue's
 conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
