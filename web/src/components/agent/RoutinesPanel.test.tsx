@@ -7,6 +7,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { RoutineSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
+import { duplicateOf } from "../../lib/routines";
 import { RoutinesPanel } from "./RoutinesPanel";
 
 const listRoutines = vi.fn();
@@ -190,6 +191,30 @@ describe("RoutinesPanel", () => {
     expect(await screen.findByTestId("routine-row")).toHaveTextContent("PR digest");
   });
 
+  it("duplicates a routine into a new one, prefilled and named as a copy", async () => {
+    listRoutines.mockResolvedValue({ routines: [routine()] });
+    createRoutine.mockResolvedValue({ routine: routine({ id: "rtn_2", name: "PR digest (copy)" }) });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "More for PR digest" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+
+    expect(await screen.findByText("Duplicate routine")).toBeInTheDocument();
+    expect(screen.getByTestId("routine-name")).toHaveValue("PR digest (copy)");
+    expect(screen.getByTestId("routine-instruction")).toHaveValue("Report pull requests whose CI failed.");
+    await userEvent.click(screen.getByTestId("routine-save"));
+
+    await waitFor(() =>
+      expect(createRoutine).toHaveBeenCalledWith({
+        draft: expect.objectContaining({
+          name: "PR digest (copy)",
+          instruction: "Report pull requests whose CI failed.",
+          schedule: "0 9 * * 1-5",
+        }),
+        scope: "personal",
+      }),
+    );
+  });
+
   it("deletes a routine after asking", async () => {
     listRoutines.mockResolvedValue({ routines: [routine()] });
     deleteRoutine.mockResolvedValue({});
@@ -226,5 +251,14 @@ describe("RoutinesPanel for an admin", () => {
     const row = await screen.findByTestId("routine-row");
     expect(row).toHaveTextContent("Paused by an admin.");
     expect(row).not.toHaveTextContent("Paused by Podium");
+  });
+});
+
+describe("duplicateOf", () => {
+  it("runs the copy as the original does for an admin, and as the person otherwise", () => {
+    const sys = routine({ name: "Fix failing CI", scope: "system" });
+    expect(duplicateOf(sys, true)).toMatchObject({ scope: "system", initial: { name: "Fix failing CI (copy)" } });
+    expect(duplicateOf(sys, false).scope).toBe("personal");
+    expect(duplicateOf(routine({ scope: "personal" }), true).scope).toBe("personal");
   });
 });

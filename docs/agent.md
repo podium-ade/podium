@@ -3777,7 +3777,10 @@ is the issue's, not the routine's.
 | Floor | every 15 minutes | every minute |
 | `turns.started_by` | the owner, so Usage → By person counts it as theirs | `routine:<id>`, its own line in Usage |
 
-The scope is chosen once, when the routine is made. A system routine cannot open chats
+The scope is chosen once, when the routine is made. To have a routine run as somebody else, an
+admin duplicates it (Duplicate in its menu): the new-routine dialog opens prefilled with what it
+does, named as a copy and starting on the original's scope, which they may change before saving.
+The copy starts with no runs, chat or kept state of its own. A system routine cannot open chats
 (`start_chat` needs a Podium person to own them).
 
 **A run as Podium reaches Linear as the app.** When the assistant or a playbook a system routine's

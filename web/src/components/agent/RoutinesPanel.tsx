@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, MessageSquare, MoreHorizontal, Pause, Pencil, Play, Plus, Repeat, Trash2, Zap } from "lucide-react";
+import { AlertTriangle, Copy, MessageSquare, MoreHorizontal, Pause, Pencil, Play, Plus, Repeat, Trash2, Zap } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Routine } from "../../gen/podium/agent/v1/agent_pb";
@@ -12,6 +12,9 @@ import {
   isLinear,
   perTicket,
   isSystem,
+  BLANK_ROUTINE,
+  duplicateOf,
+  type NewRoutine,
   money,
   routinePath,
   routinesKey,
@@ -67,7 +70,8 @@ export function RoutinesPanel() {
     // The next run and whether one is going move on their own.
     refetchInterval: 30_000,
   });
-  const [creating, setCreating] = useState(false);
+  // creating is the new-routine dialog: blank, or a duplicate of a routine prefilled from it.
+  const [creating, setCreating] = useState<NewRoutine | null>(null);
   const [editing, setEditing] = useState<Routine | null>(null);
   const [deleting, setDeleting] = useState<Routine | null>(null);
 
@@ -112,7 +116,7 @@ export function RoutinesPanel() {
           : "Jobs an assistant does on a schedule, each in a chat of its own. A run that finds nothing stays quiet; one that does answers in that chat."
       }
       actions={
-        <Button size="sm" data-testid="routines-new" onClick={() => setCreating(true)}>
+        <Button size="sm" data-testid="routines-new" onClick={() => setCreating(BLANK_ROUTINE)}>
           <Plus />
           New routine
         </Button>
@@ -138,7 +142,7 @@ export function RoutinesPanel() {
           title="No routines yet"
           hint="Make one here, or ask an assistant in a chat: “every weekday at 9, tell me which of my pull requests failed CI”."
           action={
-            <Button size="sm" data-testid="routines-new-empty" onClick={() => setCreating(true)}>
+            <Button size="sm" data-testid="routines-new-empty" onClick={() => setCreating(BLANK_ROUTINE)}>
               <Plus />
               New routine
             </Button>
@@ -159,6 +163,7 @@ export function RoutinesPanel() {
               onRun={() => act.mutate({ r, what: "run" })}
               onToggle={() => act.mutate({ r, what: r.enabled ? "pause" : "resume" })}
               onEdit={() => setEditing(r)}
+              onDuplicate={() => setCreating(duplicateOf(r, admin))}
               onDelete={() => setDeleting(r)}
             />
           ))}
@@ -168,14 +173,15 @@ export function RoutinesPanel() {
       {creating ? (
         <RoutineDialog
           open
-          title="New routine"
-          initial={{}}
+          title={creating.title}
+          initial={creating.initial}
+          defaultScope={creating.scope}
           canChooseScope={admin}
           canChooseTrigger={admin}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreating(null)}
           onSave={async (draft, scope) => {
             const res = await agent.createRoutine({ draft, scope });
-            setCreating(false);
+            setCreating(null);
             await refresh();
             const r = res.routine;
             toast(`${r?.name ?? "Routine"} ${r ? runsText(r).replace(/^Runs/, "runs") : "runs"}.`, "ok");
@@ -239,6 +245,7 @@ function RoutineRow({
   onRun,
   onToggle,
   onEdit,
+  onDuplicate,
   onDelete,
 }: {
   routine: Routine;
@@ -249,6 +256,7 @@ function RoutineRow({
   onRun: () => void;
   onToggle: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const brand = useBrand();
@@ -352,6 +360,10 @@ function RoutineRow({
             <DropdownMenuItem onSelect={onEdit}>
               <Pencil />
               Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onDuplicate} data-testid="routine-duplicate">
+              <Copy />
+              Duplicate
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="danger" onSelect={onDelete}>
