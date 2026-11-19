@@ -9,6 +9,7 @@ import {
   personLabel,
   readFilters,
   rowCost,
+  tokenBreakdown,
   tokens,
   totals,
   totalsIn,
@@ -243,6 +244,21 @@ describe("tokens", () => {
     expect(tokens(250_000)).toBe("250k");
     expect(tokens(3_140_000)).toBe("3.1M");
     expect(tokens(2_000_000_000)).toBe("2B");
+  });
+
+  it("moves to the next unit when rounding reaches a thousand", () => {
+    expect(tokens(999.6)).toBe("1k");
+    expect(tokens(999_499)).toBe("999k");
+    expect(tokens(999_600)).toBe("1M");
+    expect(tokens(999_960_000)).toBe("1B");
+    expect(tokens(1_000_000)).toBe("1M");
+  });
+
+  it("gives the exact counts behind a shortened one", () => {
+    const t = { input: 3_141_592, output: 2_718, reasoning: 0, cacheRead: 1_000_000, cacheWrite: 0 };
+    expect(tokenBreakdown(t)).toBe(
+      `${(3_141_592).toLocaleString()} in, ${(2_718).toLocaleString()} out, ${(1_000_000).toLocaleString()} read from cache`,
+    );
   });
 });
 

@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { TaskCost } from "../../gen/podium/agent/v1/agent_pb";
 import { absolute, relative } from "../../lib/format";
-import { hrefOf, kindLabel, optTokens, ranBy, rowCost, tokens, usd } from "../../lib/usage";
+import { hrefOf, kindLabel, optTokens, ranBy, rowCost, tokenBreakdown, tokens, usd } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Tooltip } from "../ui/tooltip";
@@ -149,15 +149,13 @@ function TokenCell({ c }: { c: TaskCost }) {
   const read = optTokens(c.cacheReadTokens) ?? 0;
   const write = optTokens(c.cacheWriteTokens) ?? 0;
   const reasoning = optTokens(c.reasoningTokens) ?? 0;
-  const tip = [
-    `${(input ?? 0).toLocaleString()} in`,
-    `${(output ?? 0).toLocaleString()} out`,
-    reasoning > 0 ? `${reasoning.toLocaleString()} reasoning` : "",
-    read > 0 ? `${read.toLocaleString()} read from cache` : "",
-    write > 0 ? `${write.toLocaleString()} written to cache` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const tip = tokenBreakdown({
+    input: input ?? 0,
+    output: output ?? 0,
+    reasoning,
+    cacheRead: read,
+    cacheWrite: write,
+  });
   return (
     <Tooltip label={tip}>
       <span>

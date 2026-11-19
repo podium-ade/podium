@@ -332,14 +332,44 @@ export function billed(t: Totals): number {
 
 /** tokens is a token count for a cell: 950, 12.4k, 3.1M. */
 export function tokens(n: number): string {
-  if (n < 1000) return `${Math.round(n)}`;
-  if (n < 1_000_000) return `${trim(n / 1000)}k`;
-  if (n < 1_000_000_000) return `${trim(n / 1_000_000)}M`;
-  return `${trim(n / 1_000_000_000)}B`;
+  // The unit is picked after rounding, so 999,600 reads "1M" and not "1000k".
+  let i = 0;
+  while (i < TOKEN_UNITS.length - 1 && n >= TOKEN_UNITS[i + 1][1]) i++;
+  let s = i === 0 ? `${Math.round(n)}` : trim(n / TOKEN_UNITS[i][1]);
+  if (s === "1000" && i < TOKEN_UNITS.length - 1) {
+    i++;
+    s = "1";
+  }
+  return `${s}${TOKEN_UNITS[i][0]}`;
 }
+
+const TOKEN_UNITS: [string, number][] = [
+  ["", 1],
+  ["k", 1e3],
+  ["M", 1e6],
+  ["B", 1e9],
+];
 
 function trim(n: number): string {
   return n >= 100 ? `${Math.round(n)}` : n.toFixed(1).replace(/\.0$/, "");
+}
+
+/**
+ * tokenBreakdown is the exact count behind a shortened one, for its hover: every kind of
+ * token the runtime reported, in full, leaving out the kinds it reported none of.
+ */
+export function tokenBreakdown(
+  t: Pick<Totals, "input" | "output" | "reasoning" | "cacheRead" | "cacheWrite">,
+): string {
+  return [
+    `${t.input.toLocaleString()} in`,
+    `${t.output.toLocaleString()} out`,
+    t.reasoning > 0 ? `${t.reasoning.toLocaleString()} reasoning` : "",
+    t.cacheRead > 0 ? `${t.cacheRead.toLocaleString()} read from cache` : "",
+    t.cacheWrite > 0 ? `${t.cacheWrite.toLocaleString()} written to cache` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 /** optTokens is a row's own token count, where unset means the runtime reported none. */

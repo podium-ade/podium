@@ -20,6 +20,7 @@ import { Alert } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Tooltip } from "../components/ui/tooltip";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 import {
@@ -32,6 +33,7 @@ import {
   readFilters,
   routineNames,
   spanDays,
+  tokenBreakdown,
   tokens,
   totals,
   totalsIn,
@@ -362,6 +364,7 @@ export function UsagePage() {
         <Stat
           label="Tokens in / out"
           value={now.input + now.output > 0 ? `${tokens(now.input)} / ${tokens(now.output)}` : "-"}
+          hint={now.input + now.output > 0 ? tokenBreakdown(now) : undefined}
           loading={loading}
           detail={
             now.cacheRead > 0
@@ -419,12 +422,15 @@ function Stat({
   detail,
   tone = "text-fg",
   loading,
+  hint,
 }: {
   label: string;
   value: string;
   detail: ReactNode;
   tone?: string;
   loading?: boolean;
+  /** hint is the exact figure behind a shortened value, shown on hover. */
+  hint?: string;
 }) {
   return (
     <div className="min-w-0 space-y-1 border-hairline px-5 py-4 even:border-l [&:nth-child(n+3)]:border-t xl:border-l xl:first:border-l-0 xl:[&:nth-child(n+3)]:border-t-0">
@@ -432,7 +438,15 @@ function Stat({
       {loading ? (
         <Skeleton className="h-7 w-24" />
       ) : (
-        <p className={cn("tabular text-xl leading-tight font-semibold", tone)}>{value}</p>
+        <p className={cn("tabular text-xl leading-tight font-semibold", tone)}>
+          {hint ? (
+            <Tooltip label={hint}>
+              <span>{value}</span>
+            </Tooltip>
+          ) : (
+            value
+          )}
+        </p>
       )}
       <div className="truncate text-2xs text-faint">{detail}</div>
     </div>
