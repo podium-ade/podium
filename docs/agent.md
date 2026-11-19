@@ -3560,8 +3560,9 @@ What that decides:
   each Podium hook hands on to them, and `commit-msg` adds the trailer after the repository's
   hook, so a hook that rewrites the message cannot drop it. Only `git commit --no-verify`
   skips it. The brief also tells the turn to end any pull request's description with
-  `Opened by Podium on behalf of Name (@handle).` (the handle when the person connected
-  GitHub) and to say "requested by Name" in comments. That part is asked, not enforced:
+  `Opened by <App> on behalf of Name (@handle).`, where `<App>` is the GitHub App's display
+  name as GitHub shows it (the house name when there is no App or GitHub cannot say), with
+  the handle when the person connected GitHub, and to say "requested by Name" in comments. That part is asked, not enforced:
   nothing checks the pull request afterwards.
 
 ## One record, one transcript
@@ -3771,7 +3772,7 @@ is the issue's, not the routine's.
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
 | Linear | the owner's own Linear MCP server, as them | the Linear MCP server signed in as the **Podium Linear app**: what it writes in Linear is the app's |
-| GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
+| GitHub | read with the owner's connected account | read as the **GitHub App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
 | Floor | every 15 minutes | every minute |

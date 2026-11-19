@@ -97,9 +97,13 @@ type Token struct {
 // author's email, and a bot account's address is `<user id>+<slug>[bot]@users.noreply.
 // github.com` — an id nothing but the API will tell you. Get it wrong and every commit is
 // attributed to nobody, which is the failure this whole path exists to avoid.
+//
+// DisplayName is the App's name as GitHub shows it on what the bot account does (a pull
+// request "opened by" it, a comment). It is the slug when GET /app answered no name.
 type Identity struct {
-	Name  string
-	Email string
+	Name        string
+	Email       string
+	DisplayName string
 }
 
 // Options builds a Client.
@@ -309,9 +313,14 @@ func (c *Client) Identity(ctx context.Context) (Identity, error) {
 	if user.ID == 0 {
 		return Identity{}, fmt.Errorf("github: GET /users/%s answered no id", login)
 	}
+	display := strings.TrimSpace(app.Name)
+	if display == "" {
+		display = slug
+	}
 	out := Identity{
-		Name:  login,
-		Email: fmt.Sprintf("%d+%s@users.noreply.github.com", user.ID, login),
+		Name:        login,
+		Email:       fmt.Sprintf("%d+%s@users.noreply.github.com", user.ID, login),
+		DisplayName: display,
 	}
 	c.mu.Lock()
 	c.identity = &out
@@ -557,6 +566,7 @@ type installationResponse struct {
 
 type appResponse struct {
 	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // collaboratorPermission is GET /repos/{owner}/{repo}/collaborators/{user}/permission.
