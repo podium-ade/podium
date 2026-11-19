@@ -117,25 +117,33 @@ type ChatRead struct {
 }
 
 type Delegation struct {
-	ID          string
-	SessionID   string
-	TurnID      string
-	TriggerRef  string
-	Playbook    string
-	Instruction string
-	TaskID      *string
-	Status      string
-	FinalText   *string
-	CreatedAt   time.Time
-	FinishedAt  *time.Time
-	NumTurns    *int32
-	CostUsd     *float64
-	Agent       *string
-	Model       *string
-	Effort      *string
-	Provider    *string
-	ReadOnly    bool
-	AnsweredAt  *time.Time
+	ID                string
+	SessionID         string
+	TurnID            string
+	TriggerRef        string
+	Playbook          string
+	Instruction       string
+	TaskID            *string
+	Status            string
+	FinalText         *string
+	CreatedAt         time.Time
+	FinishedAt        *time.Time
+	NumTurns          *int32
+	CostUsd           *float64
+	Agent             *string
+	Model             *string
+	Effort            *string
+	Provider          *string
+	ReadOnly          bool
+	AnsweredAt        *time.Time
+	AuthKind          *string
+	CredentialOwner   *string
+	CredentialAccount *string
+	InputTokens       *int64
+	OutputTokens      *int64
+	ReasoningTokens   *int64
+	CacheReadTokens   *int64
+	CacheWriteTokens  *int64
 }
 
 type GithubAccount struct {
@@ -145,6 +153,29 @@ type GithubAccount struct {
 	Name           string
 	ConnectedAt    time.Time
 	NeedsReconnect bool
+}
+
+type HousekeepingSpend struct {
+	ID                string
+	SessionID         string
+	Purpose           string
+	Status            string
+	StartedAt         time.Time
+	FinishedAt        *time.Time
+	NumTurns          *int32
+	CostUsd           *float64
+	Agent             *string
+	Model             *string
+	Effort            *string
+	Provider          *string
+	AuthKind          *string
+	CredentialOwner   *string
+	CredentialAccount *string
+	InputTokens       *int64
+	OutputTokens      *int64
+	ReasoningTokens   *int64
+	CacheReadTokens   *int64
+	CacheWriteTokens  *int64
 }
 
 type Identity struct {
@@ -343,22 +374,30 @@ type SlackChannelSync struct {
 }
 
 type Turn struct {
-	ID           string
-	SessionID    string
-	TaskID       *string
-	TriggerRef   string
-	Status       string
-	StartedAt    time.Time
-	FinishedAt   *time.Time
-	NumTurns     *int32
-	CostUsd      *float64
-	FinalText    *string
-	Agent        *string
-	Model        *string
-	Effort       *string
-	Provider     *string
-	StartedBy    string
-	RoutineRunID *string
+	ID                string
+	SessionID         string
+	TaskID            *string
+	TriggerRef        string
+	Status            string
+	StartedAt         time.Time
+	FinishedAt        *time.Time
+	NumTurns          *int32
+	CostUsd           *float64
+	FinalText         *string
+	Agent             *string
+	Model             *string
+	Effort            *string
+	Provider          *string
+	StartedBy         string
+	RoutineRunID      *string
+	AuthKind          *string
+	CredentialOwner   *string
+	CredentialAccount *string
+	InputTokens       *int64
+	OutputTokens      *int64
+	ReasoningTokens   *int64
+	CacheReadTokens   *int64
+	CacheWriteTokens  *int64
 }
 
 type TurnQueue struct {
@@ -371,6 +410,40 @@ type TurnQueue struct {
 	MessageSeq int64
 	Event      []byte
 	CreatedAt  time.Time
+}
+
+type UsageRow struct {
+	ID                string
+	Kind              string
+	TaskID            string
+	SessionID         string
+	SourceKind        string
+	SourceKey         string
+	Playbook          string
+	Profile           string
+	Status            string
+	StartedAt         time.Time
+	FinishedAt        *time.Time
+	NumTurns          *int32
+	CostUsd           *float64
+	Agent             *string
+	Model             *string
+	Effort            *string
+	Provider          *string
+	StartedBy         string
+	AuthKind          *string
+	CredentialOwner   *string
+	CredentialAccount *string
+	InputTokens       *int64
+	OutputTokens      *int64
+	ReasoningTokens   *int64
+	CacheReadTokens   *int64
+	CacheWriteTokens  *int64
+	ChatID            string
+	ChatTitle         string
+	RoutineID         string
+	RoutineName       string
+	Origin            string
 }
 
 type WorkLease struct {

@@ -15,7 +15,7 @@ insert into delegations (id, session_id, turn_id, trigger_ref, playbook, instruc
                          created_at, agent, model, effort, provider, read_only)
 values ($1, $2, $3, $4, $5, $6, $7,
         $8, $9, $10, $11, $12, $13)
-returning id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at
+returning id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens
 `
 
 type CreateDelegationParams struct {
@@ -74,6 +74,14 @@ func (q *Queries) CreateDelegation(ctx context.Context, arg CreateDelegationPara
 		&i.Provider,
 		&i.ReadOnly,
 		&i.AnsweredAt,
+		&i.AuthKind,
+		&i.CredentialOwner,
+		&i.CredentialAccount,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.ReasoningTokens,
+		&i.CacheReadTokens,
+		&i.CacheWriteTokens,
 	)
 	return i, err
 }
@@ -110,7 +118,7 @@ func (q *Queries) FinishDelegation(ctx context.Context, arg FinishDelegationPara
 }
 
 const getDelegation = `-- name: GetDelegation :one
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations where id = $1
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations where id = $1
 `
 
 func (q *Queries) GetDelegation(ctx context.Context, id string) (Delegation, error) {
@@ -136,12 +144,20 @@ func (q *Queries) GetDelegation(ctx context.Context, id string) (Delegation, err
 		&i.Provider,
 		&i.ReadOnly,
 		&i.AnsweredAt,
+		&i.AuthKind,
+		&i.CredentialOwner,
+		&i.CredentialAccount,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.ReasoningTokens,
+		&i.CacheReadTokens,
+		&i.CacheWriteTokens,
 	)
 	return i, err
 }
 
 const listDelegationsForTurn = `-- name: ListDelegationsForTurn :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations where turn_id = $1 order by created_at, id
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations where turn_id = $1 order by created_at, id
 `
 
 func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]Delegation, error) {
@@ -173,6 +189,14 @@ func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -185,7 +209,7 @@ func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]
 }
 
 const listFinishedDelegationsForSession = `-- name: ListFinishedDelegationsForSession :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations
 where session_id = $1 and status <> 'running' and task_id is not null
   and finished_at > $2
 order by finished_at desc
@@ -229,6 +253,14 @@ func (q *Queries) ListFinishedDelegationsForSession(ctx context.Context, arg Lis
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -241,7 +273,7 @@ func (q *Queries) ListFinishedDelegationsForSession(ctx context.Context, arg Lis
 }
 
 const listRunningDelegations = `-- name: ListRunningDelegations :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations where status = 'running' order by created_at
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations where status = 'running' order by created_at
 `
 
 func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, error) {
@@ -273,6 +305,14 @@ func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, err
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -285,7 +325,7 @@ func (q *Queries) ListRunningDelegations(ctx context.Context) ([]Delegation, err
 }
 
 const listRunningDelegationsForRef = `-- name: ListRunningDelegationsForRef :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations
 where trigger_ref = $1 and status = 'running'
 order by created_at
 `
@@ -319,6 +359,14 @@ func (q *Queries) ListRunningDelegationsForRef(ctx context.Context, triggerRef s
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -331,7 +379,7 @@ func (q *Queries) ListRunningDelegationsForRef(ctx context.Context, triggerRef s
 }
 
 const listRunningDelegationsForSession = `-- name: ListRunningDelegationsForSession :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations
 where session_id = $1 and status = 'running'
 order by created_at
 `
@@ -368,6 +416,14 @@ func (q *Queries) ListRunningDelegationsForSession(ctx context.Context, sessionI
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -395,6 +451,32 @@ func (q *Queries) SetDelegationAnswered(ctx context.Context, arg SetDelegationAn
 	return err
 }
 
+const setDelegationCredential = `-- name: SetDelegationCredential :exec
+update delegations
+set auth_kind          = nullif($1::text, ''),
+    credential_owner   = $2::text,
+    credential_account = $3::text
+where id = $4
+`
+
+type SetDelegationCredentialParams struct {
+	AuthKind          string
+	CredentialOwner   string
+	CredentialAccount string
+	ID                string
+}
+
+// SetDelegationCredential is SetTurnCredential for a delegated task.
+func (q *Queries) SetDelegationCredential(ctx context.Context, arg SetDelegationCredentialParams) error {
+	_, err := q.db.Exec(ctx, setDelegationCredential,
+		arg.AuthKind,
+		arg.CredentialOwner,
+		arg.CredentialAccount,
+		arg.ID,
+	)
+	return err
+}
+
 const setDelegationTask = `-- name: SetDelegationTask :exec
 update delegations set task_id = $1 where id = $2
 `
@@ -406,5 +488,38 @@ type SetDelegationTaskParams struct {
 
 func (q *Queries) SetDelegationTask(ctx context.Context, arg SetDelegationTaskParams) error {
 	_, err := q.db.Exec(ctx, setDelegationTask, arg.TaskID, arg.ID)
+	return err
+}
+
+const setDelegationTokens = `-- name: SetDelegationTokens :exec
+update delegations
+set input_tokens       = $1,
+    output_tokens      = $2,
+    reasoning_tokens   = $3,
+    cache_read_tokens  = $4,
+    cache_write_tokens = $5
+where id = $6
+`
+
+type SetDelegationTokensParams struct {
+	InputTokens      *int64
+	OutputTokens     *int64
+	ReasoningTokens  *int64
+	CacheReadTokens  *int64
+	CacheWriteTokens *int64
+	ID               string
+}
+
+// SetDelegationTokens is SetTurnTokens for a delegated task. A task answering a follow-up
+// reports its running total again, so this overwrites, as FinishDelegation's cost does.
+func (q *Queries) SetDelegationTokens(ctx context.Context, arg SetDelegationTokensParams) error {
+	_, err := q.db.Exec(ctx, setDelegationTokens,
+		arg.InputTokens,
+		arg.OutputTokens,
+		arg.ReasoningTokens,
+		arg.CacheReadTokens,
+		arg.CacheWriteTokens,
+		arg.ID,
+	)
 	return err
 }

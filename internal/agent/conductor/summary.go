@@ -20,6 +20,7 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/chathost"
 	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 const (
@@ -146,7 +147,7 @@ func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
 	for _, e := range old {
 		fmt.Fprintf(&b, "[%s] %s (%s): %s\n", e.TS, e.Author, e.Role, e.Text)
 	}
-	text, err := c.chatComplete(ctx, summarySystem, b.String())
+	text, err := c.chatComplete(ctx, cv.sessionID, summarySystem, b.String())
 	if err != nil {
 		return err
 	}
@@ -159,16 +160,18 @@ func (c *Conductor) summariseOne(ctx context.Context, cv *chatConv) error {
 }
 
 // chatComplete is one model call on the chat host with no tools, through the gateway, on the
-// assistant's own backend. It is for the conductor's own housekeeping, never a person's turn.
-func (c *Conductor) chatComplete(ctx context.Context, system, prompt string) (string, error) {
-	return c.chatCompleteIn(ctx, summaryLocation, system, prompt)
+// assistant's own backend. It is for the conductor's own housekeeping, never a person's turn,
+// and what it cost is recorded against sessionID's conversation as a summary.
+func (c *Conductor) chatComplete(ctx context.Context, sessionID, system, prompt string) (string, error) {
+	return c.chatCompleteIn(ctx, summaryLocation, sessionID, store.UsageKindSummary, system, prompt)
 }
 
 // chatCompleteIn is chatComplete in a location of its own, so two kinds of housekeeping do not
-// wait on each other's one turn.
-func (c *Conductor) chatCompleteIn(ctx context.Context, location, system, prompt string) (string, error) {
+// wait on each other's one turn. purpose names the spend on the usage screen.
+func (c *Conductor) chatCompleteIn(ctx context.Context, location, sessionID, purpose, system, prompt string) (string, error) {
 	choice := c.profiles.Current().ResolveAssistant(profiles.Override{})
 	provider := c.providerFor(choice.Agent, "")
+	started := time.Now()
 	cv, err := c.chatConvFor(location)
 	if err != nil {
 		return "", err
@@ -199,8 +202,44 @@ func (c *Conductor) chatCompleteIn(ctx context.Context, location, system, prompt
 	if err != nil {
 		return "", err
 	}
+	c.recordHousekeeping(ctx, sessionID, purpose, started, choice, h, res)
 	if res.Outcome == "failed" {
 		return "", fmt.Errorf("the model failed: %s", res.Error)
 	}
 	return res.Text, nil
+}
+
+// recordHousekeeping writes what one housekeeping call cost. It used to be nowhere: a summary
+// is a model call every few minutes per quiet conversation, and the usage screen's total was
+// short by all of them. Recording is best effort: the summary matters more than its bill.
+func (c *Conductor) recordHousekeeping(
+	ctx context.Context, sessionID, purpose string, started time.Time,
+	choice profiles.Choice, h *hostRun, res chathost.Result,
+) {
+	if c.store == nil || sessionID == "" {
+		return
+	}
+	status := store.TurnSucceeded
+	if res.Outcome == "failed" {
+		status = store.TurnFailed
+	}
+	steps, cost := res.Steps, res.CostUSD
+	err := c.store.RecordHousekeeping(ctx, store.Housekeeping{
+		SessionID:  sessionID,
+		Purpose:    purpose,
+		Status:     status,
+		StartedAt:  started,
+		FinishedAt: time.Now(),
+		NumTurns:   &steps,
+		CostUSD:    &cost,
+		Backend: store.Backend{
+			Agent: choice.Agent, Model: choice.Model, Effort: choice.Effort, Provider: h.provider.ID,
+		},
+		Credential: c.credentialFor(h.provider.ID, "", c.claudeAgentTurn(h)),
+		Tokens:     storeTokens(res.Tokens),
+	})
+	if err != nil {
+		c.logger.WarnContext(ctx, "recording what a housekeeping call cost failed",
+			"session_id", sessionID, "purpose", purpose, "error", err)
+	}
 }

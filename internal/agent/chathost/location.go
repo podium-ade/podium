@@ -259,6 +259,18 @@ type Result struct {
 	Error   string
 	Steps   int
 	CostUSD float64
+	// Tokens is summed over the turn's assistant messages, as opencode reported each one.
+	Tokens Tokens
+}
+
+// Tokens is what a turn's model steps used. opencode reports the prompt as input plus what it
+// read from and wrote to the provider's prompt cache.
+type Tokens struct {
+	Input      int64
+	Output     int64
+	Reasoning  int64
+	CacheRead  int64
+	CacheWrite int64
 }
 
 // Answer runs a turn in a session of its own and deletes the session afterwards: the
@@ -354,6 +366,15 @@ func (p *proc) result(ctx context.Context, id, outcome string) (Result, error) {
 			Outcome string  `json:"outcome"`
 			Error   any     `json:"error"`
 			Cost    float64 `json:"cost"`
+			Tokens  struct {
+				Input     int64 `json:"input"`
+				Output    int64 `json:"output"`
+				Reasoning int64 `json:"reasoning"`
+				Cache     struct {
+					Read  int64 `json:"read"`
+					Write int64 `json:"write"`
+				} `json:"cache"`
+			} `json:"tokens"`
 			Content []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -366,6 +387,11 @@ func (p *proc) result(ctx context.Context, id, outcome string) (Result, error) {
 		case "assistant":
 			res.Steps++
 			res.CostUSD += m.Cost
+			res.Tokens.Input += m.Tokens.Input
+			res.Tokens.Output += m.Tokens.Output
+			res.Tokens.Reasoning += m.Tokens.Reasoning
+			res.Tokens.CacheRead += m.Tokens.Cache.Read
+			res.Tokens.CacheWrite += m.Tokens.Cache.Write
 			if res.Text == "" {
 				var parts []string
 				for _, c := range m.Content {

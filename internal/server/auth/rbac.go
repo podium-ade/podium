@@ -94,6 +94,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceGetSessionProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListTurnsProcedure:         store.RoleMember,
 	agentv1connect.AgentServiceGetUsageProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceListUsageRowsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceGetSettingsProcedure:       store.RoleMember,
 	agentv1connect.AgentServiceGetRunsOnProcedure:         store.RoleMember,
 	agentv1connect.AgentServiceListAgentsProcedure:        store.RoleMember,
