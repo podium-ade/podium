@@ -961,6 +961,7 @@ func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string
 		c.logger.WarnContext(ctx, "recording that a delegated task is working again failed",
 			"delegation_id", dlg.ID, "error", err)
 	}
+	c.delegationChanged(ctx, dlg.SessionID)
 	return dlg, nil
 }
 
@@ -1207,6 +1208,9 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			r.c.logger.WarnContext(ctx, "recording that a delegated task has answered failed",
 				"delegation_id", r.dlg.ID, "error", err)
 		}
+		// An answered task is not the chat's work any more (Chat.TaskRunning), though it
+		// stays up for a follow-up: open screens stop saying "working" now, not when it exits.
+		r.c.delegationChanged(ctx, r.dlg.SessionID)
 	}
 	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
 		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)

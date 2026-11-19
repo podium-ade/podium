@@ -206,13 +206,14 @@ select exists (
     join sessions s on s.id = t.session_id
    where s.source_key = (select c.source_key from chats c where c.id = $1)
      and d.status = 'running'
+     and d.answered_at is null
 )::bool as running
 `
 
 // ChatTaskRunning is whether a task this conversation delegated is still running. A
 // delegated task outlives the turn that started it (an automatic review's turn ends the
-// moment it hands the work over), and it is the conversation's work for as long as it runs:
-// the same rule ListChats' task_running answers for the list.
+// moment it hands the work over), and it is the conversation's work until it answers: the
+// same rule ListChats' task_running answers for the list.
 func (q *Queries) ChatTaskRunning(ctx context.Context, chatID string) (bool, error) {
 	row := q.db.QueryRow(ctx, chatTaskRunning, chatID)
 	var running bool
@@ -834,13 +835,15 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
        and t.status = 'running'
   ) as turn_running,
   -- A delegated task outlives the turn that started it, and it is the conversation's work
-  -- for as long as it runs.
+  -- for as long as it works. One that has answered and is only waiting for a follow-up is
+  -- not: it stays up for minutes after its answer, and the chat read as busy all that time.
   exists (
     select 1 from delegations d
       join turns t on t.id = d.turn_id
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and d.status = 'running'
+       and d.answered_at is null
   ) as task_running,
   -- Phase 5: what the caller may do here and why they can see it, for the list's sections
   -- and its owner/other menus. The dev token is answered by the API (it is the operator, an

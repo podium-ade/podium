@@ -80,7 +80,7 @@ with conv as (
          coalesce(last.text, '')::text as last_text,
          coalesce(s.id, '')::text as session_id,
          exists (select 1 from turns t where t.session_id = s.id and t.status = 'running') as turn_running,
-         exists (select 1 from delegations d where d.session_id = s.id and d.status = 'running') as task_running,
+         exists (select 1 from delegations d where d.session_id = s.id and d.status = 'running' and d.answered_at is null) as task_running,
          coalesce((select t.status from turns t where t.session_id = s.id order by t.started_at desc limit 1), '')::text as last_turn_status,
          (coalesce((select sum(t.cost_usd) from turns t where t.session_id = s.id), 0)
           + coalesce((select sum(d.cost_usd) from delegations d where d.session_id = s.id), 0))::float8 as cost_usd,
