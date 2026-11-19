@@ -152,7 +152,9 @@ function PolicyForm({ loaded }: { loaded: Values }) {
       qc.setQueryData(policyKey, { policy: res.policy });
       toast("Identity settings saved.", "ok");
     },
-    onSettled: () => {
+    // A save that lands remounts the form on the new policy (its key), with a fresh guard; only
+    // a failed one lets this form send again.
+    onError: () => {
       sending.current = false;
     },
   });
