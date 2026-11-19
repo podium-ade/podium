@@ -1336,6 +1336,14 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 	c.logUnavailableMCP(ctx, turn.ID, j.name, unavailable)
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, j.onHost && c.chatHost != nil)
+	{
+		// What pays for it, written down now that it is decided: the chat host's Claude Code
+		// spends a subscription, and everything else is what the provider's row says.
+		p := c.providerFor(choice.Agent, choice.CredentialOwner)
+		claudeAgent := j.onHost && c.chatHost != nil &&
+			c.claudeAgentTurn(&hostRun{provider: p, credOwner: choice.CredentialOwner})
+		c.recordTurnCredential(ctx, turn.ID, c.credentialFor(p.ID, choice.CredentialOwner, claudeAgent))
+	}
 	if text, refused := c.keyRefused(ctx, choice, j.onHost && c.chatHost != nil); refused {
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: text})
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)

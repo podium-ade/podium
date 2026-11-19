@@ -1101,10 +1101,15 @@ func (q *Queries) PendingRoutineSubjects(ctx context.Context, arg PendingRoutine
 }
 
 const personSpendSince = `-- name: PersonSpendSince :one
-select coalesce(sum(t.cost_usd), 0)::float8 from turns t
-  join routine_runs r on r.id = t.routine_run_id
-  join routines o on o.id = r.routine_id
-where o.owner_login = $1 and t.started_at >= $2
+select (coalesce((select sum(t.cost_usd) from turns t
+                    join routine_runs r on r.id = t.routine_run_id
+                    join routines o on o.id = r.routine_id
+                   where o.owner_login = $1 and t.started_at >= $2), 0)
+      + coalesce((select sum(d.cost_usd) from delegations d
+                    join turns t on t.id = d.turn_id
+                    join routine_runs r on r.id = t.routine_run_id
+                    join routines o on o.id = r.routine_id
+                   where o.owner_login = $1 and d.created_at >= $2), 0))::float8
 `
 
 type PersonSpendSinceParams struct {
@@ -1112,7 +1117,8 @@ type PersonSpendSinceParams struct {
 	Since      time.Time
 }
 
-// PersonSpendSince is what a person's routines spent since a moment.
+// PersonSpendSince is what a person's routines spent since a moment: their turns and the
+// tasks those turns delegated, as RoutineSpendSince counts them.
 func (q *Queries) PersonSpendSince(ctx context.Context, arg PersonSpendSinceParams) (float64, error) {
 	row := q.db.QueryRow(ctx, personSpendSince, arg.OwnerLogin, arg.Since)
 	var column_1 float64
@@ -1221,9 +1227,13 @@ func (q *Queries) RoutineFailuresSince(ctx context.Context, arg RoutineFailuresS
 }
 
 const routineSpendSince = `-- name: RoutineSpendSince :one
-select coalesce(sum(t.cost_usd), 0)::float8 from turns t
-  join routine_runs r on r.id = t.routine_run_id
-where r.routine_id = $1 and t.started_at >= $2
+select (coalesce((select sum(t.cost_usd) from turns t
+                    join routine_runs r on r.id = t.routine_run_id
+                   where r.routine_id = $1 and t.started_at >= $2), 0)
+      + coalesce((select sum(d.cost_usd) from delegations d
+                    join turns t on t.id = d.turn_id
+                    join routine_runs r on r.id = t.routine_run_id
+                   where r.routine_id = $1 and d.created_at >= $2), 0))::float8
 `
 
 type RoutineSpendSinceParams struct {
@@ -1743,7 +1753,7 @@ func (q *Queries) SettleRoutineRun(ctx context.Context, arg SettleRoutineRunPara
 }
 
 const turnForRoutineRun = `-- name: TurnForRoutineRun :one
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id from turns where routine_run_id = $1 order by started_at desc limit 1
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider, started_by, routine_run_id, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from turns where routine_run_id = $1 order by started_at desc limit 1
 `
 
 func (q *Queries) TurnForRoutineRun(ctx context.Context, routineRunID *string) (Turn, error) {
@@ -1766,6 +1776,14 @@ func (q *Queries) TurnForRoutineRun(ctx context.Context, routineRunID *string) (
 		&i.Provider,
 		&i.StartedBy,
 		&i.RoutineRunID,
+		&i.AuthKind,
+		&i.CredentialOwner,
+		&i.CredentialAccount,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.ReasoningTokens,
+		&i.CacheReadTokens,
+		&i.CacheWriteTokens,
 	)
 	return i, err
 }

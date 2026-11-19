@@ -317,6 +317,7 @@ func (cr chatRun) run(ctx context.Context) {
 	steps := res.Steps
 	cost := res.CostUSD
 	r.acct = &accounting{NumTurns: &steps, TotalCostUSD: &cost}
+	r.acct.setTokens(res.Tokens)
 	r.acctFrom = "chat-host"
 	r.flushProgress(done)
 

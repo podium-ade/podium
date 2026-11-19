@@ -14,7 +14,7 @@ import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /**
- * RangePicker is the whole of this screen's filtering: a row of trailing-day and calendar
+ * RangePicker is the screen's window in time: a row of trailing-day and calendar
  * -month presets, plus a custom pair of dates for anything they do not cover.
  *
  * The presets are buttons rather than a select because there are seven of them and they are

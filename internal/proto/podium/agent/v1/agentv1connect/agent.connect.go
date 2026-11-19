@@ -42,6 +42,9 @@ const (
 	AgentServiceListTurnsProcedure = "/podium.agent.v1.AgentService/ListTurns"
 	// AgentServiceGetUsageProcedure is the fully-qualified name of the AgentService's GetUsage RPC.
 	AgentServiceGetUsageProcedure = "/podium.agent.v1.AgentService/GetUsage"
+	// AgentServiceListUsageRowsProcedure is the fully-qualified name of the AgentService's
+	// ListUsageRows RPC.
+	AgentServiceListUsageRowsProcedure = "/podium.agent.v1.AgentService/ListUsageRows"
 	// AgentServiceGetSettingsProcedure is the fully-qualified name of the AgentService's GetSettings
 	// RPC.
 	AgentServiceGetSettingsProcedure = "/podium.agent.v1.AgentService/GetSettings"
@@ -337,6 +340,11 @@ type AgentServiceClient interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// ListUsageRows pages through every unit of spend in a range, newest first: each turn,
+	// each delegated task and each piece of the conductor's own housekeeping, filtered the
+	// same way GetUsage is. It is the usage screen's table, and it is paged by the server so
+	// a busy range is never silently cut short.
+	ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// GetRunsOn is where a turn runs when its playbook does not say.
@@ -685,6 +693,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceGetUsageProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
+			connect.WithClientOptions(opts...),
+		),
+		listUsageRows: connect.NewClient[v1.ListUsageRowsRequest, v1.ListUsageRowsResponse](
+			httpClient,
+			baseURL+AgentServiceListUsageRowsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListUsageRows")),
 			connect.WithClientOptions(opts...),
 		),
 		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
@@ -1278,6 +1292,7 @@ type agentServiceClient struct {
 	getSession                 *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
 	listTurns                  *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
 	getUsage                   *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	listUsageRows              *connect.Client[v1.ListUsageRowsRequest, v1.ListUsageRowsResponse]
 	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	getRunsOn                  *connect.Client[v1.GetRunsOnRequest, v1.GetRunsOnResponse]
 	setRunsOn                  *connect.Client[v1.SetRunsOnRequest, v1.SetRunsOnResponse]
@@ -1395,6 +1410,11 @@ func (c *agentServiceClient) ListTurns(ctx context.Context, req *connect.Request
 // GetUsage calls podium.agent.v1.AgentService.GetUsage.
 func (c *agentServiceClient) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
 	return c.getUsage.CallUnary(ctx, req)
+}
+
+// ListUsageRows calls podium.agent.v1.AgentService.ListUsageRows.
+func (c *agentServiceClient) ListUsageRows(ctx context.Context, req *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error) {
+	return c.listUsageRows.CallUnary(ctx, req)
 }
 
 // GetSettings calls podium.agent.v1.AgentService.GetSettings.
@@ -1897,6 +1917,11 @@ type AgentServiceHandler interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// ListUsageRows pages through every unit of spend in a range, newest first: each turn,
+	// each delegated task and each piece of the conductor's own housekeeping, filtered the
+	// same way GetUsage is. It is the usage screen's table, and it is paged by the server so
+	// a busy range is never silently cut short.
+	ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// GetRunsOn is where a turn runs when its playbook does not say.
@@ -2241,6 +2266,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceGetUsageProcedure,
 		svc.GetUsage,
 		connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListUsageRowsHandler := connect.NewUnaryHandler(
+		AgentServiceListUsageRowsProcedure,
+		svc.ListUsageRows,
+		connect.WithSchema(agentServiceMethods.ByName("ListUsageRows")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetSettingsHandler := connect.NewUnaryHandler(
@@ -2835,6 +2866,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListTurnsHandler.ServeHTTP(w, r)
 		case AgentServiceGetUsageProcedure:
 			agentServiceGetUsageHandler.ServeHTTP(w, r)
+		case AgentServiceListUsageRowsProcedure:
+			agentServiceListUsageRowsHandler.ServeHTTP(w, r)
 		case AgentServiceGetSettingsProcedure:
 			agentServiceGetSettingsHandler.ServeHTTP(w, r)
 		case AgentServiceGetRunsOnProcedure:
@@ -3052,6 +3085,10 @@ func (UnimplementedAgentServiceHandler) ListTurns(context.Context, *connect.Requ
 
 func (UnimplementedAgentServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetUsage is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListUsageRows is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {

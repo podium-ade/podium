@@ -13,8 +13,38 @@ export interface Summary {
   sdkSessionID: string;
   turns: number;
   cost: number;
+  /** tokens is summed over the turn's steps, as the harness reported each one. */
+  tokens: Tokens;
   code: number;
   startedAt: string;
+}
+
+/** Tokens is what a turn's model steps used, summed. */
+export interface Tokens {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/** noTokens is a turn that has used none yet. */
+export function noTokens(): Tokens {
+  return { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
+}
+
+/** addTokens adds one step's tokens to a running total. A field the step did not report adds
+ *  nothing: the harness leaves cache out for a provider that has no prompt cache. */
+export function addTokens(
+  to: Tokens,
+  step?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } },
+): void {
+  if (!step) return;
+  to.input += step.input ?? 0;
+  to.output += step.output ?? 0;
+  to.reasoning += step.reasoning ?? 0;
+  to.cacheRead += step.cache?.read ?? 0;
+  to.cacheWrite += step.cache?.write ?? 0;
 }
 
 export function warn(message: string): void {
@@ -59,6 +89,11 @@ export async function reportTurn(
     sdk_session_id: s.sdkSessionID,
     num_turns: s.turns,
     total_cost_usd: s.cost,
+    input_tokens: s.tokens.input,
+    output_tokens: s.tokens.output,
+    reasoning_tokens: s.tokens.reasoning,
+    cache_read_tokens: s.tokens.cacheRead,
+    cache_write_tokens: s.tokens.cacheWrite,
     exit_code: s.code,
     started_at: s.startedAt,
     finished_at: new Date().toISOString(),

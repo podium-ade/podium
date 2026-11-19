@@ -33,7 +33,7 @@ import { startHeartbeat } from "./heartbeat.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { installRequestedBy } from "./requestedby.js";
-import { messageOf, reportTurn, say, storeArtifacts, warn, type Summary } from "./report.js";
+import { addTokens, messageOf, noTokens, reportTurn, say, storeArtifacts, warn, type Summary } from "./report.js";
 import { TurnInput } from "./turninput.js";
 import { nextInboxLine, warmMillis } from "./warm.js";
 import {
@@ -111,7 +111,7 @@ async function main(): Promise<number> {
     warn(why);
     await reportTurn(
       invoke,
-      { sessionID: "", turnID: "", sdkSessionID: "", turns: 0, cost: 0, code: ExitBriefInvalid, startedAt },
+      { sessionID: "", turnID: "", sdkSessionID: "", turns: 0, cost: 0, tokens: noTokens(), code: ExitBriefInvalid, startedAt },
       `turn brief is invalid: ${why}`,
     );
     return ExitBriefInvalid;
@@ -123,6 +123,7 @@ async function main(): Promise<number> {
     sdkSessionID: "",
     turns: 0,
     cost: 0,
+    tokens: noTokens(),
     code: ExitOK,
     startedAt,
   };
@@ -465,6 +466,7 @@ async function main(): Promise<number> {
             const part = event.part;
             summary.turns = steps;
             summary.cost += part?.cost ?? 0;
+            addTokens(summary.tokens, part?.tokens);
             if (event.sessionID) {
               summary.sdkSessionID = event.sessionID;
               sessionID = event.sessionID;

@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TurnName } from "./artifacts.js";
 import type { RunnerInvoke } from "./emit.js";
-import { reportTurn, storeArtifacts, type Summary } from "./report.js";
+import { addTokens, noTokens, reportTurn, storeArtifacts, type Summary } from "./report.js";
 
 function recorder(): { calls: { argv: string[]; text: string }[]; invoke: RunnerInvoke } {
   const calls: { argv: string[]; text: string }[] = [];
@@ -28,9 +28,20 @@ const summary: Summary = {
   sdkSessionID: "sdk_1",
   turns: 4,
   cost: 0.0123,
+  tokens: { input: 1200, output: 340, reasoning: 50, cacheRead: 9000, cacheWrite: 800 },
   code: 0,
   startedAt: "2026-09-05T10:00:00.000Z",
 };
+
+describe("addTokens", () => {
+  it("sums each step, counting a field the step left out as nothing", () => {
+    const t = noTokens();
+    addTokens(t, { input: 10, output: 2, reasoning: 1, cache: { read: 100, write: 5 } });
+    addTokens(t, { input: 3, output: 4 });
+    addTokens(t, undefined);
+    expect(t).toEqual({ input: 13, output: 6, reasoning: 1, cacheRead: 100, cacheWrite: 5 });
+  });
+});
 
 describe("reportTurn", () => {
   it("emits the accounting after the answer, so a resumed turn is still sent it", async () => {
@@ -50,6 +61,20 @@ describe("reportTurn", () => {
     expect(acct.total_cost_usd).toBe(0.0123);
     expect(acct.session_id).toBe("sess_1");
     expect(acct.turn_id).toBe("turn_1");
+  });
+
+  it("puts the turn's tokens in the accounting message", async () => {
+    const r = recorder();
+    await reportTurn(r.invoke, summary, "pong", [], mkdtempSync(join(tmpdir(), "podium-report-")));
+
+    const acct = JSON.parse(r.calls[1]?.text ?? "");
+    expect(acct).toMatchObject({
+      input_tokens: 1200,
+      output_tokens: 340,
+      reasoning_tokens: 50,
+      cache_read_tokens: 9000,
+      cache_write_tokens: 800,
+    });
   });
 
   it("says the same thing in the message as in turn.json", async () => {
