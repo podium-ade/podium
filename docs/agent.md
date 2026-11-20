@@ -2085,6 +2085,40 @@ alone — so a Slack thread reads in the web chat the way it read in Slack.
 What the bot posts is the model's Markdown converted to mrkdwn (bold, links, headings); Block
 Kit is out of scope.
 
+### What answered
+
+Every answer in a thread says, under it in Slack's small grey type, which model wrote it and
+whose credential paid for it:
+
+```
+Claude Opus 5.5 · Workspace API key
+```
+
+| what the turn spent | what it says |
+|---|---|
+| the workspace's API key | `Workspace API key` |
+| a Claude subscription an admin signed in for everyone | `Workspace Claude plan` |
+| a ChatGPT or Grok subscription signed in as the global credential | `Workspace ChatGPT plan`, `Workspace Grok plan` |
+| a person's own subscription | `Alvaro Ibarguen's Claude plan` |
+| a person's own API key | `Alvaro Ibarguen's API key` |
+
+A thread is a shared conversation, so today it always spends the workspace's credential (see
+[Several people, one conversation](#several-people-one-conversation)); the byline is how
+anybody in it can tell once that changes. A person is named as the members list has them, or
+by the part of their login before the `@`. Nothing about the key itself is ever shown.
+
+It is the conductor's `Outbound.Byline`, set on an answer (`OutFinal`) and on nothing else —
+not progress, a question or a failure. It is decided when the turn starts, from the same
+decision that picks the credential (`turnCredentialOwner`, and `claudeAgentTurn` for a chat-host
+turn on a Claude plan), and a delegated task gets its own. An answer the outbox retries after a
+restart keeps it. A turn or a delegated task picked up after a restart knows its model from its
+row but not whose credential it started on, so its byline names the model alone.
+
+Slack is the only surface that shows it. The answer's last part is posted as a section block
+with the byline as a context block under it, so that part is cut to the 3,000 characters a
+section holds rather than Slack's 4,000; the message's plain text is still the answer alone,
+for notifications.
+
 ### Rate limits
 
 Web API calls go through **two** limiters per conductor, because Slack's limits are per method

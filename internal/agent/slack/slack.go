@@ -30,6 +30,10 @@ const Kind = "slack"
 // newline before the limit and posted as consecutive messages.
 const MaxMessageChars = 4000
 
+// MaxSectionChars is the most text one section block holds. An answer with a byline is
+// posted as blocks, so its last part has to fit in one.
+const MaxSectionChars = 3000
+
 // repliesPageLimit is how many thread replies one conversations.replies call asks for.
 // Slack caps it at 200 and recommends less.
 const repliesPageLimit = 200
@@ -739,10 +743,24 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	first := ""
 	// Markdown first, then mentions: the mention pass writes <@U…>, which is mrkdwn's own
 	// syntax and must not be handed to a Markdown converter afterwards.
-	for _, part := range Split(s.linkMentions(toMrkdwn(out.Text)), MaxMessageChars) {
+	parts := Split(s.linkMentions(toMrkdwn(out.Text)), MaxMessageChars)
+	footer := ""
+	if out.Type == conductor.OutFinal {
+		footer = out.Byline.String()
+	}
+	if footer != "" && len(parts) > 0 {
+		// The byline goes under the last part, which is then a section block and has to fit
+		// in one.
+		last := parts[len(parts)-1]
+		parts = append(parts[:len(parts)-1], Split(last, MaxSectionChars)...)
+	}
+	for i, part := range parts {
+		opts := []slack.MsgOption{slack.MsgOptionTS(thread), slack.MsgOptionText(part, false)}
+		if footer != "" && i == len(parts)-1 {
+			opts = append(opts, slack.MsgOptionBlocks(bylineBlocks(part, footer)...))
+		}
 		ts, err := s.write(ctx, func() (string, error) {
-			_, ts, err := s.api.PostMessageContext(ctx, channel,
-				slack.MsgOptionTS(thread), slack.MsgOptionText(part, false))
+			_, ts, err := s.api.PostMessageContext(ctx, channel, opts...)
 			return ts, err
 		})
 		if err != nil {
@@ -753,6 +771,24 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		}
 	}
 	return first, nil
+}
+
+// bylineBlocks is an answer's last part with its byline under it: the text as a section, the
+// byline as a context block, which Slack draws in small grey type. The message's own text
+// stays set beside the blocks, for notifications and screen readers.
+//
+// The byline is a model's name and a person's, neither of them mrkdwn, so the three
+// characters Slack reads as markup are escaped rather than trusted.
+func bylineBlocks(text, byline string) []slack.Block {
+	return []slack.Block{
+		slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, text, false, false), nil, nil),
+		slack.NewContextBlock("", slack.NewTextBlockObject(slack.MarkdownType, escapeMrkdwn(byline), false, false)),
+	}
+}
+
+// escapeMrkdwn makes text literal in mrkdwn: Slack's own three escapes.
+func escapeMrkdwn(text string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(text)
 }
 
 // Edit replaces a message this source posted. Only the first part of a split message is

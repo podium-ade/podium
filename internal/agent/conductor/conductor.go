@@ -1386,6 +1386,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		url:         ev.URL,
 		startedAt:   started,
 	}
+	// What answered, said under the answer. A chat-host turn may spend a Claude plan
+	// instead, which only the hostRun below can tell.
+	run.byline = c.bylineFor(ctx, brief.Provider.ID, choice.Model, choice.CredentialOwner, false)
 
 	// The conversation runs here; a container is what it delegates to. The turn row keeps
 	// its task_id empty, which is what the recovery pass reads to mean "this one died with
@@ -1438,6 +1441,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			// one, and the conversation itself when nobody signed in.
 			host.who = cmp.Or(speaker, login, "session:"+sess.ID)
 			host.login = cmp.Or(login, speaker)
+			if c.claudeAgentTurn(host) {
+				run.byline = c.bylineFor(ctx, brief.Provider.ID, choice.Model, choice.CredentialOwner, true)
+			}
 			if brief.Memory != nil {
 				host.memoryURL = brief.Memory.MCPURL
 			}
@@ -2648,7 +2654,11 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 		// always a real one.
 		j := playbookJob(c.profiles.Current().Playbooks[sess.Playbook])
 		run := &turnRun{
-			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook)},
+			sink: &sink{
+				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook),
+				// The row records the model and not whose credential the turn started on.
+				byline: bylineOfBackend(turn.Backend),
+			},
 			sess:      sess,
 			job:       j,
 			turn:      turn,

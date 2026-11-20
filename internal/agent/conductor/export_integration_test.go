@@ -196,3 +196,10 @@ func TurnCredentialOwnerForTest(
 	}
 	return c.turnCredentialOwner(ctx, sess, login, agent, onChatHost)
 }
+
+// BylineForTest is what a turn on model through provider, spending owner's credential, says
+// answered it, against st's settings and members.
+func BylineForTest(ctx context.Context, st *store.Store, provider, model, owner string, claudePlan bool) Byline {
+	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return c.bylineFor(ctx, provider, model, owner, claudePlan)
+}

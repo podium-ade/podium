@@ -428,7 +428,7 @@ func (c *Conductor) launch(
 	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
 ) (store.Delegation, error) {
 	playbookName := playbook.Name
-	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice, opts)
+	task, byline, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice, opts)
 	if err != nil {
 		if ferr := c.finishDelegation(ctx, dlg, store.TurnFailed, "", nil, nil); ferr != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that never started failed",
@@ -478,7 +478,7 @@ func (c *Conductor) launch(
 		speaker: c.speakerFor(g.src, playbookName),
 	})
 
-	c.followDelegation(ctx, g.src, dlg, playbook, 0)
+	c.followDelegation(ctx, g.src, dlg, playbook, 0, byline)
 	return dlg, nil
 }
 
@@ -741,7 +741,7 @@ func (c *Conductor) takeHeld(match func(announcement) bool) []announcement {
 func (c *Conductor) startDelegatedTask(
 	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
 	dlg store.Delegation, choice profiles.Choice, opts DelegateOptions,
-) (*podiumv1.Task, error) {
+) (*podiumv1.Task, Byline, error) {
 	entries, err := c.turnTranscript(ctx, g.src, g.ref, sess)
 	if err != nil {
 		// The conversation is context, not the instruction. A task with none is a worse
@@ -752,7 +752,7 @@ func (c *Conductor) startDelegatedTask(
 	j := playbookJob(playbook)
 	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
-		return nil, fmt.Errorf("conductor: the %s playbook's skills could not be prepared: %w", playbook.Name, err)
+		return nil, Byline{}, fmt.Errorf("conductor: the %s playbook's skills could not be prepared: %w", playbook.Name, err)
 	}
 	ev := InboundEvent{
 		SourceKind: sess.SourceKind,
@@ -780,14 +780,14 @@ func (c *Conductor) startDelegatedTask(
 	}
 	persona, err := c.githubPersona(ctx, login, playbook, c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID)))
 	if err != nil {
-		return nil, err
+		return nil, Byline{}, err
 	}
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
-		return nil, err
+		return nil, Byline{}, err
 	}
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
 	if text, refused := c.keyRefused(ctx, choice, false); refused {
-		return nil, errors.New(text)
+		return nil, Byline{}, errors.New(text)
 	}
 	mcpOwner := login
 	if mcpOwner == "" {
@@ -799,7 +799,7 @@ func (c *Conductor) startDelegatedTask(
 	linear := c.linearAccessOf(ctx, login, c.routineRefOf(g.turnID), sourceKindOf(g.src, sess))
 	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, linear)
 	if err != nil {
-		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
+		return nil, Byline{}, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
 	brief := c.brief(ctx, sess, j, dlg.ID, ev, entries, bundles, servers, choice)
 	brief.Playbook.UnavailableMCPServers = unavailable
@@ -809,13 +809,13 @@ func (c *Conductor) startDelegatedTask(
 	c.withRequestedBy(ctx, brief, login, persona)
 	encoded, err := brief.Encode()
 	if err != nil {
-		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
+		return nil, Byline{}, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
 	// Keyed by the delegation id, which is what this task's brief carries as its turn id
 	// and therefore what Mint checks the status of.
 	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login, persona != nil)
 	if err != nil {
-		return nil, err
+		return nil, Byline{}, err
 	}
 	taskSpec := c.taskSpec(g.src, c.placed(ctx, playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
 	applyWorkspace(taskSpec, sess, playbook)
@@ -829,15 +829,18 @@ func (c *Conductor) startDelegatedTask(
 		if capabilitySecret != "" {
 			c.dropGitCapability(ctx, dlg.ID, playbook)
 		}
-		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
+		return nil, Byline{}, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}
-	return task, nil
+	// What answered, said under the task's answer. A task never spends a Claude plan: that
+	// is the chat host's alone (credentialOwner).
+	return task, c.bylineFor(ctx, brief.Provider.ID, choice.Model, choice.CredentialOwner, false), nil
 }
 
 // followDelegation starts the goroutine that relays a delegated task and records how it
 // ended. It is used both by Delegate and by the recovery pass on start.
 func (c *Conductor) followDelegation(
 	_ context.Context, src Source, dlg store.Delegation, playbook profiles.Playbook, lastSeq uint64,
+	byline Byline,
 ) {
 	run := &delegationRun{
 		sink: &sink{
@@ -848,6 +851,7 @@ func (c *Conductor) followDelegation(
 			// replace, so its progress arrives as its own messages.
 			taskID:  dlg.TaskID,
 			speaker: c.speakerFor(src, dlg.Playbook),
+			byline:  byline,
 		},
 		dlg:      dlg,
 		playbook: playbook,
@@ -1387,7 +1391,8 @@ func (c *Conductor) recoverDelegations(ctx context.Context, startup bool) {
 		}
 		c.logger.InfoContext(ctx, "resuming a delegated task that was in flight",
 			"delegation_id", dlg.ID, "task_id", dlg.TaskID, "from_seq", lastSeq)
-		c.followDelegation(ctx, src, dlg, profile.Playbooks[dlg.Playbook], lastSeq)
+		// The row records the model and not whose credential the task was started on.
+		c.followDelegation(ctx, src, dlg, profile.Playbooks[dlg.Playbook], lastSeq, bylineOfBackend(dlg.Backend))
 	}
 }
 
