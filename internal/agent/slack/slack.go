@@ -1370,7 +1370,7 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 }
 
 // DirectMessage writes text to one person, found by their email, in a direct message from
-// the bot. It needs users:read.email, which the bot already asks for to know who is speaking.
+// the bot. It needs users:read.email, which the manifest asks for to know who is speaking.
 func (s *Source) DirectMessage(ctx context.Context, email, text string) error {
 	user, err := s.readUser(ctx, func() (*slack.User, error) { return s.api.GetUserByEmailContext(ctx, email) })
 	if err != nil {
