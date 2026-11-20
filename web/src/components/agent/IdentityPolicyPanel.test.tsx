@@ -103,7 +103,7 @@ describe("IdentityPolicyPanel", () => {
     expect(shared).toHaveTextContent("Always Podium's");
     expect(shared).toHaveAccessibleDescription(/never a personal API key/);
     await userEvent.click(shared);
-    await userEvent.click(await screen.findByRole("option", { name: "Their plan, else Podium's" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Theirs, else Podium's" }));
     await userEvent.click(screen.getByTestId("identity-save"));
     await waitFor(() =>
       expect(setIdentityPolicy).toHaveBeenCalledWith({ policy: { sharedModelKey: "plan_then_app" } }),

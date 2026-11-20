@@ -61,7 +61,7 @@ const ACCOUNTS: Field[] = [
     label: "Model key in shared conversations",
     hint: "A chat more than one person is in, a Slack thread, a Linear issue or a pull request. Theirs is the plan of whoever asked, never a personal API key.",
     options: (b) => [
-      { value: "plan_then_app", label: `Their plan, else ${b}'s` },
+      { value: "plan_then_app", label: `Theirs, else ${b}'s` },
       { value: "app", label: `Always ${b}'s` },
     ],
   },
