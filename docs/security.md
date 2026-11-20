@@ -1073,7 +1073,7 @@ What else bounds them:
   location's config or in Claude Code's environment: Claude Code is given a placeholder, and the
   gateway swaps in the token. The PKCE verifier stays on the conductor, so the code a person
   pastes back is useless to anyone who sees it.
-- In a shared conversation, a person's subscription is spent only when an admin set **Model in
+- In a shared conversation, a person's subscription is spent only when an admin set **Model key in
   shared conversations** to *their plan, else the organization's*, and then only on a turn that
   person asked for themselves (`conductor.planOwner`). The token travels exactly as it does in a
   private chat — a ChatGPT or Grok one in that turn's environment, a Claude one only through the

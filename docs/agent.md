@@ -456,7 +456,7 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   unshared. A share alone is not a second person, so a chat shared with somebody who has not
   spoken still spends its one speaker's own key. The share dialog warns the owner before they share
   (`conductor.turnCredentialOwner`).
-- **Or each turn spends the asker's own plan.** With **Model in shared conversations** set to
+- **Or each turn spends the asker's own plan.** With **Model key in shared conversations** set to
   *their plan, else the organization's* ([Who a turn acts as](#who-a-turn-acts-as)), each turn of
   a shared conversation, and each task it delegates, spends the subscription of the person who
   asked it — a Claude, ChatGPT or Grok plan they signed in with — and the company's credential
@@ -2102,7 +2102,7 @@ Claude Opus 5.5 · Workspace API key
 | a person's own subscription | `Alvaro Ibarguen's Claude plan` |
 | a person's own API key | `Alvaro Ibarguen's API key` |
 
-A thread is a shared conversation, so it spends the workspace's credential unless **Model in
+A thread is a shared conversation, so it spends the workspace's credential unless **Model key in
 shared conversations** is set to *their plan, else the organization's* ([Who a turn acts
 as](#who-a-turn-acts-as)); then each answer is paid by the plan of whoever asked for it, and the
 byline is how everybody in the thread can tell whose. A person is named as the members list has them, or
@@ -3627,7 +3627,7 @@ for every turn). A system routine's run always uses the organization's, whatever
 | GitHub pushes and pull requests | theirs, else the organization's | theirs only · always the organization's | the GitHub App, with `Requested-by` on every commit |
 | GitHub reads (routines) | theirs only | theirs, else the organization's | the GitHub App, read-only, one repository per token |
 | Model key, private conversations | theirs, else the organization's | always the organization's | the global key |
-| Model, shared conversations | always the organization's | their plan, else the organization's | the global key, or the global Claude plan on the chat host |
+| Model key, shared conversations | always the organization's | their plan, else the organization's | the global key, or the global Claude plan on the chat host |
 | Personal secrets | theirs only (fixed) | — | — |
 
 "Theirs, else the organization's" stands the organization's in only where the person has not

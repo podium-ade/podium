@@ -99,9 +99,9 @@ describe("IdentityPolicyPanel", () => {
 
   it("lets an admin have shared conversations spend the asker's own plan", async () => {
     mount();
-    const shared = await screen.findByRole("combobox", { name: "Model in shared conversations" });
+    const shared = await screen.findByRole("combobox", { name: "Model key in shared conversations" });
     expect(shared).toHaveTextContent("Always Podium's");
-    expect(shared).toHaveAccessibleDescription(/a personal API key is never used here/);
+    expect(shared).toHaveAccessibleDescription(/never a personal API key/);
     await userEvent.click(shared);
     await userEvent.click(await screen.findByRole("option", { name: "Their plan, else Podium's" }));
     await userEvent.click(screen.getByTestId("identity-save"));
