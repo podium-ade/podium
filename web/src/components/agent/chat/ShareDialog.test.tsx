@@ -13,6 +13,7 @@ const shareChat = vi.fn();
 const unshareChat = vi.fn();
 const updateChatSharing = vi.fn();
 const searchMembers = vi.fn();
+const getIdentityPolicy = vi.fn();
 
 vi.mock("../../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../../lib/client")>("../../../lib/client");
@@ -24,6 +25,7 @@ vi.mock("../../../lib/client", async () => {
       unshareChat: (...a: unknown[]) => unshareChat(...a),
       updateChatSharing: (...a: unknown[]) => updateChatSharing(...a),
       searchMembers: (...a: unknown[]) => searchMembers(...a),
+      getIdentityPolicy: (...a: unknown[]) => getIdentityPolicy(...a),
     },
   };
 });
@@ -73,7 +75,8 @@ async function pick(user: ReturnType<typeof userEvent.setup>, trigger: HTMLEleme
 
 describe("ShareDialog", () => {
   beforeEach(() => {
-    for (const f of [getChatSharing, shareChat, unshareChat, updateChatSharing, searchMembers]) f.mockReset();
+    for (const f of [getChatSharing, shareChat, unshareChat, updateChatSharing, searchMembers, getIdentityPolicy]) f.mockReset();
+    getIdentityPolicy.mockResolvedValue({ policy: { sharedModelKey: "app" } });
   });
 
   it("lists the owner first, then everybody with access", async () => {
@@ -170,6 +173,25 @@ describe("ShareDialog", () => {
     mount(true);
     expect(await screen.findByTestId("share-key-note")).toHaveTextContent("using the company’s model key");
     expect(screen.queryByTestId("share-key-warning")).toBeNull();
+  });
+
+  it("tells the owner each person pays with their own plan when the policy says so", async () => {
+    getIdentityPolicy.mockResolvedValue({ policy: { sharedModelKey: "plan_then_app" } });
+    getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
+    mount();
+    await waitFor(() =>
+      expect(screen.getByTestId("share-key-warning")).toHaveTextContent("paid by the plan of whoever asked"),
+    );
+    expect(screen.getByTestId("share-key-warning")).toHaveTextContent("Your own API key is not used here");
+  });
+
+  it("says a chat with more than one person answers each on their own plan when the policy says so", async () => {
+    getIdentityPolicy.mockResolvedValue({ policy: { sharedModelKey: "plan_then_app" } });
+    getChatSharing.mockResolvedValue({ sharing: sharing({ grants: [] }) });
+    mount(true);
+    await waitFor(() =>
+      expect(screen.getByTestId("share-key-note")).toHaveTextContent("their own Claude, ChatGPT or Grok plan"),
+    );
   });
 
   it("warns before a private Slack conversation is shared", async () => {

@@ -2198,7 +2198,7 @@ type IdentityPolicy struct {
 	// "person_then_app".
 	GithubRead string `protobuf:"bytes,3,opt,name=github_read,json=githubRead,proto3" json:"github_read,omitempty"`
 	// model_key is whose model key a private conversation spends: "person_then_app" (default)
-	// or "app". A shared conversation always spends the company's.
+	// or "app". A shared conversation is shared_model_key's.
 	ModelKey string `protobuf:"bytes,4,opt,name=model_key,json=modelKey,proto3" json:"model_key,omitempty"`
 	// slack_outsiders is what a Slack member who is not a Podium person gets: "refuse"
 	// (default) or "answer".
@@ -2210,8 +2210,13 @@ type IdentityPolicy struct {
 	// github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
 	// "review" (default: the review command) or "refuse".
 	GithubOutsiders string `protobuf:"bytes,7,opt,name=github_outsiders,json=githubOutsiders,proto3" json:"github_outsiders,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// shared_model_key is whose model credential a turn of a shared conversation (a multiplayer
+	// chat, a Slack thread, a Linear issue, a pull request) spends: "app" (default: the
+	// company's, whoever asks) or "plan_then_app" (the asker's own Claude, ChatGPT or Grok
+	// subscription when they signed one in, and the company's otherwise; never a personal API key).
+	SharedModelKey string `protobuf:"bytes,8,opt,name=shared_model_key,json=sharedModelKey,proto3" json:"shared_model_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *IdentityPolicy) Reset() {
@@ -2289,6 +2294,13 @@ func (x *IdentityPolicy) GetLinearOutsiders() string {
 func (x *IdentityPolicy) GetGithubOutsiders() string {
 	if x != nil {
 		return x.GithubOutsiders
+	}
+	return ""
+}
+
+func (x *IdentityPolicy) GetSharedModelKey() string {
+	if x != nil {
+		return x.SharedModelKey
 	}
 	return ""
 }
@@ -18225,7 +18237,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\broutines\x18\x01 \x03(\v2\x1e.podium.agent.v1.MemberRoutineR\broutines\"f\n" +
 	"\rRoutineLimits\x12$\n" +
 	"\x0emax_per_person\x18\x01 \x01(\x05R\fmaxPerPerson\x12/\n" +
-	"\x14person_daily_cap_usd\x18\x02 \x01(\x01R\x11personDailyCapUsd\"\x88\x02\n" +
+	"\x14person_daily_cap_usd\x18\x02 \x01(\x01R\x11personDailyCapUsd\"\xb2\x02\n" +
 	"\x0eIdentityPolicy\x12\x16\n" +
 	"\x06linear\x18\x01 \x01(\tR\x06linear\x12!\n" +
 	"\fgithub_write\x18\x02 \x01(\tR\vgithubWrite\x12\x1f\n" +
@@ -18234,7 +18246,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\tmodel_key\x18\x04 \x01(\tR\bmodelKey\x12'\n" +
 	"\x0fslack_outsiders\x18\x05 \x01(\tR\x0eslackOutsiders\x12)\n" +
 	"\x10linear_outsiders\x18\x06 \x01(\tR\x0flinearOutsiders\x12)\n" +
-	"\x10github_outsiders\x18\a \x01(\tR\x0fgithubOutsiders\"\x1a\n" +
+	"\x10github_outsiders\x18\a \x01(\tR\x0fgithubOutsiders\x12(\n" +
+	"\x10shared_model_key\x18\b \x01(\tR\x0esharedModelKey\"\x1a\n" +
 	"\x18GetIdentityPolicyRequest\"T\n" +
 	"\x19GetIdentityPolicyResponse\x127\n" +
 	"\x06policy\x18\x01 \x01(\v2\x1f.podium.agent.v1.IdentityPolicyR\x06policy\"S\n" +

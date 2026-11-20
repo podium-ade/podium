@@ -27,8 +27,14 @@ type IdentityPolicy struct {
 	// IdentityPersonThenApp.
 	GitHubRead string `json:"github_read"`
 	// ModelKey is whose model key a private conversation spends: IdentityPersonThenApp or
-	// IdentityApp. A shared conversation always spends the company's.
+	// IdentityApp. A shared conversation is SharedModelKey's.
 	ModelKey string `json:"model_key"`
+	// SharedModelKey is whose model credential a turn of a shared conversation spends — a
+	// multiplayer chat, a Slack thread, a Linear issue, a pull request: IdentityApp, the
+	// company's whoever asks, or IdentityPlanThenApp, the asker's own subscription when they
+	// signed one in and the company's otherwise. Only ever the asker's: nobody's credential
+	// pays for somebody else's question.
+	SharedModelKey string `json:"shared_model_key"`
 	// SlackOutsiders is OutsidersRefuse or OutsidersAnswer.
 	SlackOutsiders string `json:"slack_outsiders"`
 	// LinearOutsiders is OutsidersRefuse, OutsidersFixed or OutsidersAnswer.
@@ -45,6 +51,10 @@ const (
 	IdentityPersonOnly = "person_only"
 	// IdentityApp is always Podium's, whoever asked.
 	IdentityApp = "app"
+	// IdentityPlanThenApp is the person's own subscription — a Claude, ChatGPT or Grok plan
+	// they signed in with — and Podium's when they have none. A personal API key is not a
+	// plan, so it is never spent this way.
+	IdentityPlanThenApp = "plan_then_app"
 )
 
 // What Podium does for somebody outside it.
@@ -67,6 +77,7 @@ var DefaultIdentityPolicy = IdentityPolicy{
 	GitHubWrite:     IdentityPersonThenApp,
 	GitHubRead:      IdentityPersonOnly,
 	ModelKey:        IdentityPersonThenApp,
+	SharedModelKey:  IdentityApp,
 	SlackOutsiders:  OutsidersRefuse,
 	LinearOutsiders: OutsidersRefuse,
 	GitHubOutsiders: OutsidersReview,
@@ -91,6 +102,8 @@ var identityChoices = []struct {
 		[]string{IdentityPersonOnly, IdentityPersonThenApp}},
 	{"model_key", func(p *IdentityPolicy) *string { return &p.ModelKey },
 		[]string{IdentityPersonThenApp, IdentityApp}},
+	{"shared_model_key", func(p *IdentityPolicy) *string { return &p.SharedModelKey },
+		[]string{IdentityApp, IdentityPlanThenApp}},
 	{"slack_outsiders", func(p *IdentityPolicy) *string { return &p.SlackOutsiders },
 		[]string{OutsidersRefuse, OutsidersAnswer}},
 	{"linear_outsiders", func(p *IdentityPolicy) *string { return &p.LinearOutsiders },

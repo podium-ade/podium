@@ -565,7 +565,7 @@ message IdentityPolicy {
   // "person_then_app".
   string github_read = 3;
   // model_key is whose model key a private conversation spends: "person_then_app" (default)
-  // or "app". A shared conversation always spends the company's.
+  // or "app". A shared conversation is shared_model_key's.
   string model_key = 4;
   // slack_outsiders is what a Slack member who is not a Podium person gets: "refuse"
   // (default) or "answer".
@@ -577,6 +577,11 @@ message IdentityPolicy {
   // github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
   // "review" (default: the review command) or "refuse".
   string github_outsiders = 7;
+  // shared_model_key is whose model credential a turn of a shared conversation (a multiplayer
+  // chat, a Slack thread, a Linear issue, a pull request) spends: "app" (default: the
+  // company's, whoever asks) or "plan_then_app" (the asker's own Claude, ChatGPT or Grok
+  // subscription when they signed one in, and the company's otherwise; never a personal API key).
+  string shared_model_key = 8;
 }
 
 message GetIdentityPolicyRequest {}

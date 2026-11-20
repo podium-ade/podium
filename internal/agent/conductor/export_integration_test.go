@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -180,4 +181,18 @@ func (c *Conductor) HeardHeartbeatForTest(taskID string) bool {
 // RunsAsPodiumForTest is whether a turn started by login for a routine's run acts as Podium.
 func (c *Conductor) RunsAsPodiumForTest(ctx context.Context, login, routineID string) bool {
 	return c.runsAsPodium(ctx, login, &RoutineRef{RoutineID: routineID})
+}
+
+// TurnCredentialOwnerForTest is whose model credential a turn of sess asked by login spends,
+// against st's policy, chats and settings and the control plane at podiumURL's personal
+// secrets. chatHostClaude is whether this conductor's chat host runs Claude Code.
+func TurnCredentialOwnerForTest(
+	ctx context.Context, st *store.Store, podiumURL string, sess store.Session,
+	login, agent string, onChatHost, chatHostClaude bool,
+) string {
+	c := &Conductor{
+		store: st, podium: podium.New(podiumURL, "test"), chatHostClaude: chatHostClaude,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	return c.turnCredentialOwner(ctx, sess, login, agent, onChatHost)
 }
