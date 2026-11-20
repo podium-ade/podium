@@ -2102,9 +2102,10 @@ Claude Opus 5.5 · Workspace API key
 | a person's own subscription | `Alvaro Ibarguen's Claude plan` |
 | a person's own API key | `Alvaro Ibarguen's API key` |
 
-A thread is a shared conversation, so today it always spends the workspace's credential (see
-[Several people, one conversation](#several-people-one-conversation)); the byline is how
-anybody in it can tell once that changes. A person is named as the members list has them, or
+A thread is a shared conversation, so it spends the workspace's credential unless **Model in
+shared conversations** is set to *their plan, else the organization's* ([Who a turn acts
+as](#who-a-turn-acts-as)); then each answer is paid by the plan of whoever asked for it, and the
+byline is how everybody in the thread can tell whose. A person is named as the members list has them, or
 by the part of their login before the `@`. Nothing about the key itself is ever shown.
 
 It is the conductor's `Outbound.Byline`, set on an answer (`OutFinal`) and on nothing else —
@@ -3631,7 +3632,8 @@ for every turn). A system routine's run always uses the organization's, whatever
 
 "Theirs, else the organization's" stands the organization's in only where the person has not
 connected the account. In a shared conversation, "their plan" is only ever the asker's own
-subscription — never a personal API key, never somebody else's. A person who switched their own `linear` server off, or an operator who
+subscription — never a personal API key, never somebody else's — and a Slack answer says whose
+under it ([What answered](#what-answered)). A person who switched their own `linear` server off, or an operator who
 switched the shared one off, is not overruled. A turn that came from Linear has Linear in its
 assistant whether or not the assistant ticks `linear`; a playbook has it only if it names it.
 
