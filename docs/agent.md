@@ -3603,6 +3603,17 @@ issue as Podium words it, never something they typed, and their mentions and rep
 The issue's own text is still what the turn reads, as a pull request's is for the review command.
 They are never recorded as anybody (`identities`), and their turns count as nobody's in Usage.
 
+**On behalf of.** A turn that writes as the organization for somebody — through the Linear app or
+the GitHub App — names them in what it writes, by their name and where they asked, never by
+whether they are in Podium: `Created by Acme AI on behalf of Dana (via Slack).` at the end of
+every Linear issue description and comment, `Opened by Acme AI on behalf of Dana (via Slack).` on
+a pull request, and `Requested-by: Dana (via Slack)` on every commit. The deployment's name is
+used, not "Podium". The commit trailer is written by the runtime; the Linear and pull-request
+lines are asked of the model in its brief, because Linear's own MCP server writes the issue.
+Each such turn is also recorded in the audit log as `identity.on_behalf`: who asked (their
+login, or their Slack, Linear or GitHub account), the surface, the turn and which app it used.
+A system routine's run is for nobody and names nobody.
+
 ## One record, one transcript
 
 Every conversation — a web chat, a Slack thread, a pull request, a Linear issue — is

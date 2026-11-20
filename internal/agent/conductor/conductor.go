@@ -1360,7 +1360,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if persona != nil {
 		brief.Git = persona
 	}
-	c.withRequestedBy(ctx, brief, login, persona)
+	who := c.requesterOf(ctx, login, src, ev)
+	c.withRequestedBy(ctx, brief, login, who, persona)
+	c.withOnBehalfOf(ctx, brief, who, login, sess.ID, turn.ID, servers, persona)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -1416,6 +1418,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 				src:       src,
 				playbooks: playbookNames(menu),
 				login:     speaker,
+				requester: who,
 			})
 			if err != nil {
 				// A turn that cannot delegate is still a turn that can answer, and this is

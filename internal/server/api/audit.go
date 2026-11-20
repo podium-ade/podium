@@ -56,6 +56,9 @@ var conductorActions = map[string]bool{
 	"routine.run":    true,
 	"routine.cancel": true,
 	"routine.limits": true,
+	// A turn that wrote as the organization's Linear app or GitHub App for somebody: who
+	// asked, and where (docs/agent.md, "Who a turn acts as").
+	"identity.on_behalf": true,
 }
 
 // RecordAudit writes one row, for the conductor only.

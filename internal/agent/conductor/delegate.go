@@ -82,6 +82,9 @@ type turnGrant struct {
 	// task's personal secrets and MCP servers are theirs. Empty for a turn nobody in Podium
 	// started.
 	login string
+	// requester is who the turn is for, as what it writes as the organization names them
+	// (onbehalf.go): set for somebody who is not a Podium person too. Zero for a routine's.
+	requester requester
 }
 
 // mintTurnToken issues a token for one assistant turn. It lives until revokeTurnToken, which
@@ -806,7 +809,13 @@ func (c *Conductor) startDelegatedTask(
 	if persona != nil {
 		brief.Git = persona
 	}
-	c.withRequestedBy(ctx, brief, login, persona)
+	who := g.requester
+	if who.Name == "" && login != "" {
+		// A grant from before requesters were carried, or a web chat's asker.
+		who = c.requesterOf(ctx, login, g.src, InboundEvent{})
+	}
+	c.withRequestedBy(ctx, brief, login, who, persona)
+	c.withOnBehalfOf(ctx, brief, who, login, sess.ID, dlg.ID, servers, persona)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)

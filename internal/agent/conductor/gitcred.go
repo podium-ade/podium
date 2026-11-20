@@ -483,17 +483,23 @@ func (c *Conductor) requestedBy(ctx context.Context, login string) (name, who st
 // The commit trailer is enforced, not requested: Brief.RequestedBy is what the runtime's
 // commit-msg hook writes onto every commit. A pull request's description is not: it is
 // asked for in the brief, in requestedByNote, and nothing checks the pull request after.
-func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string, persona *BriefGit) {
+//
+// r is who the turn is for: somebody who is not a Podium person is named by the name and
+// surface their account shows, "Dana (via Slack)".
+func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string, r requester, persona *BriefGit) {
 	if b == nil || persona != nil || b.GitCredentials == nil {
 		return
 	}
 	name, who := c.requestedBy(ctx, login)
+	if who == "" && r.Name != "" {
+		name, who = r.label(), r.label()
+	}
 	if who == "" {
 		return
 	}
 	b.RequestedBy = who
 	b.Instruction = strings.TrimRight(b.Instruction, "\n") + "\n\n" +
-		requestedByNote(name, who, c.githubHandle(ctx, login))
+		requestedByNote(displayNameFor("", c.branding(ctx)), name, who, c.githubHandle(ctx, login))
 }
 
 // githubHandle is the GitHub login a person connected, or empty. A person who connected it
@@ -512,14 +518,15 @@ func (c *Conductor) githubHandle(ctx context.Context, login string) string {
 
 // requestedByNote is the line withRequestedBy adds. Kept separate so a test pins its words.
 // handle is the person's GitHub login, when they connected one.
-func requestedByNote(name, who, handle string) string {
+// brand is the deployment's name.
+func requestedByNote(brand, name, who, handle string) string {
 	whom := name
 	if handle != "" {
 		whom = fmt.Sprintf("%s (@%s)", name, handle)
 	}
-	return fmt.Sprintf("(Podium note: you write to GitHub as the Podium App on behalf of %s. "+
-		"Podium adds the trailer `Requested-by: %s` to every commit you make; leave it there. "+
+	return fmt.Sprintf("(%[1]s note: you write to GitHub as the %[1]s App on behalf of %[2]s. "+
+		"%[1]s adds the trailer `Requested-by: %[3]s` to every commit you make; leave it there. "+
 		"Any pull request you open is theirs: end its description with the line "+
-		"`Opened by Podium on behalf of %s.` "+
-		"Say \"requested by %s\" in any comment you write.)", name, who, whom, name)
+		"`Opened by %[1]s on behalf of %[4]s.` "+
+		"Say \"requested by %[2]s\" in any comment you write.)", brand, name, who, whom)
 }
