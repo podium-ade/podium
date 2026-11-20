@@ -12,7 +12,7 @@ import { HookNames, RequestedByEnv, installRequestedBy } from "./requestedby.js"
 function repo(env: NodeJS.ProcessEnv): string {
   const dir = mkdtempSync(join(tmpdir(), "podium-rb-repo-"));
   git(dir, env, "init", "-q", "-b", "main");
-  git(dir, env, "config", "user.name", "Podium App");
+  git(dir, env, "config", "user.name", "Example App");
   git(dir, env, "config", "user.email", "app@example.com");
   return dir;
 }
@@ -59,7 +59,7 @@ describe("installRequestedBy", () => {
     const clone = mkdtempSync(join(tmpdir(), "podium-rb-clone-"));
     execFileSync("git", ["clone", "-q", origin, join(clone, "r")], { env });
     const dir = join(clone, "r");
-    git(dir, env, "config", "user.name", "Podium App");
+    git(dir, env, "config", "user.name", "Example App");
     git(dir, env, "config", "user.email", "app@example.com");
     expect(commit(dir, env, "feat: more")).toContain("Requested-by: Dana <dana@acme.com>");
   });
