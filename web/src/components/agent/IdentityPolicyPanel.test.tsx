@@ -26,6 +26,7 @@ const defaults = {
   githubWrite: "person_then_app",
   githubRead: "person_only",
   modelKey: "person_then_app",
+  sharedModelKey: "app",
   slackOutsiders: "refuse",
   linearOutsiders: "refuse",
   githubOutsiders: "review",
@@ -92,7 +93,20 @@ describe("IdentityPolicyPanel", () => {
     await userEvent.click(await screen.findByText("Model key in private chats"));
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Model key in private chats" })).toHaveAccessibleDescription(
-      /Shared conversations/,
+      /only one person is in/,
+    );
+  });
+
+  it("lets an admin have shared conversations spend the asker's own plan", async () => {
+    mount();
+    const shared = await screen.findByRole("combobox", { name: "Model key in shared conversations" });
+    expect(shared).toHaveTextContent("Always Podium's");
+    expect(shared).toHaveAccessibleDescription(/never a personal API key/);
+    await userEvent.click(shared);
+    await userEvent.click(await screen.findByRole("option", { name: "Theirs, else Podium's" }));
+    await userEvent.click(screen.getByTestId("identity-save"));
+    await waitFor(() =>
+      expect(setIdentityPolicy).toHaveBeenCalledWith({ policy: { sharedModelKey: "plan_then_app" } }),
     );
   });
 

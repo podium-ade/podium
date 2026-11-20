@@ -36,6 +36,10 @@ type OutboxPayload struct {
 	// from the web, posted to a Linear issue as theirs.
 	Author       string `json:"author,omitempty"`
 	AuthorAvatar string `json:"author_avatar,omitempty"`
+	// BylineModel and BylineCredential are the conductor's Outbound.Byline: what answered,
+	// kept so an answer retried after a restart still says it.
+	BylineModel      string `json:"byline_model,omitempty"`
+	BylineCredential string `json:"byline_credential,omitempty"`
 }
 
 // OutboxItem is one delivery: one bot message, to one surface.

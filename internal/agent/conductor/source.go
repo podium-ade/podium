@@ -79,6 +79,10 @@ type Outbound struct {
 	CancelReason string
 	// Speaker is who said it. A source that posts everything the same way ignores it.
 	Speaker
+	// Byline is what answered: the model, and whose credential it spent. Set on an answer
+	// (OutFinal) and on nothing else. Like TaskID it is NOT part of Text, and whether it is
+	// shown at all is the source's decision: Slack puts it under the answer in small type.
+	Byline Byline
 	// Author and AuthorAvatar are the person an OutRelay is posted as: their display name and
 	// their picture's URL, which may be empty. Empty on everything else.
 	Author       string

@@ -50,9 +50,18 @@ const ACCOUNTS: Field[] = [
   {
     key: "modelKey",
     label: "Model key in private chats",
-    hint: "Shared conversations, Slack threads and Linear issues always spend the organization's key.",
+    hint: "A chat only one person is in. Theirs is the API key or plan they saved under Models.",
     options: (b) => [
       { value: "person_then_app", label: `Theirs, else ${b}'s` },
+      { value: "app", label: `Always ${b}'s` },
+    ],
+  },
+  {
+    key: "sharedModelKey",
+    label: "Model key in shared conversations",
+    hint: "A chat more than one person is in, a Slack thread, a Linear issue or a pull request. Theirs is the plan of whoever asked, never a personal API key.",
+    options: (b) => [
+      { value: "plan_then_app", label: `Theirs, else ${b}'s` },
       { value: "app", label: `Always ${b}'s` },
     ],
   },
@@ -98,6 +107,7 @@ function valuesOf(p: IdentityPolicy): Values {
     githubWrite: p.githubWrite,
     githubRead: p.githubRead,
     modelKey: p.modelKey,
+    sharedModelKey: p.sharedModelKey,
     slackOutsiders: p.slackOutsiders,
     linearOutsiders: p.linearOutsiders,
     githubOutsiders: p.githubOutsiders,

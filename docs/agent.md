@@ -445,7 +445,7 @@ What is put to Podium while it is answering is **queued** (`turn_queue`) and bec
 own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
-- **A shared conversation spends the company's model key.** Once a chat is multiplayer (more
+- **A shared conversation spends the company's model key**, by default. Once a chat is multiplayer (more
   than one human has been in it), and always for a Slack thread, a Linear issue or agent session, or a pull request, every turn and every task it
   delegates runs on the company's credential, never on the asker's own
   `model.<provider>.api_key` or Claude sign-in, the owner's included. A shared conversation has one context, so it spends one
@@ -456,6 +456,18 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   unshared. A share alone is not a second person, so a chat shared with somebody who has not
   spoken still spends its one speaker's own key. The share dialog warns the owner before they share
   (`conductor.turnCredentialOwner`).
+- **Or each turn spends the asker's own plan.** With **Model key in shared conversations** set to
+  *theirs, else the organization's* ([Who a turn acts as](#who-a-turn-acts-as)), each turn of
+  a shared conversation, and each task it delegates, spends the subscription of the person who
+  asked it — a Claude, ChatGPT or Grok plan they signed in with — and the company's credential
+  when they have none, or when there is nobody behind the turn. Still only the asker's: nobody's
+  plan pays for somebody else's question, and a personal API key is never spent here, because a
+  key bills per token and a plan is a flat price somebody chose to bring. A Claude plan is spent
+  only where it always is, by a chat-host turn (`conductor.planOwner`). The price is the shared
+  prompt cache: a turn on somebody else's plan writes its own. On the chat host each turn already
+  opens a session of its own, so a conversation whose payer changes between turns rewrites its
+  location's provider and goes on; nothing else is carried from turn to turn. The share dialog
+  says which of the two the organization chose.
 - **One person's run of messages is one turn**, as it always was: the latest is the instruction
   and the rest are in the transcript. A message from the same person on the same surface still
   goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting
@@ -2073,6 +2085,41 @@ alone — so a Slack thread reads in the web chat the way it read in Slack.
 What the bot posts is the model's Markdown converted to mrkdwn (bold, links, headings); Block
 Kit is out of scope.
 
+### What answered
+
+Every answer in a thread says, under it in Slack's small grey type, which model wrote it and
+whose credential paid for it:
+
+```
+Claude Opus 5.5 · Workspace API key
+```
+
+| what the turn spent | what it says |
+|---|---|
+| the workspace's API key | `Workspace API key` |
+| a Claude subscription an admin signed in for everyone | `Workspace Claude plan` |
+| a ChatGPT or Grok subscription signed in as the global credential | `Workspace ChatGPT plan`, `Workspace Grok plan` |
+| a person's own subscription | `Alvaro Ibarguen's Claude plan` |
+| a person's own API key | `Alvaro Ibarguen's API key` |
+
+A thread is a shared conversation, so it spends the workspace's credential unless **Model key in
+shared conversations** is set to *theirs, else the organization's* ([Who a turn acts
+as](#who-a-turn-acts-as)); then each answer is paid by the plan of whoever asked for it, and the
+byline is how everybody in the thread can tell whose. A person is named as the members list has them, or
+by the part of their login before the `@`. Nothing about the key itself is ever shown.
+
+It is the conductor's `Outbound.Byline`, set on an answer (`OutFinal`) and on nothing else —
+not progress, a question or a failure. It is decided when the turn starts, from the same
+decision that picks the credential (`turnCredentialOwner`, and `claudeAgentTurn` for a chat-host
+turn on a Claude plan), and a delegated task gets its own. An answer the outbox retries after a
+restart keeps it. A turn or a delegated task picked up after a restart knows its model from its
+row but not whose credential it started on, so its byline names the model alone.
+
+Slack is the only surface that shows it. The answer's last part is posted as a section block
+with the byline as a context block under it, so that part is cut to the 3,000 characters a
+section holds rather than Slack's 4,000; the message's plain text is still the answer alone,
+for notifications.
+
 ### Rate limits
 
 Web API calls go through **two** limiters per conductor, because Slack's limits are per method
@@ -3579,11 +3626,14 @@ for every turn). A system routine's run always uses the organization's, whatever
 | Linear | theirs, else the organization's | theirs only · always the organization's | the Linear MCP server signed in as the Podium Linear app |
 | GitHub pushes and pull requests | theirs, else the organization's | theirs only · always the organization's | the GitHub App, with `Requested-by` on every commit |
 | GitHub reads (routines) | theirs only | theirs, else the organization's | the GitHub App, read-only, one repository per token |
-| Model key, private conversations | theirs, else the organization's | always the organization's | the global key; a shared conversation always spends it |
+| Model key, private conversations | theirs, else the organization's | always the organization's | the global key |
+| Model key, shared conversations | always the organization's | theirs, else the organization's | the global key, or the global Claude plan on the chat host |
 | Personal secrets | theirs only (fixed) | — | — |
 
 "Theirs, else the organization's" stands the organization's in only where the person has not
-connected the account. A person who switched their own `linear` server off, or an operator who
+connected the account. In a shared conversation, "their plan" is only ever the asker's own
+subscription — never a personal API key, never somebody else's — and a Slack answer says whose
+under it ([What answered](#what-answered)). A person who switched their own `linear` server off, or an operator who
 switched the shared one off, is not overruled. A turn that came from Linear has Linear in its
 assistant whether or not the assistant ticks `linear`; a playbook has it only if it names it.
 

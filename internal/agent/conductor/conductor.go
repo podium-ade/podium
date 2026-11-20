@@ -1388,6 +1388,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		url:         ev.URL,
 		startedAt:   started,
 	}
+	// What answered, said under the answer. A chat-host turn may spend a Claude plan
+	// instead, which only the hostRun below can tell.
+	run.byline = c.bylineFor(ctx, brief.Provider.ID, choice.Model, choice.CredentialOwner, false)
 
 	// The conversation runs here; a container is what it delegates to. The turn row keeps
 	// its task_id empty, which is what the recovery pass reads to mean "this one died with
@@ -1441,6 +1444,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			// one, and the conversation itself when nobody signed in.
 			host.who = cmp.Or(speaker, login, "session:"+sess.ID)
 			host.login = cmp.Or(login, speaker)
+			if c.claudeAgentTurn(host) {
+				run.byline = c.bylineFor(ctx, brief.Provider.ID, choice.Model, choice.CredentialOwner, true)
+			}
 			if brief.Memory != nil {
 				host.memoryURL = brief.Memory.MCPURL
 			}
@@ -2009,7 +2015,7 @@ func (c *Conductor) logUnavailableMCP(ctx context.Context, turnID, job string, u
 // credentialOwner is whose model credential a turn spends: the person who asked, when they
 // saved their own for the provider this backend spends, and the global one otherwise. A turn
 // with no person — a polled Linear ticket, an automatic review, the dev token — always spends
-// the global one, and so does every turn of a shared conversation (turnCredentialOwner).
+// the global one. A turn of a shared conversation is turnCredentialOwner's.
 //
 // A control plane that cannot be asked falls back to the global credential and says so: a
 // turn that runs on the company key beats a turn that does not run, and the log is where an
@@ -2028,36 +2034,87 @@ func (c *Conductor) credentialOwner(ctx context.Context, login, agent string, on
 	if c.identityPolicy(ctx).ModelKey == store.IdentityApp {
 		return ""
 	}
-	b, ok := profiles.FindBackend(agent)
-	if !ok {
-		b, _ = profiles.FindBackend(profiles.DefaultAgent)
-	}
-	v, err := c.podium.PersonalSecretVersion(ctx, owner, profiles.PersonalSecretFor(b.Provider))
-	if err != nil {
-		c.logger.WarnContext(ctx, "could not check for a personal model credential; the turn "+
-			"spends the global one", "login", owner, "provider", b.Provider, "error", err)
-		return ""
-	}
-	if v == 0 {
-		return ""
-	}
-	if b.Provider == profiles.ProviderAnthropic && c.claudeSignIn(owner) && (!onChatHost || !c.chatHostClaude) {
-		c.logger.InfoContext(ctx, "a Claude subscription is only spent by the assistant on the chat host; "+
-			"this turn spends the global key", "login", owner)
+	if !c.ownCredential(ctx, owner, backendFor(agent).Provider, onChatHost) {
 		return ""
 	}
 	return owner
 }
 
-// turnCredentialOwner is credentialOwner for a turn of one conversation: nobody's once the
-// conversation is shared. A shared conversation has one context whoever speaks in it, so it
-// spends one credential, the company's. Turns from different people then share a provider's
-// prompt cache instead of each writing their own, and nobody's own key is spent by somebody
-// else's question. Only the model key moves: the person asking still brings their own
-// secrets, MCP servers and GitHub account.
+// planOwner is credentialOwner for a turn of a shared conversation under the identity policy's
+// shared_model_key "plan_then_app": the asker, when what they saved for this backend's
+// provider is a subscription this turn can spend, and the global credential otherwise. A
+// personal API key is never spent here: a plan is a flat price somebody chose to bring, and a
+// key bills per token.
+func (c *Conductor) planOwner(ctx context.Context, login, agent string, onChatHost bool) string {
+	owner := turnOwner(login)
+	if owner == "" || c.podium == nil {
+		return ""
+	}
+	provider := backendFor(agent).Provider
+	switch provider {
+	case profiles.ProviderAnthropic:
+		// The same rule ownCredential applies: a Claude plan only on the chat host.
+		if !c.claudeSignIn(owner) {
+			return ""
+		}
+	case profiles.ProviderOpenAI, profiles.ProviderXAI:
+		// A ChatGPT or Grok sign-in replaces the key it is stored in, so the stored auth kind
+		// is the answer.
+		if c.authKind(provider, owner) != "oauth" {
+			return ""
+		}
+	default:
+		return ""
+	}
+	if !c.ownCredential(ctx, owner, provider, onChatHost) {
+		return ""
+	}
+	return owner
+}
+
+// ownCredential is whether owner saved a credential for provider that this turn can spend. A
+// Claude subscription sign-in can be spent only on the chat host (credentialOwner).
+func (c *Conductor) ownCredential(ctx context.Context, owner, provider string, onChatHost bool) bool {
+	v, err := c.podium.PersonalSecretVersion(ctx, owner, profiles.PersonalSecretFor(provider))
+	if err != nil {
+		c.logger.WarnContext(ctx, "could not check for a personal model credential; the turn "+
+			"spends the global one", "login", owner, "provider", provider, "error", err)
+		return false
+	}
+	if v == 0 {
+		return false
+	}
+	if provider == profiles.ProviderAnthropic && c.claudeSignIn(owner) && (!onChatHost || !c.chatHostClaude) {
+		c.logger.InfoContext(ctx, "a Claude subscription is only spent by the assistant on the chat host; "+
+			"this turn spends the global key", "login", owner)
+		return false
+	}
+	return true
+}
+
+// backendFor is the backend an agent id names, the default one when it names none.
+func backendFor(agent string) profiles.Backend {
+	b, ok := profiles.FindBackend(agent)
+	if !ok {
+		b, _ = profiles.FindBackend(profiles.DefaultAgent)
+	}
+	return b
+}
+
+// turnCredentialOwner is credentialOwner for a turn of one conversation. A shared conversation
+// has one context whoever speaks in it, so by default it spends one credential, the company's:
+// turns from different people share a provider's prompt cache instead of each writing their
+// own, and nobody's own key is spent by somebody else's question. The identity policy's
+// shared_model_key "plan_then_app" lets each turn spend instead the subscription of the person
+// who asked it (planOwner) — still never somebody else's — at the price of that cache. Only the
+// model credential moves: the person asking still brings their own secrets, MCP servers and
+// GitHub account.
 func (c *Conductor) turnCredentialOwner(ctx context.Context, sess store.Session, login, agent string, onChatHost bool) string {
 	if c.sharedConversation(ctx, sess) {
-		return ""
+		if c.identityPolicy(ctx).SharedModelKey != store.IdentityPlanThenApp {
+			return ""
+		}
+		return c.planOwner(ctx, login, agent, onChatHost)
 	}
 	return c.credentialOwner(ctx, login, agent, onChatHost)
 }
@@ -2600,7 +2657,11 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 		// always a real one.
 		j := playbookJob(c.profiles.Current().Playbooks[sess.Playbook])
 		run := &turnRun{
-			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook)},
+			sink: &sink{
+				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook),
+				// The row records the model and not whose credential the turn started on.
+				byline: bylineOfBackend(turn.Backend),
+			},
 			sess:      sess,
 			job:       j,
 			turn:      turn,
