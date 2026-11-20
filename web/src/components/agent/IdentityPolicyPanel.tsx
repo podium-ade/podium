@@ -230,14 +230,24 @@ function Group({
       <div className="grid divide-y divide-border rounded-md border border-border">
         {fields.map((f) => (
           <div key={f.key} className="grid items-center gap-x-6 gap-y-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
+            {/* Named by aria-labelledby, not a <label>: a label forwards its clicks and its hover
+                to the dropdown, and as a grid item it spans half the row. */}
             <div className="grid gap-0.5">
-              <label htmlFor={`identity-${f.key}`} className="text-sm font-medium text-fg">
+              <span id={`identity-${f.key}-label`} className="text-sm font-medium text-fg">
                 {f.label}
-              </label>
-              <p className="text-xs text-faint">{f.hint}</p>
+              </span>
+              <p id={`identity-${f.key}-hint`} className="text-xs text-faint">
+                {f.hint}
+              </p>
             </div>
             <Select value={values[f.key]} onValueChange={(v) => onChange(f.key, v)}>
-              <SelectTrigger id={`identity-${f.key}`} size="sm" data-testid={`identity-${f.key}`}>
+              <SelectTrigger
+                id={`identity-${f.key}`}
+                size="sm"
+                aria-labelledby={`identity-${f.key}-label`}
+                aria-describedby={`identity-${f.key}-hint`}
+                data-testid={`identity-${f.key}`}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

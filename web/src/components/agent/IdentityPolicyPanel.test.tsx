@@ -87,6 +87,15 @@ describe("IdentityPolicyPanel", () => {
     expect(screen.getByRole("combobox", { name: "Linear members" })).toBeInTheDocument();
   });
 
+  it("opens a dropdown only from the dropdown, not from its setting's name", async () => {
+    mount();
+    await userEvent.click(await screen.findByText("Model key in private chats"));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Model key in private chats" })).toHaveAccessibleDescription(
+      /Shared conversations/,
+    );
+  });
+
   it("offers GitHub reads no Always option", async () => {
     mount();
     await userEvent.click(await screen.findByTestId("identity-githubRead"));
