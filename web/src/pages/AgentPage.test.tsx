@@ -734,7 +734,7 @@ describe("AgentPage", () => {
     );
   });
 
-  it("keeps a global Claude subscription on a row of its own beside the key", async () => {
+  it("offers a Claude sign-in for your own credential and never for everyone", async () => {
     const admin: Viewer = {
       ...viewer,
       login: "ada@acme.com",
@@ -743,45 +743,31 @@ describe("AgentPage", () => {
       claimed: true,
     };
     getSettings.mockResolvedValue({
-      ...connected,
+      ...notSet,
       personal: [anthropicNotSet, xaiNotSet, openaiNotSet, googleNotSet],
-      claudeSubscription: {
-        provider: "anthropic",
-        keySet: true,
-        authKind: "oauth",
-        account: "team@acme.com",
-        refreshable: true,
-        global: true,
-      },
     });
-    clearProviderKey.mockResolvedValue({});
     mount("/agent/settings/models", admin);
 
-    // A person with no Anthropic credential of their own chats on the subscription.
+    // Your own: a key or your Claude plan.
     const yours = await screen.findByTestId("models-yours");
-    expect(
-      await within(yours).findByTestId("provider-fallback-anthropic"),
-    ).toHaveTextContent("Using the global subscription");
+    const mine = within(yours).getByTestId("provider-card-anthropic");
+    expect(mine).toHaveTextContent("Anthropic · API key or Claude Pro/Max");
+    await userEvent.click(await within(mine).findByRole("button", { name: "Connect" }));
+    expect(screen.getByTestId("provider-mode-subscription-anthropic")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
 
-    await userEvent.click(screen.getByRole("tab", { name: /Global, 2 connected/ }));
+    // For everyone: an API key and nothing else, even for an admin. A Claude plan is one
+    // person's, and there is no row for one either.
+    await userEvent.click(screen.getByRole("tab", { name: /Global/ }));
     const global = await screen.findByTestId("models-global");
-    const sub = within(global).getByTestId("provider-card-claude-subscription");
-    expect(within(sub).getByText("Connected")).toBeInTheDocument();
-    expect(within(sub).getByText(/team@acme\.com/)).toBeInTheDocument();
-    // The key is still its own row, and the Anthropic key row offers no sign-in.
-    const key = within(global).getByTestId("provider-card-anthropic");
-    expect(within(key).getByText(/abcd/)).toBeInTheDocument();
-
-    await userEvent.click(within(sub).getByRole("button", { name: "Sign out" }));
-    expect(screen.getByText(/go back to the global API key/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() =>
-      expect(clearProviderKey).toHaveBeenCalledWith({
-        provider: "anthropic",
-        global: true,
-        claudeSubscription: true,
-      }),
-    );
+    expect(within(global).queryByTestId("provider-card-claude-subscription")).toBeNull();
+    const card = within(global).getByTestId("provider-card-anthropic");
+    expect(card).toHaveTextContent("Anthropic · API key");
+    expect(card).not.toHaveTextContent("Pro/Max");
+    await userEvent.click(await within(card).findByRole("button", { name: "Connect" }));
+    expect(screen.getByTestId("provider-key-input-anthropic")).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-mode-subscription-anthropic")).toBeNull();
+    expect(startProviderOAuth).not.toHaveBeenCalled();
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

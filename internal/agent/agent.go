@@ -352,9 +352,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		notifiers = append(notifiers, email)
 	}
 
+	// Claude Code, for a person signed in with their Claude subscription: the one named, or
+	// the one on PATH, when it is recent enough for opencode to run.
+	claude, claudeOff := claudeCode(ctx, cfg, cfg.ChatHost != "" && host != nil)
 	var chatHostOpt conductor.ChatHost
 	if cfg.ChatHost != "" && host != nil {
-		claude := resolveBinary(cfg.ChatHostClaude)
 		var fenceExtra []string
 		if claude != "" {
 			fenceExtra = append(fenceExtra, claude)
@@ -374,6 +376,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		logger.Info("chat host: enabled — conversations are answered on one opencode service",
 			"binary", cfg.ChatHost, "isolation", cmp.Or(host.Isolation, "none"),
 			"claude", cmp.Or(claude, "off"))
+		if claude == "" {
+			logger.Info("chat host: Claude subscriptions are off", "reason", claudeOff)
+		}
 	}
 
 	if gh != nil {
@@ -420,7 +425,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		ChatHostURL:        turnURL(a.cfg.Listen),
 		ChatHostRender:     renderPrompt(a.cfg.HostNode, a.cfg.HostRuntime),
 		AnthropicBaseURL:   a.cfg.AnthropicBaseURL,
-		ChatHostClaude:     a.cfg.ChatHostClaude != "",
+		ChatHostClaude:     claude != "",
 		ChatHostMaxTurns:   a.cfg.ChatHostMaxTurns,
 		ChatHostMaxPerUser: a.cfg.ChatHostMaxPerUser,
 		Notifiers:          notifiers,
@@ -461,7 +466,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		AnthropicOAuthTokenURL:     a.cfg.AnthropicOAuthTokenURL,
 		AnthropicOAuthRedirectURI:  a.cfg.AnthropicOAuthRedirectURI,
 		AnthropicOAuthScopes:       a.cfg.AnthropicOAuthScopes,
-		ClaudeAgent:                a.chatHost != nil && a.cfg.ChatHostClaude != "",
+		ClaudeAgent:                a.chatHost != nil && claude != "",
+		ClaudeAgentOff:             claudeOff,
 		Memory:                     a.memory,
 		SkillsDir:                  a.cfg.SkillsDir,
 		Profiles:                   live,
@@ -774,6 +780,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Before the refresh pass, so it reads from the secret store rather than from rows a
 	// database written before the move still holds in clear.
 	a.svc.MoveCredentialsIntoStore(runCtx)
+	// A Claude plan is one person's. A control plane that once let an admin sign one in for
+	// everyone signs it out here.
+	a.svc.RemoveGlobalClaudeSubscription(runCtx)
 	// A subscription access token lives about an hour and a turn can run for half of one,
 	// so nothing but this keeps a signed-in provider working past its first hour.
 	go a.svc.RefreshTokens(runCtx)

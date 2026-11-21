@@ -158,6 +158,9 @@ type AgentServiceOptions struct {
 	AnthropicOAuthRedirectURI  string
 	AnthropicOAuthScopes       string
 	ClaudeAgent                bool
+	// ClaudeAgentOff is why ClaudeAgent is false, in words an operator can act on. It is
+	// what somebody who tries the sign-in is told.
+	ClaudeAgentOff string
 	// GoogleBaseURL is where SetProviderKey validates a Gemini API key.
 	GoogleBaseURL string
 	// GitHubURL and GitHubAPIURL are where a person's GitHub account is connected. Empty
@@ -266,7 +269,9 @@ type AgentService struct {
 	githubAPIURL       string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
-	oauth      map[string]oauthSession
+	oauth map[string]oauthSession
+	// claudeOff is Options.ClaudeAgentOff.
+	claudeOff  string
 	http       *http.Client
 	memory     memory.Client
 	skillsDir  string
@@ -395,6 +400,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		openaiCodexBaseURL: opts.OpenAICodexBaseURL,
 		googleBaseURL:      opts.GoogleBaseURL,
 		oauth:              oauth,
+		claudeOff:          opts.ClaudeAgentOff,
 		http:               opts.HTTPClient,
 		memory:             opts.Memory,
 		skillsDir:          opts.SkillsDir,

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"testing"
@@ -70,79 +71,93 @@ func TestTheClaudeSignInStoresAPersonalCredentialFromThePastedCode(t *testing.T)
 	assert.Equal(t, "sk-ant-ort01-refresh-1", string(secrets.set[mine.refreshName()]))
 }
 
-// An admin's global Claude sign-in is kept beside the global API key, never in it: every
-// turn but the assistant's chats still needs the key.
-func TestAGlobalClaudeSignInIsKeptBesideTheGlobalKey(t *testing.T) {
+// A Claude plan is one person's, so nobody signs one in for everyone: not an admin, whose
+// request is refused before Claude is asked for anything, and not a member.
+func TestAClaudeSubscriptionCannotBeSignedInForEveryone(t *testing.T) {
 	secrets := newFakeSecrets()
 	f := newClaudeService(t, newFakeClaude(t), secrets)
-	ctx := adminCtx("admin")
 
-	start, err := f.StartProviderOAuth(ctx, connect.NewRequest(&agentv1.StartProviderOAuthRequest{
+	_, err := f.StartProviderOAuth(adminCtx("admin"), connect.NewRequest(&agentv1.StartProviderOAuthRequest{
 		Provider: ProviderAnthropic, Global: true,
 	}))
-	require.NoError(t, err)
-	res, err := f.PollProviderOAuth(ctx, connect.NewRequest(&agentv1.PollProviderOAuthRequest{
-		Provider: ProviderAnthropic, FlowId: start.Msg.GetFlowId(), Code: "good-code",
-	}))
-	require.NoError(t, err)
-	require.Equal(t, OAuthDone, res.Msg.GetState())
-	assert.True(t, res.Msg.GetProvider().GetGlobal())
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "belongs to one person")
+	assert.Empty(t, secrets.set)
 
-	assert.Equal(t, "sk-ant-oat01-access-1", string(secrets.set[profiles.ClaudeSubscriptionSecret]))
-	assert.Empty(t, secrets.owners[profiles.ClaudeSubscriptionSecret], "it is on the global list")
-	assert.Equal(t, "sk-ant-ort01-refresh-1", string(secrets.set[claudeTarget().refreshName()]))
-	assert.NotContains(t, secrets.set, profiles.AnthropicKeySecret, "the global key is untouched")
-
-	settings, err := f.GetSettings(loginCtx("bob"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
-	require.NoError(t, err)
-	sub := settings.Msg.GetClaudeSubscription()
-	assert.True(t, sub.GetKeySet())
-	assert.Equal(t, AuthOAuth, sub.GetAuthKind())
-	assert.Equal(t, "alice@example.test", sub.GetAccount())
-	assert.False(t, settings.Msg.GetProvider().GetKeySet(), "the global Anthropic key is still unset")
-
-	// Nobody has a key, but the assistant's chats can run on the subscription.
-	agents, err := f.ListAgents(loginCtx("bob"), connect.NewRequest(&agentv1.ListAgentsRequest{}))
-	require.NoError(t, err)
-	for _, a := range agents.Msg.GetAgents() {
-		if a.GetProvider() == ProviderAnthropic {
-			assert.Equal(t, CredentialGlobal, a.GetCredentialSource())
-		}
-	}
-
-	// The chat host's claude-agent asks for it by that name.
-	tok, err := f.HostCredential(ctx, ClaudeAgentCredential)
-	require.NoError(t, err)
-	assert.Equal(t, "sk-ant-oat01-access-1", tok)
-
-	// Signing it out removes it and its refresh token, and nothing else.
-	_, err = f.ClearProviderKey(ctx, connect.NewRequest(&agentv1.ClearProviderKeyRequest{
-		Provider: ProviderAnthropic, Global: true, ClaudeSubscription: true,
-	}))
-	require.NoError(t, err)
-	assert.NotContains(t, secrets.set, profiles.ClaudeSubscriptionSecret)
-	assert.NotContains(t, secrets.set, claudeTarget().refreshName())
-	settings, err = f.GetSettings(ctx, connect.NewRequest(&agentv1.GetSettingsRequest{}))
-	require.NoError(t, err)
-	assert.False(t, settings.Msg.GetClaudeSubscription().GetKeySet())
-}
-
-func TestOnlyAnAdminCanSignInAClaudeSubscriptionForEveryone(t *testing.T) {
-	f := newClaudeService(t, newFakeClaude(t), newFakeSecrets())
-	_, err := f.StartProviderOAuth(loginCtx("bob"), connect.NewRequest(&agentv1.StartProviderOAuthRequest{
+	_, err = f.StartProviderOAuth(loginCtx("bob"), connect.NewRequest(&agentv1.StartProviderOAuthRequest{
 		Provider: ProviderAnthropic, Global: true,
 	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 
-	_, err = f.ClearProviderKey(loginCtx("bob"), connect.NewRequest(&agentv1.ClearProviderKeyRequest{
-		Provider: ProviderAnthropic, Global: true, ClaudeSubscription: true,
-	}))
-	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	settings, err := f.GetSettings(adminCtx("admin"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
+	require.NoError(t, err)
+	assert.False(t, settings.Msg.GetProvider().GetKeySet())
 
-	// claude_subscription names the global sign-in and nothing else.
+	// An older client's "sign the global Claude subscription out" removes nothing, least of
+	// all the global API key the same request would otherwise name.
+	secrets.setBehindTheUI(profiles.AnthropicKeySecret, "sk-ant-api03-company")
 	_, err = f.ClearProviderKey(adminCtx("admin"), connect.NewRequest(&agentv1.ClearProviderKeyRequest{
-		Provider: ProviderXAI, Global: true, ClaudeSubscription: true,
+		Provider: ProviderAnthropic, Global: true, ClaudeSubscription: true, //nolint:staticcheck // the deprecated field is what is being refused
 	}))
+	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, secrets.set, profiles.AnthropicKeySecret)
+}
+
+// A control plane that once let an admin sign a Claude plan in for everyone signs it out when
+// it starts: the access token, the refresh token and the row, and nothing else.
+func TestAClaudeSubscriptionSignedInForEveryoneIsSignedOutAtStart(t *testing.T) {
+	ctx := context.Background()
+	secrets := newFakeSecrets()
+	f := newClaudeService(t, newFakeClaude(t), secrets)
+	p, err := findProvider(ProviderAnthropic)
+	require.NoError(t, err)
+
+	// Nothing stored: nothing is done, and the global key is not touched.
+	secrets.setBehindTheUI(profiles.AnthropicKeySecret, "sk-ant-api03-company")
+	f.RemoveGlobalClaudeSubscription(ctx)
+	assert.Contains(t, secrets.set, profiles.AnthropicKeySecret)
+
+	secrets.setBehindTheUI(profiles.ClaudeSubscriptionSecret, "sk-ant-oat01-company")
+	secrets.setBehindTheUI(refreshSecret(p), "sk-ant-ort01-company")
+	require.NoError(t, f.store.PutSetting(ctx, profiles.ClaudeSubscriptionSettingKey,
+		providerRow{AuthKind: AuthOAuth, Account: "admin@example.test", SetBy: "admin", Refreshable: true}))
+	// Alice's own sign-in is hers and stays.
+	mine := credTarget{p: p, owner: "alice"}
+	_, err = secrets.SetPersonalSecret(ctx, "alice", mine.secret(), []byte("sk-ant-oat01-alice"))
+	require.NoError(t, err)
+
+	f.RemoveGlobalClaudeSubscription(ctx)
+	assert.NotContains(t, secrets.set, profiles.ClaudeSubscriptionSecret)
+	assert.NotContains(t, secrets.set, refreshSecret(p))
+	var row providerRow
+	assert.Error(t, f.store.GetSetting(ctx, profiles.ClaudeSubscriptionSettingKey, &row), "the row is gone")
+	assert.Equal(t, "sk-ant-api03-company", string(secrets.set[profiles.AnthropicKeySecret]),
+		"the global key is what those chats spend now")
+	assert.Equal(t, "sk-ant-oat01-alice", string(secrets.set[mine.secret()]))
+
+	// The refresh pass has nothing of it left to renew, and a second start finds nothing.
+	for _, tg := range f.signedInTargets(ctx) {
+		assert.False(t, tg.owner == "" && tg.p.name == ProviderAnthropic, "no global Claude sign-in is refreshed")
+	}
+	f.RemoveGlobalClaudeSubscription(ctx)
+}
+
+// Why the sign-in is off is the conductor's to know (no chat host, no Claude Code, one too
+// old), and whoever tries it is told that, not a list of variables to go and read about.
+func TestAClaudeSignInThatIsOffSaysWhy(t *testing.T) {
+	const why = "Claude Code 2.1.100 at /usr/local/bin/claude is too old: update it to 2.1.248 or later"
+	svc := NewAgentService(AgentServiceOptions{
+		Store:          newStore(t),
+		Secrets:        newFakeSecrets(),
+		ClaudeAgentOff: why,
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	_, err := svc.StartProviderOAuth(loginCtx("alice"), connect.NewRequest(
+		&agentv1.StartProviderOAuthRequest{Provider: ProviderAnthropic}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), why)
 }

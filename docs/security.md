@@ -1016,7 +1016,6 @@ is a Podium secret, encrypted under the master key:
 |---|---|
 | A model credential: an API key, or the access token of a subscription sign-in | the provider's own `podium.agent.*` secret |
 | A subscription sign-in's refresh token | `podium.agent.oauth.<provider>.refresh_token` |
-| The global Claude subscription's access token, kept beside the global Anthropic key | `podium.agent.oauth.anthropic.access_token` |
 | A bot MCP server's token | `podium.agent.mcp.<name>_token` |
 | A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
 | A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
@@ -1062,10 +1061,10 @@ What else bounds them:
   is stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later
   by a discovery document that has since changed.
 - Signing out deletes them, and so does pasting a key or a token over the sign-in.
-- A Claude subscription sign-in is never the global Anthropic credential. A person's own is on
-  their list; one an admin signs in for everyone is kept beside the global key, under
-  `podium.agent.oauth.`, which no playbook may name. Either way the conductor spends it only
-  through the chat host's model gateway, and only on a conversation
+- A Claude subscription sign-in is never the global Anthropic credential, and never anybody's
+  but the person who signed in: it is on their own list, and nobody can sign one in for
+  everyone. The conductor spends it only on that person's own conversations, through the chat
+  host's model gateway, and only on a conversation
   whose provider is opencode's `claude-agent`, which runs Claude Code. The token is not in that
   location's config or in Claude Code's environment: Claude Code is given a placeholder, and the
   gateway swaps in the token. The PKCE verifier stays on the conductor, so the code a person

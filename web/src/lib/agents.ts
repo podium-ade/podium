@@ -23,7 +23,10 @@ export type Provider = {
   backendID: string;
   /** models is what a human calls the thing this credential buys: "Claude", "Grok". */
   models: string;
-  /** how is the one line under the name: how you connect, not where the secret lives. */
+  /**
+   * how is the one line under the name: how you connect, not where the secret lives. A
+   * provider whose sign-in is personalOnly says "API key" on its global row instead.
+   */
   how: string;
   /** secretName is the Podium secret the credential is stored as. */
   secretName: string;
@@ -33,8 +36,8 @@ export type Provider = {
   /**
    * subscription is the sign-in offer, or undefined for a provider that has none. hint is said
    * to a person signing in their own; globalHint to an admin signing one in for everyone.
-   * personalOnly is a sign-in this row never takes as the global credential: a global Claude
-   * subscription is a row of its own, CLAUDE_SUBSCRIPTION, kept beside the global key.
+   * personalOnly is a sign-in nobody makes for everyone: a Claude Pro or Max plan is one
+   * person's, so the global Anthropic credential is only ever an API key.
    */
   subscription?: { label: string; hint: string; globalHint?: string; personalOnly?: boolean };
 };
@@ -44,7 +47,7 @@ export const ANTHROPIC: Provider = {
   name: "Anthropic",
   backendID: "claude",
   models: "Claude",
-  how: "API key",
+  how: "API key or Claude Pro/Max",
   secretName: "podium.agent.anthropic_api_key",
   keyPlaceholder: "sk-ant-…",
   consoleURL: "https://console.anthropic.com/settings/keys",
@@ -52,24 +55,6 @@ export const ANTHROPIC: Provider = {
     label: "Sign in with a Claude Pro or Max subscription",
     hint: "Your chats with the assistant run on your Claude plan, through Claude Code. Delegated tasks keep using the global key.",
     personalOnly: true,
-  },
-};
-
-/**
- * CLAUDE_SUBSCRIPTION is the global Claude sign-in's row. It is not a provider of its own: it
- * is Anthropic's, kept beside the global API key, because only the assistant's chats can spend
- * a Claude plan. Its id names the row; the RPCs are Anthropic's.
- */
-export const CLAUDE_SUBSCRIPTION: Provider = {
-  ...ANTHROPIC,
-  id: "claude-subscription",
-  models: "Claude subscription",
-  how: "Pro or Max, for chats",
-  subscription: {
-    label: "Sign in with a Claude Pro or Max subscription",
-    hint: "",
-    globalHint:
-      "Chats with the assistant run on this Claude plan, through Claude Code, for everyone without an Anthropic credential of their own. Delegated tasks keep using the global API key.",
   },
 };
 

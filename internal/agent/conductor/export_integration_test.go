@@ -4,7 +4,6 @@ package conductor
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"time"
@@ -70,22 +69,16 @@ func (c *Conductor) RecoverAtStartupForTest(ctx context.Context) {
 	c.recoverWork(ctx, true)
 }
 
-// GlobalCredentialForTest is whether a chat-host turn on provider with no credential of its
-// person's own may start, on a conductor that can run Claude Code, against st's settings rows
-// and these global credentials (provider name -> value).
-func GlobalCredentialForTest(ctx context.Context, st *store.Store, provider string, creds map[string]string) bool {
+// ClaudeAgentTurnForTest is whether a chat-host Anthropic turn that spends owner's credential
+// (nobody's own when empty) is answered by Claude Code on a Claude subscription, on a conductor
+// that can run Claude Code, against st's settings rows.
+func ClaudeAgentTurnForTest(st *store.Store, owner string) bool {
 	c := &Conductor{
 		store:          st,
 		chatHostClaude: true,
 		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
-		host: &HostRuntime{Credential: func(_ context.Context, p string) (string, error) {
-			if v := creds[p]; v != "" {
-				return v, nil
-			}
-			return "", errors.New("no credential is stored for " + p)
-		}},
 	}
-	return c.hasGlobalCredential(ctx, &hostRun{provider: &BriefProvider{ID: provider}})
+	return c.claudeAgentTurn(&hostRun{provider: &BriefProvider{ID: "anthropic"}, credOwner: owner})
 }
 
 // DeliverDueForTest runs one pass of the delivery outbox worker and returns how many rows it

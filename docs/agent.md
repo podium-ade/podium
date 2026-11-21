@@ -343,7 +343,11 @@ That check is the revocation: a finished turn's token is refused everywhere at o
 
 ### The chat host
 
-Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.3.2`) and the
+The `podium-agent` image turns this on by itself: it carries opencode 2 and sets
+`PODIUM_AGENT_CHAT_HOST=auto`, which is the `opencode` on `PATH` while host turns are on and no
+chat host when they are off (set it to the empty string to turn the chat host off alone).
+Anywhere else, set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary
+(`npm i -g @opencode/cli@2.3.2`), or to `auto` with one on `PATH`. With a chat host the
 assistant stops being a process per turn: every conversation is answered on one long-lived
 opencode service the conductor runs on its own machine, under the same bubblewrap fence as host
 turns when `PODIUM_AGENT_HOST_ISOLATION=bwrap` is set. Measured against a model that answers in
@@ -379,29 +383,33 @@ every one finishing within 4.7 s.
   past either waits. A location nobody has written to for half an hour is closed, and its tokens
   with it.
 
-- **A Claude subscription.** With `PODIUM_AGENT_CHAT_HOST_CLAUDE` set to a Claude Code binary
-  (2.1.248 or later), a member can sign in with their Claude Pro or Max plan under Settings →
-  Models (Yours): Podium opens Claude's own sign-in page, and the member pastes back the code
-  it shows (OAuth with PKCE, using Claude Code's client). The refresh token stays in the secret
-  store and the conductor renews the access token, as it does for xAI and ChatGPT. That
-  member's conversations then use opencode's built-in `claude-agent` provider, which runs Claude
-  Code itself with Claude Code's own system prompt. Its location gives Claude Code the gateway
-  as `ANTHROPIC_BASE_URL` and a placeholder bearer, and the gateway replaces that with the
-  sign-in and adds the OAuth beta. A Claude sign-in is spent nowhere else: delegated tasks, host
-  turns without a chat host, and opencode's own `anthropic` provider all spend the global key
-  instead.
+- **A Claude subscription.** Where the chat host has a Claude Code to run (2.1.248 or later), a
+  member can sign in with their Claude Pro or Max plan under Settings → Models (Yours): Podium
+  opens Claude's own sign-in page, and the member pastes back the code it shows (OAuth with
+  PKCE, using Claude Code's client). The refresh token stays in the secret store and the
+  conductor renews the access token, as it does for xAI and ChatGPT. That member's
+  conversations then use opencode's built-in `claude-agent` provider, which runs Claude Code
+  itself with Claude Code's own system prompt. Its location gives Claude Code the gateway as
+  `ANTHROPIC_BASE_URL` and a placeholder bearer, and the gateway replaces that with the sign-in
+  and adds the OAuth beta. A Claude sign-in is spent nowhere else: delegated tasks, host turns
+  without a chat host, and opencode's own `anthropic` provider all spend the global key instead.
 
-  An admin or owner can also sign one in **for everyone**, under Settings → Models (Global). It
-  does not replace the global API key: it is kept beside it, as
-  `podium.agent.oauth.anthropic.access_token`, because every turn but the assistant's chats still
-  needs a key. A conversation whose person has no Anthropic credential of their own then runs on
-  it through `claude-agent`; a person's own key or sign-in still comes first. Signing it out sends
-  those chats back to the global key.
+  Nothing has to be set for it. The `podium-agent` image carries Claude Code, and the conductor
+  uses the `claude` on its `PATH` whenever it has a chat host. `PODIUM_AGENT_CHAT_HOST_CLAUDE`
+  names another one, and set to the empty string turns Claude subscriptions off. The conductor
+  asks the binary for its version when it starts: one that is missing or older than 2.1.248
+  leaves the sign-in off, and somebody who tries it is told which of those it was.
+
+  **A Claude sign-in is always a person's own.** A Pro or Max plan is one person's, so nobody
+  signs one in for everyone: the global Anthropic credential is an API key, and a conversation
+  whose person has no Anthropic credential of their own spends that. A control plane that
+  signed one in for everyone while that was allowed signs it out the next time it starts, and
+  says so in its log.
 
 - **Global subscriptions for Grok and GPT.** An admin or owner can sign in an xAI or ChatGPT
-  subscription under Settings → Models (Global) as well as paste a key. Unlike Claude's, that
-  sign-in *is* the global credential: it replaces the global key, and every turn without a
-  credential of its own spends it, tasks included.
+  subscription under Settings → Models (Global) as well as paste a key. That sign-in *is* the
+  global credential: it replaces the global key, and every turn without a credential of its own
+  spends it, tasks included.
 
 opencode 2's API is young and moves between releases: the chat host is tested against 2.3.2.
 Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.
@@ -650,7 +658,8 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_HOST_ISOLATION` | no | none | `bwrap` runs every host turn in a bubblewrap sandbox of its own: its own PID namespace, the system read-only, nothing of this user's home but the runtime, and its jail as the only writable directory. Set it wherever more than one person talks to this conductor. See [Host turns](#host-turns-isolation-and-warm-windows) |
 | `PODIUM_AGENT_HOST_BWRAP` | no | `bwrap` on `PATH` | the bubblewrap binary |
 | `PODIUM_AGENT_HOST_MEMORY_MAX` | no | none | one host turn's memory ceiling in systemd's syntax (`1G`). Each turn then runs in a transient `systemd-run --user --scope`, and a turn that balloons is killed alone |
-| `PODIUM_AGENT_CHAT_HOST` | no | none | an opencode 2 binary. Set, conversations are answered on one long-lived opencode service on this machine — the chat host — instead of a runtime per turn. See [The chat host](#the-chat-host) |
+| `PODIUM_AGENT_CHAT_HOST` | no | none; `auto` in the `podium-agent` image | an opencode 2 binary. Set, conversations are answered on one long-lived opencode service on this machine — the chat host — instead of a runtime per turn. `auto` is the `opencode` on `PATH` while `PODIUM_AGENT_HOST_RUNTIME` is set, and no chat host otherwise. See [The chat host](#the-chat-host) |
+| `PODIUM_AGENT_CHAT_HOST_CLAUDE` | no | the `claude` on `PATH`, with a chat host | a Claude Code binary (2.1.248 or later) the chat host runs for a member signed in with their own Claude plan. Empty turns Claude subscriptions off |
 | `PODIUM_AGENT_CHAT_HOST_MAX_TURNS` | no | `512` | chat-host turns running at once; a turn past it waits |
 | `PODIUM_AGENT_CHAT_HOST_MAX_PER_USER` | no | `4` | one person's chat-host turns running at once, across all their conversations |
 | `PODIUM_AGENT_PUBLIC_URL` | no | none | the web UI's address, for the link to the chat in a notification |

@@ -88,17 +88,18 @@ const GoogleKeySecret = "podium.agent.google_api_key"
 const GoogleKeyEnv = "GOOGLE_API_KEY"
 
 // OAuthSecretPrefix is where the conductor keeps the global subscription sign-ins' own
-// secrets: their refresh tokens, and the global Claude subscription's access token. None of
-// them is ever attached to a turn by name, so no playbook may name one.
+// secrets: their refresh tokens. None of them is ever attached to a turn by name, so no
+// playbook may name one.
 const OAuthSecretPrefix = "podium.agent.oauth."
 
-// ClaudeSubscriptionSecret is the global Claude Pro/Max sign-in's access token. It is kept
-// beside AnthropicKeySecret, not in it: only the assistant's chats on the chat host spend a
-// Claude subscription, through Claude Code, and every other Claude turn needs the API key.
+// ClaudeSubscriptionSecret is where the access token of a Claude Pro/Max plan signed in for
+// everyone was kept, beside AnthropicKeySecret. Nothing writes it any more: a Claude plan is
+// one person's, signed in as their own. The name stays so a conductor can remove one that an
+// older version stored (api.RemoveGlobalClaudeSubscription).
 const ClaudeSubscriptionSecret = OAuthSecretPrefix + "anthropic.access_token"
 
-// ClaudeSubscriptionSettingKey is the conductor settings row that describes it, in the shape
-// ProviderSettingKey's rows have.
+// ClaudeSubscriptionSettingKey is the conductor settings row that described it, in the shape
+// ProviderSettingKey's rows have. Kept for the same removal.
 const ClaudeSubscriptionSettingKey = "provider.anthropic.subscription"
 
 // OpenAIRefreshSecret is the refresh token of a ChatGPT / Codex sign-in. Same rule as
