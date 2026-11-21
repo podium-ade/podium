@@ -172,10 +172,34 @@ empty and group as one unrecorded bucket — their cost is real, only the attrib
 The offset exists because a day is the operator's, not the server's. A turn at 22:00 in New York
 belongs to that evening, and bucketing in UTC would file it under the next morning.
 
-The screen joins two databases in the browser. Tasks and their compute come from the control
-plane; cost comes from here, keyed by `turns.task_id`. Nothing in this database references a
-Podium table, so the join is the browser's job — and a task that no turn ran has **no** cost
-rather than a cost of zero. The UI draws it as a dash for exactly that reason.
+**One view, every unit of spend.** Since 0056 every usage query reads the `usage_rows` view:
+each turn that ran a model, each delegated task, and each call the conductor makes for itself
+(`housekeeping_spend`, today a conversation's rolling summary, which until then no row recorded).
+A turn that ran no model — the one an automatic review or a `/playbook` run records only so its
+delegation has something to hang off, with no backend, no task and no cost — is left out. Each
+row carries its `origin`: `routine` for a routine's run (and the tasks it delegated), whichever
+conversation it ran in, `housekeeping`, or the session's kind (`chat`, `slack`, `github`,
+`linear`, `dev`). Every query takes the same `UsageFilter`, so a figure and the rows behind it are
+one set, and `ListUsageRows` pages those rows by a `(started_at, id)` cursor.
+
+**What paid.** Once the conductor has decided whose credential a turn or delegated task spends,
+it writes `auth_kind` (`api_key` or `subscription`), `credential_owner` (the login, empty for the
+company's) and `credential_account` (who the provider said signed in, or the key's hint) on the
+row. Only Claude Code on the chat host spends a Claude subscription; OpenAI and xAI spend one when
+the stored credential is a sign-in. A subscription row still reports a cost — the harness's
+list-price figure — and the totals carry it separately as `subscription_cost_usd`, so the screen
+shows billed spend and covered spend apart. Rows from before 0056 have no `auth_kind` and are
+shown as unrecorded.
+
+**Tokens.** The runtime sums each step's input, output, reasoning and cache read/write tokens
+into `turn.json` and the accounting message; the chat host sums them off opencode's assistant
+messages. They are stored beside the cost. A delegated task answering a follow-up reports its
+running total again, which overwrites the row, so a follow-up's spend is dated by the delegation's
+start, not by the follow-up.
+
+Chat titles are part of the answer only for chats the caller may read; a private chat keeps its
+spend and loses its name. The table on the screen is these rows, not the control plane's tasks: a
+task no turn ran is not spend and is not listed, and a host turn with no task is.
 
 A range wider than a year is narrowed to the most recent year rather than refused, and an offset
 outside ±14h is `invalid_argument`: it can only be a bug in the caller.

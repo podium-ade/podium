@@ -55,3 +55,22 @@ limit @max_rows;
 -- a follow-up, or (with null) that a follow-up set it working again.
 -- name: SetDelegationAnswered :exec
 update delegations set answered_at = @answered_at where id = @id and status = 'running';
+
+-- SetDelegationCredential is SetTurnCredential for a delegated task.
+-- name: SetDelegationCredential :exec
+update delegations
+set auth_kind          = nullif(@auth_kind::text, ''),
+    credential_owner   = @credential_owner::text,
+    credential_account = @credential_account::text
+where id = @id;
+
+-- SetDelegationTokens is SetTurnTokens for a delegated task. A task answering a follow-up
+-- reports its running total again, so this overwrites, as FinishDelegation's cost does.
+-- name: SetDelegationTokens :exec
+update delegations
+set input_tokens       = @input_tokens,
+    output_tokens      = @output_tokens,
+    reasoning_tokens   = @reasoning_tokens,
+    cache_read_tokens  = @cache_read_tokens,
+    cache_write_tokens = @cache_write_tokens
+where id = @id;

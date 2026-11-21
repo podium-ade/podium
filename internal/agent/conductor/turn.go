@@ -219,6 +219,11 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		r.c.logger.ErrorContext(ctx, "recording how the turn ended failed",
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
+	if t, ok := r.acct.tokens(); ok {
+		if err := r.c.store.SetTurnTokens(ctx, r.turn.ID, t); err != nil {
+			r.c.logger.WarnContext(ctx, "recording the turn's tokens failed", "turn_id", r.turn.ID, "error", err)
+		}
+	}
 	r.linkPullRequests(ctx, answer)
 	// A routine run that found nothing to do is kept in its chat only quietly (finish writes
 	// what it held as rows that are not history) and nothing of it goes to shared memory.
@@ -318,6 +323,13 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 type accounting struct {
 	NumTurns     *int     `json:"num_turns"`
 	TotalCostUSD *float64 `json:"total_cost_usd"`
+	// The tokens the turn's model steps used, summed. A runtime from before it reported them
+	// sends none of these.
+	InputTokens      *int64 `json:"input_tokens"`
+	OutputTokens     *int64 `json:"output_tokens"`
+	ReasoningTokens  *int64 `json:"reasoning_tokens"`
+	CacheReadTokens  *int64 `json:"cache_read_tokens"`
+	CacheWriteTokens *int64 `json:"cache_write_tokens"`
 }
 
 // readAccounting records what the runtime said the turn cost. A document that does not

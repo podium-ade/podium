@@ -1,10 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import type { TaskCost, UsageBackend, UsageDay } from "../gen/podium/agent/v1/agent_pb";
+import { create } from "@bufbuild/protobuf";
+import { UsageTotalsSchema, type TaskCost, type UsageBackend, type UsageDay } from "../gen/podium/agent/v1/agent_pb";
 import {
   backendSummary,
-  breakdown,
-  byTask,
+  billed,
+  credentialLabel,
+  personLabel,
+  readFilters,
+  rowCost,
+  tokenBreakdown,
+  tokens,
+  totals,
+  totalsIn,
+  toUsageFilter,
   customRange,
   dayKey,
   lastDay,
@@ -226,40 +235,92 @@ describe("money", () => {
   });
 });
 
-describe("byTask", () => {
-  it("indexes by task id", () => {
-    const map = byTask([cost({ taskId: "tsk_a" }), cost({ taskId: "tsk_b" })]);
-    expect(map.get("tsk_a")?.taskId).toBe("tsk_a");
-    expect(map.size).toBe(2);
+describe("tokens", () => {
+  it("abbreviates as the count grows", () => {
+    expect(tokens(0)).toBe("0");
+    expect(tokens(950)).toBe("950");
+    expect(tokens(12_400)).toBe("12.4k");
+    expect(tokens(12_000)).toBe("12k");
+    expect(tokens(250_000)).toBe("250k");
+    expect(tokens(3_140_000)).toBe("3.1M");
+    expect(tokens(2_000_000_000)).toBe("2B");
   });
 
-  it("drops a turn whose task was never created", () => {
-    // It spent money and still counts towards a total, but there is no row to join it to.
-    expect(byTask([cost({ taskId: "" })]).size).toBe(0);
+  it("moves to the next unit when rounding reaches a thousand", () => {
+    expect(tokens(999.6)).toBe("1k");
+    expect(tokens(999_499)).toBe("999k");
+    expect(tokens(999_600)).toBe("1M");
+    expect(tokens(999_960_000)).toBe("1B");
+    expect(tokens(1_000_000)).toBe("1M");
+  });
+
+  it("gives the exact counts behind a shortened one", () => {
+    const t = { input: 3_141_592, output: 2_718, reasoning: 0, cacheRead: 1_000_000, cacheWrite: 0 };
+    expect(tokenBreakdown(t)).toBe(
+      `${(3_141_592).toLocaleString()} in, ${(2_718).toLocaleString()} out, ${(1_000_000).toLocaleString()} read from cache`,
+    );
   });
 });
 
-describe("breakdown", () => {
-  const costs = [
-    cost({ playbook: "triage", costUsd: 3 }),
-    cost({ playbook: "code", costUsd: 5 }),
-    cost({ playbook: "triage", costUsd: 1 }),
-  ];
-
-  it("groups and orders by spend, largest first", () => {
-    expect(breakdown(costs, (c) => c.playbook)).toEqual([
-      { key: "code", cost: 5, turns: 1 },
-      { key: "triage", cost: 4, turns: 2 },
-    ]);
+describe("totals and billed", () => {
+  it("reads bigint tokens as numbers and an unset total as zero", () => {
+    const t = totals(create(UsageTotalsSchema, { costUsd: 5, subscriptionCostUsd: 2, inputTokens: 1200n }));
+    expect(t.input).toBe(1200);
+    expect(billed(t)).toBe(3);
+    expect(totals(undefined).cost).toBe(0);
   });
 
-  it("counts a turn that reported no cost without pretending it was free", () => {
-    const [only] = breakdown([cost({ playbook: "triage", costUsd: undefined })], (c) => c.playbook);
-    expect(only).toEqual({ key: "triage", cost: 0, turns: 1 });
+  it("falls back to a day's older fields when it has no totals", () => {
+    const days = [day({ date: dayKey(NOW), costUsd: 4, turns: 2 })];
+    const t = totalsIn(days, { id: "1d", from: new Date(2026, 8, 17), to: new Date(2026, 8, 18), label: "" });
+    expect(t.cost).toBe(4);
+    expect(t.subscription).toBe(0);
+    expect(t.turns).toBe(2);
   });
+});
 
-  it("labels an empty group rather than keying on the empty string", () => {
-    expect(breakdown([cost({ playbook: "" })], (c) => c.playbook)[0].key).toBe("-");
+describe("rowCost", () => {
+  it("puts a subscription row's cost in covered, never billed", () => {
+    expect(rowCost(cost({ costUsd: 1.5, authKind: "subscription" }))).toEqual({ covered: 1.5 });
+    expect(rowCost(cost({ costUsd: 1.5, authKind: "api_key" }))).toEqual({ billed: 1.5 });
+    // Unrecorded rows predate subscriptions being told apart, so they count as billed.
+    expect(rowCost(cost({ costUsd: 1.5, authKind: "" }))).toEqual({ billed: 1.5 });
+    expect(rowCost(cost({ costUsd: undefined }))).toEqual({});
+  });
+});
+
+describe("personLabel", () => {
+  it("names stand-ins and system routines", () => {
+    expect(personLabel("")).toBe("Unattributed");
+    expect(personLabel("github-app")).toBe("GitHub App");
+    expect(personLabel("routine:r1", new Map([["r1", "Nightly triage"]]))).toBe("Nightly triage");
+    expect(personLabel("routine:r2")).toBe("System routine");
+    expect(personLabel("ana@acme.com")).toBe("ana@acme.com");
+  });
+});
+
+describe("credentialLabel", () => {
+  it("says what paid and whose", () => {
+    expect(credentialLabel({ authKind: "subscription", provider: "anthropic", owner: "" })).toBe(
+      "Anthropic subscription · Company",
+    );
+    expect(credentialLabel({ authKind: "api_key", provider: "openai", owner: "ana@acme.com" })).toBe(
+      "OpenAI API key · ana@acme.com",
+    );
+    expect(credentialLabel({ authKind: "", provider: "", owner: "" })).toBe("Unrecorded");
+  });
+});
+
+describe("filters", () => {
+  it("round-trips through the URL and onto the request", () => {
+    const f = readFilters(new URLSearchParams("source=slack&person=-&paid=subscription%7Canthropic%7C"));
+    expect(f).toEqual({ origin: "slack", person: "-", model: "", credential: "subscription|anthropic|" });
+    expect(toUsageFilter(f)).toEqual({
+      origin: "slack",
+      startedBy: "-",
+      model: "",
+      credential: "subscription|anthropic|",
+    });
   });
 });
 

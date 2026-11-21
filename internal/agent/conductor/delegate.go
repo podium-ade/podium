@@ -789,6 +789,9 @@ func (c *Conductor) startDelegatedTask(
 	if text, refused := c.keyRefused(ctx, choice, false); refused {
 		return nil, errors.New(text)
 	}
+	// A delegated task is a container, never Claude Code on the chat host.
+	c.recordDelegationCredential(ctx, dlg.ID,
+		c.credentialFor(c.providerFor(choice.Agent, choice.CredentialOwner).ID, choice.CredentialOwner, false))
 	mcpOwner := login
 	if mcpOwner == "" {
 		mcpOwner = g.login
@@ -1267,6 +1270,12 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 	if err := r.c.finishDelegation(ctx, r.dlg, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)
+	}
+	if t, ok := r.acct.tokens(); ok {
+		if err := r.c.store.SetDelegationTokens(ctx, r.dlg.ID, t); err != nil {
+			r.c.logger.WarnContext(ctx, "recording a delegated task's tokens failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
 	}
 	// The pull requests THIS answer named. A delegated task is where a pull request now
 	// comes from — the assistant has no repository to open one from — so a conversation
