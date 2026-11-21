@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import type { ProviderSettings } from "../gen/podium/agent/v1/agent_pb";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
-import { CLAUDE_SUBSCRIPTION, PROVIDERS } from "../lib/agents";
+import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer, type Viewer } from "../lib/identity";
 import { cn } from "../lib/utils";
@@ -281,8 +281,7 @@ function ModelsPanel() {
     onSuccess: reload,
   });
   const clear = useMutation({
-    mutationFn: (v: { provider: string; global: boolean; claudeSubscription?: boolean }) =>
-      agent.clearProviderKey(v),
+    mutationFn: (v: { provider: string; global: boolean }) => agent.clearProviderKey(v),
     onSuccess: reload,
   });
 
@@ -290,11 +289,10 @@ function ModelsPanel() {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
-  const claudeSub = settings.data?.claudeSubscription;
   const globalRows = settings.data?.providers ?? [];
   const yourRows = settings.data?.personal ?? [];
   const connected = (rows: ProviderSettings[]) => rows.filter((r) => r.keySet).length;
-  const globalConnected = connected(globalRows) + (claudeSub?.keySet ? 1 : 0);
+  const globalConnected = connected(globalRows);
 
   const renderTable = (scope: "yours" | "global") => {
     const mine = scope === "yours";
@@ -317,22 +315,17 @@ function ModelsPanel() {
         <TableBody>
           {PROVIDERS.map((p) => {
             const globalRow = globalRows.find((s) => s.provider === p.id);
-            // Anyone may sign in their own subscription; an admin may sign one in for everyone.
-            // A global Claude sign-in is not the Anthropic row's: it has a row of its own below,
-            // beside the global key.
+            // Anyone may sign in their own subscription; an admin may sign one in for everyone,
+            // except a Claude plan, which is one person's: the global Anthropic row takes a key.
             const subscription =
               p.subscription !== undefined && !readOnly && (mine || !p.subscription.personalOnly);
-            // With no Anthropic credential of their own, a person's chats run on the global
-            // Claude subscription when there is one, and on the global key otherwise.
-            const onClaudeSub = mine && p.id === "anthropic" && Boolean(claudeSub?.keySet);
             const row = (
               <ProviderCard
                 key={`${scope}-${p.id}`}
                 provider={p}
                 scope={mine ? "personal" : "global"}
                 settings={(mine ? yourRows : globalRows).find((s) => s.provider === p.id)}
-                fallbackSet={mine && (Boolean(globalRow?.keySet) || onClaudeSub)}
-                fallbackLabel={onClaudeSub ? "Using the global subscription" : undefined}
+                fallbackSet={mine && Boolean(globalRow?.keySet)}
                 loading={settings.isPending}
                 readOnly={readOnly}
                 onSave={(key) => save.mutateAsync({ provider: p.id, key, global: !mine })}
@@ -352,42 +345,7 @@ function ModelsPanel() {
                 onSignedIn={reload}
               />
             );
-            if (mine || p.id !== "anthropic" || !claudeSub) return row;
-            return [
-              row,
-              <ProviderCard
-                key={`${scope}-${CLAUDE_SUBSCRIPTION.id}`}
-                provider={CLAUDE_SUBSCRIPTION}
-                scope="global"
-                subscriptionOnly
-                settings={claudeSub}
-                loading={settings.isPending}
-                readOnly={readOnly}
-                clearNote="Chats with the assistant go back to the global API key. People who signed in their own keep using it."
-                onSave={() =>
-                  Promise.reject(new Error("a Claude subscription is signed in to, not keyed"))
-                }
-                onClear={async () => {
-                  await clear.mutateAsync({
-                    provider: "anthropic",
-                    global: true,
-                    claudeSubscription: true,
-                  });
-                }}
-                onStartOAuth={
-                  readOnly
-                    ? undefined
-                    : () => agent.startProviderOAuth({ provider: "anthropic", global: true })
-                }
-                onPollOAuth={
-                  readOnly
-                    ? undefined
-                    : (flowId, code) =>
-                        agent.pollProviderOAuth({ provider: "anthropic", flowId, code })
-                }
-                onSignedIn={reload}
-              />,
-            ];
+            return row;
           })}
         </TableBody>
       </Table>

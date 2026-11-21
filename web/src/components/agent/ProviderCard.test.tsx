@@ -92,7 +92,9 @@ describe("ProviderCard", () => {
     expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(screen.getByText("Not set")).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
-    expect(screen.getByTestId("provider-card-anthropic")).toHaveTextContent(ANTHROPIC.how);
+    // The global row takes a key only: a Claude plan is signed in as a person's own.
+    expect(screen.getByTestId("provider-card-anthropic")).toHaveTextContent("Anthropic · API key");
+    expect(screen.getByTestId("provider-card-anthropic")).not.toHaveTextContent("Pro/Max");
     expect(screen.queryByTestId("provider-key-save-anthropic")).toBeNull();
     await connect();
     expect(screen.getByTestId("provider-key-save-anthropic")).toBeDisabled();

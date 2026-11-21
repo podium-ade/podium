@@ -13,23 +13,23 @@ import (
 	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
-// A global Claude subscription with no global Anthropic key is enough for a chat-host turn of
-// somebody with no credential of their own: Claude Code answers it on the subscription.
-func TestAGlobalClaudeSubscriptionAloneLetsAChatTurnStart(t *testing.T) {
+// A Claude plan is one person's: only a turn that spends the sign-in of the person who asked is
+// answered by Claude Code on a subscription. A turn that spends nobody's own credential never
+// is, even on a database that still holds a Claude sign-in for everyone from before those went.
+func TestOnlyAPersonsOwnClaudeSignInIsSpentByClaudeCode(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)
-	sub := map[string]string{"claude-agent": "sk-ant-oat01-company"}
 
-	assert.False(t, conductor.GlobalCredentialForTest(ctx, st, "anthropic", sub),
-		"with no settings row the subscription is not known to be signed in")
-
+	require.NoError(t, st.PutSetting(ctx, profiles.ProviderSettingKey(profiles.ProviderAnthropic, "alice"),
+		map[string]string{"auth_kind": "oauth"}))
+	require.NoError(t, st.PutSetting(ctx, profiles.ProviderSettingKey(profiles.ProviderAnthropic, "bob"),
+		map[string]string{"auth_kind": "api_key"}))
 	require.NoError(t, st.PutSetting(ctx, profiles.ClaudeSubscriptionSettingKey,
 		map[string]string{"auth_kind": "oauth"}))
-	assert.True(t, conductor.GlobalCredentialForTest(ctx, st, "anthropic", sub))
-	assert.False(t, conductor.GlobalCredentialForTest(ctx, st, "anthropic", nil),
-		"a row whose secret was removed is no credential")
-	assert.True(t, conductor.GlobalCredentialForTest(ctx, st, "anthropic",
-		map[string]string{"anthropic": "sk-ant-api03-key"}), "the global key still works on its own")
-	assert.False(t, conductor.GlobalCredentialForTest(ctx, st, "xai", sub),
-		"the Claude subscription is no other provider's credential")
+
+	assert.True(t, conductor.ClaudeAgentTurnForTest(st, "alice"), "her own sign-in")
+	assert.False(t, conductor.ClaudeAgentTurnForTest(st, "bob"), "his own credential is an API key")
+	assert.False(t, conductor.ClaudeAgentTurnForTest(st, "carol"), "she has no credential of her own")
+	assert.False(t, conductor.ClaudeAgentTurnForTest(st, ""),
+		"a turn on the company's credential never spends a Claude plan")
 }

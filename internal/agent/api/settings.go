@@ -36,10 +36,6 @@ const (
 	AuthOAuth  = "oauth"
 )
 
-// ClaudeAgentCredential is what HostCredential is asked for to get the global Claude
-// subscription: the name of opencode's provider that spends it.
-const ClaudeAgentCredential = "claude-agent"
-
 // Whose credential a turn spends, as ListAgents reports it.
 const (
 	CredentialPersonal = "personal"
@@ -102,11 +98,12 @@ var providerSpecs = []providerSpec{{
 	},
 	unusual: unusualFormat,
 	// A Claude subscription is spent only by the chat host's claude-agent provider, so the
-	// sign-in is offered only where the chat host can run Claude Code.
+	// sign-in is offered only where the chat host can run Claude Code. Why it is off on a
+	// control plane where it is comes from Options.ClaudeAgentOff; this is the fallback.
 	oauth:    true,
 	oauthEnv: "PODIUM_AGENT_CHAT_HOST_CLAUDE",
-	oauthOff: "Claude subscriptions need the chat host and Claude Code: set PODIUM_AGENT_CHAT_HOST " +
-		"and PODIUM_AGENT_CHAT_HOST_CLAUDE, or paste an API key instead",
+	oauthOff: "Claude subscriptions need the chat host and Claude Code on the conductor's machine; " +
+		"paste an API key instead",
 	validateOAuth: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
 		return validateClaudeOAuthToken(ctx, s.http, s.baseURL, key)
 	},
@@ -166,30 +163,15 @@ func findProvider(name string) (providerSpec, error) {
 // credTarget is one stored credential: a provider's, and whose. An empty owner is the
 // global credential an admin set, which every turn without one of its person's own spends;
 // a login is that person's own, kept on their personal secret list.
-//
-// claude is the one global credential that is not the provider's global credential: the
-// global Claude subscription, kept beside the global Anthropic API key. Only the assistant's
-// chats on the chat host can spend a Claude sign-in, so it cannot replace the key every other
-// Claude turn needs.
 type credTarget struct {
-	p      providerSpec
-	owner  string
-	claude bool
+	p     providerSpec
+	owner string
 }
 
 func globalTarget(p providerSpec) credTarget { return credTarget{p: p} }
 
-// claudeTarget is the global Claude subscription.
-func claudeTarget() credTarget {
-	p, _ := findProvider(ProviderAnthropic)
-	return credTarget{p: p, claude: true}
-}
-
 // secret is the Podium secret the bearer lives in.
 func (t credTarget) secret() string {
-	if t.claude {
-		return profiles.ClaudeSubscriptionSecret
-	}
 	return profiles.CredentialSecretFor(t.p.name, t.owner)
 }
 
@@ -202,16 +184,14 @@ func (t credTarget) refreshName() string {
 }
 
 // signIn is whether this credential can be a sign-in, so it may have a refresh token to
-// clean up. The global Anthropic key is only ever a key: a global Claude sign-in is claude.
+// clean up. The global Anthropic credential is only ever a key: a Claude subscription is one
+// person's plan, so it is only ever signed in as that person's own.
 func (t credTarget) signIn() bool {
-	return t.claude || (t.p.oauth && (t.owner != "" || t.p.name != ProviderAnthropic))
+	return t.p.oauth && (t.owner != "" || t.p.name != ProviderAnthropic)
 }
 
 // settingKey is the settings row this credential's metadata lives in.
 func (t credTarget) settingKey() string {
-	if t.claude {
-		return profiles.ClaudeSubscriptionSettingKey
-	}
 	return profiles.ProviderSettingKey(t.p.name, t.owner)
 }
 
@@ -325,9 +305,8 @@ type oauthFlow struct {
 	expiresAt  time.Time
 	startedBy  string
 	// owner is whose credential the sign-in stores: the person who started it, or empty for
-	// the global one. claude is a global Claude sign-in, stored as claudeTarget.
-	owner  string
-	claude bool
+	// the global one.
+	owner string
 	// codePaste, state and code are for a flow the human finishes by pasting a code
 	// (claudeClient): deviceCode is then the PKCE verifier, state what the code must carry,
 	// and code what this poll was given. code is never stored on the flow.
@@ -365,15 +344,6 @@ func (s *AgentService) GetSettings(
 			}
 			out.Personal = append(out.Personal, mine)
 		}
-	}
-	// The global Claude subscription is reported where it can be connected, and anywhere one
-	// is still stored, so it can be signed out of after Claude Code was turned off.
-	sub, err := s.providerState(ctx, claudeTarget())
-	if err != nil {
-		return nil, err
-	}
-	if s.oauth[ProviderAnthropic] != nil || sub.KeySet {
-		out.ClaudeSubscription = sub
 	}
 	return connect.NewResponse(out), nil
 }
@@ -590,14 +560,14 @@ func (s *AgentService) ClearProviderKey(
 	if err != nil {
 		return nil, err
 	}
-	t := credTarget{p: p, owner: owner}
-	if req.Msg.GetClaudeSubscription() {
-		if p.name != ProviderAnthropic || owner != "" {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(
-				"claude_subscription is the global Claude sign-in: it needs provider anthropic and global"))
-		}
-		t = claudeTarget()
+	// A client from before Claude sign-ins for everyone went. Refused rather than ignored:
+	// ignoring the field would turn "sign that out" into "remove the global API key".
+	if req.Msg.GetClaudeSubscription() { //nolint:staticcheck // the deprecated field is what is being refused
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(
+			"there is no Claude subscription signed in for everyone to sign out: a Claude plan is "+
+				"signed in as a person's own"))
 	}
+	t := credTarget{p: p, owner: owner}
 	if err := s.deleteCredSecret(ctx, t, t.secret()); err != nil {
 		return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the key failed: %w", err))
 	}
@@ -613,7 +583,7 @@ func (s *AgentService) ClearProviderKey(
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "a provider credential was removed", "provider", p.name, "login", login,
-		"global", owner == "", "claude_subscription", t.claude)
+		"global", owner == "")
 	return connect.NewResponse(&agentv1.ClearProviderKeyResponse{}), nil
 }
 
@@ -641,9 +611,13 @@ func (s *AgentService) StartProviderOAuth(
 	if err != nil {
 		return nil, err
 	}
-	// A global Anthropic credential is spent by every kind of turn, and only the chat host's
-	// Claude Code may spend a Claude sign-in, so a global one goes beside the key, not over it.
-	claude := owner == "" && p.name == ProviderAnthropic
+	// A Claude Pro or Max plan is one person's, so nobody signs one in for everyone: the
+	// global Anthropic credential is an API key.
+	if owner == "" && p.name == ProviderAnthropic {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(
+			"a Claude subscription belongs to one person and cannot be signed in for everyone: "+
+				"sign in to your own, or set a global API key"))
+	}
 
 	startCtx, cancel := context.WithTimeout(ctx, validateTimeout)
 	defer cancel()
@@ -678,7 +652,6 @@ func (s *AgentService) StartProviderOAuth(
 		expiresAt:  expires,
 		startedBy:  Login(ctx),
 		owner:      owner,
-		claude:     claude,
 		codePaste:  dev.CodePaste,
 		state:      dev.State,
 	})
@@ -795,7 +768,7 @@ func (s *AgentService) PollProviderOAuth(
 		ExpiresAt:    expiryOf(tok),
 		RefreshToken: tok.RefreshToken,
 	}
-	t := credTarget{p: p, owner: flow.owner, claude: flow.claude}
+	t := credTarget{p: p, owner: flow.owner}
 	stored, err := s.storeCredential(ctx, t, token, row)
 	if err != nil {
 		return nil, err
@@ -839,13 +812,6 @@ func (s *AgentService) ListAgents(
 				"provider", p.name, "error", err)
 			continue
 		}
-		if v == 0 && p.name == ProviderAnthropic && s.oauth[ProviderAnthropic] != nil {
-			// No global key, but a global Claude subscription answers the assistant's chats.
-			v, err = s.secretVersion(ctx, profiles.ClaudeSubscriptionSecret)
-			if err != nil {
-				continue
-			}
-		}
 		if v > 0 {
 			source[p.name] = CredentialGlobal
 		}
@@ -874,6 +840,42 @@ func (s *AgentService) ListAgents(
 		out.Agents = append(out.Agents, ab)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// RemoveGlobalClaudeSubscription signs out a Claude subscription that was signed in for
+// everyone, which this control plane once allowed: the access token, its refresh token and
+// the row that described it. A Claude plan is one person's, so the chats that ran on it go
+// back to the global API key. An install that never had one has no row, and nothing is
+// done; a failure is logged and tried again on the next start.
+func (s *AgentService) RemoveGlobalClaudeSubscription(ctx context.Context) {
+	if s.store == nil || s.secrets == nil {
+		return
+	}
+	p, err := findProvider(ProviderAnthropic)
+	if err != nil {
+		return
+	}
+	// The row goes last, so a removal that failed part-way is found again on the next start.
+	var row providerRow
+	if err := s.store.GetSetting(ctx, profiles.ClaudeSubscriptionSettingKey, &row); err != nil {
+		return
+	}
+	t := globalTarget(p)
+	for _, name := range []string{profiles.ClaudeSubscriptionSecret, refreshSecret(p)} {
+		if err := s.deleteCredSecret(ctx, t, name); err != nil {
+			s.logger.WarnContext(ctx, "removing the Claude subscription that was signed in for everyone "+
+				"failed; this will be tried again on the next start", "secret", name, "error", err)
+			return
+		}
+	}
+	if err := s.store.DeleteSetting(ctx, profiles.ClaudeSubscriptionSettingKey); err != nil {
+		s.logger.WarnContext(ctx, "removing the row of the Claude subscription that was signed in for "+
+			"everyone failed; this will be tried again on the next start", "error", err)
+		return
+	}
+	s.logger.InfoContext(ctx, "the Claude subscription that was signed in for everyone was signed out: "+
+		"a Claude plan is one person's, so chats without a credential of their own spend the global "+
+		"API key", "account", row.Account, "set_by", row.SetBy)
 }
 
 // MoveCredentialsIntoStore moves the credentials a database written before the secret store
@@ -963,7 +965,7 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 }
 
 // signedInTargets is every stored credential a refresh pass looks at: each subscription
-// provider's global row, the global Claude subscription, and every person's own row for each.
+// provider's global row and every person's own row for each.
 func (s *AgentService) signedInTargets(ctx context.Context) []credTarget {
 	var out []credTarget
 	for _, p := range providerSpecs {
@@ -972,9 +974,6 @@ func (s *AgentService) signedInTargets(ctx context.Context) []credTarget {
 		}
 		if globalTarget(p).signIn() {
 			out = append(out, globalTarget(p))
-		}
-		if p.name == ProviderAnthropic {
-			out = append(out, claudeTarget())
 		}
 		prefix := profiles.ProviderSettingKey(p.name, "") + "@"
 		rows, err := s.store.SettingsWithPrefix(ctx, prefix)
@@ -1050,8 +1049,12 @@ func (s *AgentService) oauthFor(p providerSpec) (oauthSession, error) {
 	}
 	c := s.oauth[p.name]
 	if c == nil && p.oauthOff != "" {
+		off := p.oauthOff
+		if p.name == ProviderAnthropic && s.claudeOff != "" {
+			off = s.claudeOff
+		}
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
-			fmt.Errorf("%w: %s", errOAuthUnconfigured, p.oauthOff))
+			fmt.Errorf("%w: %s", errOAuthUnconfigured, off))
 	}
 	if c == nil {
 		env := p.oauthEnv
@@ -1097,20 +1100,7 @@ func (s *AgentService) providerRow(ctx context.Context, t credTarget) (providerR
 // HostCredential is the bearer a host turn spends for one provider, read back from the
 // provider's global Podium secret: the same one a container turn is given. A person's own is
 // PersonalHostCredential.
-//
-// ClaudeAgentCredential asks for the global Claude subscription instead, which only the chat
-// host's claude-agent provider spends.
 func (s *AgentService) HostCredential(ctx context.Context, provider string) (string, error) {
-	if provider == ClaudeAgentCredential {
-		value, err := s.secrets.ReadSecret(ctx, "", profiles.ClaudeSubscriptionSecret)
-		if connect.CodeOf(err) == connect.CodeNotFound {
-			return "", fmt.Errorf("no Claude subscription is signed in for everyone")
-		}
-		if err != nil {
-			return "", fmt.Errorf("reading the global Claude subscription: %w", err)
-		}
-		return string(value), nil
-	}
 	p, err := findProvider(provider)
 	if err != nil {
 		return "", err

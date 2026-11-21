@@ -4085,11 +4085,10 @@ type GetSettingsResponse struct {
 	// the caller asks for spends theirs when it is set and the global one when it is not.
 	// Empty for a caller who is not a signed-in person, such as the dev token.
 	Personal []*ProviderSettings `protobuf:"bytes,3,rep,name=personal,proto3" json:"personal,omitempty"`
-	// claude_subscription is the global Claude Pro/Max sign-in an admin connected. It sits
-	// beside the global Anthropic API key rather than replacing it: the assistant's chats on
-	// the chat host spend it, through Claude Code, when their person has no Anthropic
-	// credential of their own, and every other turn spends the key. Unset when this control
-	// plane cannot run Claude Code.
+	// claude_subscription was a Claude Pro/Max sign-in an admin connected for everyone. A
+	// Claude plan is one person's, so there is none any more and this is never set.
+	//
+	// Deprecated: Marked as deprecated in podium/agent/v1/agent.proto.
 	ClaudeSubscription *ProviderSettings `protobuf:"bytes,4,opt,name=claude_subscription,json=claudeSubscription,proto3" json:"claude_subscription,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -4146,6 +4145,7 @@ func (x *GetSettingsResponse) GetPersonal() []*ProviderSettings {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in podium/agent/v1/agent.proto.
 func (x *GetSettingsResponse) GetClaudeSubscription() *ProviderSettings {
 	if x != nil {
 		return x.ClaudeSubscription
@@ -6161,8 +6161,10 @@ type ClearProviderKeyRequest struct {
 	// global removes the company credential, which only an admin or owner may. False
 	// removes the caller's own.
 	Global bool `protobuf:"varint,2,opt,name=global,proto3" json:"global,omitempty"`
-	// claude_subscription, with global and provider "anthropic", signs out the global Claude
-	// subscription (GetSettingsResponse.claude_subscription) and leaves the global API key.
+	// claude_subscription signed out the Claude sign-in an admin connected for everyone. There
+	// is none any more: set, the request is invalid_argument and removes nothing.
+	//
+	// Deprecated: Marked as deprecated in podium/agent/v1/agent.proto.
 	ClaudeSubscription bool `protobuf:"varint,3,opt,name=claude_subscription,json=claudeSubscription,proto3" json:"claude_subscription,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -6212,6 +6214,7 @@ func (x *ClearProviderKeyRequest) GetGlobal() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in podium/agent/v1/agent.proto.
 func (x *ClearProviderKeyRequest) GetClaudeSubscription() bool {
 	if x != nil {
 		return x.ClaudeSubscription
@@ -6262,9 +6265,8 @@ type StartProviderOAuthRequest struct {
 	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	// global signs in the company credential, which only an admin or owner may. False signs in
 	// the caller's own. For xAI and OpenAI a global sign-in is the global credential, replacing
-	// any global key. For Anthropic it is kept beside the global API key, in a slot of its own:
-	// a Claude subscription is spent only by the assistant's chats on the chat host, through
-	// Claude Code, and every other turn keeps spending the key.
+	// any global key. For Anthropic it is invalid_argument: a Claude Pro or Max plan is one
+	// person's, so it is only ever signed in as the caller's own.
 	Global        bool `protobuf:"varint,2,opt,name=global,proto3" json:"global,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -18118,12 +18120,12 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"checked_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x129\n" +
 	"\n" +
 	"refused_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\trefusedAt\x12\x18\n" +
-	"\arefusal\x18\x0e \x01(\tR\arefusal\"\xa8\x02\n" +
+	"\arefusal\x18\x0e \x01(\tR\arefusal\"\xac\x02\n" +
 	"\x13GetSettingsResponse\x12=\n" +
 	"\bprovider\x18\x01 \x01(\v2!.podium.agent.v1.ProviderSettingsR\bprovider\x12?\n" +
 	"\tproviders\x18\x02 \x03(\v2!.podium.agent.v1.ProviderSettingsR\tproviders\x12=\n" +
-	"\bpersonal\x18\x03 \x03(\v2!.podium.agent.v1.ProviderSettingsR\bpersonal\x12R\n" +
-	"\x13claude_subscription\x18\x04 \x01(\v2!.podium.agent.v1.ProviderSettingsR\x12claudeSubscription\"\x17\n" +
+	"\bpersonal\x18\x03 \x03(\v2!.podium.agent.v1.ProviderSettingsR\bpersonal\x12V\n" +
+	"\x13claude_subscription\x18\x04 \x01(\v2!.podium.agent.v1.ProviderSettingsB\x02\x18\x01R\x12claudeSubscription\"\x17\n" +
 	"\x15GetConnectionsRequest\"\x8a\x02\n" +
 	"\x0fSlackConnection\x12\x1e\n" +
 	"\n" +
@@ -18266,11 +18268,11 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06models\x18\x02 \x03(\tR\x06models\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\"=\n" +
 	"\x10ProviderKeyError\x12)\n" +
-	"\x10provider_message\x18\x01 \x01(\tR\x0fproviderMessage\"~\n" +
+	"\x10provider_message\x18\x01 \x01(\tR\x0fproviderMessage\"\x82\x01\n" +
 	"\x17ClearProviderKeyRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +
-	"\x06global\x18\x02 \x01(\bR\x06global\x12/\n" +
-	"\x13claude_subscription\x18\x03 \x01(\bR\x12claudeSubscription\"\x1a\n" +
+	"\x06global\x18\x02 \x01(\bR\x06global\x123\n" +
+	"\x13claude_subscription\x18\x03 \x01(\bB\x02\x18\x01R\x12claudeSubscription\"\x1a\n" +
 	"\x18ClearProviderKeyResponse\"O\n" +
 	"\x19StartProviderOAuthRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +

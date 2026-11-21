@@ -220,8 +220,7 @@ func (cr chatRun) run(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(stopCtx, r.job.assistantTimeout())
 	defer cancel()
 
-	// A person spending their own credential needs no global one. A turn Claude Code answers
-	// on the global Claude subscription needs that, and not the global key.
+	// A person spending their own credential needs no global one.
 	if h.credOwner == "" && !c.hasGlobalCredential(runCtx, h) {
 		h.giveUp(ctx, hostNoCredential)
 		return
@@ -503,28 +502,18 @@ func (c *Conductor) chatClosing(turn *chatTurn) bool {
 const claudeAgentProvider = "claude-agent"
 
 // claudeAgentTurn is whether h spends a Claude subscription sign-in: an Anthropic turn on a
-// chat host that can run Claude Code, whose person signed in with Claude — or who has no
-// Anthropic credential of their own, when an admin signed one in for everyone. A person's
-// own API key still beats the global subscription.
+// chat host that can run Claude Code, whose person signed in with their own Claude plan. A
+// plan is one person's, so a turn that spends nobody's own credential never is one.
 func (c *Conductor) claudeAgentTurn(h *hostRun) bool {
 	if !c.chatHostClaude || h.provider == nil || h.provider.ID != "anthropic" {
 		return false
 	}
-	if h.credOwner != "" {
-		return c.claudeSignIn(h.credOwner)
-	}
-	return c.globalClaudeSignIn()
+	return c.claudeSignIn(h.credOwner)
 }
 
-// hasGlobalCredential is whether a turn with no credential of its person's own has a global
-// one to spend: the global Claude subscription, for a claude-agent turn that has one, or the
-// provider's global key.
+// hasGlobalCredential is whether a turn with no credential of its person's own has the
+// provider's global one to spend.
 func (c *Conductor) hasGlobalCredential(ctx context.Context, h *hostRun) bool {
-	if c.claudeAgentTurn(h) {
-		if k, err := c.host.Credential(ctx, claudeAgentProvider); err == nil && k != "" {
-			return true
-		}
-	}
 	if _, err := c.host.Credential(ctx, h.provider.ID); err != nil {
 		c.logger.ErrorContext(ctx, "a chat-host turn has no credential to spend",
 			"provider", h.provider.ID, "error", err)

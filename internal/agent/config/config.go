@@ -235,7 +235,8 @@ type Config struct {
 	// AnthropicOAuthClientID is PODIUM_AGENT_ANTHROPIC_OAUTH_CLIENT_ID: the OAuth client a
 	// Claude subscription sign-in uses. Default DefaultAnthropicOAuthClientID (Claude Code).
 	// "off" turns the sign-in off. It is only offered when the chat host can run Claude Code
-	// (ChatHostClaude): that is the one place a Claude subscription is spent.
+	// (ChatHostClaude): that is the one place a Claude subscription is spent. A sign-in is
+	// always a person's own; there is no signing a Claude plan in for everyone.
 	AnthropicOAuthClientID string
 	// AnthropicOAuthAuthorizeURL, AnthropicOAuthTokenURL and AnthropicOAuthRedirectURI are
 	// PODIUM_AGENT_ANTHROPIC_OAUTH_AUTHORIZE_URL, _TOKEN_URL and _REDIRECT_URI.
@@ -376,11 +377,15 @@ type Config struct {
 	// ChatHost is PODIUM_AGENT_CHAT_HOST: an opencode 2 binary. Set, the conductor runs it as
 	// a chat host and answers every conversation on it, rather than starting the runtime for
 	// each turn. It needs PODIUM_AGENT_HOST_RUNTIME, whose prompt and credentials it uses.
+	// "auto" is the `opencode` on PATH when there is a host runtime and one is installed, and
+	// off otherwise: what the podium-agent image sets, since it carries both.
 	// See internal/agent/chathost.
 	ChatHost string
 	// ChatHostClaude is PODIUM_AGENT_CHAT_HOST_CLAUDE: a Claude Code binary (2.1.248 or
 	// later) the chat host runs for a person who signed in with their Claude subscription.
-	// opencode 2's claude-agent provider drives it. Empty turns Claude subscriptions off.
+	// opencode 2's claude-agent provider drives it. Unset, it is the `claude` on PATH when
+	// there is a chat host and one is installed, so an install that has both needs nothing
+	// set. Set to the empty string, or with none found, Claude subscriptions are off.
 	ChatHostClaude string
 	// ChatHostMaxTurns is PODIUM_AGENT_CHAT_HOST_MAX_TURNS: the chat-host turns running at
 	// once. Zero is the conductor's default.
@@ -483,8 +488,8 @@ func FromEnv() Config {
 		HostBwrap:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_BWRAP")),
 		HostMemoryMax:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_HOST_MEMORY_MAX")),
 		HostWarm:              envDuration("PODIUM_AGENT_HOST_WARM", 0),
-		ChatHost:              strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST")),
-		ChatHostClaude:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST_CLAUDE")),
+		ChatHost:              chatHost(),
+		ChatHostClaude:        chatHostClaude(chatHost()),
 		ChatHostMaxTurns:      envInt("PODIUM_AGENT_CHAT_HOST_MAX_TURNS"),
 		ChatHostMaxPerUser:    envInt("PODIUM_AGENT_CHAT_HOST_MAX_PER_USER"),
 		PublicURL:             strings.TrimSpace(os.Getenv("PODIUM_AGENT_PUBLIC_URL")),
@@ -996,6 +1001,41 @@ func oauthClientID(env, fallback string) string {
 		return ""
 	}
 	return v
+}
+
+// chatHost is PODIUM_AGENT_CHAT_HOST. "auto" is the `opencode` on PATH of a conductor that
+// answers conversations on its own machine, and no chat host anywhere else, so an image that
+// sets it still starts when an operator turns host turns off.
+func chatHost() string {
+	v := strings.TrimSpace(os.Getenv("PODIUM_AGENT_CHAT_HOST"))
+	if !strings.EqualFold(v, "auto") {
+		return v
+	}
+	if os.Getenv("PODIUM_AGENT_HOST_RUNTIME") == "" {
+		return ""
+	}
+	path, err := exec.LookPath("opencode")
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+// chatHostClaude is PODIUM_AGENT_CHAT_HOST_CLAUDE, and when that is not set at all, the
+// `claude` on PATH of a conductor that has a chat host to run it. Set but empty is how an
+// operator turns Claude subscriptions off where Claude Code is installed.
+func chatHostClaude(chatHost string) string {
+	if v, ok := os.LookupEnv("PODIUM_AGENT_CHAT_HOST_CLAUDE"); ok {
+		return strings.TrimSpace(v)
+	}
+	if chatHost == "" {
+		return ""
+	}
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		return ""
+	}
+	return path
 }
 
 // envBool treats anything strconv understands as such and everything else as false: the

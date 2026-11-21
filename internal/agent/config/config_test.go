@@ -547,3 +547,61 @@ func TestTheLinearTokenURLMustBeAbsolute(t *testing.T) {
 	cfg.LinearTokenURL = "http://127.0.0.1:9999/oauth/token"
 	require.NoError(t, cfg.Validate())
 }
+
+// unsetenv removes a variable for the test, which t.Setenv alone cannot: unset and set to
+// the empty string mean different things to the chat host's variables.
+func unsetenv(t *testing.T, name string) {
+	t.Helper()
+	t.Setenv(name, "")
+	require.NoError(t, os.Unsetenv(name))
+}
+
+// An install that carries opencode and Claude Code names neither: "auto" is the opencode on
+// PATH while conversations are answered on this machine, and Claude Code is found beside it.
+func TestTheChatHostFindsItsBinariesOnPATH(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{"opencode", "claude"} {
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o700)) //nolint:gosec // a test's own script
+	}
+	empty := t.TempDir()
+
+	t.Setenv("PATH", bin)
+	t.Setenv("PODIUM_AGENT_HOST_RUNTIME", "/opt/podium-agent/dist/main.js")
+	t.Setenv("PODIUM_AGENT_CHAT_HOST", "auto")
+	unsetenv(t, "PODIUM_AGENT_CHAT_HOST_CLAUDE")
+	cfg := FromEnv()
+	assert.Equal(t, filepath.Join(bin, "opencode"), cfg.ChatHost)
+	assert.Equal(t, filepath.Join(bin, "claude"), cfg.ChatHostClaude)
+
+	// Set to nothing is an operator turning Claude subscriptions off, not a default.
+	t.Setenv("PODIUM_AGENT_CHAT_HOST_CLAUDE", "")
+	cfg = FromEnv()
+	assert.Equal(t, filepath.Join(bin, "opencode"), cfg.ChatHost)
+	assert.Empty(t, cfg.ChatHostClaude)
+
+	// A path somebody named is used as it is, found on PATH or not.
+	t.Setenv("PODIUM_AGENT_CHAT_HOST_CLAUDE", "/opt/claude/bin/claude")
+	assert.Equal(t, "/opt/claude/bin/claude", FromEnv().ChatHostClaude)
+	unsetenv(t, "PODIUM_AGENT_CHAT_HOST_CLAUDE")
+
+	// Host turns off: "auto" is no chat host, so the image's default does not stop a
+	// conductor whose operator wants every turn to be a task. No chat host, no Claude Code.
+	t.Setenv("PODIUM_AGENT_HOST_RUNTIME", "")
+	cfg = FromEnv()
+	assert.Empty(t, cfg.ChatHost)
+	assert.Empty(t, cfg.ChatHostClaude)
+
+	// Neither binary installed: no chat host, and nothing to refuse to start over.
+	t.Setenv("PODIUM_AGENT_HOST_RUNTIME", "/opt/podium-agent/dist/main.js")
+	t.Setenv("PATH", empty)
+	cfg = FromEnv()
+	assert.Empty(t, cfg.ChatHost)
+	assert.Empty(t, cfg.ChatHostClaude)
+
+	// Without a chat host named, Claude Code on PATH turns nothing on.
+	t.Setenv("PATH", bin)
+	t.Setenv("PODIUM_AGENT_CHAT_HOST", "")
+	cfg = FromEnv()
+	assert.Empty(t, cfg.ChatHost)
+	assert.Empty(t, cfg.ChatHostClaude)
+}

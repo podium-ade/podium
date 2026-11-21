@@ -53,12 +53,34 @@ COPY $TARGETPLATFORM/podium-runner /usr/local/bin/podium-runner
 # want.
 COPY examples/agent /etc/podium/agent
 
+# Claude Code, for a member who signs in with their own Claude Pro or Max plan under
+# Settings → Models: their chats with the assistant run on opencode's claude-agent provider,
+# which runs this binary (docs/agent.md, "The chat host"). It is installed HERE and not in the
+# runtime image because only the conductor's chat host runs it: a task container has no use
+# for it. The conductor finds it on PATH, so no variable names it; an operator who wants
+# Claude subscriptions off sets PODIUM_AGENT_CHAT_HOST_CLAUDE to the empty string.
+#
+# Pinned, like opencode in the runtime image, and at least the 2.1.248 opencode's provider
+# needs. Move the pin with the runtime image's opencode.
+ARG CLAUDE_CODE_VERSION=2.1.323
+USER root
+RUN set -eux; \
+    npm install --global @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}; \
+    npm cache clean --force; \
+    claude --version
+
 # Host turns, ON by default, because an image that carries the runtime and does not use it is
 # the confusing half. The runtime image put its entrypoint at this path and leaves `node` on
 # PATH, which is what PODIUM_AGENT_HOST_NODE defaults to. An operator who wants every turn to
 # be a container task again sets PODIUM_AGENT_HOST_RUNTIME to the empty string.
+#
+# The chat host too, for the same reason: the runtime image already carries opencode 2, and
+# one long-lived service answers the assistant's conversations in place of a runtime started
+# for each turn. "auto" is the opencode on PATH while host turns are on and nothing when they
+# are off, so turning host turns off needs no second variable. Empty turns it off alone.
 ENV PODIUM_AGENT_HOST_RUNTIME=/opt/podium-agent/dist/main.js \
-    PODIUM_AGENT_RUNNER_BIN=/usr/local/bin/podium-runner
+    PODIUM_AGENT_RUNNER_BIN=/usr/local/bin/podium-runner \
+    PODIUM_AGENT_CHAT_HOST=auto
 
 # uid 1000, the `agent` user the runtime image already owns and every Podium agent image runs
 # as. The distroless 65532 went with the old base; a bind-mounted profile directory has to be

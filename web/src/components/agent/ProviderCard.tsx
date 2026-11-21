@@ -78,12 +78,6 @@ export type ProviderCardProps = {
   scope?: "personal" | "global";
   /** On a personal row: a global key is set, so chats run on it while this row is unset. */
   fallbackSet?: boolean;
-  /** What the unset row says it runs on instead. "Using the global key" by default. */
-  fallbackLabel?: string;
-  /** A row that is only ever signed in to, never keyed: the global Claude subscription. */
-  subscriptionOnly?: boolean;
-  /** Replaces the sentence the removal dialog opens with: what removing this one means. */
-  clearNote?: string;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
@@ -114,9 +108,6 @@ export function ProviderCard({
   readOnly,
   scope = "global",
   fallbackSet,
-  fallbackLabel = "Using the global key",
-  subscriptionOnly,
-  clearNote,
   onSave,
   onClear,
   onStartOAuth,
@@ -124,9 +115,7 @@ export function ProviderCard({
   onSignedIn,
 }: ProviderCardProps) {
   const toast = useToast();
-  const [mode, setMode] = useState<"key" | "subscription">(
-    subscriptionOnly ? "subscription" : "key",
-  );
+  const [mode, setMode] = useState<"key" | "subscription">("key");
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -326,7 +315,12 @@ export function ProviderCard({
               <strong className="block truncate text-sm">{provider.models}</strong>
               <span className="block truncate text-xs text-muted">
                 {provider.name}
-                <span className="text-faint"> · {provider.how}</span>
+                <span className="text-faint">
+                  {" · "}
+                  {scope === "global" && provider.subscription?.personalOnly
+                    ? "API key"
+                    : provider.how}
+                </span>
               </span>
             </div>
           </div>
@@ -352,7 +346,7 @@ export function ProviderCard({
             </span>
           ) : !loading && fallbackSet ? (
             <span data-testid={tid("provider-fallback")} className="text-sm text-muted">
-              {fallbackLabel}
+              Using the global key
             </span>
           ) : (
             <span className="text-muted">—</span>
@@ -448,7 +442,7 @@ export function ProviderCard({
           </DialogHeader>
           {showWork ? (
             <div className="space-y-3">
-              {oauth && !subscriptionOnly ? (
+              {oauth ? (
                 <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
                   {(["key", "subscription"] as const).map((m) => (
                     <button
@@ -591,12 +585,11 @@ export function ProviderCard({
               {subscriptionStored ? "Sign out?" : "Remove key?"}
             </DialogTitle>
             <DialogDescription className="text-base text-soft">
-              {clearNote ??
-                (scope === "personal"
-                  ? fallbackSet
-                    ? `Your ${provider.models} chats go back to the global key.`
-                    : `${provider.models} chats you start will fail until a credential is set again.`
-                  : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`)}{" "}
+              {scope === "personal"
+                ? fallbackSet
+                  ? `Your ${provider.models} chats go back to the global key.`
+                  : `${provider.models} chats you start will fail until a credential is set again.`
+                : `${provider.models} turns without a credential of their own will fail until a key is set again. People who saved their own keep using it.`}{" "}
               Podium deletes the secret; nothing already running is stopped, and every session
               that has already answered keeps its history.
             </DialogDescription>

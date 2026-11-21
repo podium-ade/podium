@@ -225,14 +225,14 @@ func TestSignInIsRefusedWithNoOAuthClientConfigured(t *testing.T) {
 }
 
 // A Claude subscription is only spent by the chat host's Claude Code, so without one the
-// sign-in is not offered, and the refusal names both knobs.
+// sign-in is not offered, and the refusal says what is missing.
 func TestAClaudeSignInNeedsTheChatHostsClaudeCode(t *testing.T) {
 	f := newXAIFixture(t, newFakeIDP(t))
 	_, err := f.svc.StartProviderOAuth(loginCtx("alice"), connect.NewRequest(
 		&agentv1.StartProviderOAuthRequest{Provider: ProviderAnthropic}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), "PODIUM_AGENT_CHAT_HOST_CLAUDE")
+	assert.Contains(t, err.Error(), "the chat host and Claude Code")
 }
 
 // The background pass is the only thing keeping a signed-in provider working past its first
