@@ -499,7 +499,23 @@ func (c *Conductor) withRequestedBy(ctx context.Context, b *Brief, login string,
 	}
 	b.RequestedBy = who
 	b.Instruction = strings.TrimRight(b.Instruction, "\n") + "\n\n" +
-		requestedByNote(displayNameFor("", c.branding(ctx)), name, who, c.githubHandle(ctx, login))
+		requestedByNote(c.githubAppName(ctx), name, who, c.githubHandle(ctx, login))
+}
+
+// githubAppName is the App's display name as GitHub shows it on a pull request the App
+// opens, so the note names the account a reviewer sees. With no App, or when GitHub cannot
+// say, it is the deployment's name. Identity is cached by the client, and MintGitToken has already
+// asked for it by the time a turn writes.
+func (c *Conductor) githubAppName(ctx context.Context) string {
+	app := c.githubApp()
+	if app == nil {
+		return displayNameFor("", c.branding(ctx))
+	}
+	id, err := app.Identity(ctx)
+	if err != nil || strings.TrimSpace(id.DisplayName) == "" {
+		return displayNameFor("", c.branding(ctx))
+	}
+	return strings.TrimSpace(id.DisplayName)
 }
 
 // githubHandle is the GitHub login a person connected, or empty. A person who connected it
@@ -517,16 +533,16 @@ func (c *Conductor) githubHandle(ctx context.Context, login string) string {
 }
 
 // requestedByNote is the line withRequestedBy adds. Kept separate so a test pins its words.
-// handle is the person's GitHub login, when they connected one.
-// brand is the deployment's name.
-func requestedByNote(brand, name, who, handle string) string {
+// app is the GitHub App's display name; handle is the person's GitHub login, when they
+// connected one.
+func requestedByNote(app, name, who, handle string) string {
 	whom := name
 	if handle != "" {
 		whom = fmt.Sprintf("%s (@%s)", name, handle)
 	}
-	return fmt.Sprintf("(%[1]s note: you write to GitHub as the %[1]s App on behalf of %[2]s. "+
-		"%[1]s adds the trailer `Requested-by: %[3]s` to every commit you make; leave it there. "+
+	return fmt.Sprintf("(Podium note: you write to GitHub as the %s App on behalf of %s. "+
+		"Podium adds the trailer `Requested-by: %s` to every commit you make; leave it there. "+
 		"Any pull request you open is theirs: end its description with the line "+
-		"`Opened by %[1]s on behalf of %[4]s.` "+
-		"Say \"requested by %[2]s\" in any comment you write.)", brand, name, who, whom)
+		"`Opened by %s on behalf of %s.` "+
+		"Say \"requested by %s\" in any comment you write.)", app, name, who, app, whom, name)
 }

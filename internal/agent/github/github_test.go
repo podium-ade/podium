@@ -376,7 +376,7 @@ func TestIdentity(t *testing.T) {
 
 	t.Run("builds the address GitHub links a commit by", func(t *testing.T) {
 		f := newFake()
-		f.route("GET /app", 200, `{"slug":"podium-agent"}`)
+		f.route("GET /app", 200, `{"slug":"podium-agent","name":"Example Agent"}`)
 		f.route("GET /users/podium-agent[bot]", 200, `{"id":987654}`)
 		c := client(t, f, now)
 
@@ -384,6 +384,7 @@ func TestIdentity(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "podium-agent[bot]", got.Name)
 		assert.Equal(t, "987654+podium-agent[bot]@users.noreply.github.com", got.Email)
+		assert.Equal(t, "Example Agent", got.DisplayName, "the name GitHub shows, not the slug")
 
 		// GET /app needs the App JWT. GET /users rejects that same JWT with 401, so the
 		// bot lookup has to go out with no credential.
@@ -393,6 +394,17 @@ func TestIdentity(t *testing.T) {
 		assert.Contains(t, calls[0].Auth, "Bearer ")
 		assert.Equal(t, "/users/podium-agent[bot]", calls[1].Path)
 		assert.Empty(t, calls[1].Auth)
+	})
+
+	t.Run("an App that answers no name is shown by its slug", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /app", 200, `{"slug":"podium-agent","name":"  "}`)
+		f.route("GET /users/podium-agent[bot]", 200, `{"id":987654}`)
+		c := client(t, f, now)
+
+		got, err := c.Identity(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, "podium-agent", got.DisplayName)
 	})
 
 	t.Run("asks once and remembers: neither a slug nor a bot id changes", func(t *testing.T) {

@@ -116,18 +116,21 @@ func TestOnlyWhatAPersonMustSeeIsOwed(t *testing.T) {
 }
 
 func TestTheRequestedByNoteNamesThePerson(t *testing.T) {
-	note := requestedByNote("Podium", "Dana Smith", "Dana Smith <dana@acme.com>", "")
+	note := requestedByNote("Example Bot", "Dana Smith", "Dana Smith <dana@acme.com>", "")
 	assert.Contains(t, note, "`Requested-by: Dana Smith <dana@acme.com>`")
 	assert.Contains(t, note, `"requested by Dana Smith"`)
-	assert.Contains(t, note, "`Opened by Podium on behalf of Dana Smith.`", "a pull request says whose it is")
-	assert.Contains(t, requestedByNote("Podium", "Dana Smith", "Dana Smith <dana@acme.com>", "dana-gh"),
-		"`Opened by Podium on behalf of Dana Smith (@dana-gh).`", "a connected account is named by its handle")
+	assert.Contains(t, note, "you write to GitHub as the Example Bot App", "the App is named as GitHub shows it")
+	assert.Contains(t, note, "`Opened by Example Bot on behalf of Dana Smith.`", "a pull request says whose it is")
+	assert.Contains(t, note, "Podium adds the trailer", "the platform adds the trailer, whatever the App is called")
+	assert.Contains(t, requestedByNote("Example Bot", "Dana Smith", "Dana Smith <dana@acme.com>", "dana-gh"),
+		"`Opened by Example Bot on behalf of Dana Smith (@dana-gh).`", "a connected account is named by its handle")
 
 	b := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
 	c := &Conductor{}
 	c.withRequestedBy(t.Context(), b, "dana@acme.com", requester{}, nil)
 	assert.True(t, strings.HasPrefix(b.Instruction, "fix it\n\n(Podium note:"), b.Instruction)
 	assert.Contains(t, b.Instruction, "Requested-by: dana@acme.com")
+	assert.Contains(t, b.Instruction, "`Opened by "+houseName+" on behalf of", "with no App the house name stands in")
 	assert.Equal(t, "dana@acme.com", b.RequestedBy, "the runtime's hook writes the trailer from this")
 
 	asPerson := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}

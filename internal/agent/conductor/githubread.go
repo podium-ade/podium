@@ -78,7 +78,7 @@ var githubReadTools = []chatTool{
 
 // commentOnPullTool is the one write a system routine has on GitHub.
 var commentOnPullTool = chatTool{Name: "comment_on_pull_request", Description: "Post a comment on a pull " +
-	"request, as the Podium App. Use it to tell the people on the pull " +
+	"request, as the GitHub App. Use it to tell the people on the pull " +
 	"request what you found or propose; it is visible to everyone who can see the pull request. Write it to " +
 	"stand on its own, in Markdown, and say that it comes from the routine.",
 	InputSchema: objectSchema(map[string]any{
@@ -129,7 +129,7 @@ func (c *Conductor) commentOnPull(ctx context.Context, token, repo string, args 
 	}
 	tok, err := app.Token(ctx, owner, []string{name})
 	if err != nil {
-		return "", fmt.Errorf("commenting on %s as the Podium App: %w", repo, err)
+		return "", fmt.Errorf("commenting on %s as the GitHub App: %w", repo, err)
 	}
 	var out struct {
 		HTMLURL string `json:"html_url"`
@@ -265,11 +265,11 @@ func appReader(ctx context.Context, app *github.Client, repo string) (githubRead
 	owner, name := splitRepo(repo)
 	tok, err := app.ReadToken(ctx, owner, []string{name})
 	if errors.Is(err, github.ErrNotInstalled) {
-		return githubReader{}, fmt.Errorf("the Podium App is not installed on %s, so it cannot read %s; "+
+		return githubReader{}, fmt.Errorf("the GitHub App is not installed on %s, so it cannot read %s; "+
 			"list_repositories shows what it can read", owner, unescapeRepo(repo))
 	}
 	if err != nil {
-		return githubReader{}, fmt.Errorf("reading %s as the Podium App: %w", unescapeRepo(repo), err)
+		return githubReader{}, fmt.Errorf("reading %s as the GitHub App: %w", unescapeRepo(repo), err)
 	}
 	return githubReader{
 		get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, tok.Value, path, out) },
@@ -346,7 +346,7 @@ func (c *Conductor) listRepositories(ctx context.Context, token string, args map
 	if asApp {
 		all, err := app.InstallationRepos(ctx)
 		if err != nil {
-			return "", fmt.Errorf("listing the repositories the Podium App is installed on: %w", err)
+			return "", fmt.Errorf("listing the repositories the GitHub App is installed on: %w", err)
 		}
 		repos = all
 	}

@@ -1,4 +1,4 @@
-// The Requested-by trailer, enforced. A turn that writes to GitHub as the Podium App on
+// The Requested-by trailer, enforced. A turn that writes to GitHub as the GitHub App on
 // somebody's behalf puts `Requested-by: Name <login>` on every commit it makes, and that
 // must not depend on the model remembering an instruction.
 //
