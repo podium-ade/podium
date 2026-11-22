@@ -139,8 +139,10 @@ export function ShareButton({
  * pinned first), and general access with its link.
  *
  * multiplayer is the chat's own flag, set once a second person is in it. Such a chat runs on the
- * company's model key, for good, so the dialog warns the owner before they share and says so
- * afterwards. A share alone does not set it.
+ * company's model key, for good — or, when the identity policy's shared_model_key is
+ * "plan_then_app", on the plan of whoever asked and the company's key for anybody without one —
+ * so the dialog warns the owner before they share and says so afterwards. A share alone does
+ * not set it.
  */
 export function ShareDialog({
   chatId,
@@ -158,6 +160,14 @@ export function ShareDialog({
   const qc = useQueryClient();
   const toast = useToast();
   const key = ["agent", "chat-sharing", chatId];
+  // Who pays once the chat is shared. The Identity settings' own query key, so a save there is
+  // what this reads. Until it is known, or if it cannot be read, the default: the company's.
+  const policy = useQuery({
+    queryKey: ["agent", "identity-policy"],
+    queryFn: () => agent.getIdentityPolicy({}),
+    staleTime: 60_000,
+  });
+  const askerPays = policy.data?.policy?.sharedModelKey === "plan_then_app";
   const sharing = useQuery({
     queryKey: key,
     queryFn: async () => (await agent.getChatSharing({ chatId })).sharing,
@@ -209,20 +219,36 @@ export function ShareDialog({
         {s ? (
           multiplayer ? (
             <Alert role="note" data-testid="share-key-note">
-              More than one person is in this chat, so Podium answers it using the company’s model key.
+              {askerPays
+                ? "More than one person is in this chat, so Podium answers each person using their own Claude, ChatGPT or Grok plan if they signed one in, and the company’s model key otherwise."
+                : "More than one person is in this chat, so Podium answers it using the company’s model key."}{" "}
               Everyone keeps their own GitHub account, secrets and MCP servers.
             </Alert>
           ) : owner ? (
-            <Alert
-              variant="warn"
-              role="note"
-              data-testid="share-key-warning"
-              title="A chat with a second person uses the company’s model key"
-            >
-              Once somebody else speaks in it, Podium’s replies here, yours included, are billed to
-              the company instead of your own key, even if you stop sharing later. Everyone keeps their own
-              GitHub account, secrets and MCP servers.
-            </Alert>
+            askerPays ? (
+              <Alert
+                variant="warn"
+                role="note"
+                data-testid="share-key-warning"
+                title="A chat with a second person uses each person’s own plan"
+              >
+                Once somebody else speaks in it, each reply here is paid by the plan of whoever asked for
+                it, or by the company’s model key when they have none. Your own API key is not used here,
+                even if you stop sharing later, and nobody’s plan pays for somebody else’s question.
+                Everyone keeps their own GitHub account, secrets and MCP servers.
+              </Alert>
+            ) : (
+              <Alert
+                variant="warn"
+                role="note"
+                data-testid="share-key-warning"
+                title="A chat with a second person uses the company’s model key"
+              >
+                Once somebody else speaks in it, Podium’s replies here, yours included, are billed to
+                the company instead of your own key, even if you stop sharing later. Everyone keeps their own
+                GitHub account, secrets and MCP servers.
+              </Alert>
+            )
           ) : null
         ) : null}
 

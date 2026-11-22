@@ -46,6 +46,7 @@ func (s *AgentService) SetIdentityPolicy(
 		GitHubWrite:     in.GetGithubWrite(),
 		GitHubRead:      in.GetGithubRead(),
 		ModelKey:        in.GetModelKey(),
+		SharedModelKey:  in.GetSharedModelKey(),
 		SlackOutsiders:  in.GetSlackOutsiders(),
 		LinearOutsiders: in.GetLinearOutsiders(),
 		GitHubOutsiders: in.GetGithubOutsiders(),
@@ -55,7 +56,7 @@ func (s *AgentService) SetIdentityPolicy(
 	}
 	s.auditSubject(ctx, login, AuditIdentityPolicy, "identity", map[string]any{
 		"linear": p.Linear, "github_write": p.GitHubWrite, "github_read": p.GitHubRead,
-		"model_key": p.ModelKey, "slack_outsiders": p.SlackOutsiders,
+		"model_key": p.ModelKey, "shared_model_key": p.SharedModelKey, "slack_outsiders": p.SlackOutsiders,
 		"linear_outsiders": p.LinearOutsiders, "github_outsiders": p.GitHubOutsiders,
 	})
 	return connect.NewResponse(&agentv1.SetIdentityPolicyResponse{Policy: identityPolicyToProto(p)}), nil
@@ -67,6 +68,7 @@ func identityPolicyToProto(p store.IdentityPolicy) *agentv1.IdentityPolicy {
 		GithubWrite:     p.GitHubWrite,
 		GithubRead:      p.GitHubRead,
 		ModelKey:        p.ModelKey,
+		SharedModelKey:  p.SharedModelKey,
 		SlackOutsiders:  p.SlackOutsiders,
 		LinearOutsiders: p.LinearOutsiders,
 		GithubOutsiders: p.GitHubOutsiders,

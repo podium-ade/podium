@@ -15,19 +15,20 @@ func TestAnEmptyIdentityPolicyIsTheDefault(t *testing.T) {
 
 func TestAnIdentityPolicyOffersEachCapabilityOnlyItsChoices(t *testing.T) {
 	for name, p := range map[string]IdentityPolicy{
-		"linear":           {Linear: "sometimes"},
-		"github read app":  {GitHubRead: IdentityApp},
-		"model key person": {ModelKey: IdentityPersonOnly},
-		"slack fixed":      {SlackOutsiders: OutsidersFixed},
-		"linear review":    {LinearOutsiders: OutsidersReview},
-		"github answer":    {GitHubOutsiders: OutsidersAnswer},
+		"linear":            {Linear: "sometimes"},
+		"github read app":   {GitHubRead: IdentityApp},
+		"model key person":  {ModelKey: IdentityPersonOnly},
+		"shared key theirs": {SharedModelKey: IdentityPersonThenApp},
+		"slack fixed":       {SlackOutsiders: OutsidersFixed},
+		"linear review":     {LinearOutsiders: OutsidersReview},
+		"github answer":     {GitHubOutsiders: OutsidersAnswer},
 	} {
 		err := p.Validate()
 		require.ErrorIs(t, err, ErrInvalidIdentityPolicy, name)
 	}
 	require.NoError(t, IdentityPolicy{
 		Linear: IdentityApp, GitHubWrite: IdentityPersonOnly, GitHubRead: IdentityPersonThenApp,
-		ModelKey: IdentityApp, SlackOutsiders: OutsidersAnswer, LinearOutsiders: OutsidersFixed,
+		ModelKey: IdentityApp, SharedModelKey: IdentityPlanThenApp, SlackOutsiders: OutsidersAnswer, LinearOutsiders: OutsidersFixed,
 		GitHubOutsiders: OutsidersRefuse,
 	}.Validate())
 }

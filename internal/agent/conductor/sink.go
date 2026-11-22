@@ -38,6 +38,9 @@ type sink struct {
 	// speaker is the playbook this output came from, on everything it says. The zero
 	// Speaker for a host turn: the assistant runs no playbook.
 	speaker Speaker
+	// byline is what answered: put on every answer this run relays (Outbound.Byline). The
+	// zero Byline when it cannot be told.
+	byline Byline
 	// placeholder is the "working…" message progress edits replace. It is empty for a
 	// resumed turn and for a delegated task, whose progress is posted as new messages
 	// instead — there is nothing of theirs on screen to replace.
@@ -210,7 +213,7 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 	s.flushProgress(ctx)
 	s.noteFinal(text, attachments)
 	if text != "" {
-		s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Text: text})
+		s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Speaker: s.speaker, Byline: s.byline, Text: text})
 	}
 	// After the text, so the files sit under the answer that asked for them. One stored
 	// before the answer arrived is attached now; one stored after, when its event does.
