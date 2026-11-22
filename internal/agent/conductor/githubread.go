@@ -227,32 +227,27 @@ func (c *Conductor) githubReaderFor(ctx context.Context, token, repo string) (gi
 	if app == nil {
 		return githubReader{}, errors.New("GitHub is not connected to Podium (Settings → Connections), so there is nothing to read with")
 	}
+	// A system routine reads as the App. Anybody else reads as themselves; the identity
+	// policy's github_read "person_then_app" lets the App, read-only and one repository at a
+	// time, stand in for somebody who has not connected GitHub, or for a turn nobody is behind.
+	fallback := c.identityPolicy(ctx).GitHubRead == store.IdentityPersonThenApp
 	login := turnOwner(g.login)
 	if login == "" {
-		if _, err := c.systemRoutineFor(ctx, g); err != nil {
+		if _, err := c.systemRoutineFor(ctx, g); err != nil && !fallback {
 			return githubReader{}, err
 		}
-		owner, name := splitRepo(repo)
-		tok, err := app.ReadToken(ctx, owner, []string{name})
-		if errors.Is(err, github.ErrNotInstalled) {
-			return githubReader{}, fmt.Errorf("the GitHub App is not installed on %s, so it cannot read %s; "+
-				"list_repositories shows what it can read", owner, unescapeRepo(repo))
-		}
-		if err != nil {
-			return githubReader{}, fmt.Errorf("reading %s as the GitHub App: %w", unescapeRepo(repo), err)
-		}
-		return githubReader{
-			get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, tok.Value, path, out) },
-			getText: func(ctx context.Context, path string, limit int64) (string, error) {
-				return app.GetTextAs(ctx, tok.Value, path, limit)
-			},
-		}, nil
+		return appReader(ctx, app, repo)
 	}
 	tokens, err := c.userTokenClient(ctx)
 	if err != nil {
 		return githubReader{}, err
 	}
 	personal, err := c.personToken(ctx, login, tokens)
+	if err != nil && fallback {
+		c.logger.InfoContext(ctx, "this person has no github to read with; the turn reads as the app",
+			"login", login, "error", err)
+		return appReader(ctx, app, repo)
+	}
 	if err != nil {
 		return githubReader{}, fmt.Errorf("reading GitHub as the routine's owner needs their GitHub account "+
 			"connected under Settings → Account: %w", err)
@@ -261,6 +256,25 @@ func (c *Conductor) githubReaderFor(ctx context.Context, token, repo string) (gi
 		get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, personal, path, out) },
 		getText: func(ctx context.Context, path string, limit int64) (string, error) {
 			return app.GetTextAs(ctx, personal, path, limit)
+		},
+	}, nil
+}
+
+// appReader reads repo as the App, with a token minted read-only for that one repository.
+func appReader(ctx context.Context, app *github.Client, repo string) (githubReader, error) {
+	owner, name := splitRepo(repo)
+	tok, err := app.ReadToken(ctx, owner, []string{name})
+	if errors.Is(err, github.ErrNotInstalled) {
+		return githubReader{}, fmt.Errorf("the GitHub App is not installed on %s, so it cannot read %s; "+
+			"list_repositories shows what it can read", owner, unescapeRepo(repo))
+	}
+	if err != nil {
+		return githubReader{}, fmt.Errorf("reading %s as the GitHub App: %w", unescapeRepo(repo), err)
+	}
+	return githubReader{
+		get: func(ctx context.Context, path string, out any) error { return app.GetAs(ctx, tok.Value, path, out) },
+		getText: func(ctx context.Context, path string, limit int64) (string, error) {
+			return app.GetTextAs(ctx, tok.Value, path, limit)
 		},
 	}, nil
 }
@@ -292,7 +306,8 @@ func unescapeRepo(repo string) string {
 }
 
 // listRepositories is what the turn can read: the App's installations for a system routine,
-// the owner's own repositories for a personal one.
+// the owner's own repositories for a personal one, and the App's for an owner with no GitHub
+// when the identity policy lets the App stand in.
 func (c *Conductor) listRepositories(ctx context.Context, token string, args map[string]any) (string, error) {
 	g, ok := c.grantFor(ctx, token)
 	if !ok {
@@ -303,28 +318,37 @@ func (c *Conductor) listRepositories(ctx context.Context, token string, args map
 		return "", errors.New("GitHub is not connected to Podium (Settings → Connections), so there is nothing to read with")
 	}
 	var repos []github.Repo
+	fallback := c.identityPolicy(ctx).GitHubRead == store.IdentityPersonThenApp
+	asApp := false
 	if login := turnOwner(g.login); login == "" {
-		if _, err := c.systemRoutineFor(ctx, g); err != nil {
+		if _, err := c.systemRoutineFor(ctx, g); err != nil && !fallback {
 			return "", err
 		}
-		all, err := app.InstallationRepos(ctx)
-		if err != nil {
-			return "", fmt.Errorf("listing the repositories the GitHub App is installed on: %w", err)
-		}
-		repos = all
+		asApp = true
 	} else {
 		tokens, err := c.userTokenClient(ctx)
 		if err != nil {
 			return "", err
 		}
 		personal, err := c.personToken(ctx, login, tokens)
-		if err != nil {
+		switch {
+		case err != nil && fallback:
+			asApp = true
+		case err != nil:
 			return "", fmt.Errorf("reading GitHub as the routine's owner needs their GitHub account "+
 				"connected under Settings → Account: %w", err)
+		default:
+			if err := app.GetAs(ctx, personal, "/user/repos?per_page=100&sort=pushed", &repos); err != nil {
+				return "", err
+			}
 		}
-		if err := app.GetAs(ctx, personal, "/user/repos?per_page=100&sort=pushed", &repos); err != nil {
-			return "", err
+	}
+	if asApp {
+		all, err := app.InstallationRepos(ctx)
+		if err != nil {
+			return "", fmt.Errorf("listing the repositories the GitHub App is installed on: %w", err)
 		}
+		repos = all
 	}
 	query, _ := args["query"].(string)
 	query = strings.ToLower(strings.TrimSpace(query))

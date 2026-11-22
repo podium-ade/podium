@@ -127,23 +127,23 @@ func TestTheRequestedByNoteNamesThePerson(t *testing.T) {
 
 	b := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
 	c := &Conductor{}
-	c.withRequestedBy(t.Context(), b, "dana@acme.com", nil)
+	c.withRequestedBy(t.Context(), b, "dana@acme.com", requester{}, nil)
 	assert.True(t, strings.HasPrefix(b.Instruction, "fix it\n\n(Podium note:"), b.Instruction)
 	assert.Contains(t, b.Instruction, "Requested-by: dana@acme.com")
 	assert.Contains(t, b.Instruction, "`Opened by "+houseName+" on behalf of", "with no App the house name stands in")
 	assert.Equal(t, "dana@acme.com", b.RequestedBy, "the runtime's hook writes the trailer from this")
 
 	asPerson := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
-	c.withRequestedBy(t.Context(), asPerson, "dana@acme.com", &BriefGit{Name: "Dana"})
+	c.withRequestedBy(t.Context(), asPerson, "dana@acme.com", requester{}, &BriefGit{Name: "Dana"})
 	assert.Equal(t, "fix it", asPerson.Instruction, "a turn committing as the person needs no note")
 	assert.Empty(t, asPerson.RequestedBy, "nor a trailer")
 
 	noGit := &Brief{Instruction: "fix it"}
-	c.withRequestedBy(t.Context(), noGit, "dana@acme.com", nil)
+	c.withRequestedBy(t.Context(), noGit, "dana@acme.com", requester{}, nil)
 	assert.Equal(t, "fix it", noGit.Instruction, "a turn that cannot write to GitHub needs no note")
 
 	nobody := &Brief{Instruction: "fix it", GitCredentials: &BriefGitCredentials{URL: "u", TokenEnv: "T"}}
-	c.withRequestedBy(t.Context(), nobody, "", nil)
+	c.withRequestedBy(t.Context(), nobody, "", requester{}, nil)
 	assert.Equal(t, "fix it", nobody.Instruction)
 	assert.Empty(t, nobody.RequestedBy)
 }

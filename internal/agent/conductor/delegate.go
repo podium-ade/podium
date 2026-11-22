@@ -82,6 +82,9 @@ type turnGrant struct {
 	// task's personal secrets and MCP servers are theirs. Empty for a turn nobody in Podium
 	// started.
 	login string
+	// requester is who the turn is for, as what it writes as the organization names them
+	// (onbehalf.go): set for somebody who is not a Podium person too. Zero for a routine's.
+	requester requester
 }
 
 // mintTurnToken issues a token for one assistant turn. It lives until revokeTurnToken, which
@@ -778,7 +781,7 @@ func (c *Conductor) startDelegatedTask(
 	if login == "" && !c.isRoutineTurn(g.turnID) {
 		login = c.asker(ctx, g.src, sess)
 	}
-	persona, err := c.githubPersona(ctx, login, playbook)
+	persona, err := c.githubPersona(ctx, login, playbook, c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID)))
 	if err != nil {
 		return nil, err
 	}
@@ -794,9 +797,10 @@ func (c *Conductor) startDelegatedTask(
 		mcpOwner = g.login
 	}
 	// A playbook is strict: a server it names that this person cannot have fails here.
-	// A task a run as Podium delegates acts as Podium too: its Linear is the Linear app's.
-	asPodium := c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID))
-	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, asPodium)
+	// A task a run as Podium delegates acts as Podium too: its Linear is the Linear app's. One
+	// delegated from Linear has Linear as its turn did: the person's own, else the app's.
+	linear := c.linearAccessOf(ctx, login, c.routineRefOf(g.turnID), sourceKindOf(g.src, sess))
+	servers, unavailable, err := c.mcpServers(ctx, j, mcpOwner, linear)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
@@ -805,7 +809,13 @@ func (c *Conductor) startDelegatedTask(
 	if persona != nil {
 		brief.Git = persona
 	}
-	c.withRequestedBy(ctx, brief, login, persona)
+	who := g.requester
+	if who.Name == "" && login != "" {
+		// A grant from before requesters were carried, or a web chat's asker.
+		who = c.requesterOf(ctx, login, g.src, InboundEvent{})
+	}
+	c.withRequestedBy(ctx, brief, login, who, persona)
+	c.withOnBehalfOf(ctx, brief, who, login, sess.ID, dlg.ID, servers, persona)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)

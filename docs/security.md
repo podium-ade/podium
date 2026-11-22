@@ -240,7 +240,10 @@ SAML is not implemented.
     an app). The conductor keeps that email only when it is a login that has signed in to
     Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Anybody else gets 🚫 in Slack
     or a plain-words error in the Linear session ("sign in to Podium with the same email"), and
-    nothing runs; the message is the same whichever check they failed. The turn runs **as that
+    nothing runs; the message is the same whichever check they failed — unless an admin set
+    *Settings → Identity* to answer them, when they run as nobody: any playbook in Slack, or in
+    Linear either any playbook or ("delegated issues only") just the delegation itself, worded
+    from the issue. The turn of a Podium person runs **as that
     person**: their personal secrets, their MCP servers, their GitHub account. In a Linear agent
     session that is **any playbook**, as it is in Slack: a `/playbook` at the start of a prompt
     names one, and the assistant answering an @mention may delegate to any playbook it is offered,

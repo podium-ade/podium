@@ -747,7 +747,7 @@ func storeError(err error) error {
 	case errors.Is(err, store.ErrNoSuchMember):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection),
-		errors.Is(err, store.ErrBadLinearCursor):
+		errors.Is(err, store.ErrBadLinearCursor), errors.Is(err, store.ErrInvalidIdentityPolicy):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("agent store: %w", err))

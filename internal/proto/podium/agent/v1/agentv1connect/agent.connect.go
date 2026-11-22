@@ -308,6 +308,12 @@ const (
 	// AgentServiceSetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
 	// SetRoutineLimits RPC.
 	AgentServiceSetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/SetRoutineLimits"
+	// AgentServiceGetIdentityPolicyProcedure is the fully-qualified name of the AgentService's
+	// GetIdentityPolicy RPC.
+	AgentServiceGetIdentityPolicyProcedure = "/podium.agent.v1.AgentService/GetIdentityPolicy"
+	// AgentServiceSetIdentityPolicyProcedure is the fully-qualified name of the AgentService's
+	// SetIdentityPolicy RPC.
+	AgentServiceSetIdentityPolicyProcedure = "/podium.agent.v1.AgentService/SetIdentityPolicy"
 	// AgentServiceGetLinearIssuesProcedure is the fully-qualified name of the AgentService's
 	// GetLinearIssues RPC.
 	AgentServiceGetLinearIssuesProcedure = "/podium.agent.v1.AgentService/GetLinearIssues"
@@ -630,6 +636,11 @@ type AgentServiceClient interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+	// and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+	// can see whose Linear or GitHub their turns will use; setting is admins only.
+	GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error)
+	SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error)
 	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
 	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
 	// issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -1234,6 +1245,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 			connect.WithClientOptions(opts...),
 		),
+		getIdentityPolicy: connect.NewClient[v1.GetIdentityPolicyRequest, v1.GetIdentityPolicyResponse](
+			httpClient,
+			baseURL+AgentServiceGetIdentityPolicyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetIdentityPolicy")),
+			connect.WithClientOptions(opts...),
+		),
+		setIdentityPolicy: connect.NewClient[v1.SetIdentityPolicyRequest, v1.SetIdentityPolicyResponse](
+			httpClient,
+			baseURL+AgentServiceSetIdentityPolicyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetIdentityPolicy")),
+			connect.WithClientOptions(opts...),
+		),
 		getLinearIssues: connect.NewClient[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse](
 			httpClient,
 			baseURL+AgentServiceGetLinearIssuesProcedure,
@@ -1348,6 +1371,8 @@ type agentServiceClient struct {
 	listMemberRoutines         *connect.Client[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse]
 	getRoutineLimits           *connect.Client[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse]
 	setRoutineLimits           *connect.Client[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse]
+	getIdentityPolicy          *connect.Client[v1.GetIdentityPolicyRequest, v1.GetIdentityPolicyResponse]
+	setIdentityPolicy          *connect.Client[v1.SetIdentityPolicyRequest, v1.SetIdentityPolicyResponse]
 	getLinearIssues            *connect.Client[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse]
 	getLinearIssueConversation *connect.Client[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse]
 }
@@ -1837,6 +1862,16 @@ func (c *agentServiceClient) SetRoutineLimits(ctx context.Context, req *connect.
 	return c.setRoutineLimits.CallUnary(ctx, req)
 }
 
+// GetIdentityPolicy calls podium.agent.v1.AgentService.GetIdentityPolicy.
+func (c *agentServiceClient) GetIdentityPolicy(ctx context.Context, req *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error) {
+	return c.getIdentityPolicy.CallUnary(ctx, req)
+}
+
+// SetIdentityPolicy calls podium.agent.v1.AgentService.SetIdentityPolicy.
+func (c *agentServiceClient) SetIdentityPolicy(ctx context.Context, req *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error) {
+	return c.setIdentityPolicy.CallUnary(ctx, req)
+}
+
 // GetLinearIssues calls podium.agent.v1.AgentService.GetLinearIssues.
 func (c *agentServiceClient) GetLinearIssues(ctx context.Context, req *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
 	return c.getLinearIssues.CallUnary(ctx, req)
@@ -2161,6 +2196,11 @@ type AgentServiceHandler interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+	// and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+	// can see whose Linear or GitHub their turns will use; setting is admins only.
+	GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error)
+	SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error)
 	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
 	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
 	// issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -2761,6 +2801,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetIdentityPolicyHandler := connect.NewUnaryHandler(
+		AgentServiceGetIdentityPolicyProcedure,
+		svc.GetIdentityPolicy,
+		connect.WithSchema(agentServiceMethods.ByName("GetIdentityPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetIdentityPolicyHandler := connect.NewUnaryHandler(
+		AgentServiceSetIdentityPolicyProcedure,
+		svc.SetIdentityPolicy,
+		connect.WithSchema(agentServiceMethods.ByName("SetIdentityPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceGetLinearIssuesHandler := connect.NewUnaryHandler(
 		AgentServiceGetLinearIssuesProcedure,
 		svc.GetLinearIssues,
@@ -2969,6 +3021,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetRoutineLimitsHandler.ServeHTTP(w, r)
 		case AgentServiceSetRoutineLimitsProcedure:
 			agentServiceSetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceGetIdentityPolicyProcedure:
+			agentServiceGetIdentityPolicyHandler.ServeHTTP(w, r)
+		case AgentServiceSetIdentityPolicyProcedure:
+			agentServiceSetIdentityPolicyHandler.ServeHTTP(w, r)
 		case AgentServiceGetLinearIssuesProcedure:
 			agentServiceGetLinearIssuesHandler.ServeHTTP(w, r)
 		case AgentServiceGetLinearIssueConversationProcedure:
@@ -3368,6 +3424,14 @@ func (UnimplementedAgentServiceHandler) GetRoutineLimits(context.Context, *conne
 
 func (UnimplementedAgentServiceHandler) SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetIdentityPolicy is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetIdentityPolicy is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {

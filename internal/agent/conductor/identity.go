@@ -10,7 +10,9 @@ import (
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
-// Who may start a turn, and as whom (multiplayer sessions, docs/agent.md).
+// Who may start a turn, and as whom (multiplayer sessions, docs/agent.md). The rules below for
+// somebody who did not resolve are the defaults; the identity policy (store.IdentityPolicy)
+// may answer them on Slack or Linear, and may refuse GitHub's review command.
 //
 // Every surface is one identity: a Slack, Linear or GitHub account counts as a person only
 // once it has been PROVEN to be a Podium login — a Slack workspace email or a Linear email
@@ -253,6 +255,11 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 			c.gateDecision(kind, "admitted")
 			return true
 		}
+		if c.identityPolicy(ctx).SlackOutsiders == store.OutsidersAnswer {
+			// Answered as Podium: nobody's secrets, the company's key (identity policy).
+			c.gateDecision(kind, "outsider_answered")
+			return true
+		}
 		c.refuse(ctx, src, *ev, "not in podium")
 		return false
 	case SourceLinear:
@@ -266,10 +273,21 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 		case ev.Login != "":
 			c.gateDecision(kind, "admitted")
 			return true
-		default:
-			c.refuse(ctx, src, *ev, "not in podium")
-			return false
 		}
+		switch c.identityPolicy(ctx).LinearOutsiders {
+		case store.OutsidersAnswer:
+			c.gateDecision(kind, "outsider_answered")
+			return true
+		case store.OutsidersFixed:
+			// Only the delegation itself. Its text is the issue as Podium words it (the app's
+			// issue.brief), never anything they typed; a mention or a reply from them is refused.
+			if ev.Delegated && ev.DelegatedIssue != nil {
+				c.gateDecision(kind, "outsider_delegation")
+				return true
+			}
+		}
+		c.refuse(ctx, src, *ev, "not in podium")
+		return false
 	case SourceGitHub:
 		switch {
 		case ev.Automatic:
@@ -281,6 +299,9 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 		case ev.SpeakerProvider == store.ProviderSlack:
 			// A Slack mention that named a pull request follows Slack's rule.
 			c.refuse(ctx, src, *ev, "not in podium")
+			return false
+		case ev.ReviewRequest != "" && c.identityPolicy(ctx).GitHubOutsiders == store.OutsidersRefuse:
+			c.refuse(ctx, src, *ev, "not linked")
 			return false
 		case ev.ReviewRequest != "":
 			// Joining the review already running first: it starts nothing, so it must not
