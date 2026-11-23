@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
  * Side-menu marks from the design shell. Each path is the product-nav icon
  * for that page, drawn in a 24 viewBox at 18px with a 1.8 stroke.
  */
+// oxlint-disable-next-line react/only-export-components -- the header test checks each icon against its path
 export const NAV_ICON_PATHS = {
   chat: "M4 5h16v11H9l-5 4V5Z M7 9h10 M7 12h7",
   sessions: "M4 4v5h5 M4.8 9a8 8 0 1 1-.6 5 M12 7v5l3 2",

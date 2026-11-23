@@ -180,7 +180,7 @@ export function ChatComposer({
       files.forEach(revokePreview);
     };
     // Intentionally once: each chip revokes itself on remove, and this only catches unmount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const takeFiles = async (incoming: File[]) => {
