@@ -28,6 +28,12 @@ export interface TurnSummary {
   sdk_session_id: string;
   num_turns: number;
   total_cost_usd: number;
+  /** The tokens the turn's steps used, summed. The conductor records them beside the cost. */
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   exit_code: number;
   started_at: string;
   finished_at: string;

@@ -1,101 +1,216 @@
-import { useState } from "react";
-import type { TaskCost } from "../../gen/podium/agent/v1/agent_pb";
-import { breakdown, ranBy, usd, type Slice } from "../../lib/usage";
+import { useState, type ReactNode } from "react";
+import type { GetUsageResponse } from "../../gen/podium/agent/v1/agent_pb";
+import {
+  billed,
+  credentialLabel,
+  groupTotals,
+  isUnrecorded,
+  originLabel,
+  personLabel,
+  routineNames,
+  totals,
+  usd,
+  type Totals,
+} from "../../lib/usage";
+import { dimmed } from "../../lib/useLagging";
 import { cn } from "../../lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
+import { Clip, ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
 
-type Dimension = { id: string; label: string; pick: (c: TaskCost) => string };
+/** Slice is one row of a breakdown: what it is, drawn, and what it cost. */
+type Slice = { key: string; name: string; cell: ReactNode; t: Totals };
+
+type Dimension = {
+  id: string;
+  label: string;
+  slices: (u: GetUsageResponse) => Slice[];
+};
 
 /**
- * The two questions worth asking of a bill: what spent it, and where the work came from.
- * Both are session fields the conductor already stores, so neither costs a query.
- *
- * "What" is the assistant or a playbook, which is why it is not called "by playbook": a
- * conversation is answered on the host and runs none.
+ * The questions worth asking of a bill: where the work came from, what model did it, whose it
+ * was, and what paid. Each one is a grouping the server already did over the whole range, so
+ * none of them is a guess from a capped page of rows.
  */
 const DIMENSIONS: Dimension[] = [
-  { id: "playbook", label: "By what ran it", pick: (c) => ranBy(c.playbook) },
-  { id: "source", label: "By source", pick: (c) => c.sourceKind },
+  {
+    id: "source",
+    label: "Source",
+    slices: (u) =>
+      u.sources.map((g) => ({
+        key: g.key,
+        name: originLabel(g.key),
+        cell: <SourceCell origin={g.key} />,
+        t: totals(g.totals),
+      })),
+  },
+  {
+    id: "model",
+    label: "Model",
+    slices: (u) =>
+      u.backends.map((b) => ({
+        key: `${b.provider}/${b.agent}/${b.model}/${b.effort}`,
+        name: isUnrecorded(b) ? "Unrecorded" : b.model,
+        cell: (
+          <ModelCell
+            provider={b.provider}
+            model={b.model}
+            effort={b.effort}
+            agent={b.agent}
+          />
+        ),
+        t: groupTotals(b),
+      })),
+  },
+  {
+    id: "person",
+    label: "Person",
+    slices: (u) => {
+      const names = routineNames(u.routines);
+      return u.people.map((p) => ({
+        key: p.startedBy || "-",
+        name: personLabel(p.startedBy, names),
+        cell: <PersonCell startedBy={p.startedBy} routines={names} />,
+        t: groupTotals(p),
+      }));
+    },
+  },
+  {
+    id: "paid",
+    label: "Paid with",
+    slices: (u) =>
+      u.credentials.map((g) => ({
+        key: g.key,
+        name: credentialLabel(g),
+        cell: (
+          <PaidWith
+            authKind={g.authKind}
+            owner={g.owner}
+            account={g.account}
+            provider={g.provider}
+          />
+        ),
+        t: totals(g.totals),
+      })),
+  },
 ];
 
+/** How many rows the card shows before it summarises the rest. */
+const SHOWN = 5;
+
 /**
- * UsageBreakdown splits the window's spend along one dimension at a time.
- *
- * It reads only the conductor's costs, so it accounts for agent spend and says so — a task
- * that no turn ran has nothing to attribute to a playbook, and inventing an "other" bar for it
- * would imply the money went somewhere.
+ * UsageBreakdown splits the range's spend along one dimension at a time. Each bar is the
+ * group's whole cost, its billed part solid and its subscription-covered part lighter, the
+ * same two tones the trend uses.
  */
-export function UsageBreakdown({ costs, loading }: { costs: TaskCost[]; loading?: boolean }) {
-  const [dim, setDim] = useState(DIMENSIONS[0]);
-  const slices = breakdown(costs, dim.pick);
-  const total = slices.reduce((sum, s) => sum + s.cost, 0);
+export function UsageBreakdown({
+  usage,
+  loading,
+}: {
+  usage: GetUsageResponse | undefined;
+  loading?: boolean;
+}) {
+  const [dim, setDim] = useState(DIMENSIONS[0].id);
+  const d = DIMENSIONS.find((x) => x.id === dim) ?? DIMENSIONS[0];
+  const slices = usage
+    ? [...d.slices(usage)].sort(
+        (a, b) => b.t.cost - a.t.cost || b.t.turns - a.t.turns,
+      )
+    : [];
+  const max = slices[0]?.t.cost ?? 0;
 
   return (
-    <section aria-label="Where it went" className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-fg">Where it went</h2>
-        <div className="inline-flex h-7 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-          {DIMENSIONS.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => setDim(d)}
-              aria-pressed={d.id === dim.id}
-              className={cn(
-                "h-6 rounded-md px-2 text-2xs font-medium transition-colors",
-                "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                d.id === dim.id ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
-              )}
-            >
-              {d.label}
-            </button>
-          ))}
+    <Card aria-label="Where it went" role="region" className="flex flex-col">
+      <CardHeader className="pb-1">
+        <div>
+          <CardTitle>Where it went</CardTitle>
         </div>
-      </header>
+        <ToggleGroup
+          type="single"
+          value={dim}
+          onValueChange={(v) => v && setDim(v)}
+          aria-label="Break spend down by"
+        >
+          {DIMENSIONS.map((x) => (
+            <ToggleGroupItem key={x.id} value={x.id}>
+              {x.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </CardHeader>
 
-      <div className={cn("mt-4 flex-1 transition-opacity", loading && "opacity-50")}>
+      {/* The body always has room for SHOWN rows and the line under them, whatever the data:
+          a filter that leaves one source behind must not pull up everything below the card. */}
+      <CardContent
+        className={cn("relative flex-1", dimmed(loading))}
+      >
+        {/* 12.75rem is SHOWN rows at their tallest (a person's avatar row) and the gaps between. */}
+        <ol className="mt-2 min-h-[12.75rem] space-y-1.5">
+          {slices.slice(0, SHOWN).map((s) => (
+            <Bar key={s.key} slice={s} max={max} />
+          ))}
+        </ol>
+        <p
+          aria-hidden={slices.length <= SHOWN}
+          className={cn("mt-2 text-2xs text-faint", slices.length <= SHOWN && "invisible")}
+        >
+          {slices.length > SHOWN ? (
+            <>
+              and {slices.length - SHOWN} more, each below {usd(slices[SHOWN - 1].t.cost)}
+            </>
+          ) : (
+            "\u00a0"
+          )}
+        </p>
         {slices.length === 0 ? (
-          <p className="py-8 text-center text-xs text-muted">
-            No agent turns ran in this window, so there is nothing to attribute.
-          </p>
-        ) : (
-          <ol className="space-y-2.5">
-            {slices.slice(0, 8).map((s) => (
-              <Bar key={s.key} slice={s} total={total} />
-            ))}
-          </ol>
-        )}
-        {slices.length > 8 ? (
-          <p className="mt-3 text-2xs text-faint">
-            and {slices.length - 8} more, each below {usd(slices[7].cost)}
+          <p className="absolute inset-0 flex items-center justify-center px-5 text-center text-xs text-muted">
+            Nothing ran in this range, so there is nothing to attribute.
           </p>
         ) : null}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 
-function Bar({ slice, total }: { slice: Slice; total: number }) {
-  // Against a total of zero every share is undefined, not 100%: a window where nothing
-  // reported a cost draws empty bars rather than full ones.
-  const share = total > 0 ? slice.cost / total : 0;
+function Bar({ slice, max }: { slice: Slice; max: number }) {
+  const { t } = slice;
+  // Scaled to the largest group so the ranking reads at a glance. Against a max of zero
+  // every bar is empty rather than full: nothing reported a cost.
+  const width = max > 0 ? t.cost / max : 0;
+  const paidShare = t.cost > 0 ? billed(t) / t.cost : 0;
+  const tip =
+    `${slice.name}: ${usd(billed(t))} billed` +
+    (t.subscription > 0
+      ? `, ${usd(t.subscription)} covered by subscription`
+      : "") +
+    ` over ${t.turns} ${t.turns === 1 ? "turn" : "turns"}`;
   return (
     <li>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
-        <span className="truncate font-mono text-fg" title={slice.key}>
-          {slice.key}
-        </span>
-        <span className="shrink-0 tabular text-muted">
-          {usd(slice.cost)}
-          <span className="ml-1.5 text-faint">
-            {slice.turns} {slice.turns === 1 ? "turn" : "turns"}
+      <div className="flex items-center justify-between gap-3">
+        <Clip>{slice.cell}</Clip>
+        <span className="shrink-0 text-xs tabular text-fg">
+          {usd(t.cost)}
+          <span className="ml-1.5 text-2xs text-faint">
+            {t.turns} {t.turns === 1 ? "turn" : "turns"}
           </span>
         </span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-raised">
+      <div
+        className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-raised"
+        role="img"
+        aria-label={tip}
+        title={tip}
+      >
         <div
-          className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-          style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0)}%` }}
-        />
+          className="flex h-full"
+          style={{ width: `${Math.max(width * 100, width > 0 ? 2 : 0)}%` }}
+        >
+          <div
+            className="h-full bg-accent"
+            style={{ width: `${paidShare * 100}%` }}
+          />
+          <div className="h-full flex-1 bg-accent/35" />
+        </div>
       </div>
     </li>
   );

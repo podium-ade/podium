@@ -14,11 +14,15 @@ import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /**
- * RangePicker is the whole of this screen's filtering: a row of trailing-day and calendar
+ * RangePicker is the screen's window in time: a row of trailing-day and calendar
  * -month presets, plus a custom pair of dates for anything they do not cover.
  *
  * The presets are buttons rather than a select because there are seven of them and they are
  * the thing an operator changes most; a select would hide the current answer behind a click.
+ *
+ * It sits in the top bar beside the theme switch and the bell, so both of its controls take
+ * their 44px outer height, 3px radius and border: the segment row is a 1px border, 3px of
+ * padding and 36px segments.
  */
 export function RangePicker({
   range,
@@ -32,7 +36,7 @@ export function RangePicker({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
+      <div className="inline-flex min-h-11 flex-wrap items-center gap-0.5 rounded-md border border-border bg-panel p-[3px]">
         {PRESETS.map((p) => (
           <button
             key={p.id}
@@ -40,7 +44,7 @@ export function RangePicker({
             aria-pressed={range.id === p.id}
             onClick={() => onChange(rangeFor(p.id))}
             className={cn(
-              "h-7 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
+              "h-9 rounded-sm px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
               "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               range.id === p.id ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
             )}
@@ -86,10 +90,10 @@ function CustomRange({
     >
       <PopoverTrigger asChild>
         <Button
-          variant={custom ? "secondary" : "outline"}
+          variant="outline"
           size="sm"
           aria-pressed={custom}
-          className={cn("h-8", custom && "border-line-strong")}
+          className={cn("min-h-11 border-border", custom && "bg-raised")}
         >
           <CalendarRange />
           {custom ? range.label : "Custom"}

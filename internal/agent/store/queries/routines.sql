@@ -198,9 +198,13 @@ update chats set routine_id = @routine_id where id = @id;
 -- RoutineRunCostToday is what a routine's runs spent since a moment: their turns, plus the
 -- tasks those turns delegated, which a turn's cost does not include.
 -- name: RoutineSpendSince :one
-select coalesce(sum(t.cost_usd), 0)::float8 from turns t
-  join routine_runs r on r.id = t.routine_run_id
-where r.routine_id = @routine_id and t.started_at >= @since;
+select (coalesce((select sum(t.cost_usd) from turns t
+                    join routine_runs r on r.id = t.routine_run_id
+                   where r.routine_id = @routine_id and t.started_at >= @since), 0)
+      + coalesce((select sum(d.cost_usd) from delegations d
+                    join turns t on t.id = d.turn_id
+                    join routine_runs r on r.id = t.routine_run_id
+                   where r.routine_id = @routine_id and d.created_at >= @since), 0))::float8;
 
 -- name: InsertRoutineRevision :exec
 insert into routine_revisions (routine_id, instruction, notes, schedule, timezone, changed_by, changed_at)
@@ -224,12 +228,18 @@ where not enabled and paused_until is not null and paused_until <= @now
 order by paused_until
 limit @page_limit::int;
 
--- PersonSpendSince is what a person's routines spent since a moment.
+-- PersonSpendSince is what a person's routines spent since a moment: their turns and the
+-- tasks those turns delegated, as RoutineSpendSince counts them.
 -- name: PersonSpendSince :one
-select coalesce(sum(t.cost_usd), 0)::float8 from turns t
-  join routine_runs r on r.id = t.routine_run_id
-  join routines o on o.id = r.routine_id
-where o.owner_login = @owner_login and t.started_at >= @since;
+select (coalesce((select sum(t.cost_usd) from turns t
+                    join routine_runs r on r.id = t.routine_run_id
+                    join routines o on o.id = r.routine_id
+                   where o.owner_login = @owner_login and t.started_at >= @since), 0)
+      + coalesce((select sum(d.cost_usd) from delegations d
+                    join turns t on t.id = d.turn_id
+                    join routine_runs r on r.id = t.routine_run_id
+                    join routines o on o.id = r.routine_id
+                   where o.owner_login = @owner_login and d.created_at >= @since), 0))::float8;
 
 -- RunningRoutineRunOf is a routine's run still going, if any.
 -- name: RunningRoutineRunOf :one

@@ -142,7 +142,7 @@ func (q *Queries) ListChatRoutineRuns(ctx context.Context, arg ListChatRoutineRu
 }
 
 const listSessionDelegations = `-- name: ListSessionDelegations :many
-select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at from delegations
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider, read_only, answered_at, auth_kind, credential_owner, credential_account, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens from delegations
  where session_id = $1
  order by created_at desc
  limit $2::int
@@ -183,6 +183,14 @@ func (q *Queries) ListSessionDelegations(ctx context.Context, arg ListSessionDel
 			&i.Provider,
 			&i.ReadOnly,
 			&i.AnsweredAt,
+			&i.AuthKind,
+			&i.CredentialOwner,
+			&i.CredentialAccount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ReasoningTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
 		); err != nil {
 			return nil, err
 		}

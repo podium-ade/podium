@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, Rows3, SquareKanban } from "lucide-react";
 import type { WorkItem } from "../../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../../lib/client";
@@ -11,8 +11,9 @@ import { canManageInfra } from "../../../lib/rbac";
 import { cn } from "../../../lib/utils";
 import { Badge } from "../../Badge";
 import { Empty } from "../../Empty";
+import { Pager } from "../../Pager";
+import { usePager, type PagerState } from "../../../lib/usePager";
 import { TableSkeleton } from "../../Skeleton";
-import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { ToggleGroup, ToggleGroupItem } from "../../ui/toggle-group";
@@ -34,9 +35,6 @@ import {
   storedView,
 } from "./workView";
 
-/** One page of the list. The server pages it, so a workspace's thousands of issues are never read at once. */
-const PAGE = 50;
-
 /** ALL is a Select's "every one", which a Select cannot hold as "". */
 const ALL = "*";
 
@@ -49,8 +47,17 @@ const SELECT = "h-[2.625rem] min-h-0 rounded-lg border-border px-2.5 text-xs fon
 /** teamValue is one provider's team as a Select value; a team key is unique within its provider only. */
 const teamValue = (provider: string, key: string) => `${provider}:${key}`;
 
-/** workKey is where one filter's pages of the list are cached. */
-const workKey = (f: WorkFilters) => ["agent", "work", f.all, f.provider, f.team, f.state];
+/** workKey is where one filter's page of the list is cached. */
+const workKey = (f: WorkFilters, size: number, cursor: string) => [
+  "agent",
+  "work",
+  f.all,
+  f.provider,
+  f.team,
+  f.state,
+  size,
+  cursor,
+];
 
 /**
  * WorkTable is the Issues view: one row per issue (or project) the viewer is involved in, from
@@ -101,25 +108,30 @@ export function WorkTable() {
     );
   };
 
-  const list = useInfiniteQuery({
-    queryKey: workKey(filters),
-    queryFn: ({ pageParam }) =>
-      agent.listWorkItems({ all, provider, team, state, page: { limit: PAGE, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.nextCursor || undefined,
+  // The server pages the list, so a workspace's thousands of issues are never read at once. A
+  // new filter starts again from the first page.
+  const pager = usePager([all, provider, team, state]);
+  const read = (cursor: string) => () =>
+    agent.listWorkItems({ all, provider, team, state, page: { limit: pager.size, cursor } });
+  const list = useQuery({
+    queryKey: workKey(filters, pager.size, pager.cursor),
+    queryFn: read(pager.cursor),
     refetchInterval: POLL_MS,
     // A filter not asked for yet keeps the rows already shown, dimmed, until its own arrive,
     // rather than swapping the table for a skeleton and back.
     placeholderData: keepPreviousData,
     enabled: view === "table",
   });
+  // The tracker counts the issues on the first page only; a later page reads it from there,
+  // where it is still cached from when the list started.
+  const firstPage = useQuery({ queryKey: workKey(filters, pager.size, ""), queryFn: read(""), enabled: false });
   // The board's first column, always on it: its pages carry the teams and providers for the
   // filters, and its failure is the board's.
   const firstColumn = useInfiniteQuery({ ...boardColumnQuery(filters, FIRST_COLUMN), enabled: view === "board" });
   const shown = view === "table" ? list : firstColumn;
 
-  const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
-  const first = shown.data?.pages[0];
+  const rows = list.data?.items ?? [];
+  const first = view === "table" ? list.data : firstColumn.data?.pages[0];
   const providers = first?.providers ?? [];
   const several = providers.length > 1;
   // With several providers a team is one provider's, so the list names whose.
@@ -238,9 +250,9 @@ export function WorkTable() {
           pending={list.isPending}
           success={list.isSuccess}
           dimmed={list.isPlaceholderData}
-          more={list.hasNextPage}
-          loadingMore={list.isFetchingNextPage}
-          onMore={() => void list.fetchNextPage()}
+          pager={pager}
+          total={firstPage.data?.total ?? list.data?.total}
+          nextCursor={list.data?.nextCursor ?? ""}
           onOpen={(id) => void navigate(`/agent/chat/${id}`)}
         />
       )}
@@ -248,7 +260,7 @@ export function WorkTable() {
   );
 }
 
-/** WorkTableBody is the table layout of the Issues view: one row per issue, fifty a page. */
+/** WorkTableBody is the table layout of the Issues view: one row per issue, a page at a time. */
 function WorkTableBody({
   rows,
   filtered,
@@ -257,9 +269,9 @@ function WorkTableBody({
   pending,
   success,
   dimmed,
-  more,
-  loadingMore,
-  onMore,
+  pager,
+  total,
+  nextCursor,
   onOpen,
 }: {
   rows: WorkItem[];
@@ -271,9 +283,10 @@ function WorkTableBody({
   pending: boolean;
   success: boolean;
   dimmed: boolean;
-  more: boolean;
-  loadingMore: boolean;
-  onMore: () => void;
+  pager: PagerState;
+  /** total is every issue under the filters, when the tracker counted them. */
+  total?: number;
+  nextCursor: string;
   onOpen: (chatId: string) => void;
 }) {
   return (
@@ -297,7 +310,20 @@ function WorkTableBody({
       ) : null}
 
       {rows.length > 0 ? (
-        <Table aria-busy={dimmed} className={cn("transition-opacity duration-150", dimmed && "opacity-60")}>
+        <Table
+          aria-busy={dimmed}
+          className={cn("transition-opacity duration-150", dimmed && "opacity-60")}
+          footer={
+            <Pager
+              pager={pager}
+              count={rows.length}
+              noun={{ one: "issue", other: "issues" }}
+              total={total || undefined}
+              nextCursor={nextCursor}
+              loading={dimmed}
+            />
+          }
+        >
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Issue</TableHead>
@@ -316,13 +342,6 @@ function WorkTableBody({
         </Table>
       ) : null}
 
-      {more ? (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" disabled={loadingMore} onClick={onMore}>
-            {loadingMore ? "Loading…" : "Show more"}
-          </Button>
-        </div>
-      ) : null}
     </>
   );
 }

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Brain, ChevronLeft, ChevronRight, RotateCw, Search, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Brain, RotateCw, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import {
   keepPreviousData,
@@ -14,6 +14,8 @@ import { agent, connectCode, errorMessage, isAgentUnreachable, isMemoryUnreachab
 import { absolute, relative } from "../../lib/format";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
+import { Pager } from "../Pager";
+import { DEFAULT_PAGE_SIZE, usePager } from "../../lib/usePager";
 
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
@@ -36,8 +38,8 @@ import { canManageInfra } from "../../lib/rbac";
 /** How long the search box waits before asking. */
 const DEBOUNCE_MS = 300;
 
-/** PAGE is how many memories a page of the list holds. */
-const PAGE = 25;
+/** PAGE is how many memories the first read, and a search, hold. */
+const PAGE = DEFAULT_PAGE_SIZE;
 
 /**
  * A world fact reads as settled, an experience as something that happened, an observation as
@@ -82,9 +84,11 @@ export function MemoryPanel() {
   const qc = useQueryClient();
   const [typed, setTyped] = useState("");
   const [query, setQuery] = useState("");
-  // page is 1-based. Page 1 is the suspense read; any other is its own query.
-  const [page, setPage] = useState(1);
-  const top = useRef<HTMLDivElement>(null);
+  // Page 1 at the default size is the suspense read; any other page is its own query. A search
+  // is a list of its own, so leaving it starts again from the first page.
+  const pager = usePager(query);
+  const page = pager.page;
+  const suspended = page === 1 && pager.size === PAGE;
 
   // Suspends until the first read classifies the screen. Rendering before that is how the
   // empty bank paints, then gets replaced by "memory is not configured".
@@ -98,7 +102,6 @@ export function MemoryPanel() {
     if (next === query) return;
     const id = setTimeout(() => {
       setQuery(next);
-      setPage(1);
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [typed, query]);
@@ -107,15 +110,15 @@ export function MemoryPanel() {
   const ready = screen.data.kind === "ready";
 
   const list = useQuery({
-    queryKey: ["agent", "memories", "page", page],
+    queryKey: ["agent", "memories", "page", pager.offset, pager.size],
     queryFn: async (): Promise<MemoryPage> => {
-      const res = await agent.listMemories({ offset: (page - 1) * PAGE, limit: PAGE });
+      const res = await agent.listMemories({ offset: pager.offset, limit: pager.size });
       return { items: res.items, nextCursor: res.nextCursor, total: res.total };
     },
     // The first page is the suspense read. This query exists for every page after it, and it
     // must not suspend: a new key would throw the whole screen away. The page being left
     // stays on screen until the next one arrives.
-    enabled: ready && !searching && page > 1,
+    enabled: ready && !searching && !suspended,
     placeholderData: keepPreviousData,
   });
 
@@ -125,7 +128,7 @@ export function MemoryPanel() {
     enabled: searching,
   });
   const searchPending = searching && search.isPending;
-  const morePending = !searching && page > 1 && list.isPending && !list.data;
+  const morePending = !searching && !suspended && list.isPending && !list.data;
 
   const forget = useMutation({
     mutationFn: (id: string) => agent.deleteMemory({ id }),
@@ -133,7 +136,7 @@ export function MemoryPanel() {
       toast("Forgotten", "ok");
       // Forgetting the only memory on the last page lands on the page before it, not on an
       // empty one.
-      if (!searching && page > 1 && (list.data?.items.length ?? 0) <= 1) setPage(page - 1);
+      if (!searching && page > 1 && (list.data?.items.length ?? 0) <= 1) pager.previous();
       await qc.invalidateQueries({ queryKey: ["agent", "memories"] });
     },
     onError: (err) => toast(errorMessage(err)),
@@ -154,9 +157,9 @@ export function MemoryPanel() {
 
   // The memory shrank under a later page: someone forgot memories elsewhere, or the engine
   // merged some. The page now starts past the end and reads back nothing while the total says
-  // there is more, so it moves to the last page that exists. Set during render, not in an
-  // effect, and it only ever moves down, so it settles; a placeholder is the page being left
-  // and is not evidence.
+  // there is more, so it steps back a page until one holds something. Set during render, not
+  // in an effect, and it only ever moves back, so it settles; a placeholder is the page being
+  // left and is not evidence.
   if (
     !searching &&
     page > 1 &&
@@ -165,24 +168,17 @@ export function MemoryPanel() {
     list.data.items.length === 0 &&
     list.data.total > 0
   ) {
-    setPage(Math.max(1, Math.ceil(list.data.total / PAGE)));
+    pager.previous();
   }
 
   const shown =
-    page > 1 && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
+    !suspended && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
   const items = searching ? search.data?.items : morePending ? undefined : shown?.items;
   const total = shown?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE));
-  const current = Math.min(page, pageCount);
-  const start = (current - 1) * PAGE;
-  const goTo = (n: number) => {
-    setPage(n);
-    top.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-  };
   // A later page fails on its own query; the first page's failure is the screen's.
   const failure = searching
     ? search.error
-    : page > 1 && list.isError
+    : !suspended && list.isError
       ? list.error
       : screen.data.kind === "failed"
         ? screen.data.error
@@ -192,11 +188,11 @@ export function MemoryPanel() {
   // remembered either, which the model card says too.
   const memoryDown = failed && isMemoryUnreachable(failure);
   const retry = () =>
-    void (searching ? search.refetch() : page > 1 ? list.refetch() : screen.refetch());
-  const retrying = searching ? search.isFetching : page > 1 ? list.isFetching : screen.isFetching;
+    void (searching ? search.refetch() : !suspended ? list.refetch() : screen.refetch());
+  const retrying = searching ? search.isFetching : !suspended ? list.isFetching : screen.isFetching;
 
   return (
-    <div className="space-y-5" ref={top}>
+    <div className="space-y-5">
       <MemoryModelSettings manage={manage} down={memoryDown} />
 
       {isAgentUnreachable(searching ? search.error : failure) ? (
@@ -295,42 +291,14 @@ export function MemoryPanel() {
         ))}
       </ul>
 
-      {!searching && pageCount > 1 ? (
-        <nav
-          aria-label="Memory pages"
-          className="flex flex-wrap items-center justify-between gap-2"
-        >
-          <p className="tabular text-2xs text-faint" data-testid="memory-range">
-            {start + 1}–{start + (items?.length ?? 0)} of {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="memory-prev"
-              disabled={current <= 1 || list.isFetching}
-              onClick={() => goTo(current - 1)}
-            >
-              <ChevronLeft />
-              Previous
-            </Button>
-            <span className="tabular text-2xs text-faint" aria-live="polite">
-              Page {current} of {pageCount}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="memory-next"
-              disabled={current >= pageCount || list.isFetching}
-              onClick={() => goTo(current + 1)}
-            >
-              Next
-              <ChevronRight />
-            </Button>
-          </div>
-        </nav>
+      {!searching && items && items.length > 0 ? (
+        <Pager
+          pager={pager}
+          count={items.length}
+          noun={{ one: "memory", other: "memories" }}
+          total={total}
+          loading={!suspended && (list.isPlaceholderData || list.isFetching)}
+        />
       ) : null}
     </div>
   );
