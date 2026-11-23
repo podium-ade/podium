@@ -42,7 +42,7 @@ export function SpendTable({
       aria-busy={busy || undefined}
       stickyScrollbar
       footer={footer}
-      className={cn("min-w-[72.25rem] table-fixed [&_td]:px-2 [&_td]:py-2 [&_th]:px-2", dimmed(busy))}
+      className={cn("min-w-[73rem] table-fixed [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5", dimmed(busy))}
     >
       {/* Set widths, never sized from the rows, so a filter that leaves other rows behind
           does not move the columns. What is the one flexible column: it takes whatever the
@@ -59,7 +59,7 @@ export function SpendTable({
         <col className="w-22" />
         <col className="w-14" />
         <col className="w-26" />
-        <col className="w-6" />
+        <col className="w-9" />
       </colgroup>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
@@ -150,7 +150,7 @@ export function SpendTable({
               <TableCell pinned className="text-right text-xs tabular whitespace-nowrap">
                 <CostCell c={c} />
               </TableCell>
-              <TableCell className="pl-0">
+              <TableCell>
                 {href ? <ChevronRight aria-hidden className="size-4 text-faint group-hover/row:text-muted" /> : null}
               </TableCell>
             </TableRow>
