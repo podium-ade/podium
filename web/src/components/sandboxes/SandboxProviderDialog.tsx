@@ -160,7 +160,7 @@ export function SandboxProviderDialog({
       if (frame) cancelAnimationFrame(frame);
       clearTimeout(still);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [pane, spec.name]);
 
   const jump = (key: SectionKey) => {

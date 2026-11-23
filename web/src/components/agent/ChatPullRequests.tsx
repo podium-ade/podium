@@ -184,18 +184,19 @@ export function ChatPullRequests({
  * plain web chat expects neither and is an empty row of the same height.
  */
 function BarLoading({ surface, people }: { surface: boolean; people: boolean }) {
-  let n = 0;
-  // The same wave as the transcript skeleton: each shape's shimmer a beat after the last.
-  const wave = () => ({ animationDelay: `${n++ * 90}ms` });
+  // The same wave as the transcript skeleton: each shape's shimmer a beat after the last,
+  // counted from the first shape actually drawn.
+  const wave = (i: number) => ({ animationDelay: `${i * 90}ms` });
+  const faces = surface ? 1 : 0;
   return (
     <Bar>
       <div aria-busy="true" aria-label="Loading" className="flex min-w-0 flex-1 animate-in items-center fade-in-0 duration-300">
-        {surface ? <Skeleton className="h-6 w-40 rounded-full" style={wave()} /> : null}
+        {surface ? <Skeleton className="h-6 w-40 rounded-full" style={wave(0)} /> : null}
         <span className="flex-1" />
         {people ? (
           <span className="flex items-center gap-2">
-            <Skeleton className="size-7 rounded-full" style={wave()} />
-            <Skeleton className="size-6 rounded-md" style={wave()} />
+            <Skeleton className="size-7 rounded-full" style={wave(faces)} />
+            <Skeleton className="size-6 rounded-md" style={wave(faces + 1)} />
           </span>
         ) : null}
       </div>

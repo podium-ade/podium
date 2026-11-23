@@ -13,7 +13,7 @@ const TTL_MS = 6000;
 
 const ToastContext = createContext<(text: string, tone?: "err" | "ok") => void>(() => {});
 
-// eslint-disable-next-line react-refresh/only-export-components
+// oxlint-disable-next-line react/only-export-components
 export function useToast() {
   return useContext(ToastContext);
 }

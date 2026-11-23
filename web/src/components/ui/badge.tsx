@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-// eslint-disable-next-line react-refresh/only-export-components -- links and spans share the variants
+// oxlint-disable-next-line react/only-export-components -- links and spans share the variants
 export const badgeVariants = cva(
   "inline-flex w-fit shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-bold whitespace-nowrap before:size-1.5 before:shrink-0 before:rounded-[1px] before:bg-current [&_svg]:size-3.5 [&_svg]:shrink-0",
   {
