@@ -12,10 +12,11 @@ import {
   usd,
   type Totals,
 } from "../../lib/usage";
+import { dimmed } from "../../lib/useLagging";
 import { cn } from "../../lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
+import { Clip, ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
 
 /** Slice is one row of a breakdown: what it is, drawn, and what it cost. */
 type Slice = { key: string; name: string; cell: ReactNode; t: Totals };
@@ -95,7 +96,7 @@ const DIMENSIONS: Dimension[] = [
 ];
 
 /** How many rows the card shows before it summarises the rest. */
-const SHOWN = 6;
+const SHOWN = 5;
 
 /**
  * UsageBreakdown splits the range's spend along one dimension at a time. Each bar is the
@@ -138,24 +139,32 @@ export function UsageBreakdown({
         </ToggleGroup>
       </CardHeader>
 
+      {/* The body always has room for SHOWN rows and the line under them, whatever the data:
+          a filter that leaves one source behind must not pull up everything below the card. */}
       <CardContent
-        className={cn("flex-1 transition-opacity", loading && "opacity-60")}
+        className={cn("relative flex-1", dimmed(loading))}
       >
+        {/* 12.75rem is SHOWN rows at their tallest (a person's avatar row) and the gaps between. */}
+        <ol className="mt-2 min-h-[12.75rem] space-y-1.5">
+          {slices.slice(0, SHOWN).map((s) => (
+            <Bar key={s.key} slice={s} max={max} />
+          ))}
+        </ol>
+        <p
+          aria-hidden={slices.length <= SHOWN}
+          className={cn("mt-2 text-2xs text-faint", slices.length <= SHOWN && "invisible")}
+        >
+          {slices.length > SHOWN ? (
+            <>
+              and {slices.length - SHOWN} more, each below {usd(slices[SHOWN - 1].t.cost)}
+            </>
+          ) : (
+            "\u00a0"
+          )}
+        </p>
         {slices.length === 0 ? (
-          <p className="py-8 text-center text-xs text-muted">
+          <p className="absolute inset-0 flex items-center justify-center px-5 text-center text-xs text-muted">
             Nothing ran in this range, so there is nothing to attribute.
-          </p>
-        ) : (
-          <ol className="mt-3 space-y-3">
-            {slices.slice(0, SHOWN).map((s) => (
-              <Bar key={s.key} slice={s} max={max} />
-            ))}
-          </ol>
-        )}
-        {slices.length > SHOWN ? (
-          <p className="mt-3 text-2xs text-faint">
-            and {slices.length - SHOWN} more, each below{" "}
-            {usd(slices[SHOWN - 1].t.cost)}
           </p>
         ) : null}
       </CardContent>
@@ -178,7 +187,7 @@ function Bar({ slice, max }: { slice: Slice; max: number }) {
   return (
     <li>
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">{slice.cell}</div>
+        <Clip>{slice.cell}</Clip>
         <span className="shrink-0 text-xs tabular text-fg">
           {usd(t.cost)}
           <span className="ml-1.5 text-2xs text-faint">
@@ -187,7 +196,7 @@ function Bar({ slice, max }: { slice: Slice; max: number }) {
         </span>
       </div>
       <div
-        className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-raised"
+        className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-raised"
         role="img"
         aria-label={tip}
         title={tip}

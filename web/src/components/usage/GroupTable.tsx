@@ -3,6 +3,16 @@ import { billed, tokenBreakdown, tokens, usd, type Totals } from "../../lib/usag
 import { cn } from "../../lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Tooltip } from "../ui/tooltip";
+import { Clip } from "./marks";
+
+/** Column widths, in rem: the first column's floor, each further group column, the share bar,
+ * the five money and volume columns together (5.5 + 5.5 + 8.5 + 4.5 + 4.5), and the per-turn
+ * average. Sized so the widest grouping (model, provider, agent) fits a laptop's width. */
+const FIRST_MIN = 11;
+const EXTRA = 6.5;
+const SHARE = 10;
+const NUMBERS = 28.5;
+const AVG = 6.5;
 
 /** GroupRow is one group of spend: how to draw its name, and its totals. */
 export type GroupRow = {
@@ -43,15 +53,37 @@ export function GroupTable({
   const sorted = [...rows].sort((a, b) => b.t.cost - a.t.cost || b.t.turns - a.t.turns);
   const total = sorted.reduce((s, r) => s + r.t.cost, 0);
   const max = sorted[0]?.t.cost ?? 0;
+  // The first column takes what the others leave, and never less than this; below the sum
+  // the table scrolls sideways rather than squeezing it.
+  const minWidth = `${FIRST_MIN + (heads.length - 1) * EXTRA + SHARE + NUMBERS + (perTurn ? AVG : 0)}rem`;
 
   return (
-    <Table aria-label={label} className="[&_td]:px-2.5 [&_th]:px-2.5">
+    <Table
+      aria-label={label}
+      stickyScrollbar
+      style={{ minWidth }}
+      className="table-fixed [&_td]:px-2.5 [&_th]:px-2.5"
+    >
+      {/* Set widths, never sized from the rows, so a filter or another range does not move
+          the columns. The first column is the flexible one. */}
+      <colgroup>
+        {heads.map((_, i) => (
+          <col key={i} style={i === 0 ? undefined : { width: `${EXTRA}rem` }} />
+        ))}
+        <col style={{ width: `${SHARE}rem` }} />
+        <col className="w-22" />
+        <col className="w-22" />
+        <col className="w-34" />
+        <col className="w-18" />
+        <col className="w-18" />
+        {perTurn ? <col style={{ width: `${AVG}rem` }} /> : null}
+      </colgroup>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           {heads.map((h, i) => (
             <TableHead key={i}>{h}</TableHead>
           ))}
-          <TableHead className="w-[22%] min-w-32">Share</TableHead>
+          <TableHead>Share</TableHead>
           <TableHead className="text-right">Billed</TableHead>
           <TableHead className="text-right">Covered</TableHead>
           <TableHead className="text-right">Tokens in / out</TableHead>
@@ -83,8 +115,8 @@ export function GroupTable({
               className={cn("outline-none focus-visible:bg-raised", r.onOpen && "cursor-pointer")}
             >
               {r.cells.map((c, i) => (
-                <TableCell key={i} className="max-w-[16rem]">
-                  {c}
+                <TableCell key={i}>
+                  <Clip>{c}</Clip>
                 </TableCell>
               ))}
               <TableCell>

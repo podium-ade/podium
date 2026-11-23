@@ -333,8 +333,9 @@ describe("UsagePage", () => {
     expect(task.getByText("triage")).toBeVisible();
     expect(task.getByText("claude-opus-5")).toBeVisible();
     expect(task.getByText("high effort")).toBeVisible();
+    // Paid with is the kind of credential alone; whose it was is in its hover.
     expect(task.getByText("API key")).toBeVisible();
-    expect(task.getByText("Company")).toBeVisible();
+    expect(task.queryByText("Company")).toBeNull();
     expect(task.getByText("alice@example.com")).toBeVisible();
     expect(task.getByText(/12\.4k/)).toBeVisible();
     expect(task.getByText("$0.0182")).toBeVisible();
@@ -349,16 +350,32 @@ describe("UsagePage", () => {
     await waitFor(() => expect(container.textContent).toContain("task page"));
   });
 
-  it("pages through the rows the server holds", async () => {
+  it("pages through the rows the server holds, as the Tasks list does", async () => {
     const user = userEvent.setup();
-    listUsageRows.mockResolvedValueOnce({ rows: [hostTurn], nextCursor: "c1" });
-    listUsageRows.mockResolvedValueOnce({ rows: [delegated], nextCursor: "" });
+    listUsageRows.mockImplementation((req: { cursor: string }) =>
+      Promise.resolve(req.cursor === "c1" ? { rows: [delegated], nextCursor: "" } : { rows: [hostTurn], nextCursor: "c1" }),
+    );
     mount();
     await screen.findAllByTestId("usage-row");
-    await user.click(screen.getByRole("button", { name: "Show more" }));
-    expect(await screen.findAllByTestId("usage-row")).toHaveLength(2);
-    expect(listUsageRows.mock.calls[1][0].cursor).toBe("c1");
-    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    expect(screen.getByText("1–1")).toBeVisible();
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText("2–2")).toBeVisible());
+    expect(within(screen.getByTestId("usage-row")).getByText("triage")).toBeVisible();
+    expect(listUsageRows.mock.calls[listUsageRows.mock.calls.length - 1][0]).toMatchObject({ cursor: "c1", limit: 25 });
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /previous/i }));
+    await waitFor(() => expect(screen.getByText("1–1")).toBeVisible());
+
+    // A filter starts again from the first page.
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText("2–2")).toBeVisible());
+    await user.click(screen.getByRole("combobox", { name: "Source" }));
+    await user.click(await screen.findByRole("option", { name: "Slack" }));
+    await waitFor(() => expect(screen.getByText("1–1")).toBeVisible());
+    expect(listUsageRows.mock.calls[listUsageRows.mock.calls.length - 1][0]).toMatchObject({ cursor: "", filter: { origin: "slack" } });
   });
 
   it("narrows the whole screen with a filter kept in the URL", async () => {
@@ -367,7 +384,110 @@ describe("UsagePage", () => {
     const usageReq = getUsage.mock.calls[0][0];
     expect(usageReq.filter).toMatchObject({ origin: "slack", credential: "api_key|anthropic|" });
     expect(listUsageRows.mock.calls[0][0].filter).toMatchObject({ origin: "slack" });
-    expect(screen.getByRole("button", { name: /clear filters/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /clear filters/i })).toBeEnabled();
+  });
+
+  it("keeps every filter in place while a filter change is loading", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+    const bar = within(screen.getByRole("group", { name: "Filters" }));
+    expect(bar.getAllByRole("combobox")).toHaveLength(4);
+    // Drawn before anything is set, so setting the first filter moves nothing.
+    expect(bar.getByRole("button", { name: /clear filters/i })).toBeDisabled();
+
+    // From here on a filtered read never answers: the screen is mid-change.
+    getUsage.mockImplementation((req: { filter: { origin: string } }) =>
+      req.filter.origin ? new Promise(() => {}) : Promise.resolve(usageResponse),
+    );
+    listUsageRows.mockImplementation(() => new Promise(() => {}));
+
+    await user.click(bar.getByRole("combobox", { name: "Source" }));
+    await user.click(await screen.findByRole("option", { name: "Slack" }));
+
+    await waitFor(() => expect(screen.getByRole("group", { name: "Totals" })).toHaveAttribute("aria-busy", "true"));
+    expect(bar.getAllByRole("combobox")).toHaveLength(4);
+    expect(bar.getByRole("combobox", { name: "Source" })).toHaveTextContent("Slack");
+    expect(bar.getByRole("button", { name: /clear filters/i })).toBeEnabled();
+    expect(bar.getByRole("button", { name: "Clear source filter" })).toBeVisible();
+    // The previous figures and rows stay up, dimmed, rather than giving way to skeletons.
+    expect(screen.getAllByTestId("usage-row")).toHaveLength(2);
+  });
+
+  it("keeps the old figures and rows until both reads of a change have answered, then turns over at once", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+    const turns = () => within(screen.getByRole("group", { name: "Totals" })).getByText(/^\d+$/).textContent;
+    expect(turns()).toBe("4");
+
+    // The filtered totals answer at once; the filtered rows only when released.
+    getUsage.mockImplementation((req: { filter: { origin: string } }) =>
+      Promise.resolve(req.filter.origin ? { ...usageResponse, totals: sum({ costUsd: 0.0182, turns: 1 }) } : usageResponse),
+    );
+    let release: (v: unknown) => void = () => {};
+    listUsageRows.mockImplementation(() => new Promise((r) => (release = r)));
+
+    await user.click(screen.getByRole("combobox", { name: "Source" }));
+    await user.click(await screen.findByRole("option", { name: "Slack" }));
+    await waitFor(() => expect(getUsage.mock.calls.some(([r]) => r.filter.origin === "slack")).toBe(true));
+    // Totals for Slack are in, but the rows are not: the screen still shows the old pair.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(turns()).toBe("4");
+    expect(screen.getAllByTestId("usage-row")).toHaveLength(2);
+
+    release({ rows: [hostTurn], nextCursor: "" });
+    await waitFor(() => expect(screen.getAllByTestId("usage-row")).toHaveLength(1));
+    expect(turns()).toBe("1");
+  });
+
+  it("explains a cell in the app's tooltip, never a native title, and says nothing over text that fits", async () => {
+    const user = userEvent.setup();
+    mount();
+    const rows = await screen.findAllByTestId("usage-row");
+    expect(rows[1].querySelector("[title]")).toBeNull();
+
+    // A model always says which provider and agent ran it.
+    await user.hover(within(rows[1]).getByText("claude-opus-5"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("claude-opus-5 · Anthropic · claude");
+    await user.unhover(within(rows[1]).getByText("claude-opus-5"));
+    await user.hover(within(rows[1]).getByText("API key"));
+    await waitFor(() =>
+      expect(screen.getAllByRole("tooltip").some((t) => t.textContent?.includes("API key · Company · Anthropic"))).toBe(true),
+    );
+    await user.unhover(within(rows[1]).getByText("API key"));
+
+    // A source name that is not cut off has nothing to add. (jsdom lays nothing out, so
+    // nothing is ever cut off here.)
+    await user.hover(within(rows[1]).getByText("Slack"));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("offers every choice in the range, not only those left after the other filters", async () => {
+    const user = userEvent.setup();
+    // The filtered read has a single person; the unfiltered one has four.
+    getUsage.mockImplementation((req: { filter: { origin: string } }) =>
+      Promise.resolve(req.filter.origin ? { ...usageResponse, people: usageResponse.people.slice(0, 1) } : usageResponse),
+    );
+    mount(VIEWER, "/usage?source=slack");
+    await screen.findAllByTestId("usage-row");
+    await user.click(screen.getByRole("combobox", { name: "Person" }));
+    // "Everyone" and the four people.
+    expect(await screen.findAllByRole("option")).toHaveLength(5);
+  });
+
+  it("clears one filter from its own button and keeps the others", async () => {
+    const user = userEvent.setup();
+    mount(VIEWER, "/usage?source=slack&model=claude-opus-5");
+    await screen.findAllByTestId("usage-row");
+    await user.click(screen.getByRole("button", { name: "Clear source filter" }));
+    await waitFor(() => {
+      const req = listUsageRows.mock.calls[listUsageRows.mock.calls.length - 1][0];
+      expect(req.filter).toMatchObject({ origin: "", model: "claude-opus-5" });
+    });
+    expect(screen.queryByRole("button", { name: "Clear source filter" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear model filter" })).toBeVisible();
   });
 
   it("draws a bar per day in the range, empty days included", async () => {
@@ -398,7 +518,8 @@ describe("UsagePage", () => {
     mount();
     await screen.findAllByTestId("usage-row");
 
-    await user.click(screen.getByRole("tab", { name: /by model/i }));
+    await user.click(screen.getByRole("link", { name: /by model/i }));
+    expect(screen.getByRole("link", { name: /by model/i })).toHaveAttribute("aria-current", "page");
 
     const rows = await screen.findAllByTestId("backend-row");
     expect(rows).toHaveLength(3);

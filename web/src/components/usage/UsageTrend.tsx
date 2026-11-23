@@ -14,6 +14,8 @@ import {
 } from "../../lib/usage";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Tooltip } from "../ui/tooltip";
+import { dimmed } from "../../lib/useLagging";
+import { cn } from "../../lib/utils";
 
 /** The two series, one tone each. Billed is the solid accent; covered is the same hue, lighter. */
 const BILLED = "bg-accent";
@@ -31,7 +33,16 @@ const COVERED = "bg-accent/35";
  * The labels thin out as the range grows (every day at a week, then weekly, then monthly)
  * because the alternative at ninety days is ninety overlapping dates.
  */
-export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) {
+export function UsageTrend({
+  days,
+  range,
+  loading,
+}: {
+  days: UsageDay[];
+  range: Range;
+  /** loading fades the chart while the next answer is on its way. */
+  loading?: boolean;
+}) {
   const index = byDay(days);
   const cells = eachDay(range).map((d) => {
     const row = index.get(dayKey(d));
@@ -44,7 +55,7 @@ export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) 
   const every = span <= 14 ? 1 : span <= 45 ? 7 : 30;
 
   return (
-    <Card aria-label="Spend per day" role="region">
+    <Card aria-label="Spend per day" role="region" className="flex flex-col">
       <CardHeader className="pb-1">
         <div>
           <CardTitle>Spend per day</CardTitle>
@@ -53,26 +64,35 @@ export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) 
             {max > 0 ? <> · busiest {usd(max)}</> : null}
           </p>
         </div>
-        {covered ? (
-          <ul className="flex items-center gap-3 text-2xs text-muted" aria-label="Legend">
-            <li className="inline-flex items-center gap-1.5">
-              <span aria-hidden className={`size-2.5 rounded-[1px] ${BILLED}`} />
-              Billed
-            </li>
-            <li className="inline-flex items-center gap-1.5">
-              <span aria-hidden className={`size-2.5 rounded-[1px] ${COVERED}`} />
-              Covered by subscription
-            </li>
-          </ul>
-        ) : null}
+        {/* Kept in place, hidden, when nothing was covered, so a filter that changes that
+            never rewraps the header. */}
+        <ul
+          aria-hidden={!covered}
+          aria-label={covered ? "Legend" : undefined}
+          className={cn("flex items-center gap-3 text-2xs text-muted", !covered && "invisible")}
+        >
+          <li className="inline-flex items-center gap-1.5">
+            <span aria-hidden className={`size-2.5 rounded-[1px] ${BILLED}`} />
+            Billed
+          </li>
+          <li className="inline-flex items-center gap-1.5">
+            <span aria-hidden className={`size-2.5 rounded-[1px] ${COVERED}`} />
+            Covered by subscription
+          </li>
+        </ul>
       </CardHeader>
 
-      <CardContent>
+      {/* Beside the breakdown the bars take whatever height the row has; alone, 6rem. */}
+      <CardContent className={cn("flex flex-1 flex-col", dimmed(loading))}>
         {max === 0 ? (
-          <p className="py-10 text-center text-xs text-muted">Nothing with a recorded cost ran in this range.</p>
+          // The chart's own height (bars, gap and day labels), so an empty range or filter
+          // leaves the card the size it was.
+          <p className="mt-3 flex min-h-[7.375rem] flex-1 items-center justify-center text-center text-xs text-muted">
+            Nothing with a recorded cost ran in this range.
+          </p>
         ) : (
           <>
-            <div className="mt-3 flex h-32 items-end gap-px" role="img" aria-label={summary(cells.map((c) => c.t), range)}>
+            <div className="mt-3 flex min-h-24 flex-1 items-end gap-px" role="img" aria-label={summary(cells.map((c) => c.t), range)}>
               {cells.map(({ day, row, t }) => {
                 const paid = billed(t);
                 // A day that spent something never renders as nothing: a floor keeps a cheap

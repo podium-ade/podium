@@ -1,12 +1,14 @@
+import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { TaskCost } from "../../gen/podium/agent/v1/agent_pb";
 import { absolute, relative } from "../../lib/format";
 import { hrefOf, kindLabel, optTokens, ranBy, rowCost, tokenBreakdown, tokens, usd } from "../../lib/usage";
+import { dimmed } from "../../lib/useLagging";
 import { cn } from "../../lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Tooltip } from "../ui/tooltip";
-import { ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
+import { Clip, ModelCell, PaidWith, PersonCell, SourceCell } from "./marks";
 
 /**
  * SpendTable is every unit of spend in the range, newest first: each turn, each task a turn
@@ -24,10 +26,13 @@ export function SpendTable({
   rows,
   routines,
   busy,
+  footer,
 }: {
   rows: TaskCost[];
   routines: Map<string, string>;
   busy?: boolean;
+  /** footer is the table's Pager, inside its card under the last row. */
+  footer?: ReactNode;
 }) {
   const navigate = useNavigate();
 
@@ -35,8 +40,27 @@ export function SpendTable({
     <Table
       aria-label="Spend"
       aria-busy={busy || undefined}
-      className={cn("[&_td]:px-2.5 [&_th]:px-2.5", busy && "opacity-60")}
+      stickyScrollbar
+      footer={footer}
+      className={cn("min-w-[72.25rem] table-fixed [&_td]:px-2 [&_td]:py-2 [&_th]:px-2", dimmed(busy))}
     >
+      {/* Set widths, never sized from the rows, so a filter that leaves other rows behind
+          does not move the columns. What is the one flexible column: it takes whatever the
+          card has beyond the others, and never less than 10.75rem; below the table's minimum
+          width (the columns' sum) the table scrolls sideways instead, with Cost pinned.
+          Text that does not fit truncates, and hovering it shows the whole of it. */}
+      <colgroup>
+        <col className="w-16" />
+        <col />
+        <col className="w-36" />
+        <col className="w-57" />
+        <col className="w-45" />
+        <col className="w-24" />
+        <col className="w-22" />
+        <col className="w-14" />
+        <col className="w-26" />
+        <col className="w-6" />
+      </colgroup>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead>When</TableHead>
@@ -50,7 +74,7 @@ export function SpendTable({
           <TableHead pinned className="text-right">
             Cost
           </TableHead>
-          <TableHead className="w-0">
+          <TableHead>
             <span className="sr-only">Open</span>
           </TableHead>
         </TableRow>
@@ -75,32 +99,49 @@ export function SpendTable({
                 }
               }}
               className={cn(
-                "h-14 outline-none focus-visible:bg-raised",
+                "outline-none focus-visible:bg-raised",
                 href ? "cursor-pointer" : "cursor-default",
               )}
             >
-              <TableCell className="text-xs whitespace-nowrap text-muted" title={c.startedAt ? absolute(c.startedAt) : undefined}>
-                {c.startedAt ? relative(c.startedAt) : "-"}
-              </TableCell>
-              <TableCell className="max-w-[18rem]">
-                <What c={c} />
+              <TableCell className="text-xs whitespace-nowrap text-muted">
+                {c.startedAt ? (
+                  <Tooltip label={absolute(c.startedAt)}>
+                    <span>{relative(c.startedAt)}</span>
+                  </Tooltip>
+                ) : (
+                  "-"
+                )}
               </TableCell>
               <TableCell>
-                <SourceCell origin={c.origin || c.sourceKind} />
+                <Clip>
+                  <What c={c} />
+                </Clip>
               </TableCell>
-              <TableCell className="max-w-[12rem]">
-                <PersonCell startedBy={c.startedBy} routines={routines} />
+              <TableCell>
+                <Clip>
+                  <SourceCell origin={c.origin || c.sourceKind} />
+                </Clip>
               </TableCell>
-              <TableCell className="max-w-[13rem]">
-                <ModelCell provider={c.provider} model={c.model} effort={c.effort} agent={c.agent} />
+              <TableCell>
+                <Clip>
+                  <PersonCell startedBy={c.startedBy} routines={routines} />
+                </Clip>
               </TableCell>
-              <TableCell className="max-w-[13rem]">
-                <PaidWith
-                  authKind={c.authKind}
-                  owner={c.credentialOwner}
-                  account={c.credentialAccount}
-                  provider={c.provider}
-                />
+              <TableCell>
+                <Clip>
+                  <ModelCell provider={c.provider} model={c.model} effort={c.effort} agent={c.agent} />
+                </Clip>
+              </TableCell>
+              <TableCell>
+                <Clip>
+                  <PaidWith
+                    compact
+                    authKind={c.authKind}
+                    owner={c.credentialOwner}
+                    account={c.credentialAccount}
+                    provider={c.provider}
+                  />
+                </Clip>
               </TableCell>
               <TableCell className="text-right text-xs tabular whitespace-nowrap text-muted">
                 <TokenCell c={c} />
@@ -109,7 +150,7 @@ export function SpendTable({
               <TableCell pinned className="text-right text-xs tabular whitespace-nowrap">
                 <CostCell c={c} />
               </TableCell>
-              <TableCell className="w-0 pl-0">
+              <TableCell className="pl-0">
                 {href ? <ChevronRight aria-hidden className="size-4 text-faint group-hover/row:text-muted" /> : null}
               </TableCell>
             </TableRow>
@@ -126,14 +167,17 @@ export function SpendTable({
  */
 function What({ c }: { c: TaskCost }) {
   const context = c.routineName ? `Routine: ${c.routineName}` : c.chatTitle;
+  const name = c.kind === "summary" ? "Conversation summary" : ranBy(c.playbook);
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-full={[`${kindLabel(c.kind)}: ${name}`, context || c.taskId].filter(Boolean).join("\n")}>
       <div className="flex min-w-0 items-center gap-1.5 text-xs">
         <span className="shrink-0 rounded-sm bg-raised px-1 py-px text-2xs font-semibold text-soft">{kindLabel(c.kind)}</span>
-        <span className="truncate font-medium text-fg">{c.kind === "summary" ? "Conversation summary" : ranBy(c.playbook)}</span>
+        <span className="min-w-0 truncate font-medium text-fg">
+          {name}
+        </span>
         {c.status === "running" ? <span className="shrink-0 text-2xs text-run">running</span> : null}
       </div>
-      <div className="mt-0.5 truncate text-2xs text-faint" title={context || c.taskId || undefined}>
+      <div className="mt-0.5 truncate text-2xs text-faint">
         {context || (c.taskId ? <span className="font-mono">{c.taskId}</span> : "-")}
       </div>
     </div>

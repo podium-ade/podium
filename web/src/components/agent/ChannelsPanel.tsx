@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Hash, Pencil, RefreshCw, Search } from "lucide-react";
+import { Hash, Pencil, RefreshCw, Search } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SlackChannel } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -7,6 +7,8 @@ import { absolute, relative, toDate } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageFrame } from "../PageHeader";
+import { Pager } from "../Pager";
+import { usePager } from "../../lib/usePager";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -32,11 +34,6 @@ import { ConductorDown } from "./ConductorDown";
 
 /** Matches store.MaxSlackChannelDescriptionRunes. */
 const MAX_DESCRIPTION = 500;
-
-/** How many rows one page shows. The catalogue is every channel the bot has been in, so it
- * grows with the workspace rather than with traffic; a page keeps a long one readable
- * without asking the conductor for a cursor it does not have. */
-const PAGE_SIZE = 20;
 
 type Sort = "recent" | "oldest" | "name" | "name-desc";
 type Described = "all" | "with" | "without";
@@ -70,7 +67,10 @@ export function ChannelsPanel() {
   const [query, setQuery] = useState("");
   const [described, setDescribed] = useState<Described>("all");
   const [sort, setSort] = useState<Sort>("recent");
-  const [page, setPage] = useState(1);
+  // The catalogue is every channel the bot has been in, so it grows with the workspace rather
+  // than with traffic. It is paged here, on the rows already read, since the conductor has no
+  // cursor for it. A new search, filter or sort starts again from the first page.
+  const pager = usePager([query.trim(), described, sort]);
   // isPending only turns true after a render, so two clicks in the same tick would both reach
   // Slack. A ref closes that gap, and keeps a later press from starting a second listing.
   const refreshing = useRef(false);
@@ -138,12 +138,10 @@ export function ChannelsPanel() {
     return ordered;
   }, [channels, query, described, sort]);
 
-  // Clamped rather than reset: a filter that shrinks the list past the current page should
-  // show the last page, not an empty one, and no effect has to fire to make that true.
-  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
-  const current = Math.min(page, pages);
-  const start = (current - 1) * PAGE_SIZE;
-  const visible = shown.slice(start, start + PAGE_SIZE);
+  const visible = shown.slice(pager.offset, pager.offset + pager.size);
+  // A refresh that leaves fewer channels than the page starts at steps back to one that has
+  // some, rather than showing an empty page under a count that says there are more.
+  if (visible.length === 0 && pager.page > 1) pager.previous();
   const filtering = query.trim() !== "" || described !== "all";
 
   if (list.isError && !isAgentUnreachable(list.error)) {
@@ -239,19 +237,13 @@ export function ChannelsPanel() {
               aria-label="Search channels"
               value={query}
               placeholder="Search name, id or context"
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setQuery(e.target.value)}
               className="h-8 bg-bg pl-8"
             />
           </label>
           <Select
             value={described}
-            onValueChange={(v) => {
-              setDescribed(v as Described);
-              setPage(1);
-            }}
+            onValueChange={(v) => setDescribed(v as Described)}
           >
             <SelectTrigger
               size="sm"
@@ -269,10 +261,7 @@ export function ChannelsPanel() {
           </Select>
           <Select
             value={sort}
-            onValueChange={(v) => {
-              setSort(v as Sort);
-              setPage(1);
-            }}
+            onValueChange={(v) => setSort(v as Sort)}
           >
             <SelectTrigger
               size="sm"
@@ -308,39 +297,13 @@ export function ChannelsPanel() {
         />
       ) : null}
 
-      {pages > 1 ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="tabular text-2xs text-faint" data-testid="channel-range">
-            {start + 1}–{start + visible.length} of {shown.length}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="channel-prev"
-              disabled={current <= 1}
-              onClick={() => setPage(current - 1)}
-            >
-              <ChevronLeft />
-              Previous
-            </Button>
-            <span className="tabular text-2xs text-faint">
-              Page {current} of {pages}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="channel-next"
-              disabled={current >= pages}
-              onClick={() => setPage(current + 1)}
-            >
-              Next
-              <ChevronRight />
-            </Button>
-          </div>
-        </div>
+      {visible.length > 0 ? (
+        <Pager
+          pager={pager}
+          count={visible.length}
+          noun={{ one: "channel", other: "channels" }}
+          total={shown.length}
+        />
       ) : null}
 
       <DescriptionDialog

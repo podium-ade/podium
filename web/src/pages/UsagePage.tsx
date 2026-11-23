@@ -1,12 +1,15 @@
 import { useState, type ReactNode } from "react";
-import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Coins, Cpu, CreditCard, LayoutDashboard, TrendingDown, TrendingUp, Users, Waypoints } from "lucide-react";
-import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
+import { Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
 import type { GetUsageResponse } from "../gen/podium/agent/v1/agent_pb";
+import { AssistantPanel, ScopeBar, SectionTabs } from "../components/agent/AssistantPanel";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { Empty } from "../components/Empty";
 import { PageFrame } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePager } from "../lib/usePager";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
 import { BackendTable } from "../components/usage/BackendTable";
 import { PeopleTable } from "../components/usage/PeopleTable";
@@ -17,17 +20,18 @@ import { UsageBreakdown } from "../components/usage/UsageBreakdown";
 import { UsageFilters } from "../components/usage/UsageFilters";
 import { UsageTrend } from "../components/usage/UsageTrend";
 import { Alert } from "../components/ui/alert";
-import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Tooltip } from "../components/ui/tooltip";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
+import { useNoScrollClamp } from "../lib/useNoScrollClamp";
+import { dimmed, useLagging } from "../lib/useLagging";
 import {
   backendSummary,
   billed,
   FILTER_PARAMS,
   isFiltered,
+  NO_FILTERS,
   previousRange,
   rangeFor,
   readFilters,
@@ -47,19 +51,42 @@ import {
 } from "../lib/usage";
 import { cn } from "../lib/utils";
 
-/** One page of the spend table. The conductor pages it, so a busy range is never cut short. */
-const PAGE_SIZE = 50;
-
 /**
  * The views. Each is a real route, so the back button and a deep link both work, and the
- * filters ride along in the query string from one to the next.
+ * filters ride along in the query string from one to the next. The lead is the raised bar
+ * under the tabs, saying what the open view is for.
  */
 const TABS = [
-  { path: "", label: "Overview", icon: LayoutDashboard },
-  { path: "models", label: "By model", icon: Cpu },
-  { path: "people", label: "By person", icon: Users },
-  { path: "sources", label: "By source", icon: Waypoints },
-  { path: "credentials", label: "By credential", icon: CreditCard },
+  {
+    path: "",
+    label: "Overview",
+    icon: LayoutDashboard,
+    lead: "What was spent each day, where it went, and every turn and task behind it.",
+  },
+  {
+    path: "models",
+    label: "By model",
+    icon: Cpu,
+    lead: "What each model cost, at each effort it ran with.",
+  },
+  {
+    path: "people",
+    label: "By person",
+    icon: Users,
+    lead: "What each person's work cost, and what each system routine cost.",
+  },
+  {
+    path: "sources",
+    label: "By source",
+    icon: Waypoints,
+    lead: "Where the work came from, what each routine ran, and the conversations that cost the most.",
+  },
+  {
+    path: "credentials",
+    label: "By credential",
+    icon: CreditCard,
+    lead: "What paid for the work: a subscription or an API key, the company's or a person's own.",
+  },
 ];
 
 /** tabOf is the view a /usage path names, so the tab strip can say which one is open. */
@@ -98,8 +125,11 @@ export function UsagePage() {
   const enabled = viewer?.agentEnabled !== false;
   const filter = toUsageFilter(filters);
 
-  const usage = useQuery({
-    queryKey: ["usage", range.from.toISOString(), range.to.toISOString(), tz, filters],
+  // One read for the aggregates, by filters. The same read with no filters is where the
+  // filters take their choices from, so narrowing to one source never takes the other
+  // filters' choices away; with nothing set the two are the same query and cost one request.
+  const usageQuery = (f: Filters) => ({
+    queryKey: ["usage", range.from.toISOString(), range.to.toISOString(), tz, f],
     queryFn: () =>
       agent.getUsage({
         from: timestampFromDate(range.from),
@@ -108,25 +138,30 @@ export function UsagePage() {
         tzOffsetMinutes: tz,
         // The table is its own paged read; this one is only for the aggregates.
         limit: 1,
-        filter,
+        filter: toUsageFilter(f),
       }),
     enabled,
     placeholderData: keepPreviousData,
   });
+  const usage = useQuery(usageQuery(filters));
+  const choices = useQuery(usageQuery(NO_FILTERS));
 
-  const rows = useInfiniteQuery({
-    queryKey: ["usage-rows", range.from.toISOString(), range.to.toISOString(), filters],
-    queryFn: ({ pageParam }) =>
+  // The table pages the way the Tasks list does: forward from the server's cursor, one page
+  // at a time. A new range or filter starts again from the first page; the page size stays.
+  const pager = usePager([range.from.toISOString(), range.to.toISOString(), filters]);
+  const { cursor } = pager;
+
+  const rows = useQuery({
+    queryKey: ["usage-rows", range.from.toISOString(), range.to.toISOString(), filters, pager.size, cursor],
+    queryFn: () =>
       agent.listUsageRows({
         from: timestampFromDate(range.from),
         to: timestampFromDate(range.to),
         filter,
-        cursor: pageParam,
-        limit: PAGE_SIZE,
+        cursor,
+        limit: pager.size,
       }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.nextCursor || undefined,
-    // A new range or filter keeps the rows already shown, dimmed, until its own arrive.
+    // A new range, filter or page keeps the rows already shown, dimmed, until its own arrive.
     placeholderData: keepPreviousData,
     enabled,
   });
@@ -150,14 +185,40 @@ export function UsagePage() {
     void navigate({ pathname: "/usage", search: `?${next.toString()}` });
   };
 
-  const u = usage.data;
+  // The aggregates and the rows are two reads that answer at different moments. Until both
+  // have answered a change, the screen keeps showing the previous pair, then turns over to the
+  // new one in a single step: never new rows under old totals, or the other way round.
+  const settled = !usage.isPlaceholderData && !rows.isPlaceholderData;
+  // The range they were read for turns over with them, so the trend's days and the
+  // comparison always describe the figures on screen.
+  // So does the page they are, for the "26-50 of 66" under the table.
+  const page = { number: pager.page, size: pager.size, first: pager.first };
+  const [shown, setShown] = useState({ usage: usage.data, rows: rows.data, range, page });
+  if (
+    settled &&
+    (shown.usage !== usage.data || shown.rows !== rows.data || shown.range !== range || shown.page.number !== page.number || shown.page.size !== page.size || shown.page.first !== page.first)
+  ) {
+    setShown({ usage: usage.data, rows: rows.data, range, page });
+  }
+  // Fading only after a beat, so a quick answer never blinks the screen.
+  const stale = useLagging(
+    (usage.isFetching && usage.isPlaceholderData) || (rows.isFetching && rows.isPlaceholderData),
+  );
+
+  const u = settled ? usage.data : shown.usage;
+  const at = settled ? range : shown.range;
   const days = u?.days ?? [];
   const now = u ? responseTotals(u) : ZERO;
-  const before = totalsIn(days, previous);
+  const before = totalsIn(days, previousRange(at));
   const routines = routineNames(u?.routines ?? []);
-  const list = rows.data?.pages.flatMap((p) => p.rows) ?? [];
+  const shownRows = settled ? rows.data : shown.rows;
+  const list = shownRows?.rows ?? [];
+  const onPage = settled ? page : shown.page;
+  // Fewer rows after a change must not pull the view down to a page that got shorter.
+  const spendBody = useNoScrollClamp<HTMLDivElement>(shownRows);
   const down = isAgentUnreachable(usage.error);
   const tab = tabOf(location.pathname);
+  const open = TABS.find((t) => t.path === tab) ?? TABS[0];
 
   // Without a conductor there is no cost data anywhere on this control plane, so the screen
   // would be a page of dashes. The nav item that leads here is hidden in the same case.
@@ -174,70 +235,71 @@ export function UsagePage() {
   }
 
   const loading = usage.isPending;
-  const refreshing = usage.isFetching && usage.isPlaceholderData;
 
   const table = (
     <section aria-label="Spend" className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-fg">
-          Every turn and task <span className="font-normal text-muted">· {range.label}</span>
+          Every turn and task <span className="font-normal text-muted">· {at.label}</span>
         </h2>
         <p className="text-2xs text-faint">
           Newest first. A row opens its task, or its conversation when it ran on the chat host.
         </p>
       </div>
-      {rows.isPending ? (
-        <TableSkeleton cols={9} />
-      ) : rows.isError ? (
-        isAgentUnreachable(rows.error) ? null : (
-          <Alert variant="destructive" title="Could not list spend">
-            {errorMessage(rows.error)}
-          </Alert>
-        )
-      ) : list.length === 0 ? (
-        <Empty
-          icon={Coins}
-          title={isFiltered(filters) ? "Nothing matches these filters" : `Nothing ran in ${range.label.toLowerCase()}`}
-          hint={isFiltered(filters) ? "Clear a filter to see more." : "Pick a wider range."}
-        />
-      ) : (
-        <>
-          <SpendTable rows={list} routines={routines} busy={rows.isFetching && rows.isPlaceholderData} />
-          <div className="flex flex-col items-center gap-2">
-            {rows.hasNextPage ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={rows.isFetchingNextPage}
-                onClick={() => void rows.fetchNextPage()}
-              >
-                {rows.isFetchingNextPage ? "Loading…" : "Show more"}
-              </Button>
-            ) : null}
-            <p className="text-2xs text-faint">
-              {list.length.toLocaleString()} of {now.turns.toLocaleString()} shown
-            </p>
-          </div>
-        </>
-      )}
+      <div ref={spendBody} data-testid="usage-spend-body" className="space-y-3">
+        {rows.isPending ? (
+          <TableSkeleton cols={9} />
+        ) : rows.isError ? (
+          isAgentUnreachable(rows.error) ? null : (
+            <Alert variant="destructive" title="Could not list spend">
+              {errorMessage(rows.error)}
+            </Alert>
+          )
+        ) : list.length === 0 ? (
+          <Empty
+            icon={Coins}
+            title={isFiltered(filters) ? "Nothing matches these filters" : `Nothing ran in ${at.label.toLowerCase()}`}
+            hint={isFiltered(filters) ? "Clear a filter to see more." : "Pick a wider range."}
+          />
+        ) : (
+          <SpendTable
+            rows={list}
+            routines={routines}
+            busy={stale}
+            footer={
+              // Previous and Next act on the page on screen; while the next one is still on
+              // its way a second press would only repeat the first.
+              <Pager
+                pager={pager}
+                count={list.length}
+                noun={{ one: "turn or task", other: "turns and tasks" }}
+                total={now.turns}
+                nextCursor={shownRows?.nextCursor ?? ""}
+                loading={!settled}
+                shown={{ first: onPage.first, page: onPage.number }}
+              />
+            }
+          />
+        )}
+      </div>
     </section>
   );
 
   const overview = (
     <div className="space-y-5">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <UsageTrend days={days} range={range} />
-        <UsageBreakdown usage={u} loading={refreshing} />
+        <UsageTrend days={days} range={at} loading={stale} />
+        <UsageBreakdown usage={u} loading={stale} />
       </div>
       {table}
     </div>
   );
 
   const view = (title: string, note: ReactNode, body: ReactNode, aside?: ReactNode) => (
-    <section aria-label={title} className={cn("space-y-3 transition-opacity", refreshing && "opacity-60")}>
+    <section aria-label={title} aria-busy={stale || undefined} className={cn("space-y-3", dimmed(stale))}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-fg">
-          {title} <span className="font-normal text-muted">· {range.label}</span>
+          {title} <span className="font-normal text-muted">· {at.label}</span>
         </h2>
         {aside ? <p className="text-2xs text-faint">{aside}</p> : null}
       </div>
@@ -311,22 +373,8 @@ export function UsagePage() {
       title="Usage"
       lead="What your assistants have spent, what paid for it, and who and what it was for."
       actions={<RangePicker range={range} onChange={setRange} />}
+      bodyClassName="space-y-5 p-6"
     >
-      <Tabs value={tab} onValueChange={(v) => void navigate({ pathname: v ? `/usage/${v}` : "/usage", search: location.search })}>
-        <TabsList aria-label="Usage views">
-          {TABS.map((t) => (
-            <TabsTrigger key={t.path} value={t.path} asChild>
-              <Link to={{ pathname: t.path ? `/usage/${t.path}` : "/usage", search: location.search }}>
-                <t.icon aria-hidden />
-                {t.label}
-              </Link>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      <UsageFilters usage={u} filters={filters} onChange={setFilters} />
-
       {down ? (
         <ConductorDown
           what="The spend for this range could not be read"
@@ -343,57 +391,78 @@ export function UsagePage() {
         </Alert>
       ) : null}
 
-      <Card role="group" aria-label="Totals" className="grid grid-cols-2 xl:grid-cols-4">
-        <Stat
-          label="Billed"
-          value={usdShort(billed(now))}
-          loading={loading}
-          detail={<Delta now={billed(now)} before={billed(before)} label={comparisonLabel(range)} />}
+      {/* Drawn in the same parts as Settings and Sandboxes (components/agent/AssistantPanel):
+          one panel, a strip of tabs that are links so each view keeps its address, the
+          raised bar saying what the open view is for, then the view itself. */}
+      <AssistantPanel label={open.label}>
+        <SectionTabs
+          label="Usage views"
+          tabs={TABS.map((t) => ({ id: t.path, label: t.label, icon: t.icon }))}
+          current={tab}
+          href={(path) => `${path ? `/usage/${path}` : "/usage"}${location.search}`}
         />
-        <Stat
-          label="Covered by subscription"
-          value={usdShort(now.subscription)}
-          loading={loading}
-          tone={now.subscription > 0 ? "text-fg" : "text-muted"}
-          detail={
-            now.subscription > 0
-              ? `list price, ${Math.round((now.subscription / Math.max(now.cost, 1e-9)) * 100)}% of the work`
-              : "no subscription turns"
-          }
-        />
-        <Stat
-          label="Tokens in / out"
-          value={now.input + now.output > 0 ? `${tokens(now.input)} / ${tokens(now.output)}` : "-"}
-          hint={now.input + now.output > 0 ? tokenBreakdown(now) : undefined}
-          loading={loading}
-          detail={
-            now.cacheRead > 0
-              ? `${tokens(now.cacheRead)} read from cache`
-              : now.input + now.output > 0
-                ? "no cache reads"
-                : "none reported in this range"
-          }
-        />
-        <Stat
-          label="Turns and tasks"
-          value={now.turns.toLocaleString()}
-          loading={loading}
-          detail={
-            now.unpriced > 0
-              ? `${now.unpriced.toLocaleString()} reported no cost`
-              : `${now.modelTurns.toLocaleString()} model steps`
-          }
-        />
-      </Card>
+        <ScopeBar>{open.lead}</ScopeBar>
+        <div className="space-y-5 px-6 py-6">
+          <UsageFilters usage={choices.data} filters={filters} onChange={setFilters} />
 
-      <Routes>
-        <Route index element={overview} />
-        <Route path="models" element={models} />
-        <Route path="people" element={people} />
-        <Route path="sources" element={sources} />
-        <Route path="credentials" element={credentials} />
-        <Route path="*" element={overview} />
-      </Routes>
+          <Card
+            role="group"
+            aria-label="Totals"
+            aria-busy={stale}
+            className={cn("grid grid-cols-2 xl:grid-cols-4", dimmed(stale))}
+          >
+            <Stat
+              label="Billed"
+              value={usdShort(billed(now))}
+              loading={loading}
+              detail={<Delta now={billed(now)} before={billed(before)} label={comparisonLabel(at)} />}
+            />
+            <Stat
+              label="Covered by subscription"
+              value={usdShort(now.subscription)}
+              loading={loading}
+              tone={now.subscription > 0 ? "text-fg" : "text-muted"}
+              detail={
+                now.subscription > 0
+                  ? `list price, ${Math.round((now.subscription / Math.max(now.cost, 1e-9)) * 100)}% of the work`
+                  : "no subscription turns"
+              }
+            />
+            <Stat
+              label="Tokens in / out"
+              value={now.input + now.output > 0 ? `${tokens(now.input)} / ${tokens(now.output)}` : "-"}
+              hint={now.input + now.output > 0 ? tokenBreakdown(now) : undefined}
+              loading={loading}
+              detail={
+                now.cacheRead > 0
+                  ? `${tokens(now.cacheRead)} read from cache`
+                  : now.input + now.output > 0
+                    ? "no cache reads"
+                    : "none reported in this range"
+              }
+            />
+            <Stat
+              label="Turns and tasks"
+              value={now.turns.toLocaleString()}
+              loading={loading}
+              detail={
+                now.unpriced > 0
+                  ? `${now.unpriced.toLocaleString()} reported no cost`
+                  : `${now.modelTurns.toLocaleString()} model steps`
+              }
+            />
+          </Card>
+
+          <Routes>
+            <Route index element={overview} />
+            <Route path="models" element={models} />
+            <Route path="people" element={people} />
+            <Route path="sources" element={sources} />
+            <Route path="credentials" element={credentials} />
+            <Route path="*" element={overview} />
+          </Routes>
+        </div>
+      </AssistantPanel>
     </PageFrame>
   );
 }
@@ -448,7 +517,8 @@ function Stat({
           )}
         </p>
       )}
-      <div className="truncate text-2xs text-faint">{detail}</div>
+      {/* One line, always: a detail with an icon in it is no taller than one without. */}
+      <div className="h-4 truncate text-2xs leading-4 text-faint">{detail}</div>
     </div>
   );
 }
@@ -465,7 +535,7 @@ function Delta({ now, before, label }: { now: number; before: number; label: str
   const up = change >= 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
-    <span className={cn("inline-flex items-center gap-1", up ? "text-warn" : "text-ok")}>
+    <span className={cn("inline-flex h-4 items-center gap-1 align-top", up ? "text-warn" : "text-ok")}>
       <Icon aria-hidden className="size-3" />
       {up ? "+" : ""}
       {(change * 100).toFixed(0)}%<span className="text-faint">{label}</span>

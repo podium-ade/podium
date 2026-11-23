@@ -44,8 +44,12 @@ export function BackendTable({
           onOpen: onPick && !unrecorded ? () => onPick(b.model) : undefined,
           cells: [
             <ModelCell key="m" provider={b.provider} model={b.model} effort={b.effort || (unrecorded ? "" : "default")} />,
-            <span key="p" className="text-xs text-muted">{unrecorded ? "-" : providerLabel(b.provider)}</span>,
-            <span key="a" className="text-xs text-muted">{b.agent || "-"}</span>,
+            <span key="p" className="block truncate text-xs text-muted">
+              {unrecorded ? "-" : providerLabel(b.provider)}
+            </span>,
+            <span key="a" className="block truncate text-xs text-muted">
+              {b.agent || "-"}
+            </span>,
           ],
         };
       })}

@@ -48,7 +48,7 @@ export function RoutineTable({ routines }: { routines: UsageGroup[] }) {
         name: g.label || g.key,
         t: totals(g.totals),
         cells: [
-          <span key="r" className="inline-flex min-w-0 items-center gap-2 text-xs text-fg">
+          <span key="r" className="inline-flex max-w-full min-w-0 items-center gap-2 text-xs text-fg">
             <Repeat aria-hidden className="size-3.5 shrink-0 text-faint" />
             <span className="truncate">{g.label || g.key}</span>
           </span>,
@@ -81,7 +81,7 @@ export function ConversationTable({ conversations }: { conversations: UsageGroup
         t: totals(g.totals),
         onOpen: g.chatId ? () => void navigate(`/agent/chat/${g.chatId}`) : undefined,
         cells: [
-          <span key="c" className="block truncate text-xs font-medium text-fg" title={g.label}>
+          <span key="c" className="block truncate text-xs font-medium text-fg">
             {g.label || <span className="text-faint">Untitled</span>}
           </span>,
           <SourceCell key="s" origin={g.origin} />,
@@ -119,7 +119,9 @@ export function CredentialTable({
         onOpen: onPick ? () => onPick(g.key) : undefined,
         cells: [
           <PaidWith key="w" authKind={g.authKind} owner={g.owner} account={g.account} provider={g.provider} />,
-          <span key="p" className="text-xs text-muted">{g.authKind === "" ? "-" : providerLabel(g.provider)}</span>,
+          <span key="p" className="block truncate text-xs text-muted">
+            {g.authKind === "" ? "-" : providerLabel(g.provider)}
+          </span>,
         ],
       }))}
     />
