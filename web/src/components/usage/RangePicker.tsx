@@ -27,11 +27,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 export function RangePicker({
   range,
   onChange,
-  max = new Date(),
+  max,
 }: {
   range: Range;
   onChange: (r: Range) => void;
-  /** The latest day that can be picked. There is no spend in the future. */
+  /** The latest day that can be picked: today unless given. There is no spend in the future. */
   max?: Date;
 }) {
   return (
@@ -65,9 +65,13 @@ function CustomRange({
 }: {
   range: Range;
   onChange: (r: Range) => void;
-  max: Date;
+  max?: Date;
 }) {
   const [open, setOpen] = useState(false);
+  // Today is read when the popover opens rather than on every render, so a screen left open
+  // past midnight still offers the new day.
+  const [today, setToday] = useState(() => new Date());
+  const latest = dayKey(max ?? today);
   // Seeded from the active range so opening the popover on a preset offers that preset's
   // dates to adjust rather than two empty fields.
   const [from, setFrom] = useState(() => dayKey(range.from));
@@ -82,6 +86,7 @@ function CustomRange({
       onOpenChange={(o) => {
         // Re-seed on every open: the active range may have changed via a preset since.
         if (o) {
+          setToday(new Date());
           setFrom(dayKey(range.from));
           setTo(dayKey(lastDay(range)));
         }
@@ -110,11 +115,11 @@ function CustomRange({
           }}
         >
           <div className="flex items-end gap-2">
-            <Field label="From" value={from} max={dayKey(max)} onChange={setFrom} />
+            <Field label="From" value={from} max={latest} onChange={setFrom} />
             <span aria-hidden className="pb-2 text-xs text-faint">
               –
             </span>
-            <Field label="To" value={to} max={dayKey(max)} onChange={setTo} />
+            <Field label="To" value={to} max={latest} onChange={setTo} />
           </div>
           <div className="flex items-center justify-between gap-3">
             {/* Both ends are inclusive whole days, which is not the obvious reading of two
