@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -907,6 +908,75 @@ func TestPostSplitsLongTextAndReturnsTheFirstID(t *testing.T) {
 	assert.Equal(t, head, f.form(t, "chat.postMessage", 0).Get("text"))
 	assert.Equal(t, tail, f.form(t, "chat.postMessage", 1).Get("text"))
 	assert.Equal(t, "100.1", f.form(t, "chat.postMessage", 1).Get("thread_ts"))
+}
+
+// An answer says what answered under it, in a context block Slack draws in small type. The
+// message's own text is still the answer alone, for notifications.
+func TestPostPutsTheBylineUnderTheAnswer(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("chat.postMessage", `{"ok":true,"channel":"C1","ts":"200.1"}`)
+	s := testSource(t, f)
+
+	_, err := s.Post(t.Context(), Ref("C1", "100.1", "100.1"), conductor.Outbound{
+		Type: conductor.OutFinal, Text: "the answer",
+		Byline: conductor.Byline{Model: "Claude Opus 5.5", Credential: "Tom & Jerry's <Claude> plan"},
+	})
+
+	require.NoError(t, err)
+	form := f.form(t, "chat.postMessage", 0)
+	assert.Equal(t, "the answer", form.Get("text"))
+	var blocks []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(form.Get("blocks")), &blocks))
+	require.Len(t, blocks, 2)
+	assert.Equal(t, "section", blocks[0]["type"])
+	assert.Equal(t, "the answer", blocks[0]["text"].(map[string]any)["text"])
+	assert.Equal(t, "context", blocks[1]["type"])
+	element := blocks[1]["elements"].([]any)[0].(map[string]any)
+	assert.Equal(t, "mrkdwn", element["type"])
+	assert.Equal(t, "Claude Opus 5.5 · Tom &amp; Jerry's &lt;Claude&gt; plan", element["text"],
+		"a name is never markup")
+}
+
+// Only the last part of a long answer carries the byline, and that part is cut to what one
+// section block holds.
+func TestALongAnswerHasItsBylineOnlyOnTheLastPart(t *testing.T) {
+	f := newFakeSlack(t)
+	for _, ts := range []string{"200.1", "200.2", "200.3"} {
+		f.reply("chat.postMessage", `{"ok":true,"channel":"C1","ts":"`+ts+`"}`)
+	}
+	s := testSource(t, f)
+
+	head, tail := strings.Repeat("a", MaxMessageChars), strings.Repeat("b", MaxSectionChars+10)
+	_, err := s.Post(t.Context(), Ref("C1", "100.1", "100.1"), conductor.Outbound{
+		Type: conductor.OutFinal, Text: head + "\n" + tail,
+		Byline: conductor.Byline{Model: "Claude Opus 5.5", Credential: "Workspace API key"},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"chat.postMessage", "chat.postMessage", "chat.postMessage"}, f.methods())
+	assert.Empty(t, f.form(t, "chat.postMessage", 0).Get("blocks"))
+	assert.Empty(t, f.form(t, "chat.postMessage", 1).Get("blocks"))
+	last := f.form(t, "chat.postMessage", 2)
+	assert.Contains(t, last.Get("blocks"), "Workspace API key")
+	assert.Equal(t, 10, len(last.Get("text")))
+}
+
+// Nothing but an answer has a byline: progress, a question and a failure are posted as text.
+func TestOnlyAnAnswerHasAByline(t *testing.T) {
+	f := newFakeSlack(t)
+	types := []string{conductor.OutProgress, conductor.OutQuestion, conductor.OutFailure}
+	for range types {
+		f.reply("chat.postMessage", `{"ok":true,"channel":"C1","ts":"200.1"}`)
+	}
+	s := testSource(t, f)
+
+	for i, typ := range types {
+		_, err := s.Post(t.Context(), Ref("C1", "100.1", "100.1"), conductor.Outbound{
+			Type: typ, Text: "words", Byline: conductor.Byline{Model: "Claude Opus 5.5"},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, f.form(t, "chat.postMessage", i).Get("blocks"), typ)
+	}
 }
 
 func TestEditReplacesTheMessage(t *testing.T) {

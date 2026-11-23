@@ -194,24 +194,25 @@ describe("WorkTable", () => {
   });
 
   it("pages on the server", async () => {
-    listWorkItems.mockResolvedValueOnce({
-      items: [item()],
-      nextCursor: "cursor-1",
-      teams: [team("ENG")], providers: ["linear"],
-    });
-    listWorkItems.mockResolvedValueOnce({
-      items: [item({ chatId: "chat_eng14", key: "ENG-14" })],
-      nextCursor: "",
-      teams: [team("ENG")], providers: ["linear"],
-    });
+    listWorkItems.mockImplementation(async (req: { page?: { cursor?: string } }) =>
+      req.page?.cursor === "cursor-1"
+        ? { items: [item({ chatId: "chat_eng14", key: "ENG-14" })], nextCursor: "", teams: [team("ENG")], providers: ["linear"] }
+        : { items: [item()], nextCursor: "cursor-1", teams: [team("ENG")], providers: ["linear"] },
+    );
     mount();
     await screen.findAllByTestId("work-row");
-    await userEvent.click(screen.getByRole("button", { name: "Show more" }));
-    await waitFor(() => expect(screen.getAllByTestId("work-row")).toHaveLength(2));
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("1 issue on page 1");
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByTestId("work-row")).toHaveTextContent("ENG-14"));
     expect(listWorkItems).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: expect.objectContaining({ cursor: "cursor-1" }) }),
+      expect.objectContaining({ page: { limit: 25, cursor: "cursor-1" } }),
     );
-    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("1 issue on page 2");
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /previous/i }));
+    await waitFor(() => expect(screen.getByTestId("pager-summary")).toHaveTextContent("1 issue on page 1"));
   });
 
   it("says how an issue becomes yours when there is none", async () => {

@@ -42,7 +42,7 @@ export function ShellStateProvider({ children }: { children: ReactNode }) {
 }
 
 // The sidebar and the top bar both read this. It lives with the provider so they share one state.
-// eslint-disable-next-line react-refresh/only-export-components
+// oxlint-disable-next-line react/only-export-components
 export function useShell(): ShellState {
   return (
     useContext(ShellContext) ?? {

@@ -105,7 +105,7 @@ function message(
         text,
         ts: timestampFromDate(new Date()),
         taskId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // oxlint-disable-next-line typescript/no-explicit-any
         attachments: attachments as any,
       }),
     },

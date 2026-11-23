@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Building2, Plug, Repeat2, Users } from "lucide-react";
+import { Building2, Fingerprint, Plug, Repeat2, Users } from "lucide-react";
 import { Navigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,7 @@ import {
   SectionTabs,
 } from "../components/agent/AssistantPanel";
 import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
+import { IdentityPolicyPanel } from "../components/agent/IdentityPolicyPanel";
 import { RoutinesAdminPanel } from "../components/agent/RoutinesAdminPanel";
 import { PageFrame } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
@@ -78,6 +79,15 @@ const SECTIONS: Section[] = [
     show: conductorAdmin,
     flush: true,
     render: () => <ConnectionsPanel />,
+  },
+  {
+    id: "identity",
+    icon: Fingerprint,
+    title: "Identity",
+    lead: "Whose accounts work runs on: a person's own, or the organization's. And what people outside get when they ask from Slack, Linear or GitHub.",
+    show: conductorAdmin,
+    flush: true,
+    render: () => <IdentityPolicyPanel />,
   },
   {
     id: "routines",

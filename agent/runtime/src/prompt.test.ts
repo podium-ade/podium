@@ -329,7 +329,7 @@ describe("buildSystemPrompt", () => {
     };
     const prompt = buildSystemPrompt(brief);
     expect(prompt).toContain("**system routine**");
-    expect(prompt).toContain("as the Podium App, in any repository it is installed on.");
+    expect(prompt).toContain("as the GitHub App, in any repository it is installed on.");
     expect(prompt).toContain("`list_repositories` turns them into owner/name");
     expect(prompt).toContain("comment_on_pull_request");
     expect(prompt).not.toContain("as the routine's owner");

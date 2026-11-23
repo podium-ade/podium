@@ -171,25 +171,26 @@ describe("ChannelsPanel", () => {
 
   it("paginates a catalogue longer than one page", async () => {
     listSlackChannels.mockResolvedValue({
-      channels: Array.from({ length: 25 }, (_, i) =>
+      channels: Array.from({ length: 30 }, (_, i) =>
         channel({ id: `C${i}`, name: `chan-${String(i).padStart(2, "0")}` }),
       ),
       slackConnected: true,
     });
     mount();
-    expect(await screen.findAllByTestId("slack-channel-row")).toHaveLength(20);
-    expect(screen.getByTestId("channel-range")).toHaveTextContent("1–20 of 25");
-    expect(screen.getByTestId("channel-prev")).toBeDisabled();
+    expect(await screen.findAllByTestId("slack-channel-row")).toHaveLength(25);
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("1–25 of 30 channels");
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
 
-    await userEvent.click(screen.getByTestId("channel-next"));
+    await userEvent.click(screen.getByRole("button", { name: /next/i }));
     await waitFor(() => expect(screen.getAllByTestId("slack-channel-row")).toHaveLength(5));
-    expect(screen.getByTestId("channel-range")).toHaveTextContent("21–25 of 25");
-    expect(screen.getByTestId("channel-next")).toBeDisabled();
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("26–30 of 30 channels");
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
 
-    // A search that shrinks the list past the current page shows the last page, not a
-    // blank one.
+    // A search starts again from the first page.
     await userEvent.type(screen.getByTestId("channel-search"), "chan-01");
     await waitFor(() => expect(screen.getAllByTestId("slack-channel-row")).toHaveLength(1));
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("1–1 of 1 channel");
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
   });
 
   it("says so when nothing matches", async () => {

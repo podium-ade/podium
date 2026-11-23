@@ -134,6 +134,7 @@ func payloadOf(out Outbound) store.OutboxPayload {
 		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
 		CancelReason: out.CancelReason,
 		Author:       out.Author, AuthorAvatar: out.AuthorAvatar,
+		BylineModel: out.Byline.Model, BylineCredential: out.Byline.Credential,
 	}
 }
 
@@ -142,6 +143,7 @@ func outboundOf(p store.OutboxPayload) Outbound {
 		Type: p.Type, Text: p.Text, TaskID: p.TaskID, CancelReason: p.CancelReason,
 		Speaker: Speaker{Playbook: p.Playbook, SourcePlaybook: p.SourcePlaybook},
 		Author:  p.Author, AuthorAvatar: p.AuthorAvatar,
+		Byline: Byline{Model: p.BylineModel, Credential: p.BylineCredential},
 	}
 }
 

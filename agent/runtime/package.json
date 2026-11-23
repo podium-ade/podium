@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsrs -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:images": "vitest run --config vitest.images.config.ts"
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "tsrs": "7.1.0-beta.tsrs4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

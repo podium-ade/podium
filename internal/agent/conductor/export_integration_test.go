@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -25,7 +26,13 @@ func (c *Conductor) DropGitCapabilityForTest(ctx context.Context, turnID string,
 
 // GitHubPersonaForTest is who a turn of playbook started by login commits as. Nil is the App.
 func (c *Conductor) GitHubPersonaForTest(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
-	return c.githubPersona(ctx, login, playbook)
+	return c.githubPersona(ctx, login, playbook, false)
+}
+
+// GitHubPersonaAsPodiumForTest is who a run as Podium (a system routine's) of playbook
+// commits as. Nil is the App.
+func (c *Conductor) GitHubPersonaAsPodiumForTest(ctx context.Context, playbook profiles.Playbook) (*BriefGit, error) {
+	return c.githubPersona(ctx, "", playbook, true)
 }
 
 // MintTurnTokenForTest issues the token a turn of sessionID started by login would hold.
@@ -174,4 +181,25 @@ func (c *Conductor) HeardHeartbeatForTest(taskID string) bool {
 // RunsAsPodiumForTest is whether a turn started by login for a routine's run acts as Podium.
 func (c *Conductor) RunsAsPodiumForTest(ctx context.Context, login, routineID string) bool {
 	return c.runsAsPodium(ctx, login, &RoutineRef{RoutineID: routineID})
+}
+
+// TurnCredentialOwnerForTest is whose model credential a turn of sess asked by login spends,
+// against st's policy, chats and settings and the control plane at podiumURL's personal
+// secrets. chatHostClaude is whether this conductor's chat host runs Claude Code.
+func TurnCredentialOwnerForTest(
+	ctx context.Context, st *store.Store, podiumURL string, sess store.Session,
+	login, agent string, onChatHost, chatHostClaude bool,
+) string {
+	c := &Conductor{
+		store: st, podium: podium.New(podiumURL, "test"), chatHostClaude: chatHostClaude,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	return c.turnCredentialOwner(ctx, sess, login, agent, onChatHost)
+}
+
+// BylineForTest is what a turn on model through provider, spending owner's credential, says
+// answered it, against st's settings and members.
+func BylineForTest(ctx context.Context, st *store.Store, provider, model, owner string, claudePlan bool) Byline {
+	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return c.bylineFor(ctx, provider, model, owner, claudePlan)
 }

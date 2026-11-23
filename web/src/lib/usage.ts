@@ -7,7 +7,15 @@
  * and a day on this screen are the same day — the operator's, not the server's.
  */
 
-import type { TaskCost, UsageBackend, UsageDay } from "../gen/podium/agent/v1/agent_pb";
+import type { MessageInitShape } from "@bufbuild/protobuf";
+import { UsageFilterSchema } from "../gen/podium/agent/v1/agent_pb";
+import type {
+  TaskCost,
+  UsageBackend,
+  UsageDay,
+  UsageGroup,
+  UsageTotals,
+} from "../gen/podium/agent/v1/agent_pb";
 
 /** The offset the conductor is asked to bucket by: east-positive, unlike the browser's. */
 export function tzOffsetMinutes(d = new Date()): number {
@@ -191,36 +199,6 @@ export function sumIn(days: UsageDay[], r: Range, pick: (d: UsageDay) => number)
 }
 
 /**
- * byTask indexes costs by the task each turn ran as. A turn whose task was never created
- * has no key to index it under and is dropped: it has no row in the table to join to.
- */
-export function byTask(costs: TaskCost[]): Map<string, TaskCost> {
-  const out = new Map<string, TaskCost>();
-  for (const c of costs) if (c.taskId) out.set(c.taskId, c);
-  return out;
-}
-
-/** Slice is one row of a breakdown: a name, what it cost, and how many turns it took. */
-export type Slice = { key: string; cost: number; turns: number };
-
-/**
- * breakdown groups costs by one of their own fields, largest first. A turn that reported no
- * cost still counts as a turn — dropping it would make a group look cheaper than it was
- * rather than less completely measured.
- */
-export function breakdown(costs: TaskCost[], pick: (c: TaskCost) => string): Slice[] {
-  const totals = new Map<string, Slice>();
-  for (const c of costs) {
-    const key = pick(c) || "-";
-    const cur = totals.get(key) ?? { key, cost: 0, turns: 0 };
-    cur.cost += c.costUsd ?? 0;
-    cur.turns += 1;
-    totals.set(key, cur);
-  }
-  return [...totals.values()].sort((a, b) => b.cost - a.cost || b.turns - a.turns);
-}
-
-/**
  * isUnrecorded marks the bucket for turns that ran before the conductor wrote down what they
  * ran on. Every field is empty together, which is why one check answers for all of them —
  * and why it is not the same as a recorded turn whose effort is simply the model's default.
@@ -249,4 +227,325 @@ export function backendSummary(backends: UsageBackend[]): string {
  */
 export function ranBy(playbook: string): string {
   return playbook === "" ? "assistant" : playbook;
+}
+
+/**
+ * Totals is UsageTotals with plain numbers. The wire type carries tokens as bigint (int64),
+ * which arithmetic and toLocaleString both want as a number; no real range is near 2^53.
+ */
+export type Totals = {
+  cost: number;
+  subscription: number;
+  turns: number;
+  modelTurns: number;
+  unpriced: number;
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+export const ZERO: Totals = {
+  cost: 0,
+  subscription: 0,
+  turns: 0,
+  modelTurns: 0,
+  unpriced: 0,
+  input: 0,
+  output: 0,
+  reasoning: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
+/** totals reads a UsageTotals, which a server from before it existed leaves unset. */
+export function totals(t: UsageTotals | undefined): Totals {
+  if (!t) return ZERO;
+  return {
+    cost: t.costUsd,
+    subscription: t.subscriptionCostUsd,
+    turns: t.turns,
+    modelTurns: t.modelTurns,
+    unpriced: t.unpriced,
+    input: Number(t.inputTokens),
+    output: Number(t.outputTokens),
+    reasoning: Number(t.reasoningTokens),
+    cacheRead: Number(t.cacheReadTokens),
+    cacheWrite: Number(t.cacheWriteTokens),
+  };
+}
+
+export function addTotals(a: Totals, b: Totals): Totals {
+  return {
+    cost: a.cost + b.cost,
+    subscription: a.subscription + b.subscription,
+    turns: a.turns + b.turns,
+    modelTurns: a.modelTurns + b.modelTurns,
+    unpriced: a.unpriced + b.unpriced,
+    input: a.input + b.input,
+    output: a.output + b.output,
+    reasoning: a.reasoning + b.reasoning,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+  };
+}
+
+/**
+ * dayTotals is one day row's totals. A day row from a server that predates UsageTotals still
+ * has its cost and counts, so those are what it falls back to, with no subscription share.
+ */
+export function dayTotals(d: UsageDay): Totals {
+  return groupTotals(d);
+}
+
+/**
+ * groupTotals is a by-model or by-person row's totals, falling back like dayTotals for a
+ * server that sent only the older cost and count fields.
+ */
+export function groupTotals(g: {
+  totals?: UsageTotals;
+  costUsd: number;
+  turns: number;
+  modelTurns: number;
+  unpriced: number;
+}): Totals {
+  if (g.totals) return totals(g.totals);
+  return { ...ZERO, cost: g.costUsd, turns: g.turns, modelTurns: g.modelTurns, unpriced: g.unpriced };
+}
+
+/** totalsIn adds up every day row inside a range. */
+export function totalsIn(days: UsageDay[], r: Range): Totals {
+  const lo = dayKey(startOfDay(r.from));
+  const hi = dayKey(addDays(startOfDay(r.to), -1));
+  return days.reduce((sum, d) => (d.date >= lo && d.date <= hi ? addTotals(sum, dayTotals(d)) : sum), ZERO);
+}
+
+/**
+ * billed is what was actually charged: everything reported, less what a subscription covered.
+ * A subscription turn's cost is the harness's list-price figure for the same work, which is
+ * worth knowing and worth showing, but it is not money that left the company.
+ */
+export function billed(t: Totals): number {
+  return Math.max(0, t.cost - t.subscription);
+}
+
+/** tokens is a token count for a cell: 950, 12.4k, 3.1M. */
+export function tokens(n: number): string {
+  // The unit is picked after rounding, so 999,600 reads "1M" and not "1000k".
+  let i = 0;
+  while (i < TOKEN_UNITS.length - 1 && n >= TOKEN_UNITS[i + 1][1]) i++;
+  let s = i === 0 ? `${Math.round(n)}` : trim(n / TOKEN_UNITS[i][1]);
+  if (s === "1000" && i < TOKEN_UNITS.length - 1) {
+    i++;
+    s = "1";
+  }
+  return `${s}${TOKEN_UNITS[i][0]}`;
+}
+
+const TOKEN_UNITS: [string, number][] = [
+  ["", 1],
+  ["k", 1e3],
+  ["M", 1e6],
+  ["B", 1e9],
+];
+
+function trim(n: number): string {
+  return n >= 100 ? `${Math.round(n)}` : n.toFixed(1).replace(/\.0$/, "");
+}
+
+/**
+ * tokenBreakdown is the exact count behind a shortened one, for its hover: every kind of
+ * token the runtime reported, in full, leaving out the kinds it reported none of.
+ */
+export function tokenBreakdown(
+  t: Pick<Totals, "input" | "output" | "reasoning" | "cacheRead" | "cacheWrite">,
+): string {
+  return [
+    `${t.input.toLocaleString()} in`,
+    `${t.output.toLocaleString()} out`,
+    t.reasoning > 0 ? `${t.reasoning.toLocaleString()} reasoning` : "",
+    t.cacheRead > 0 ? `${t.cacheRead.toLocaleString()} read from cache` : "",
+    t.cacheWrite > 0 ? `${t.cacheWrite.toLocaleString()} written to cache` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** optTokens is a row's own token count, where unset means the runtime reported none. */
+export function optTokens(n: bigint | undefined): number | undefined {
+  return n === undefined ? undefined : Number(n);
+}
+
+/** ORIGINS is how each origin (TaskCost.origin) is named on the screen. */
+export const ORIGINS: Record<string, string> = {
+  chat: "Podium chat",
+  slack: "Slack",
+  github: "GitHub",
+  linear: "Linear",
+  routine: "Routine",
+  housekeeping: "Housekeeping",
+  dev: "Dev",
+};
+
+export function originLabel(origin: string): string {
+  return ORIGINS[origin] ?? (origin || "Unknown");
+}
+
+/** markFor is the OriginMark glyph for an origin: a Podium chat is drawn as Podium's own. */
+export function markFor(origin: string): string {
+  return origin === "chat" ? "web" : origin;
+}
+
+/** BACKEND_MARK is the BackendMark id for each provider a turn can be billed by. */
+const BACKEND_MARK: Record<string, string> = {
+  anthropic: "claude",
+  openai: "openai",
+  xai: "grok",
+  google: "gemini",
+};
+
+/** backendMark is the BackendMark id for a provider, or "" for one it has no mark for. */
+export function backendMark(provider: string): string {
+  return BACKEND_MARK[provider] ?? "";
+}
+
+export const PROVIDERS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  xai: "xAI",
+  google: "Google",
+};
+
+export function providerLabel(provider: string): string {
+  return PROVIDERS[provider] ?? provider;
+}
+
+/** authLabel names how a credential was obtained, or says the row predates recording it. */
+export function authLabel(authKind: string): string {
+  if (authKind === "subscription") return "Subscription";
+  if (authKind === "api_key") return "API key";
+  return "Unrecorded";
+}
+
+/** ownerLabel is whose credential paid: a person's own, or the company's. */
+export function ownerLabel(owner: string): string {
+  return owner === "" ? "Company" : owner;
+}
+
+/**
+ * credentialKey is the UsageGroup key the server gives a credential and a filter takes back:
+ * `auth_kind|provider|owner`. Built here only to match a row to its group.
+ */
+export function credentialKey(authKind: string, provider: string, owner: string): string {
+  return `${authKind}|${provider}|${owner}`;
+}
+
+/** credentialLabel is one line naming what paid, for a filter or a table row. */
+export function credentialLabel(g: Pick<UsageGroup, "authKind" | "provider" | "owner">): string {
+  if (g.authKind === "") return "Unrecorded";
+  const who = ownerLabel(g.owner);
+  const kind = g.authKind === "subscription" ? "subscription" : authLabel(g.authKind);
+  const what = `${providerLabel(g.provider)} ${kind}`;
+  return `${what} · ${who}`;
+}
+
+/** ROUTINE_PREFIX is turns.started_by for a system routine's run, which nobody started. */
+const ROUTINE_PREFIX = "routine:";
+
+/** routineOf is the routine id behind a started_by, or "" when a person started it. */
+export function routineOf(startedBy: string): string {
+  return startedBy.startsWith(ROUTINE_PREFIX) ? startedBy.slice(ROUTINE_PREFIX.length) : "";
+}
+
+/** started_by values that are not a person, and what to call them. */
+export const NOT_A_PERSON: Record<string, { label: string; hint: string }> = {
+  "": {
+    label: "Unattributed",
+    hint: "Turns from before the conductor recorded who started them, the conductor's own housekeeping, and turns started with the shared dev token.",
+  },
+  "github-app": {
+    label: "GitHub App",
+    hint: "Automatic reviews, and review commands from people outside Podium. They run as the App, so nobody's account pays for them.",
+  },
+};
+
+/**
+ * personLabel names whoever a started_by is: a login, the GitHub App, nobody, or a system
+ * routine by its name when the range's routines say what it is called.
+ */
+export function personLabel(startedBy: string, routines: Map<string, string> = new Map()): string {
+  const special = NOT_A_PERSON[startedBy];
+  if (special) return special.label;
+  const routine = routineOf(startedBy);
+  if (routine) return routines.get(routine) ?? "System routine";
+  return startedBy;
+}
+
+/** isPerson is whether a started_by is somebody's login rather than a stand-in. */
+export function isPerson(startedBy: string): boolean {
+  return !(startedBy in NOT_A_PERSON) && routineOf(startedBy) === "";
+}
+
+/** routineNames indexes the response's routine groups by id. */
+export function routineNames(groups: UsageGroup[]): Map<string, string> {
+  return new Map(groups.map((g) => [g.key, g.label]));
+}
+
+/** KIND_LABELS is what each kind of spend row is called. */
+export const KIND_LABELS: Record<string, string> = {
+  turn: "Turn",
+  delegation: "Task",
+  summary: "Summary",
+};
+
+export function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * Filters is the table's narrowing as the URL holds it. Every field is "" for "any", and the
+ * same strings go to the server's UsageFilter unchanged.
+ */
+export type Filters = { origin: string; person: string; model: string; credential: string };
+
+export const NO_FILTERS: Filters = { origin: "", person: "", model: "", credential: "" };
+
+/** FILTER_PARAMS are the search params each filter lives under, so a link can share a view. */
+export const FILTER_PARAMS: Record<keyof Filters, string> = {
+  origin: "source",
+  person: "person",
+  model: "model",
+  credential: "paid",
+};
+
+export function readFilters(p: URLSearchParams): Filters {
+  return {
+    origin: p.get(FILTER_PARAMS.origin) ?? "",
+    person: p.get(FILTER_PARAMS.person) ?? "",
+    model: p.get(FILTER_PARAMS.model) ?? "",
+    credential: p.get(FILTER_PARAMS.credential) ?? "",
+  };
+}
+
+export function isFiltered(f: Filters): boolean {
+  return f.origin !== "" || f.person !== "" || f.model !== "" || f.credential !== "";
+}
+
+/** toUsageFilter is the request's filter. A person filter of "-" means nobody recorded. */
+export function toUsageFilter(f: Filters): MessageInitShape<typeof UsageFilterSchema> {
+  return { origin: f.origin, startedBy: f.person, model: f.model, credential: f.credential };
+}
+
+/** rowCost is a spend row's cost split into what was billed and what a subscription covered. */
+export function rowCost(c: TaskCost): { billed?: number; covered?: number } {
+  if (c.costUsd === undefined) return {};
+  return c.authKind === "subscription" ? { covered: c.costUsd } : { billed: c.costUsd };
+}
+
+/** hrefOf is where a spend row opens: its task, else its conversation, else nowhere. */
+export function hrefOf(c: TaskCost): string {
+  if (c.taskId) return `/tasks/${c.taskId}`;
+  if (c.chatId) return `/agent/chat/${c.chatId}`;
+  return "";
 }

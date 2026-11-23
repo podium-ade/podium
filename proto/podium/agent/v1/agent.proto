@@ -22,6 +22,11 @@ service AgentService {
   // on task_id — that is why a task with no turn behind it simply has no cost, rather than
   // a cost of zero.
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  // ListUsageRows pages through every unit of spend in a range, newest first: each turn,
+  // each delegated task and each piece of the conductor's own housekeeping, filtered the
+  // same way GetUsage is. It is the usage screen's table, and it is paged by the server so
+  // a busy range is never silently cut short.
+  rpc ListUsageRows(ListUsageRowsRequest) returns (ListUsageRowsResponse);
   // GetSettings reports what the conductor is configured with. It returns no secret value.
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
   // GetRunsOn is where a turn runs when its playbook does not say.
@@ -322,6 +327,11 @@ service AgentService {
   // GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
   rpc GetRoutineLimits(GetRoutineLimitsRequest) returns (GetRoutineLimitsResponse);
   rpc SetRoutineLimits(SetRoutineLimitsRequest) returns (SetRoutineLimitsResponse);
+  // GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+  // and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+  // can see whose Linear or GitHub their turns will use; setting is admins only.
+  rpc GetIdentityPolicy(GetIdentityPolicyRequest) returns (GetIdentityPolicyResponse);
+  rpc SetIdentityPolicy(SetIdentityPolicyRequest) returns (SetIdentityPolicyResponse);
   // GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
   // each ref the caller could see in Linear — an admin or owner, somebody who touched the
   // issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -546,6 +556,44 @@ message RoutineLimits {
   double person_daily_cap_usd = 2;
 }
 
+// IdentityPolicy is who a turn acts as. A turn's actor is the Podium person behind it, or
+// nobody; each capability then uses that person's own credential or Podium's. A system
+// routine's run always uses Podium's. In SetIdentityPolicy an empty field leaves that setting
+// as it is, so a save changes only what it names.
+message IdentityPolicy {
+  // linear is a turn's Linear: "person_then_app" (default), "person_only" or "app".
+  string linear = 1;
+  // github_write is who a playbook pushes and opens pull requests as: "person_then_app"
+  // (default), "person_only" or "app".
+  string github_write = 2;
+  // github_read is who the assistant reads GitHub as: "person_only" (default) or
+  // "person_then_app".
+  string github_read = 3;
+  // model_key is whose model key a private conversation spends: "person_then_app" (default)
+  // or "app". A shared conversation is shared_model_key's.
+  string model_key = 4;
+  // slack_outsiders is what a Slack member who is not a Podium person gets: "refuse"
+  // (default) or "answer".
+  string slack_outsiders = 5;
+  // linear_outsiders is what a Linear member who is not a Podium person gets: "refuse"
+  // (default), "fixed" (an issue delegated to Podium is worked on, and nothing they wrote is
+  // a prompt) or "answer".
+  string linear_outsiders = 6;
+  // github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
+  // "review" (default: the review command) or "refuse".
+  string github_outsiders = 7;
+  // shared_model_key is whose model credential a turn of a shared conversation (a multiplayer
+  // chat, a Slack thread, a Linear issue, a pull request) spends: "app" (default: the
+  // company's, whoever asks) or "plan_then_app" (the asker's own Claude, ChatGPT or Grok
+  // subscription when they signed one in, and the company's otherwise; never a personal API key).
+  string shared_model_key = 8;
+}
+
+message GetIdentityPolicyRequest {}
+message GetIdentityPolicyResponse { IdentityPolicy policy = 1; }
+message SetIdentityPolicyRequest { IdentityPolicy policy = 1; }
+message SetIdentityPolicyResponse { IdentityPolicy policy = 1; }
+
 message GetRoutineLimitsRequest {}
 message GetRoutineLimitsResponse { RoutineLimits limits = 1; }
 message SetRoutineLimitsRequest { RoutineLimits limits = 1; }
@@ -647,6 +695,7 @@ message UsageDay {
   // unpriced is how many of that day's turns reported no cost at all, so a day's total can
   // be read as the incomplete figure it sometimes is.
   int32 unpriced = 5;
+  UsageTotals totals = 6;
 }
 
 // TaskCost is what one turn spent, keyed by the Podium task it ran as. It is the
@@ -685,6 +734,84 @@ message TaskCost {
   // Podium asked for, and empty for a turn from before it was recorded. A delegated task
   // reports the login of the turn that delegated it.
   string started_by = 17;
+  // kind is what the row is: "turn", "delegation", or the purpose of the conductor's own
+  // housekeeping ("summary").
+  string kind = 18;
+  // auth_kind is "api_key" or "subscription", and empty for a row from before the conductor
+  // recorded it. A subscription row's cost_usd is the harness's list-price figure, not
+  // money billed.
+  string auth_kind = 19;
+  // credential_owner is the login whose own credential paid, empty for the company's.
+  string credential_owner = 20;
+  // credential_account is who the provider said signed in, or a key's hint.
+  string credential_account = 21;
+  // Tokens summed over the row's model steps. Unset where the runtime reported none.
+  optional int64 input_tokens = 22;
+  optional int64 output_tokens = 23;
+  optional int64 reasoning_tokens = 24;
+  optional int64 cache_read_tokens = 25;
+  optional int64 cache_write_tokens = 26;
+  // chat_id and chat_title name the conversation the row belongs to, when it has a chat.
+  string chat_id = 27;
+  string chat_title = 28;
+  // routine_id and routine_name name the routine whose run this was, if any.
+  string routine_id = 29;
+  string routine_name = 30;
+  // origin is the source the screen groups by: "routine" for a routine's run, "housekeeping"
+  // for the conductor's own, and otherwise the session's source_kind.
+  string origin = 31;
+}
+
+// UsageTotals is one group's spend. cost_usd is everything reported; subscription_cost_usd
+// is the part of it that a subscription covered, which is a list-price figure rather than a
+// bill. The tokens are sums over the rows that reported any.
+message UsageTotals {
+  double cost_usd = 1;
+  double subscription_cost_usd = 2;
+  int32 turns = 3;
+  int32 model_turns = 4;
+  int32 unpriced = 5;
+  int64 input_tokens = 6;
+  int64 output_tokens = 7;
+  int64 reasoning_tokens = 8;
+  int64 cache_read_tokens = 9;
+  int64 cache_write_tokens = 10;
+}
+
+// UsageGroup is spend grouped by one dimension the server aggregates. key is stable and is
+// what a filter takes; the other fields describe the group for display and are empty where
+// the dimension has no use for them.
+message UsageGroup {
+  string key = 1;
+  // label is a display name: a chat's title, a routine's name.
+  string label = 2;
+  // For credentials: whose, which provider, which kind, and the account it reported.
+  string provider = 3;
+  string auth_kind = 4;
+  string owner = 5;
+  string account = 6;
+  // For conversations: the chat and the source it is on.
+  string chat_id = 7;
+  string origin = 8;
+  UsageTotals totals = 9;
+}
+
+// UsageFilter narrows a usage read. Every field is optional, and the set ones are ANDed.
+message UsageFilter {
+  // origin is a value of TaskCost.origin.
+  string origin = 1;
+  // started_by is a login, "github-app", or "-" for rows with nobody recorded.
+  string started_by = 2;
+  string provider = 3;
+  string model = 4;
+  // auth_kind is "api_key", "subscription", or "-" for rows from before it was recorded.
+  string auth_kind = 5;
+  // credential is a UsageGroup key from GetUsageResponse.credentials.
+  string credential = 6;
+  string routine_id = 7;
+  string chat_id = 8;
+  // kind is a value of TaskCost.kind.
+  string kind = 9;
 }
 
 // UsagePerson is what one person's turns cost over the range, aggregated by the server for
@@ -695,6 +822,7 @@ message UsagePerson {
   int32 turns = 3;
   int32 model_turns = 4;
   int32 unpriced = 5;
+  UsageTotals totals = 6;
 }
 
 // UsageBackend is what one agent, model and effort cost over the range. It is aggregated by
@@ -712,6 +840,7 @@ message UsageBackend {
   int32 turns = 6;
   int32 model_turns = 7;
   int32 unpriced = 8;
+  UsageTotals totals = 9;
 }
 
 message GetUsageRequest {
@@ -733,6 +862,8 @@ message GetUsageRequest {
   int32 tz_offset_minutes = 3;
   // limit caps costs. days always covers the whole range whatever this says.
   int32 limit = 4;
+  // filter narrows everything in the answer, the comparison window's days included.
+  UsageFilter filter = 6;
 }
 
 message GetUsageResponse {
@@ -753,6 +884,36 @@ message GetUsageResponse {
   repeated UsageBackend backends = 7;
   // people is the same range by whose turn it was, most expensive first.
   repeated UsagePerson people = 8;
+  // totals is the whole range, with the subscription share and tokens the older total_*
+  // fields do not carry.
+  UsageTotals totals = 9;
+  // sources is the range by origin (TaskCost.origin), most expensive first.
+  repeated UsageGroup sources = 10;
+  // credentials is the range by what paid: kind, provider and whose credential. Rows from
+  // before it was recorded group under an empty auth_kind.
+  repeated UsageGroup credentials = 11;
+  // conversations is the most expensive conversations in the range, at most 50.
+  repeated UsageGroup conversations = 12;
+  // routines is the range by routine, for the rows that were a routine's run.
+  repeated UsageGroup routines = 13;
+}
+
+message ListUsageRowsRequest {
+  // from, to and filter mean what they mean on GetUsageRequest.
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  UsageFilter filter = 3;
+  // cursor is the previous page's next_cursor; empty is the first page.
+  string cursor = 4;
+  // limit is the page size, capped by the server.
+  int32 limit = 5;
+}
+
+message ListUsageRowsResponse {
+  // rows is newest first.
+  repeated TaskCost rows = 1;
+  // next_cursor is empty on the last page.
+  string next_cursor = 2;
 }
 
 message GetSettingsRequest {}

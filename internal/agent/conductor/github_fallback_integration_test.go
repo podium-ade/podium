@@ -157,3 +157,20 @@ func TestAPersonWhoCannotPushIsWrittenForByTheApp(t *testing.T) {
 		assert.NotNil(t, got, "nothing could write for them, so the push is theirs to fail")
 	})
 }
+
+// A system routine's run writes as the App even where the policy says a person's work is
+// written only as them: a run as Podium has no person to be written as.
+func TestARunAsPodiumWritesAsTheAppWhateverThePolicySays(t *testing.T) {
+	st := newStore(t)
+	_, err := st.PutIdentityPolicy(context.Background(), store.IdentityPolicy{GitHubWrite: store.IdentityPersonOnly})
+	require.NoError(t, err)
+	c := fallbackConductor(t, st, fakeApp(t, nil))
+
+	got, err := c.GitHubPersonaAsPodiumForTest(context.Background(), pushesAsPerson())
+	require.NoError(t, err)
+	assert.Nil(t, got, "nil is the App")
+
+	_, err = c.GitHubPersonaForTest(context.Background(), "", pushesAsPerson())
+	require.ErrorContains(t, err, "writes to GitHub only as the person who asked",
+		"a turn with nobody behind it that is not a run as Podium keeps the policy")
+}

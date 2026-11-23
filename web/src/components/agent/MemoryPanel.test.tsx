@@ -296,7 +296,7 @@ describe("MemoryPanel", () => {
     expect(screen.getByTestId("memory-model")).toHaveTextContent("using your saved Anthropic key");
   });
 
-  it("pages through the memory by number", async () => {
+  it("pages through the memory on the shared pager", async () => {
     const page = (n: number) =>
       Array.from({ length: n === 3 ? 10 : 25 }, (_, i) => ({
         ...memory,
@@ -312,26 +312,25 @@ describe("MemoryPanel", () => {
     expect(
       screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "60 memories, newest first"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
-    expect(screen.getByTestId("memory-range")).toHaveTextContent("1–25 of 60");
-    expect(screen.getByTestId("memory-prev")).toBeDisabled();
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("1–25 of 60 memories");
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
 
-    await userEvent.click(screen.getByTestId("memory-next"));
+    await userEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(await screen.findByText("fact 2.0")).toBeInTheDocument();
     expect(screen.queryByText("fact 1.0")).toBeNull();
     expect(listMemories).toHaveBeenLastCalledWith({ offset: 25, limit: 25 });
-    expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("26–50 of 60 memories");
 
-    await userEvent.click(screen.getByTestId("memory-next"));
+    await userEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(await screen.findByText("fact 3.0")).toBeInTheDocument();
-    expect(screen.getByTestId("memory-range")).toHaveTextContent("51–60 of 60");
-    expect(screen.getByTestId("memory-next")).toBeDisabled();
+    expect(screen.getByTestId("pager-summary")).toHaveTextContent("51–60 of 60 memories");
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
 
-    await userEvent.click(screen.getByTestId("memory-prev"));
+    await userEvent.click(screen.getByRole("button", { name: /previous/i }));
     expect(await screen.findByText("fact 2.0")).toBeInTheDocument();
   });
 
-  it("moves to the last page when the memory shrinks under the one being read", async () => {
+  it("steps back to a page that has something when the memory shrinks under the one being read", async () => {
     let total = 30;
     listMemories.mockImplementation(({ offset }: { offset?: number }) => {
       const from = offset ?? 0;
@@ -345,7 +344,7 @@ describe("MemoryPanel", () => {
     });
     mount();
     expect(await screen.findByText("fact 0")).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("memory-next"));
+    await userEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(await screen.findByText("fact 25")).toBeInTheDocument();
 
     // Forgotten elsewhere: 18 are left, all on page 1. Forgetting one here re-reads page 2.
@@ -361,10 +360,11 @@ describe("MemoryPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows no pager when everything fits on one page", async () => {
+  it("keeps the pager with nowhere to page to when everything fits on one page", async () => {
     mount();
     await screen.findByTestId("memory-row");
-    expect(screen.queryByTestId("memory-next")).toBeNull();
+    expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
   });
 });
 

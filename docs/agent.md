@@ -172,10 +172,34 @@ empty and group as one unrecorded bucket — their cost is real, only the attrib
 The offset exists because a day is the operator's, not the server's. A turn at 22:00 in New York
 belongs to that evening, and bucketing in UTC would file it under the next morning.
 
-The screen joins two databases in the browser. Tasks and their compute come from the control
-plane; cost comes from here, keyed by `turns.task_id`. Nothing in this database references a
-Podium table, so the join is the browser's job — and a task that no turn ran has **no** cost
-rather than a cost of zero. The UI draws it as a dash for exactly that reason.
+**One view, every unit of spend.** Since 0056 every usage query reads the `usage_rows` view:
+each turn that ran a model, each delegated task, and each call the conductor makes for itself
+(`housekeeping_spend`, today a conversation's rolling summary, which until then no row recorded).
+A turn that ran no model — the one an automatic review or a `/playbook` run records only so its
+delegation has something to hang off, with no backend, no task and no cost — is left out. Each
+row carries its `origin`: `routine` for a routine's run (and the tasks it delegated), whichever
+conversation it ran in, `housekeeping`, or the session's kind (`chat`, `slack`, `github`,
+`linear`, `dev`). Every query takes the same `UsageFilter`, so a figure and the rows behind it are
+one set, and `ListUsageRows` pages those rows by a `(started_at, id)` cursor.
+
+**What paid.** Once the conductor has decided whose credential a turn or delegated task spends,
+it writes `auth_kind` (`api_key` or `subscription`), `credential_owner` (the login, empty for the
+company's) and `credential_account` (who the provider said signed in, or the key's hint) on the
+row. Only Claude Code on the chat host spends a Claude subscription; OpenAI and xAI spend one when
+the stored credential is a sign-in. A subscription row still reports a cost — the harness's
+list-price figure — and the totals carry it separately as `subscription_cost_usd`, so the screen
+shows billed spend and covered spend apart. Rows from before 0056 have no `auth_kind` and are
+shown as unrecorded.
+
+**Tokens.** The runtime sums each step's input, output, reasoning and cache read/write tokens
+into `turn.json` and the accounting message; the chat host sums them off opencode's assistant
+messages. They are stored beside the cost. A delegated task answering a follow-up reports its
+running total again, which overwrites the row, so a follow-up's spend is dated by the delegation's
+start, not by the follow-up.
+
+Chat titles are part of the answer only for chats the caller may read; a private chat keeps its
+spend and loses its name. The table on the screen is these rows, not the control plane's tasks: a
+task no turn ran is not spend and is not listed, and a host turn with no task is.
 
 A range wider than a year is narrowed to the most recent year rather than refused, and an offset
 outside ±14h is `invalid_argument`: it can only be a bug in the caller.
@@ -343,7 +367,7 @@ That check is the revocation: a finished turn's token is refused everywhere at o
 
 ### The chat host
 
-Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.2.5`) and the
+Set `PODIUM_AGENT_CHAT_HOST` to an opencode 2 binary (`npm i -g @opencode/cli@2.3.2`) and the
 assistant stops being a process per turn: every conversation is answered on one long-lived
 opencode service the conductor runs on its own machine, under the same bubblewrap fence as host
 turns when `PODIUM_AGENT_HOST_ISOLATION=bwrap` is set. Measured against a model that answers in
@@ -403,7 +427,7 @@ every one finishing within 4.7 s.
   sign-in *is* the global credential: it replaces the global key, and every turn without a
   credential of its own spends it, tasks included.
 
-opencode 2's API is young and moves between releases: the chat host is tested against 2.2.5.
+opencode 2's API is young and moves between releases: the chat host is tested against 2.3.2.
 Without `PODIUM_AGENT_CHAT_HOST` the assistant runs as a host turn, as below.
 
 ### More than one conductor
@@ -445,7 +469,7 @@ What is put to Podium while it is answering is **queued** (`turn_queue`) and bec
 own, in order, run as the person who asked it — their secrets, their MCP servers, their GitHub
 account — worked out again when the turn starts. Nothing is refused for a turn being in flight.
 
-- **A shared conversation spends the company's model key.** Once a chat is multiplayer (more
+- **A shared conversation spends the company's model key**, by default. Once a chat is multiplayer (more
   than one human has been in it), and always for a Slack thread, a Linear issue or agent session, or a pull request, every turn and every task it
   delegates runs on the company's credential, never on the asker's own
   `model.<provider>.api_key` or Claude sign-in, the owner's included. A shared conversation has one context, so it spends one
@@ -456,6 +480,18 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   unshared. A share alone is not a second person, so a chat shared with somebody who has not
   spoken still spends its one speaker's own key. The share dialog warns the owner before they share
   (`conductor.turnCredentialOwner`).
+- **Or each turn spends the asker's own plan.** With **Model key in shared conversations** set to
+  *theirs, else the organization's* ([Who a turn acts as](#who-a-turn-acts-as)), each turn of
+  a shared conversation, and each task it delegates, spends the subscription of the person who
+  asked it — a Claude, ChatGPT or Grok plan they signed in with — and the company's credential
+  when they have none, or when there is nobody behind the turn. Still only the asker's: nobody's
+  plan pays for somebody else's question, and a personal API key is never spent here, because a
+  key bills per token and a plan is a flat price somebody chose to bring. A Claude plan is spent
+  only where it always is, by a chat-host turn (`conductor.planOwner`). The price is the shared
+  prompt cache: a turn on somebody else's plan writes its own. On the chat host each turn already
+  opens a session of its own, so a conversation whose payer changes between turns rewrites its
+  location's provider and goes on; nothing else is carried from turn to turn. The share dialog
+  says which of the two the organization chose.
 - **One person's run of messages is one turn**, as it always was: the latest is the instruction
   and the rest are in the transcript. A message from the same person on the same surface still
   goes straight into a turn that is up (a warm task, a running chat-host turn, a question waiting
@@ -1623,7 +1659,7 @@ built-in default — and the resolved triple travels in the brief, so the runtim
 | `gemini` | Google | `podium.agent.google_api_key` |
 
 **One runtime image, and no vendor in the code path.** The harness is
-[opencode](https://opencode.ai) 2 (`@opencode/cli@2.2.5`, the release the chat host is tested
+[opencode](https://opencode.ai) 2 (`@opencode/cli@2.3.2`, the release the chat host is tested
 against), which takes `--model provider/model` — so a backend is a flag rather than a dialect,
 and adding a third provider is a catalogue entry.
 
@@ -1638,8 +1674,8 @@ are denied to every turn.
 A host turn runs whatever `opencode` the conductor's machine has, and the global npm's comes
 first on its PATH. A machine set up for opencode 1 still has `opencode-ai` there, and npm will
 not install `@opencode/cli` over it, so remove it first:
-`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.2.5`. Until then every host turn
-answers, at once, that it found opencode 1 and needs 2.2.5, with that same command, rather than
+`npm uninstall -g opencode-ai && npm install -g @opencode/cli@2.3.2`. Until then every host turn
+answers, at once, that it found opencode 1 and needs 2.3.2, with that same command, rather than
 failing with an exit code.
 
 It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
@@ -1959,8 +1995,11 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    and the playbooks it loaded.
 7. **Reinstall the app** if you created it from an older manifest: `channels:read`,
    `groups:read` and `im:read` were added so the conductor can resolve `#support` from `C0123`
-   and so **Channels** in the sidebar can list membership. Existing tokens keep the old scopes
-   until you reinstall.
+   and so **Channels** in the sidebar can list membership, and `users:read.email` was added
+   because without it no Slack account can be matched to a Podium login (below) and every
+   mention is refused as `not in podium`. Existing tokens keep the old scopes until you
+   reinstall: add the scope under **OAuth & Permissions → Bot Token Scopes** and press
+   **Reinstall to Workspace**. The bot token normally stays the same.
 
 ### Channel context
 
@@ -2072,6 +2111,41 @@ alone — so a Slack thread reads in the web chat the way it read in Slack.
 
 What the bot posts is the model's Markdown converted to mrkdwn (bold, links, headings); Block
 Kit is out of scope.
+
+### What answered
+
+Every answer in a thread says, under it in Slack's small grey type, which model wrote it and
+whose credential paid for it:
+
+```
+Claude Opus 5.5 · Workspace API key
+```
+
+| what the turn spent | what it says |
+|---|---|
+| the workspace's API key | `Workspace API key` |
+| a Claude subscription an admin signed in for everyone | `Workspace Claude plan` |
+| a ChatGPT or Grok subscription signed in as the global credential | `Workspace ChatGPT plan`, `Workspace Grok plan` |
+| a person's own subscription | `Alvaro Ibarguen's Claude plan` |
+| a person's own API key | `Alvaro Ibarguen's API key` |
+
+A thread is a shared conversation, so it spends the workspace's credential unless **Model key in
+shared conversations** is set to *theirs, else the organization's* ([Who a turn acts
+as](#who-a-turn-acts-as)); then each answer is paid by the plan of whoever asked for it, and the
+byline is how everybody in the thread can tell whose. A person is named as the members list has them, or
+by the part of their login before the `@`. Nothing about the key itself is ever shown.
+
+It is the conductor's `Outbound.Byline`, set on an answer (`OutFinal`) and on nothing else —
+not progress, a question or a failure. It is decided when the turn starts, from the same
+decision that picks the credential (`turnCredentialOwner`, and `claudeAgentTurn` for a chat-host
+turn on a Claude plan), and a delegated task gets its own. An answer the outbox retries after a
+restart keeps it. A turn or a delegated task picked up after a restart knows its model from its
+row but not whose credential it started on, so its byline names the model alone.
+
+Slack is the only surface that shows it. The answer's last part is posted as a section block
+with the byline as a context block under it, so that part is cut to the 3,000 characters a
+section holds rather than Slack's 4,000; the message's plain text is still the answer alone,
+for notifications.
 
 ### Rate limits
 
@@ -2377,7 +2451,9 @@ Review", "label every untriaged bug in Mobile" — uses the `linear` MCP server 
 an admin ticks `linear` on Assistant, and each person connects their own under **MCP servers**
 (the Linear preset, `https://mcp.linear.app/mcp`, by key or sign-in). It then acts as that person,
 with what Linear lets them do. A system routine's run is nobody's, and gets the same server signed
-in as the Podium Linear app instead ([Routines](#routines)). The Issues view (while Linear is among its trackers) and an issue's
+in as the Podium Linear app instead ([Routines](#routines)). By default a person who has not
+connected their own gets that same server too, and a turn that came from Linear has Linear in its
+assistant whether or not it is ticked ([Who a turn acts as](#who-a-turn-acts-as) has the setting). The Issues view (while Linear is among its trackers) and an issue's
 conversation show one quiet line
 offering to connect it (`/agent/mcp?add=linear` opens the add dialog on the preset) to a person
 who has no `linear` server of their own switched on, until they connect one or dismiss it in that
@@ -3518,7 +3594,7 @@ as a person only once it has been **proven** to be a Podium login (`identities` 
 | Account | Proven by |
 |---|---|
 | Podium (web) | signing in through podium-server; the first proxied call records it |
-| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set |
+| Slack | a full member of the bot's own workspace (or Enterprise Grid org, or a workspace or org `PODIUM_SLACK_TEAM_IDS` lists) — not a guest, not Slack Connect, not deactivated, not a bot — whose confirmed email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. The app reads that email through the `users:read.email` scope |
 | Linear (the agent app) | the person who wrote the prompt, an active, full member of the app's workspace — not a guest, not an app user — whose email is a Podium login that has signed in, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Keyed `<organization>/<user>` |
 | GitHub | the numeric user id from that person's own **Connect GitHub** in Podium. A username or a public profile email is never matched |
 
@@ -3526,7 +3602,8 @@ The Linear poller proves nobody: a polled ticket runs as nobody, whoever assigne
 
 What that decides:
 
-- **Only Podium people start turns.** A Slack mention from anybody else is recorded and gets
+- **Only Podium people start turns**, by default ([Who a turn acts as](#who-a-turn-acts-as) can
+  answer people outside it). A Slack mention from anybody else is recorded and gets
   🚫; nothing runs. A Linear agent session from anybody else is told so in the session, which
   ends; nothing runs. The Linear poller is the exception: it cannot tell who asked. On GitHub,
   a commenter who has not connected GitHub may ask for exactly one thing — a review, with
@@ -3560,9 +3637,61 @@ What that decides:
   each Podium hook hands on to them, and `commit-msg` adds the trailer after the repository's
   hook, so a hook that rewrites the message cannot drop it. Only `git commit --no-verify`
   skips it. The brief also tells the turn to end any pull request's description with
-  `Opened by Podium on behalf of Name (@handle).` (the handle when the person connected
-  GitHub) and to say "requested by Name" in comments. That part is asked, not enforced:
+  `Opened by <App> on behalf of Name (@handle).`, where `<App>` is the GitHub App's display
+  name as GitHub shows it (the house name when there is no App or GitHub cannot say), with
+  the handle when the person connected GitHub, and to say "requested by Name" in comments. That part is asked, not enforced:
   nothing checks the pull request afterwards.
+
+### Who a turn acts as
+
+Every turn has an **actor**: the Podium person behind it, or nobody. Each kind of access then
+uses that person's own account or the organization's, as **Settings → Identity** says (admins and
+owners; `GetIdentityPolicy` / `SetIdentityPolicy`, stored as the `identity.policy` setting, read
+for every turn). A system routine's run always uses the organization's, whatever it says.
+
+| Access | Default | Choices | The organization's is |
+|---|---|---|---|
+| Linear | theirs, else the organization's | theirs only · always the organization's | the Linear MCP server signed in as the Podium Linear app |
+| GitHub pushes and pull requests | theirs, else the organization's | theirs only · always the organization's | the GitHub App, with `Requested-by` on every commit |
+| GitHub reads (routines) | theirs only | theirs, else the organization's | the GitHub App, read-only, one repository per token |
+| Model key, private conversations | theirs, else the organization's | always the organization's | the global key |
+| Model key, shared conversations | always the organization's | theirs, else the organization's | the global key, or the global Claude plan on the chat host |
+| Personal secrets | theirs only (fixed) | — | — |
+
+"Theirs, else the organization's" stands the organization's in only where the person has not
+connected the account. In a shared conversation, "their plan" is only ever the asker's own
+subscription — never a personal API key, never somebody else's — and a Slack answer says whose
+under it ([What answered](#what-answered)). A person who switched their own `linear` server off, or an operator who
+switched the shared one off, is not overruled. A turn that came from Linear has Linear in its
+assistant whether or not the assistant ticks `linear`; a playbook has it only if it names it.
+
+**People outside Podium** — somebody whose Slack or Linear email is not a signed-in login, or a
+GitHub commenter who has not connected GitHub here — get what the same page says, per surface:
+
+| Surface | Default | Choices |
+|---|---|---|
+| Slack | refuse (🚫) | answer as Podium |
+| Linear | refuse (the session says so) | delegated issues only · answer as Podium |
+| GitHub | the review command only | refuse |
+
+Answered, they run as nobody: the global model key, the global MCP servers and secrets, the
+Linear app and the GitHub App as the access table says, and nobody's personal anything. "Delegated
+issues only" admits the opening of a delegation and nothing else from them: its instruction is the
+issue as Podium words it, never something they typed, and their mentions and replies are refused.
+The issue's own text is still what the turn reads, as a pull request's is for the review command.
+They are never recorded as anybody (`identities`), and their turns count as nobody's in Usage.
+
+**On behalf of.** A turn that writes as the organization for somebody — through the Linear app or
+the GitHub App — names them in what it writes, by their name and where they asked, never by
+whether they are in Podium: `Created by Acme AI on behalf of Dana (via Slack).` at the end of
+every Linear issue description and comment, `Opened by <App> on behalf of Dana (via Slack).` on
+a pull request, and `Requested-by: Dana (via Slack)` on every commit. Linear's line uses the
+deployment's name, not "Podium"; the pull request's names the GitHub App as GitHub shows it, or
+the deployment's name when GitHub cannot say. The commit trailer is written by the runtime; the Linear and pull-request
+lines are asked of the model in its brief, because Linear's own MCP server writes the issue.
+Each such turn is also recorded in the audit log as `identity.on_behalf`: who asked (their
+login, or their Slack, Linear or GitHub account), the surface, the turn and which app it used.
+A system routine's run is for nobody and names nobody.
 
 ## One record, one transcript
 
@@ -3771,7 +3900,7 @@ is the issue's, not the routine's.
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
 | Linear | the owner's own Linear MCP server, as them | the Linear MCP server signed in as the **Podium Linear app**: what it writes in Linear is the app's |
-| GitHub | read with the owner's connected account | read as the **Podium App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
+| GitHub | read with the owner's connected account | read as the **GitHub App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
 | Floor | every 15 minutes | every minute |

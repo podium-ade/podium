@@ -4,8 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import {
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   ListFilter,
   Plus,
@@ -17,6 +15,8 @@ import {
 import { Badge, type Tone } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { PageFrame } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePager } from "../lib/usePager";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
 import { TaskRowActions } from "../components/tasks/TaskRowActions";
 import { useToast } from "../components/Toast";
@@ -33,13 +33,6 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select";
 import {
   Table,
   TableBody,
@@ -63,7 +56,6 @@ import {
 } from "../lib/format";
 import { cn } from "../lib/utils";
 
-const PAGE_SIZES = [25, 50, 100];
 const POLL_MS = 5000;
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -83,9 +75,8 @@ export function TasksPage() {
   const [statuses, setStatuses] = useState<TaskStatus[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState(25);
-  const [cursors, setCursors] = useState<string[]>([""]);
-  const cursor = cursors[cursors.length - 1];
+  // A new status filter or search starts again from the first page.
+  const pager = usePager([statuses, search]);
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -95,17 +86,16 @@ export function TasksPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setSearch(searchInput.trim());
-      setCursors([""]);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [searchInput]);
 
   const query = useQuery({
-    queryKey: ["tasks", statuses, search, pageSize, cursor],
+    queryKey: ["tasks", statuses, search, pager.size, pager.cursor],
     queryFn: () =>
       tasks.listTasks({
         filter: { status: statuses, search },
-        page: { limit: pageSize, cursor },
+        page: { limit: pager.size, cursor: pager.cursor },
       }),
     refetchInterval: POLL_MS,
     placeholderData: (prev) => prev,
@@ -116,17 +106,14 @@ export function TasksPage() {
   }, [query.error, toast]);
 
   const toggle = (s: TaskStatus) => {
-    setCursors([""]);
     setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   };
 
   const only = (s?: TaskStatus) => {
-    setCursors([""]);
     setStatuses(s === undefined ? [] : [s]);
   };
 
   const clearFilters = () => {
-    setCursors([""]);
     setStatuses([]);
     setSearchInput("");
   };
@@ -324,7 +311,18 @@ export function TasksPage() {
           />
         )
       ) : (
-        <Table className="[&_td]:px-2.5 [&_th]:px-2.5">
+        <Table
+          className="[&_td]:px-2.5 [&_th]:px-2.5"
+          footer={
+            <Pager
+              pager={pager}
+              count={rows.length}
+              noun={{ one: "task", other: "tasks" }}
+              nextCursor={query.data?.nextCursor ?? ""}
+              loading={query.isPlaceholderData}
+            />
+          }
+        >
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-60">Status</TableHead>
@@ -436,56 +434,6 @@ export function TasksPage() {
         </Table>
       )}
 
-      {rows.length > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-          <p className="text-xs text-muted">
-            <span className="tabular text-fg">{rows.length}</span>{" "}
-            {rows.length === 1 ? "task" : "tasks"} on page{" "}
-            <span className="tabular text-fg">{cursors.length}</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="page-size" className="text-2xs tracking-wide text-faint uppercase">
-              Rows
-            </Label>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(v) => {
-                setCursors([""]);
-                setPageSize(Number(v));
-              }}
-            >
-              <SelectTrigger id="page-size" size="sm" className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZES.map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {n}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={cursors.length === 1}
-              onClick={() => setCursors((prev) => prev.slice(0, -1))}
-            >
-              <ChevronLeft />
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!query.data?.nextCursor}
-              onClick={() => setCursors((prev) => [...prev, query.data?.nextCursor ?? ""])}
-            >
-              Next
-              <ChevronRight />
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {hasList ? (
         <p className="max-w-3xl text-xs leading-relaxed text-muted">

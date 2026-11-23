@@ -218,7 +218,7 @@ export function ProviderCard({
       clearTimeout(timer);
     };
     // ended is rebuilt each render from the same props listed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [signing, onPollOAuth, onSignedIn, provider]);
 
   async function finishSignIn(code: string) {

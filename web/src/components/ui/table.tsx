@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, type ComponentProps } from "react";
+import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { StickyScrollX } from "./sticky-scroll-x";
 
 /** More than a subpixel of table still hidden past the sticky trailing column. */
 function canScrollEnd(el: HTMLElement): boolean {
@@ -9,8 +10,22 @@ function canScrollEnd(el: HTMLElement): boolean {
 function Table({
   className,
   containerClassName,
+  stickyScrollbar,
+  footer,
   ...props
-}: ComponentProps<"table"> & { containerClassName?: string }) {
+}: ComponentProps<"table"> & {
+  containerClassName?: string;
+  /**
+   * footer is a bar inside the table's card, under the last row and across the card's full
+   * width, so it never scrolls sideways with a wide table: where a paged table's Pager goes.
+   */
+  footer?: ReactNode;
+  /**
+   * stickyScrollbar is for a table long enough that its own horizontal bar sits screens below
+   * the rows being read: the bar is replaced by one stuck to the bottom of the viewport.
+   */
+  stickyScrollbar?: boolean;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -29,12 +44,15 @@ function Table({
     };
   }, []);
 
-  return (
+  const table = (
     <div
       ref={scroller}
       data-slot="table-container"
       className={cn(
-        "group/table relative w-full overflow-x-auto rounded-lg border border-border bg-card",
+        "group/table relative w-full overflow-x-auto bg-card",
+        // With a footer the card is the frame around both, so the scroller draws no edge.
+        footer == null && "rounded-lg border border-border",
+        stickyScrollbar && "scroll-x-strip-target",
         containerClassName,
       )}
     >
@@ -43,6 +61,25 @@ function Table({
         className={cn("w-full caption-bottom border-separate border-spacing-0 text-sm", className)}
         {...props}
       />
+    </div>
+  );
+  if (!stickyScrollbar && footer == null) return table;
+  // The wrapper is the strip's containing block: it sticks while any of the table is in view.
+  // With a footer it is also the card, so the footer sits inside the same border as the rows.
+  return (
+    <div
+      data-slot="table-frame"
+      className={cn("relative", footer != null && "rounded-lg border border-border bg-card [overflow:clip]")}
+    >
+      {table}
+      {stickyScrollbar ? (
+        <StickyScrollX target={scroller} className={footer == null ? "-mt-px rounded-b-lg" : undefined} />
+      ) : null}
+      {footer != null ? (
+        <div data-slot="table-footer" className="border-t border-border px-3 py-2.5">
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -42,6 +42,8 @@ type signedGrant struct {
 	Source    string   `json:"k"`
 	Playbooks []string `json:"p"`
 	Login     string   `json:"l,omitempty"`
+	// Requester is turnGrant.requester: name, surface, account.
+	Requester *requester `json:"q,omitempty"`
 }
 
 // signTurnToken is nonce (random, so no two tokens are alike), the grant, and their MAC.
@@ -50,10 +52,14 @@ func (c *Conductor) signTurnToken(nonce string, g turnGrant) string {
 	if g.src != nil {
 		kind = g.src.Kind()
 	}
-	raw, _ := json.Marshal(signedGrant{
+	sg := signedGrant{
 		TurnID: g.turnID, SessionID: g.sessionID, Ref: g.ref, Source: kind,
 		Playbooks: g.playbooks, Login: g.login,
-	})
+	}
+	if g.requester != (requester{}) {
+		sg.Requester = &g.requester
+	}
+	raw, _ := json.Marshal(sg)
 	body := turnTokenPrefix + "." + nonce + "." + base64.RawURLEncoding.EncodeToString(raw)
 	return body + "." + hex.EncodeToString(c.turnTokenMAC(body))
 }
@@ -84,6 +90,7 @@ func (c *Conductor) verifyTurnToken(ctx context.Context, token string) (turnGran
 		src:       src,
 		playbooks: sg.Playbooks,
 		login:     sg.Login,
+		requester: requesterOrZero(sg.Requester),
 	}, true
 }
 
@@ -122,4 +129,11 @@ func (c *Conductor) turnTokenMAC(body string) []byte {
 	m := hmac.New(sha256.New, key[:])
 	_, _ = m.Write([]byte(body))
 	return m.Sum(nil)
+}
+
+func requesterOrZero(r *requester) requester {
+	if r == nil {
+		return requester{}
+	}
+	return *r
 }

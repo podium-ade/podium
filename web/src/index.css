@@ -259,6 +259,48 @@ html:not([data-theme="dark"]) .chat-code span {
   background-clip: content-box;
 }
 
+/*
+ * A sideways scroller whose bar is always drawn while there is something to scroll to, for a
+ * wide table on a narrow screen: an overlay bar that only appears mid-scroll hides that the
+ * table goes on. Blink ignores the ::-webkit-scrollbar rules once scrollbar-width or
+ * scrollbar-color is set, and only those rules opt it out of overlay bars, so the standard
+ * properties are reset here and left to the browsers without the pseudo-elements (Firefox).
+ * overflow-x: auto keeps the bar away entirely when the content fits.
+ */
+.scroll-x-visible {
+  overflow-x: auto;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.scroll-x-visible::-webkit-scrollbar {
+  height: 10px;
+}
+
+.scroll-x-visible::-webkit-scrollbar-track {
+  background-color: var(--color-raised);
+}
+
+.scroll-x-visible::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-strong);
+}
+
+/* A scroller whose bar a StickyScrollX strip draws instead, so two never show at once. */
+.scroll-x-strip-target {
+  scrollbar-width: none;
+}
+
+.scroll-x-strip-target::-webkit-scrollbar {
+  display: none;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .scroll-x-visible {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) var(--color-raised);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

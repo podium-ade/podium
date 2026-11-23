@@ -240,7 +240,10 @@ SAML is not implemented.
     an app). The conductor keeps that email only when it is a login that has signed in to
     Podium, on a `PODIUM_ALLOWED_DOMAINS` domain when that is set. Anybody else gets 🚫 in Slack
     or a plain-words error in the Linear session ("sign in to Podium with the same email"), and
-    nothing runs; the message is the same whichever check they failed. The turn runs **as that
+    nothing runs; the message is the same whichever check they failed — unless an admin set
+    *Settings → Identity* to answer them, when they run as nobody: any playbook in Slack, or in
+    Linear either any playbook or ("delegated issues only") just the delegation itself, worded
+    from the issue. The turn of a Podium person runs **as that
     person**: their personal secrets, their MCP servers, their GitHub account. In a Linear agent
     session that is **any playbook**, as it is in Slack: a `/playbook` at the start of a prompt
     names one, and the assistant answering an @mention may delegate to any playbook it is offered,
@@ -1070,6 +1073,12 @@ What else bounds them:
   location's config or in Claude Code's environment: Claude Code is given a placeholder, and the
   gateway swaps in the token. The PKCE verifier stays on the conductor, so the code a person
   pastes back is useless to anyone who sees it.
+- In a shared conversation, a person's subscription is spent only when an admin set **Model key in
+  shared conversations** to *theirs, else the organization's*, and then only on a turn that
+  person asked for themselves (`conductor.planOwner`). The token travels exactly as it does in a
+  private chat — a ChatGPT or Grok one in that turn's environment, a Claude one only through the
+  chat host's gateway — and never to a turn somebody else asked for. Their personal API key is
+  never spent in a shared conversation at all.
 - A host turn's credential reaches one more place than a task's copy does: the environment of
   the host turn's runtime, and therefore anything on that machine that can read a process's
   environment. A task's credential is equally visible through `docker inspect` on its node; the

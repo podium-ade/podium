@@ -42,6 +42,9 @@ const (
 	AgentServiceListTurnsProcedure = "/podium.agent.v1.AgentService/ListTurns"
 	// AgentServiceGetUsageProcedure is the fully-qualified name of the AgentService's GetUsage RPC.
 	AgentServiceGetUsageProcedure = "/podium.agent.v1.AgentService/GetUsage"
+	// AgentServiceListUsageRowsProcedure is the fully-qualified name of the AgentService's
+	// ListUsageRows RPC.
+	AgentServiceListUsageRowsProcedure = "/podium.agent.v1.AgentService/ListUsageRows"
 	// AgentServiceGetSettingsProcedure is the fully-qualified name of the AgentService's GetSettings
 	// RPC.
 	AgentServiceGetSettingsProcedure = "/podium.agent.v1.AgentService/GetSettings"
@@ -308,6 +311,12 @@ const (
 	// AgentServiceSetRoutineLimitsProcedure is the fully-qualified name of the AgentService's
 	// SetRoutineLimits RPC.
 	AgentServiceSetRoutineLimitsProcedure = "/podium.agent.v1.AgentService/SetRoutineLimits"
+	// AgentServiceGetIdentityPolicyProcedure is the fully-qualified name of the AgentService's
+	// GetIdentityPolicy RPC.
+	AgentServiceGetIdentityPolicyProcedure = "/podium.agent.v1.AgentService/GetIdentityPolicy"
+	// AgentServiceSetIdentityPolicyProcedure is the fully-qualified name of the AgentService's
+	// SetIdentityPolicy RPC.
+	AgentServiceSetIdentityPolicyProcedure = "/podium.agent.v1.AgentService/SetIdentityPolicy"
 	// AgentServiceGetLinearIssuesProcedure is the fully-qualified name of the AgentService's
 	// GetLinearIssues RPC.
 	AgentServiceGetLinearIssuesProcedure = "/podium.agent.v1.AgentService/GetLinearIssues"
@@ -331,6 +340,11 @@ type AgentServiceClient interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// ListUsageRows pages through every unit of spend in a range, newest first: each turn,
+	// each delegated task and each piece of the conductor's own housekeeping, filtered the
+	// same way GetUsage is. It is the usage screen's table, and it is paged by the server so
+	// a busy range is never silently cut short.
+	ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// GetRunsOn is where a turn runs when its playbook does not say.
@@ -630,6 +644,11 @@ type AgentServiceClient interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+	// and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+	// can see whose Linear or GitHub their turns will use; setting is admins only.
+	GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error)
+	SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error)
 	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
 	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
 	// issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -674,6 +693,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceGetUsageProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
+			connect.WithClientOptions(opts...),
+		),
+		listUsageRows: connect.NewClient[v1.ListUsageRowsRequest, v1.ListUsageRowsResponse](
+			httpClient,
+			baseURL+AgentServiceListUsageRowsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListUsageRows")),
 			connect.WithClientOptions(opts...),
 		),
 		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
@@ -1234,6 +1259,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 			connect.WithClientOptions(opts...),
 		),
+		getIdentityPolicy: connect.NewClient[v1.GetIdentityPolicyRequest, v1.GetIdentityPolicyResponse](
+			httpClient,
+			baseURL+AgentServiceGetIdentityPolicyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetIdentityPolicy")),
+			connect.WithClientOptions(opts...),
+		),
+		setIdentityPolicy: connect.NewClient[v1.SetIdentityPolicyRequest, v1.SetIdentityPolicyResponse](
+			httpClient,
+			baseURL+AgentServiceSetIdentityPolicyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetIdentityPolicy")),
+			connect.WithClientOptions(opts...),
+		),
 		getLinearIssues: connect.NewClient[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse](
 			httpClient,
 			baseURL+AgentServiceGetLinearIssuesProcedure,
@@ -1255,6 +1292,7 @@ type agentServiceClient struct {
 	getSession                 *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
 	listTurns                  *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
 	getUsage                   *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	listUsageRows              *connect.Client[v1.ListUsageRowsRequest, v1.ListUsageRowsResponse]
 	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	getRunsOn                  *connect.Client[v1.GetRunsOnRequest, v1.GetRunsOnResponse]
 	setRunsOn                  *connect.Client[v1.SetRunsOnRequest, v1.SetRunsOnResponse]
@@ -1348,6 +1386,8 @@ type agentServiceClient struct {
 	listMemberRoutines         *connect.Client[v1.ListMemberRoutinesRequest, v1.ListMemberRoutinesResponse]
 	getRoutineLimits           *connect.Client[v1.GetRoutineLimitsRequest, v1.GetRoutineLimitsResponse]
 	setRoutineLimits           *connect.Client[v1.SetRoutineLimitsRequest, v1.SetRoutineLimitsResponse]
+	getIdentityPolicy          *connect.Client[v1.GetIdentityPolicyRequest, v1.GetIdentityPolicyResponse]
+	setIdentityPolicy          *connect.Client[v1.SetIdentityPolicyRequest, v1.SetIdentityPolicyResponse]
 	getLinearIssues            *connect.Client[v1.GetLinearIssuesRequest, v1.GetLinearIssuesResponse]
 	getLinearIssueConversation *connect.Client[v1.GetLinearIssueConversationRequest, v1.GetLinearIssueConversationResponse]
 }
@@ -1370,6 +1410,11 @@ func (c *agentServiceClient) ListTurns(ctx context.Context, req *connect.Request
 // GetUsage calls podium.agent.v1.AgentService.GetUsage.
 func (c *agentServiceClient) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
 	return c.getUsage.CallUnary(ctx, req)
+}
+
+// ListUsageRows calls podium.agent.v1.AgentService.ListUsageRows.
+func (c *agentServiceClient) ListUsageRows(ctx context.Context, req *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error) {
+	return c.listUsageRows.CallUnary(ctx, req)
 }
 
 // GetSettings calls podium.agent.v1.AgentService.GetSettings.
@@ -1837,6 +1882,16 @@ func (c *agentServiceClient) SetRoutineLimits(ctx context.Context, req *connect.
 	return c.setRoutineLimits.CallUnary(ctx, req)
 }
 
+// GetIdentityPolicy calls podium.agent.v1.AgentService.GetIdentityPolicy.
+func (c *agentServiceClient) GetIdentityPolicy(ctx context.Context, req *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error) {
+	return c.getIdentityPolicy.CallUnary(ctx, req)
+}
+
+// SetIdentityPolicy calls podium.agent.v1.AgentService.SetIdentityPolicy.
+func (c *agentServiceClient) SetIdentityPolicy(ctx context.Context, req *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error) {
+	return c.setIdentityPolicy.CallUnary(ctx, req)
+}
+
 // GetLinearIssues calls podium.agent.v1.AgentService.GetLinearIssues.
 func (c *agentServiceClient) GetLinearIssues(ctx context.Context, req *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {
 	return c.getLinearIssues.CallUnary(ctx, req)
@@ -1862,6 +1917,11 @@ type AgentServiceHandler interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// ListUsageRows pages through every unit of spend in a range, newest first: each turn,
+	// each delegated task and each piece of the conductor's own housekeeping, filtered the
+	// same way GetUsage is. It is the usage screen's table, and it is paged by the server so
+	// a busy range is never silently cut short.
+	ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// GetRunsOn is where a turn runs when its playbook does not say.
@@ -2161,6 +2221,11 @@ type AgentServiceHandler interface {
 	// GetRoutineLimits and SetRoutineLimits are the per-person limits. Setting is admins only.
 	GetRoutineLimits(context.Context, *connect.Request[v1.GetRoutineLimitsRequest]) (*connect.Response[v1.GetRoutineLimitsResponse], error)
 	SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error)
+	// GetIdentityPolicy and SetIdentityPolicy are who a turn acts as, capability by capability,
+	// and what Podium does for somebody outside it. Reading is for anyone signed in, so a person
+	// can see whose Linear or GitHub their turns will use; setting is admins only.
+	GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error)
+	SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error)
 	// GetLinearIssues describes the Linear issues a chat names, for its chips and their cards:
 	// each ref the caller could see in Linear — an admin or owner, somebody who touched the
 	// issue, or somebody whose linked Linear account is on its team — and nothing about the
@@ -2201,6 +2266,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceGetUsageProcedure,
 		svc.GetUsage,
 		connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListUsageRowsHandler := connect.NewUnaryHandler(
+		AgentServiceListUsageRowsProcedure,
+		svc.ListUsageRows,
+		connect.WithSchema(agentServiceMethods.ByName("ListUsageRows")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetSettingsHandler := connect.NewUnaryHandler(
@@ -2761,6 +2832,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetRoutineLimits")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetIdentityPolicyHandler := connect.NewUnaryHandler(
+		AgentServiceGetIdentityPolicyProcedure,
+		svc.GetIdentityPolicy,
+		connect.WithSchema(agentServiceMethods.ByName("GetIdentityPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetIdentityPolicyHandler := connect.NewUnaryHandler(
+		AgentServiceSetIdentityPolicyProcedure,
+		svc.SetIdentityPolicy,
+		connect.WithSchema(agentServiceMethods.ByName("SetIdentityPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceGetLinearIssuesHandler := connect.NewUnaryHandler(
 		AgentServiceGetLinearIssuesProcedure,
 		svc.GetLinearIssues,
@@ -2783,6 +2866,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListTurnsHandler.ServeHTTP(w, r)
 		case AgentServiceGetUsageProcedure:
 			agentServiceGetUsageHandler.ServeHTTP(w, r)
+		case AgentServiceListUsageRowsProcedure:
+			agentServiceListUsageRowsHandler.ServeHTTP(w, r)
 		case AgentServiceGetSettingsProcedure:
 			agentServiceGetSettingsHandler.ServeHTTP(w, r)
 		case AgentServiceGetRunsOnProcedure:
@@ -2969,6 +3054,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetRoutineLimitsHandler.ServeHTTP(w, r)
 		case AgentServiceSetRoutineLimitsProcedure:
 			agentServiceSetRoutineLimitsHandler.ServeHTTP(w, r)
+		case AgentServiceGetIdentityPolicyProcedure:
+			agentServiceGetIdentityPolicyHandler.ServeHTTP(w, r)
+		case AgentServiceSetIdentityPolicyProcedure:
+			agentServiceSetIdentityPolicyHandler.ServeHTTP(w, r)
 		case AgentServiceGetLinearIssuesProcedure:
 			agentServiceGetLinearIssuesHandler.ServeHTTP(w, r)
 		case AgentServiceGetLinearIssueConversationProcedure:
@@ -2996,6 +3085,10 @@ func (UnimplementedAgentServiceHandler) ListTurns(context.Context, *connect.Requ
 
 func (UnimplementedAgentServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetUsage is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListUsageRows(context.Context, *connect.Request[v1.ListUsageRowsRequest]) (*connect.Response[v1.ListUsageRowsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListUsageRows is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
@@ -3368,6 +3461,14 @@ func (UnimplementedAgentServiceHandler) GetRoutineLimits(context.Context, *conne
 
 func (UnimplementedAgentServiceHandler) SetRoutineLimits(context.Context, *connect.Request[v1.SetRoutineLimitsRequest]) (*connect.Response[v1.SetRoutineLimitsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRoutineLimits is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetIdentityPolicy(context.Context, *connect.Request[v1.GetIdentityPolicyRequest]) (*connect.Response[v1.GetIdentityPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetIdentityPolicy is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetIdentityPolicy(context.Context, *connect.Request[v1.SetIdentityPolicyRequest]) (*connect.Response[v1.SetIdentityPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetIdentityPolicy is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetLinearIssues(context.Context, *connect.Request[v1.GetLinearIssuesRequest]) (*connect.Response[v1.GetLinearIssuesResponse], error) {

@@ -432,3 +432,79 @@ func chatIDsOf(cs []store.Chat) []string {
 	}
 	return out
 }
+
+// setPolicy stores an identity policy, with the fields it does not name at their defaults.
+func setPolicy(t *testing.T, st *store.Store, p store.IdentityPolicy) {
+	t.Helper()
+	_, err := st.PutIdentityPolicy(context.Background(), p)
+	require.NoError(t, err)
+}
+
+// With Slack outsiders answered, a mention from somebody not in Podium runs, as nobody: no
+// refusal, a task, and still nobody recorded as them.
+func TestASlackOutsiderIsAnsweredWhenThePolicySaysSo(t *testing.T) {
+	st := newStore(t)
+	setPolicy(t, st, store.IdentityPolicy{SlackOutsiders: store.OutsidersAnswer})
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceSlack)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+
+	ctx := context.Background()
+	ev := strangerSlack("C1/60.1", "what is the plan?")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+	assert.NotContains(t, reactions(src.Records()), string(conductor.ReactionRefused))
+	_, err := st.IdentityLogin(ctx, store.ProviderSlack, "T1/U666")
+	require.ErrorIs(t, err, store.ErrNotFound, "answering a stranger does not make them anybody")
+}
+
+// With Linear outsiders on "fixed", an issue somebody outside Podium delegates is worked on,
+// and nothing else they say is: a mention of theirs is still refused.
+func TestALinearOutsidersDelegationRunsAndTheirMentionIsRefused(t *testing.T) {
+	st := newStore(t)
+	setPolicy(t, st, store.IdentityPolicy{LinearOutsiders: store.OutsidersFixed})
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := linearAppSource()
+	t.Cleanup(src.Close)
+	startWith(t, st, fake, src, withAssistant(t, &answeringChatHost{answer: "unused"}))
+
+	ctx := context.Background()
+	ev := delegationOpening("s-70", "a-70", "OPS-9 — The page is blank", "OPS")
+	ev.Login, ev.Author = "mallory@acme.com", "mallory@acme.com"
+	ev.SpeakerID = store.LinearExternalID("org-1", "u-666")
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the claimed playbook's task", func() bool { return len(fake.Specs()) == 1 })
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "OPS-9 — The page is blank", brief.Instruction, "the issue, as Podium words it")
+	waitFor(t, 30*time.Second, "the turn to be recorded", func() bool { return len(startedBy(t, st, ev.SourceKey)) == 1 })
+	assert.Equal(t, []string{""}, startedBy(t, st, ev.SourceKey), "it runs as nobody")
+
+	mention := linearPrompt("s-71", "deploy prod", "mallory@acme.com", "u-666")
+	require.NoError(t, src.Send(ctx, mention))
+	waitFor(t, 30*time.Second, "the refusal", func() bool {
+		return contains(reactions(src.Records()), string(conductor.ReactionRefused))
+	})
+	assert.Len(t, fake.Specs(), 1, "the mention ran nothing")
+}
+
+// With GitHub outsiders refused, even the review command is.
+func TestAnUnlinkedReviewCommandIsRefusedWhenThePolicySaysSo(t *testing.T) {
+	st := newStore(t)
+	setPolicy(t, st, store.IdentityPolicy{GitHubOutsiders: store.OutsidersRefuse})
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+	start(t, st, fake, src)
+
+	ev := strangerGitHub("/review")
+	ev.ReviewRequest = "mallory asked for a review of https://github.com/acme/repo/pull/12."
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 30*time.Second, "the refusal", func() bool {
+		return contains(reactions(src.Records()), string(conductor.ReactionRefused))
+	})
+	assert.Empty(t, fake.Specs())
+}

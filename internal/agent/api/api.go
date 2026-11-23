@@ -556,18 +556,11 @@ func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (
 const DefaultUsageDays = 30
 
 // GetUsage reports what the conductor spent over a range: one row per day for a calendar,
-// and the per-task cost of each turn inside it.
+// the groupings the usage screen breaks it down by, and the first page of rows.
 func (s *AgentService) GetUsage(
 	ctx context.Context, req *connect.Request[agentv1.GetUsageRequest],
 ) (*connect.Response[agentv1.GetUsageResponse], error) {
-	to := time.Now().UTC()
-	if ts := req.Msg.GetTo(); ts.IsValid() {
-		to = ts.AsTime()
-	}
-	from := to.AddDate(0, 0, -DefaultUsageDays)
-	if ts := req.Msg.GetFrom(); ts.IsValid() {
-		from = ts.AsTime()
-	}
+	from, to := usageRange(req.Msg.GetFrom(), req.Msg.GetTo())
 	// An offset beyond the real ones on Earth would shift days by an arbitrary amount, so it
 	// is refused rather than clamped: it can only be a bug in the caller.
 	tz := int(req.Msg.GetTzOffsetMinutes())
@@ -587,28 +580,43 @@ func (s *AgentService) GetUsage(
 		CompareFrom:     compareFrom,
 		TZOffsetMinutes: tz,
 		Limit:           int(req.Msg.GetLimit()),
+		Filter:          usageFilter(req.Msg.GetFilter()),
 	})
 	if err != nil {
 		return nil, storeError(err)
 	}
+	titles := s.chatTitles(ctx)
 
-	days := make([]*agentv1.UsageDay, 0, len(u.Days))
+	out := &agentv1.GetUsageResponse{
+		Days:            make([]*agentv1.UsageDay, 0, len(u.Days)),
+		Costs:           make([]*agentv1.TaskCost, 0, len(u.Costs)),
+		Backends:        make([]*agentv1.UsageBackend, 0, len(u.Backends)),
+		People:          make([]*agentv1.UsagePerson, 0, len(u.People)),
+		Sources:         make([]*agentv1.UsageGroup, 0, len(u.Sources)),
+		Credentials:     make([]*agentv1.UsageGroup, 0, len(u.Credentials)),
+		Conversations:   make([]*agentv1.UsageGroup, 0, len(u.Conversations)),
+		Routines:        make([]*agentv1.UsageGroup, 0, len(u.Routines)),
+		Totals:          usageTotalsToProto(u.Totals),
+		TotalCostUsd:    u.TotalCostUSD,
+		TotalTurns:      int32(u.TotalTurns),
+		TotalModelTurns: int32(u.TotalModelTurns),
+		Unpriced:        int32(u.Unpriced),
+	}
 	for _, d := range u.Days {
-		days = append(days, &agentv1.UsageDay{
+		out.Days = append(out.Days, &agentv1.UsageDay{
 			Date:       d.Date,
 			CostUsd:    d.CostUSD,
 			Turns:      int32(d.Turns),
 			ModelTurns: int32(d.ModelTurns),
 			Unpriced:   int32(d.Unpriced),
+			Totals:     usageTotalsToProto(d.UsageTotals),
 		})
 	}
-	costs := make([]*agentv1.TaskCost, 0, len(u.Costs))
 	for _, c := range u.Costs {
-		costs = append(costs, turnCostToProto(c))
+		out.Costs = append(out.Costs, turnCostToProto(c, titles))
 	}
-	backends := make([]*agentv1.UsageBackend, 0, len(u.Backends))
 	for _, b := range u.Backends {
-		backends = append(backends, &agentv1.UsageBackend{
+		out.Backends = append(out.Backends, &agentv1.UsageBackend{
 			Provider:   b.Provider,
 			Agent:      b.Agent,
 			Model:      b.Model,
@@ -617,47 +625,189 @@ func (s *AgentService) GetUsage(
 			Turns:      int32(b.Turns),
 			ModelTurns: int32(b.ModelTurns),
 			Unpriced:   int32(b.Unpriced),
+			Totals:     usageTotalsToProto(b.UsageTotals),
 		})
 	}
-	people := make([]*agentv1.UsagePerson, 0, len(u.People))
 	for _, p := range u.People {
-		people = append(people, &agentv1.UsagePerson{
+		out.People = append(out.People, &agentv1.UsagePerson{
 			StartedBy:  p.StartedBy,
 			CostUsd:    p.CostUSD,
 			Turns:      int32(p.Turns),
 			ModelTurns: int32(p.ModelTurns),
 			Unpriced:   int32(p.Unpriced),
+			Totals:     usageTotalsToProto(p.UsageTotals),
 		})
 	}
-	return connect.NewResponse(&agentv1.GetUsageResponse{
-		People:          people,
-		Days:            days,
-		Costs:           costs,
-		TotalCostUsd:    u.TotalCostUSD,
-		TotalTurns:      int32(u.TotalTurns),
-		TotalModelTurns: int32(u.TotalModelTurns),
-		Unpriced:        int32(u.Unpriced),
-		Backends:        backends,
-	}), nil
+	for _, g := range u.Sources {
+		out.Sources = append(out.Sources, &agentv1.UsageGroup{
+			Key: g.Origin, Label: g.Origin, Origin: g.Origin, Totals: usageTotalsToProto(g.UsageTotals),
+		})
+	}
+	for _, g := range u.Credentials {
+		out.Credentials = append(out.Credentials, &agentv1.UsageGroup{
+			Key: g.Key(), Provider: g.Provider, AuthKind: g.AuthKind, Owner: g.Owner,
+			Account: g.Account, Totals: usageTotalsToProto(g.UsageTotals),
+		})
+	}
+	for _, g := range u.Conversations {
+		out.Conversations = append(out.Conversations, &agentv1.UsageGroup{
+			Key: g.SessionID, Label: titles.title(g.ChatID, g.ChatTitle), ChatId: g.ChatID,
+			Origin: g.Origin, Totals: usageTotalsToProto(g.UsageTotals),
+		})
+	}
+	for _, g := range u.Routines {
+		out.Routines = append(out.Routines, &agentv1.UsageGroup{
+			Key: g.RoutineID, Label: g.Name, Origin: "routine", Totals: usageTotalsToProto(g.UsageTotals),
+		})
+	}
+	return connect.NewResponse(out), nil
 }
 
-func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
+// ListUsageRows pages through a range's units of spend, newest first.
+func (s *AgentService) ListUsageRows(
+	ctx context.Context, req *connect.Request[agentv1.ListUsageRowsRequest],
+) (*connect.Response[agentv1.ListUsageRowsResponse], error) {
+	from, to := usageRange(req.Msg.GetFrom(), req.Msg.GetTo())
+	rows, next, err := s.store.UsageRows(ctx, store.UsageRowsQuery{
+		From:   from,
+		To:     to,
+		Filter: usageFilter(req.Msg.GetFilter()),
+		Cursor: req.Msg.GetCursor(),
+		Limit:  int(req.Msg.GetLimit()),
+	})
+	if errors.Is(err, store.ErrBadCursor) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("list usage rows: %w", err))
+	}
+	if err != nil {
+		return nil, storeError(err)
+	}
+	titles := s.chatTitles(ctx)
+	out := &agentv1.ListUsageRowsResponse{Rows: make([]*agentv1.TaskCost, 0, len(rows)), NextCursor: next}
+	for _, r := range rows {
+		out.Rows = append(out.Rows, turnCostToProto(r, titles))
+	}
+	return connect.NewResponse(out), nil
+}
+
+// usageRange is a usage request's window. Leaving either end unset is the last
+// DefaultUsageDays days.
+func usageRange(fromTS, toTS *timestamppb.Timestamp) (time.Time, time.Time) {
+	to := time.Now().UTC()
+	if toTS.IsValid() {
+		to = toTS.AsTime()
+	}
+	from := to.AddDate(0, 0, -DefaultUsageDays)
+	if fromTS.IsValid() {
+		from = fromTS.AsTime()
+	}
+	return from, to
+}
+
+func usageFilter(f *agentv1.UsageFilter) store.UsageFilter {
+	return store.UsageFilter{
+		Origin:     f.GetOrigin(),
+		StartedBy:  f.GetStartedBy(),
+		Provider:   f.GetProvider(),
+		Model:      f.GetModel(),
+		AuthKind:   f.GetAuthKind(),
+		Credential: f.GetCredential(),
+		RoutineID:  f.GetRoutineId(),
+		ChatID:     f.GetChatId(),
+		Kind:       f.GetKind(),
+	}
+}
+
+func usageTotalsToProto(t store.UsageTotals) *agentv1.UsageTotals {
+	return &agentv1.UsageTotals{
+		CostUsd:             t.CostUSD,
+		SubscriptionCostUsd: t.SubscriptionCostUSD,
+		Turns:               int32(t.Turns),
+		ModelTurns:          int32(t.ModelTurns),
+		Unpriced:            int32(t.Unpriced),
+		InputTokens:         t.InputTokens,
+		OutputTokens:        t.OutputTokens,
+		ReasoningTokens:     t.ReasoningTokens,
+		CacheReadTokens:     t.CacheReadTokens,
+		CacheWriteTokens:    t.CacheWriteTokens,
+	}
+}
+
+// usageTitles decides, once per request and per chat, whether the caller may read a chat's
+// title. Usage is open to every member, and a private chat's title is the chat's, not the
+// bill's: a chat the caller cannot read keeps its spend and its id and loses its name.
+type usageTitles struct {
+	s     *AgentService
+	ctx   context.Context
+	login string
+	all   bool
+	seen  map[string]bool
+}
+
+func (s *AgentService) chatTitles(ctx context.Context) *usageTitles {
+	return &usageTitles{s: s, ctx: ctx, login: Login(ctx), all: SeesAll(ctx), seen: map[string]bool{}}
+}
+
+// title is the chat's title when the caller may read it, and "" when not.
+func (t *usageTitles) title(chatID, title string) string {
+	if chatID == "" || title == "" || t.all {
+		return title
+	}
+	ok, cached := t.seen[chatID]
+	if !cached {
+		ok = t.mayRead(chatID)
+		t.seen[chatID] = ok
+	}
+	if !ok {
+		return ""
+	}
+	return title
+}
+
+func (t *usageTitles) mayRead(chatID string) bool {
+	if t.login == "" || t.login == "unknown" {
+		return false
+	}
+	c, err := t.s.store.GetChat(t.ctx, chatID)
+	if err != nil {
+		return false
+	}
+	ok, err := t.s.mayReadChat(t.ctx, c, t.login)
+	return err == nil && ok
+}
+
+func turnCostToProto(c store.TurnCost, titles *usageTitles) *agentv1.TaskCost {
 	out := &agentv1.TaskCost{
-		TaskId:     c.TaskID,
-		TurnId:     c.TurnID,
-		SessionId:  c.SessionID,
-		SourceKind: c.SourceKind,
-		SourceKey:  c.SourceKey,
-		Playbook:   c.Playbook,
-		Profile:    c.Profile,
-		Status:     c.Status,
-		StartedAt:  timestamppb.New(c.StartedAt),
-		CostUsd:    c.CostUSD,
-		Agent:      c.Backend.Agent,
-		Model:      c.Backend.Model,
-		Effort:     c.Backend.Effort,
-		Provider:   c.Backend.Provider,
-		StartedBy:  c.StartedBy,
+		TaskId:            c.TaskID,
+		TurnId:            c.TurnID,
+		SessionId:         c.SessionID,
+		SourceKind:        c.SourceKind,
+		SourceKey:         c.SourceKey,
+		Playbook:          c.Playbook,
+		Profile:           c.Profile,
+		Status:            c.Status,
+		StartedAt:         timestamppb.New(c.StartedAt),
+		CostUsd:           c.CostUSD,
+		Agent:             c.Backend.Agent,
+		Model:             c.Backend.Model,
+		Effort:            c.Backend.Effort,
+		Provider:          c.Backend.Provider,
+		StartedBy:         c.StartedBy,
+		Kind:              c.Kind,
+		AuthKind:          c.Credential.AuthKind,
+		CredentialOwner:   c.Credential.Owner,
+		CredentialAccount: c.Credential.Account,
+		InputTokens:       c.Tokens.Input,
+		OutputTokens:      c.Tokens.Output,
+		ReasoningTokens:   c.Tokens.Reasoning,
+		CacheReadTokens:   c.Tokens.CacheRead,
+		CacheWriteTokens:  c.Tokens.CacheWrite,
+		ChatId:            c.ChatID,
+		RoutineId:         c.RoutineID,
+		RoutineName:       c.RoutineName,
+		Origin:            c.Origin,
+	}
+	if titles != nil {
+		out.ChatTitle = titles.title(c.ChatID, c.ChatTitle)
 	}
 	if c.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*c.FinishedAt)
@@ -747,7 +897,7 @@ func storeError(err error) error {
 	case errors.Is(err, store.ErrNoSuchMember):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrInvalidAccess), errors.Is(err, store.ErrInvalidSection),
-		errors.Is(err, store.ErrBadLinearCursor):
+		errors.Is(err, store.ErrBadLinearCursor), errors.Is(err, store.ErrInvalidIdentityPolicy):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("agent store: %w", err))

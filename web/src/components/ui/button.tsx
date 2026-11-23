@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-// eslint-disable-next-line react-refresh/only-export-components -- screens compose links with the same variants
+// oxlint-disable-next-line react/only-export-components -- screens compose links with the same variants
 export const buttonVariants = cva(
   [
     "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md",

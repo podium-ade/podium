@@ -165,7 +165,15 @@ export interface Event {
     callID?: string;
     /** reason is why a step ended: "tool-calls" when it will continue, "stop" when done. */
     reason?: string;
-    tokens?: { total?: number; input?: number; output?: number; reasoning?: number };
+    /** tokens is what the step used. cache is opencode 2's split of the prompt into what was
+     *  read from the provider's prompt cache and what was written to it. */
+    tokens?: {
+      total?: number;
+      input?: number;
+      output?: number;
+      reasoning?: number;
+      cache?: { read?: number; write?: number };
+    };
     /** cost is what the step cost, in USD. It is what turn.json reports. */
     cost?: number;
     state?: { status?: string; title?: string; input?: unknown; output?: unknown; error?: unknown };
@@ -710,7 +718,7 @@ export interface Run {
 }
 
 /** HarnessVersion is the @opencode/cli the runtime image installs, and a host should too. */
-export const HarnessVersion = "2.2.5";
+export const HarnessVersion = "2.3.2";
 
 /**
  * NotInstalledText is what a turn says when the harness is not installed where it runs — a

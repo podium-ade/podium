@@ -31,6 +31,7 @@ import { absolute, conversationLabel, relative } from "../lib/format";
 import { DAY_SECONDS, sandboxSweepPlan, type SandboxPolicy } from "../lib/snapshots";
 import { headCell, MobileLabel } from "./snapshotsShared";
 
+// oxlint-disable-next-line react/only-export-components -- the page reads the same query cache as the panel
 export const SANDBOX_SNAPSHOTS_KEY = ["snapshots", "sandbox"] as const;
 
 /**

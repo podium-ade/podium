@@ -94,6 +94,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceGetSessionProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceListTurnsProcedure:         store.RoleMember,
 	agentv1connect.AgentServiceGetUsageProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceListUsageRowsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceGetSettingsProcedure:       store.RoleMember,
 	agentv1connect.AgentServiceGetRunsOnProcedure:         store.RoleMember,
 	agentv1connect.AgentServiceListAgentsProcedure:        store.RoleMember,
@@ -176,6 +177,9 @@ var catalog = map[string]string{
 	// Every person's routines as metadata, and the per-person limits: admins.
 	agentv1connect.AgentServiceListMemberRoutinesProcedure: store.RoleAdmin,
 	agentv1connect.AgentServiceSetRoutineLimitsProcedure:   store.RoleAdmin,
+	// Who a turn acts as: anyone reads it, so they know whose Linear their turn uses; admins set it.
+	agentv1connect.AgentServiceGetIdentityPolicyProcedure: store.RoleMember,
+	agentv1connect.AgentServiceSetIdentityPolicyProcedure: store.RoleAdmin,
 
 	agentv1connect.AgentServiceSetRunsOnProcedure: store.RoleAdmin,
 	// A member saves their own model credential; the handler refuses a global write from
