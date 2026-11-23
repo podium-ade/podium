@@ -10,8 +10,8 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
-	"github.com/podium-ade/podium/internal/server/nodes"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/pkg/spec"
 )
 

@@ -12,6 +12,7 @@ import (
 
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/version"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // Stream loop timings. The heartbeat interval is the canonical 10s; flushTick is how
@@ -336,16 +337,25 @@ func (n *Node) handleAssign(
 		return n.rejectAssign(ctx, stream, a, "node full")
 	}
 	if x := a.GetSpec().GetExpose(); x != nil {
-		via := x.GetVia()
-		if len(x.GetPorts()) == 0 {
-			via = holdOnly
-		}
-		if err := n.previews.reserve(a.GetTaskId(), via); err != nil {
+		if err := n.previews.reserve(a.GetTaskId(), assignVia(a.GetSpec())); err != nil {
 			return n.rejectAssign(ctx, stream, a, err.Error())
 		}
 	}
 	n.startTask(a)
 	return nil
+}
+
+// assignVia is how an exposed task's preview is published: nothing for a hold-only expose,
+// the provider for a sandbox task whatever its via, else what the spec asks for.
+func assignVia(s *podiumv1.TaskSpec) string {
+	switch x := s.GetExpose(); {
+	case len(x.GetPorts()) == 0:
+		return holdOnly
+	case s.GetSandbox() != nil:
+		return spec.ExposeViaSandbox
+	default:
+		return x.GetVia()
+	}
 }
 
 func (n *Node) handleAck(ack *podiumv1.Ack) {

@@ -1884,6 +1884,10 @@ func (c *Conductor) taskSpec(
 		}
 	}
 	s.ApplyDefaults()
+	if playbook.Desktop && s.Sandbox != nil && s.Expose.Via == "" {
+		// Say what happens: a provider publishes the desktop, not the node.
+		s.Expose.Via = spec.ExposeViaSandbox
+	}
 	switch {
 	case playbook.Desktop:
 		s.Command = slices.Clone(desktopCommand)
