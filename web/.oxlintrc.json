@@ -162,6 +162,12 @@
       "rules": {
         "no-undef": "error"
       }
+    },
+    {
+      "files": ["public/*.js"],
+      "env": {
+        "browser": true
+      }
     }
   ]
 }
