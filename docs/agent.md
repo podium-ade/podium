@@ -1080,6 +1080,8 @@ What the flag does:
   as built it carries voxl, which links x264 and is GPL-2+ (see
   `agent/runtime/desktop/THIRD_PARTY.md`). A worker elsewhere or a cloud sandbox needs an
   `image:` it can pull — on Modal, one published with `examples/modal/publish_image.py`.
+  To add your own applications, build `FROM` it: [`examples/desktop`](../examples/desktop)
+  is a worked one, a spreadsheet desk with LibreOffice and the prompt that drives it.
 - **Port 6901 is exposed as `desktop` and port 7681 as `terminal`**, for podium-server to
   serve; the thread is never told their raw addresses. The terminal is
   [ttyd](https://github.com/tsl0922/ttyd) in front of one tmux session, started in the
