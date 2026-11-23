@@ -66,17 +66,38 @@ jobs:
       - name: Go-only build (no UI)
         run: go build -tags noui ./...
 
-  integration:
-    name: integration tests
+  # The shard list lives in the Makefile (INTEGRATION_SHARDS); this job only hands it to the
+  # matrix, so adding a shard there is the whole change.
+  integration-shards:
+    name: integration shards
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.draft == false ||
       contains(github.event.pull_request.labels.*.name, 'ci')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.list.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "shards=$(make -s integration-shards)" >> "$GITHUB_OUTPUT"
+
+  # One runner per slow package, plus `rest` for everything else. On one runner the suite took
+  # about six minutes, waiting on its slowest packages one after another.
+  integration:
+    name: integration (${{ matrix.shard }})
+    needs: integration-shards
+    runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      # A failure in one shard should not hide the result of the others.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.integration-shards.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: make test-integration
+      - run: make test-integration SHARD=${{ matrix.shard }}

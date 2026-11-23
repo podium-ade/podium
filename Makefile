@@ -20,7 +20,7 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed sandbox-agent-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-desktop agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
+.PHONY: build runner-embed sandbox-agent-embed dist-node dist-node-all web web-deps web-test test test-integration integration-shards e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-desktop agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -155,8 +155,38 @@ agent-runtime-test:
 test:
 	go test ./...
 
+# The integration suite is a few packages whose tests run one after another against real
+# containers, and on one runner it waits on all of them at once. CI shards it: each package
+# below gets a runner of its own, and one more shard, `rest`, runs whatever is NOT listed here,
+# so a package added later is never left out. Without SHARD this still runs the whole suite.
+#   make test-integration SHARD=internal/node/docker
+#   make test-integration SHARD=rest
+INTEGRATION_SHARDS := internal/node/docker internal/agent/conductor internal/server/nodes
+
+ifneq ($(SHARD),)
+ifeq ($(filter $(SHARD),$(INTEGRATION_SHARDS) rest),)
+$(error SHARD=$(SHARD) is not a shard; pick one of: $(INTEGRATION_SHARDS) rest)
+endif
+endif
+
 test-integration: runner-embed
+ifeq ($(SHARD),)
 	go test -tags integration ./...
+else ifeq ($(SHARD),rest)
+	@all=$$(go list -tags integration ./...) && \
+	pkgs=$$(printf '%s\n' $$all | grep -vxF $(foreach s,$(INTEGRATION_SHARDS),-e $(MODULE)/$(s))) && \
+	echo "go test -tags integration <$$(echo $$pkgs | wc -w) packages: all but $(INTEGRATION_SHARDS)>" && \
+	go test -tags integration $$pkgs
+else
+	go test -tags integration ./$(SHARD)
+endif
+
+# The CI matrix, as JSON. ci-go.yml reads it from here so the shard list lives in one place.
+integration-shards:
+	@echo '[$(subst $(space),$(comma),$(strip $(patsubst %,"%",$(INTEGRATION_SHARDS) rest)))]'
+
+comma := ,
+space := $(subst ,, )
 
 # End-to-end: a real Postgres (testcontainers), a real podium-server and podium-node, and
 # the CLI driven as a subprocess. Needs a working Docker engine. The test builds the
