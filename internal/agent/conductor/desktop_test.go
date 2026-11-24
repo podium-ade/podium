@@ -11,6 +11,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/pkg/spec"
 )
 
@@ -59,6 +60,15 @@ func TestADesktopTurnInASandboxStillRunsUnderPodiumDesktop(t *testing.T) {
 	sp := desktopSpec(t, profiles.Playbook{Image: profiles.LocalDesktopImage, Desktop: true, RunsOn: "modal"})
 	assert.Equal(t, desktopCommand, sp.Command)
 	require.NoError(t, sp.Validate())
+}
+
+// A desktop on a provider publishes through it, so it never waits for a node preview address.
+func TestADesktopTurnInASandboxPlacesOnASandboxNode(t *testing.T) {
+	sp := desktopSpec(t, profiles.Playbook{Image: profiles.LocalDesktopImage, Desktop: true, RunsOn: "modal"})
+	require.NoError(t, sp.Validate())
+	assert.Contains(t, sp.Labels, spec.LabelSandboxProvider+"modal")
+	assert.Equal(t, spec.ExposeViaSandbox, sp.Expose.Via)
+	assert.False(t, nodes.CostOf(*sp).Preview, "a sandbox node has no preview address to give")
 }
 
 // A desktop turn waits longer for its next message, unless the playbook says otherwise.

@@ -1,6 +1,6 @@
 ---
 name: validate-pr
-description: "Attack a change you have just made, in a browser, before you report the work done. Use right after opening a pull request for anything a person can see or click — a screen, a form, an endpoint, a flag — to find the defects the tests did not. Covers empty and absent states, oversized and invalid input, double submits, interrupted flows, a phone-sized viewport, keyboard-only use, and console errors on a screen that renders correctly."
+description: "Attack a change you have just made, in a browser, before you report the work done. Use right after opening a pull request for anything a person can see or click — a screen, a form, an endpoint, a flag — to find the defects the tests did not. Covers empty and absent states, oversized and invalid input, double submits, interrupted flows, a phone-sized viewport, keyboard-only use, and console errors on a screen that renders correctly. Ends with one human-paced walkthrough video of the feature, and the verdict posted on the pull request."
 ---
 
 # Attack your own pull request
@@ -117,16 +117,108 @@ no verdict has not finished**, however clean the attack was. "Nothing broke" is 
 outcome and the one where the pictures matter most: it is exactly the claim a reviewer cannot
 check from a diff.
 
-Save each shot as you take it — `take_screenshot` writes wherever `filePath` says, under the
-OS temporary directory — and name it for its state and its viewport, so the table reads
-without opening anything: `chat-empty-desktop.png`, `chat-menu-mobile.png`.
+Save each shot as you take it into **one directory of its own** — `take_screenshot` writes
+wherever `filePath` says, so give it `/tmp/validation/<name>.png` — and name it for its state
+and its viewport, so the table reads without opening anything: `chat-empty-desktop.png`,
+`chat-menu-mobile.png`.
 
-Then append one block to the pull request body, between markers, so re-running replaces its
-own block instead of overwriting the description somebody wrote:
+### Record one walkthrough of the feature, last
+
+The screenshots prove each criterion. The video is something else: **one walkthrough of the
+feature as a person would use it**, start to finish, which the reviewer watches before reading
+the diff. Not one clip per criterion, and not the attack. A reviewer should be able to watch it
+without knowing what changed and come away knowing what the feature is and that it works.
+
+Record it once, after the last pass is clean. Never record while you are still fixing.
+
+**Do not use `screencast_start` for this.** A model driving the browser tools fires its clicks
+back to back. With no cursor on screen, nothing can be followed, and the recording stops before
+the result it was waiting for arrives. What came out was four-second clips of a page twitching.
+Record with `walkthrough.cjs`, which sits beside this `SKILL.md`. You write what to do, and it
+decides how fast:
+- a caption says what is about to happen
+- a cursor glides to the target, pauses, and clicks, with a ripple
+- text is typed a key at a time
+- what a step is looking for is framed and held on screen long enough to read
+- a wait for a model's answer stays in the video at its real length
+
+Write the flow to `/tmp/validation/walkthrough.cjs`:
+
+```js
+module.exports = {
+  title: "A second person in a chat means @Podium is needed",   // the opening title card
+  url: "http://task:5173/",                                     // where it starts
+  async run(w) {
+    const p = w.page;                                           // a Playwright page
+    await w.say("A chat shared with the team, one person in it so far");
+    await w.click(p.getByRole("link", { name: "Launch plan" }));
+    await w.type(p.getByPlaceholder(/ask anything/i), "Can you draft the agenda?");
+    await w.press("Enter");
+    await w.see(p.getByText(/here's a draft/i), { timeout: 120_000 });  // waits as long as it takes
+    await w.say("Now a second person speaks");
+    // ...
+  },
+};
+```
+
+| Call | What the viewer sees |
+|---|---|
+| `w.say(text)` | a caption, held long enough to read. One before each thing that happens |
+| `w.click(target)` | the cursor travels to it, pauses, clicks |
+| `w.type(target, text)` | a click into the field, then typing at a person's speed |
+| `w.press("Enter")` | a key or chord after a beat (`"Escape"`, `"Control+K"`) |
+| `w.hover(target)` | the cursor rests on it: a tooltip, a hover menu |
+| `w.scroll(dy)` | a smooth scroll of whatever is under the cursor |
+| `w.see(target, { timeout, hold })` | waits for it, points at it, frames it, holds it. **End every step that changes something with one** |
+| `w.goto(url)` / `w.hold(ms)` | a page loaded and settled / a pause |
+
+A `target` is a Playwright locator: `getByRole`, `getByText`, `getByPlaceholder`, `getByLabel`.
+**Leave `.first()` off.** The runner acts on the first match a person could see. A responsive
+page keeps its other layout in the DOM, and `.first()` will happily pick a hidden copy of the
+thing you meant.
+
+Run it from the repository's checkout:
+
+```sh
+node <this skill's directory>/walkthrough.cjs /tmp/validation/walkthrough.cjs \
+  --out /tmp/validation/walkthrough.mp4                    # 1440×900; --viewport 390x844 for a phone
+```
+
+- **The browser.** It opens a new tab in the browser your tools drive, with the same cookies and
+  storage, and finds that browser on its own: the `chrome` sidecar, or the desktop's own Chromium.
+- **What comes out.** The `.mp4`, and a `.png` of its last frame beside it. It prints the
+  length and size. Aim for **one to two minutes**:
+  - the feature's main path
+  - the one or two moments where the change shows
+  - nothing you already proved in the screenshots
+
+  Over 10 MB, `publish.sh` refuses it; cut the flow down.
+- **When a step fails, the video ends on it**, with the step and the error as the last caption,
+  and the exit is non-zero. Read the error, fix the locator or the product, and run it again.
+  A walkthrough that never reached the end is not evidence of the end.
+- **A phone walkthrough** is worth recording only when the change is about the phone layout.
+  Otherwise the phone screenshots in the table are enough.
+
+It needs `ffmpeg` and `playwright-core`, which the `-dev` runtime image carries. Without them it
+says so and exits. In that case post screenshots alone and say in the block that no walkthrough
+was recorded. Do not try to install an encoder.
+
+**GitHub does not play a video from outside GitHub inside a description**: it shows a link. So
+the walkthrough goes at the top of the block as a still linked to the video,
+`[![alt](./walkthrough.png)](./walkthrough.mp4)`. The runner writes that still for you: its
+last frame, beside the video under the same name.
+
+Then write `/tmp/validation/block.md`: one block, between markers, so re-running replaces its
+own block instead of overwriting the description somebody wrote. Reference every file as
+`./<name>`, exactly as it is named in that directory:
 
 ```markdown
 <!-- validation:start -->
 ## Self-validation — PASS
+
+[![Walkthrough: pick a model, set its effort, send — 1 min 20 s](./walkthrough.png)](./walkthrough.mp4)
+
+**▶ Watch the walkthrough (1:20)** — the model menu, start to finish, as a person uses it.
 
 > Attacked in the browser beside this turn, on desktop and phone.
 
@@ -137,7 +229,8 @@ own block instead of overwriting the description somebody wrote:
 
 | Desktop (1440×900) | Phone (390×844) |
 |:---:|:---:|
-| ![Model menu open, catalogue scrolling](./chat-menu-desktop.png) | ![Same menu, phone width](./chat-menu-mobile.png) |
+| ![1 — menu open, catalogue scrolling](./chat-menu-desktop.png) | ![1 — same menu, phone width](./chat-menu-mobile.png) |
+| ![2 — model picked, effort still open](./chat-effort-desktop.png) | ![2 — same, phone width](./chat-effort-mobile.png) |
 
 **Fixed while validating** — the catalogue painted below the fold at 800×600; it now flips above the chip.
 
@@ -145,40 +238,55 @@ own block instead of overwriting the description somebody wrote:
 <!-- validation:end -->
 ```
 
-Post it with the files attached in the same command. `--attach` uploads each file, and where
-the body already references that file it **rewrites the reference** to point at the uploaded
-asset. That rewrite is what puts the screenshots in the table.
+**The verdict goes in the description, and only through `publish.sh`.** Not `gh pr comment` — a
+comment scrolls away under the review and cannot be replaced by the next run — and not
+screenshots left in `.podium/artifacts`, which nobody on GitHub can see.
 
-**The reference and the attached path have to be the same string.** A body saying
-`./shot.png` while you attach `/tmp/opencode/shot.png` is two different strings, so nothing
-matches: gh uploads the files and appends them to the bottom of the body instead, leaving four
-broken images in your table and four bare ones underneath it. Run `gh` from the directory
-holding the screenshots, with `--repo` so it does not need the checkout, and use the same
-`./name.png` on both sides:
+Post it with `publish.sh`, which sits beside this `SKILL.md`. Run it with `bash` from the
+repository's checkout, so it knows which repository the pull request is in:
 
 ```sh
-cd /tmp/opencode
-gh pr edit <n> --repo <owner>/<repo> --body-file ./validation.md \
-  --attach './chat-menu-desktop.png#Model menu open at 1440x900' \
-  --attach './chat-menu-mobile.png#Same menu at 390x844'
+cd /workspace/<repo>
+bash <this skill's directory>/publish.sh <pr-number> /tmp/validation
 ```
 
-Then check it landed, because this fails silently and the result looks fine from here:
+It uploads every file the block references and **rewrites each `./name` to the uploaded
+file's URL** — that rewrite is what puts the screenshots in the table and the walkthrough behind
+them. Where they go is the
+playbook's choice, not yours: with the `QA_R2_*` variables set they go to the evidence bucket
+and the block links them from its public domain; without them, `gh pr edit --attach` puts them
+in GitHub's attachments. Either way it then splices the block into the description —
+replacing a previous block, keeping everything the author wrote around it — and checks the
+result: exactly one block and no surviving `./` reference.
 
-```sh
-gh pr view <n> --repo <owner>/<repo> --json body --jq .body | grep -c '](\./'
-```
-
-**Zero, or it did not work.** Any surviving `](./` is a reference gh did not rewrite — a broken
-image on the pull request. Fix the mismatch and post again rather than leaving it.
-
-Build the body by reading the current description, stripping any previous block between the
-markers, and appending the new one. Never replace the description wholesale — the part above
-those markers is the author's.
+It refuses anything but `.png` and `.mp4`, a file over 10 MB (a walkthrough that size is too long —
+record it again, shorter), and more than 100 MB or 40 files
+in one run. **A non-zero exit means the pull request does not show your evidence.** Read what it
+printed, fix that, and run it again; never hand-edit the description around it.
 
 **A FAIL posts the same block**, with the verdict changed, ❌ against the criteria that failed,
 and the screenshot of each failure in the table. Do not post a running commentary while you are
 still fixing: one block, at the end, describing where the change actually landed.
+
+## Mark it ready for review — only a draft this turn opened, and only on a PASS
+
+**Skip this section unless this turn opened the pull request, and opened it as a draft.** A
+playbook that has its turns open a draft does it so nobody reviews a change that has not been
+attacked yet. A draft someone else opened, or one they kept as a draft on purpose, is theirs:
+taking it out of draft runs CI and requests review on work they did not say was ready. Leave it
+as it is.
+
+When it is yours: once `publish.sh` has posted a **PASS** and exited 0, there is no longer a
+reason for the draft, so take it out of draft:
+
+```sh
+gh pr ready <pr-number>
+gh pr view <pr-number> --json isDraft -q .isDraft     # must print false
+```
+
+**A FAIL stays a draft.** The verdict on it says what is outstanding, and a draft is how the
+pull request says it is not ready for anyone's time. So does a run that never got its verdict
+posted: no evidence on the pull request, no `gh pr ready`.
 
 ## What you say in the turn's own answer
 

@@ -22,8 +22,11 @@ const TABS: { id: Tab; label: string; icon: typeof Monitor; frameTitle: string }
  * origin, with links minted for this person and this task; each is an iframe of that other
  * origin on purpose, since the pages inside are voxl's and ttyd's JavaScript.
  *
- * A tab, once opened, stays mounted while the other is shown: switching back finds the same
- * stream and the same shell rather than reconnecting.
+ * Both tabs connect as soon as the desktop answers, the terminal too, so its shell is already
+ * up when the person first switches to it. The tab not shown stays laid out at full size, only
+ * invisible: switching finds the same stream and the same shell rather than reconnecting, and
+ * neither frame is ever squeezed to nothing — the terminal sizes its shell to the frame it
+ * loads in, and the stream fits the agent's screen to its frame.
  */
 export function DesktopPanel({
   taskId,
@@ -52,7 +55,6 @@ export function DesktopPanel({
   // The terminal's tab comes with its link: a task that serves none has the desktop alone.
   const tabs = TABS.filter((t) => t.id === "desktop" || urls.terminal);
   const [tab, setTab] = useState<Tab>("desktop");
-  const [opened, setOpened] = useState<ReadonlySet<Tab>>(() => new Set(["desktop"]));
   const active = tabs.some((t) => t.id === tab) ? tab : "desktop";
   const activeLabel = active === "desktop" ? "desktop" : "terminal";
   const activeURL = ready ? urls[active] : undefined;
@@ -65,10 +67,7 @@ export function DesktopPanel({
     >
       <Tabs
         value={active}
-        onValueChange={(v) => {
-          setTab(v as Tab);
-          setOpened((s) => new Set(s).add(v as Tab));
-        }}
+        onValueChange={(v) => setTab(v as Tab)}
         className="min-h-0 flex-1"
       >
         {/* h-14: the conversation's title bar beside it, so the two read as one header. */}
@@ -114,30 +113,33 @@ export function DesktopPanel({
             </Button>
           </div>
         </div>
-        {tabs.map(({ id, frameTitle }) => {
-          const url = urls[id];
-          return (
-            <TabsContent
-              key={id}
-              value={id}
-              forceMount
-              className="relative min-h-0 flex-1 bg-black pt-0 data-[state=inactive]:hidden"
-            >
-              {url && ready && opened.has(id) ? (
-                <iframe
-                  key={url}
-                  src={url}
-                  title={frameTitle}
-                  className="absolute inset-0 size-full border-0"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <Starting what={id} error={ticket.isError ? errorMessage(ticket.error) : undefined} />
-              )}
-            </TabsContent>
-          );
-        })}
+        {/* The tabs' bodies overlap: the hidden one keeps its size, so its frame keeps its own. */}
+        <div className="relative min-h-0 flex-1">
+          {tabs.map(({ id, frameTitle }) => {
+            const url = urls[id];
+            return (
+              <TabsContent
+                key={id}
+                value={id}
+                forceMount
+                className="absolute inset-0 bg-black pt-0 data-[state=inactive]:invisible"
+              >
+                {url && ready ? (
+                  <iframe
+                    key={url}
+                    src={url}
+                    title={frameTitle}
+                    className="absolute inset-0 size-full border-0"
+                    allow="clipboard-read; clipboard-write; fullscreen"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <Starting what={id} error={ticket.isError ? errorMessage(ticket.error) : undefined} />
+                )}
+              </TabsContent>
+            );
+          })}
+        </div>
       </Tabs>
     </section>
   );

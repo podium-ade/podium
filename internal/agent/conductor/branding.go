@@ -110,3 +110,9 @@ func brandingNote(b branding) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// DeploymentName is what this deployment is called now, empty when it was never named or
+// podium-server cannot be read. The web chat takes it as the mention that starts a turn.
+func (c *Conductor) DeploymentName(ctx context.Context) string {
+	return c.branding(ctx).Deployment
+}

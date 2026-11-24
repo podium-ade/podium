@@ -21,9 +21,9 @@ const ChatTitleArtifact = "chat-title.txt"
 // TitleFromQuery is the name a chat gets the moment its first message lands, before the
 // turn's model has had a chance to write ChatTitleArtifact. It is the first line of the
 // query, playbook prefix stripped, bounded — not a model, so a conductor with no credential
-// still leaves "New chat" behind.
+// still leaves "New chat" behind. A person chip is named, not spelled: "@[Alice](mention:alice@x.io) hi" titles as "@Alice hi".
 func TitleFromQuery(query string) string {
-	q := strings.TrimSpace(query)
+	q := strings.TrimSpace(store.PlainMentions(query))
 	if m := profiles.PlaybookPrefixRE.FindStringSubmatch(q); m != nil {
 		q = strings.TrimSpace(q[len(m[0]):])
 	}

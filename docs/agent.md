@@ -523,8 +523,8 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   A pull request's conversation and a Linear agent session still answer only a mention. Two
   unlinked people who share a display name count as one. Chats opened before this rule keep
   the flag they had, which is sticky.
-  Once a chat is multiplayer, a message has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
-  would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
+  Once a chat is multiplayer, a message has to say `@<deployment name>` (`@Podium` until an admin renames the deployment, and still after; or the
+  chat's assistant's name) to start a turn, the way it would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
 - **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
   conductor runs it — a host turn, a task, or a chat-host turn, including one still waiting for
   room on a busy chat host, which then never starts ("Stopped before I started."). A person can
@@ -1080,6 +1080,8 @@ What the flag does:
   as built it carries voxl, which links x264 and is GPL-2+ (see
   `agent/runtime/desktop/THIRD_PARTY.md`). A worker elsewhere or a cloud sandbox needs an
   `image:` it can pull — on Modal, one published with `examples/modal/publish_image.py`.
+  To add your own applications, build `FROM` it: [`examples/desktop`](../examples/desktop)
+  is a worked one, a spreadsheet desk with LibreOffice and the prompt that drives it.
 - **Port 6901 is exposed as `desktop` and port 7681 as `terminal`**, for podium-server to
   serve; the thread is never told their raw addresses. The terminal is
   [ttyd](https://github.com/tsl0922/ttyd) in front of one tmux session, started in the

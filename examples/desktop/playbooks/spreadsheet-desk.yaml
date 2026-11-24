@@ -1,0 +1,43 @@
+# A desktop playbook that does a real job: build a spreadsheet with the person watching.
+#
+# The turn gets a desktop the chat shows beside the conversation — a Desktop tab streaming the
+# screen, and a Terminal tab in the workspace. The agent researches in the desktop's Chromium,
+# lays the numbers out in LibreOffice Calc on the same screen, and attaches the finished sheet
+# to its reply. The person can take the mouse at any point and fix a cell themselves; the next
+# message carries on from what is on screen.
+#
+# Copy this file into your own profile's playbooks/ (or create the same playbook in the UI),
+# build the image beside it (see ../README.md), and set PODIUM_DESKTOP_URL on podium-server, or
+# the chat's desktop panel says desktops are off.
+system_prompt: file:../prompts/spreadsheet-desk.md
+
+# The image this directory's Dockerfile builds: Podium's desktop plus LibreOffice. With no
+# `image:`, a desktop playbook runs the bare desktop image, which has a browser and a terminal
+# and nothing to build a sheet in.
+image: podium-desktop-sample:dev
+
+desktop: true
+
+# Where the turns run. A locally built image exists only on the machine that built it, so this
+# sample runs on the fleet's own nodes. To run it on a sandbox provider instead, push the image
+# somewhere that provider can pull from (on Modal, examples/modal/publish_image.py), name the
+# pushed reference in `image:`, and set runs_on to the provider's name.
+runs_on: nodes
+
+# write and edit for the CSV it builds, bash for soffice and xdotool, webfetch for a page that
+# needs no browser. The browser* tools come with `desktop: true` and are not listed here.
+allowed_tools: [read, write, edit, grep, glob, bash, webfetch]
+max_turns: 80
+
+# A desktop turn waits 30 minutes for the person's next message, and the wait counts against
+# the timeout, so give it well over that: one working session of back and forth.
+timeout: 2h
+
+# voxl encodes the screen on the CPU and Calc and Chromium are both resident, so this is the
+# floor that keeps the stream smooth while the agent works. The node needs that much free.
+resources: { cpu: 4, memory_mb: 8192 }
+
+env:
+  # The largest the desktop can be. voxl shrinks the screen to fit whoever is watching but
+  # never grows it, so this is its start size; a smaller one encodes faster.
+  PODIUM_DESKTOP_SIZE: 1920x1080

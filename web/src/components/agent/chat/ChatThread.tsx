@@ -35,6 +35,7 @@ import {
 } from "@assistant-ui/react";
 import { toolSummary } from "../../../lib/activity";
 import { PENDING_USER, TASK_TOOL, type MessageCustom, type TaskArgs } from "../../../lib/chatThread";
+import { useBrand } from "../../../lib/brand";
 import { absolute, relative } from "../../../lib/format";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui/button";
@@ -473,6 +474,7 @@ function UserMessage() {
   const createdAt = useAuiState((s) => s.message.createdAt);
   const where = surfaceName(custom?.via);
   const unaddressed = custom?.addressed === false;
+  const brand = useBrand();
   const enters = useEnters();
   const external = Boolean(custom?.author) && !custom?.authorLogin && custom?.via !== "web";
   const bubble = (
@@ -532,7 +534,7 @@ function UserMessage() {
         </div>
       ) : null}
       {unaddressed ? (
-        <Tooltip label={`Not sent to Podium — said in ${where} without mentioning it`} side="left">
+        <Tooltip label={`Not sent to ${brand} — said in ${where} without mentioning it`} side="left">
           {bubble}
         </Tooltip>
       ) : (

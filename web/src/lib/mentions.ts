@@ -5,17 +5,27 @@
  * (internal/agent/chat/mention.go), so what the send button promises — "Send to Podium" —
  * and what the server does cannot drift apart. Keep the two in step.
  *
- * - `@Podium` puts the message to Podium.
+ * - `@<deployment name>` puts the message to the bot, and is what the composer offers. The
+ *   deployment is "Podium" until an admin renames it (lib/brand.ts); `@Podium` keeps working
+ *   after a rename, because the server still accepts the house name.
  * - `@<assistant name>` does the same in a chat bound to a personal assistant.
  * - `@[Name](mention:<login>)` names a Podium person. It is a Markdown link, so the thread
  *   renders it as one.
  */
 
 import type { Member } from "../gen/podium/agent/v1/agent_pb";
+import { HOUSE_NAME } from "./brand";
 
-export const PODIUM_MENTION = "@Podium";
+const PERSON = /@\[([^\]\n]{1,200})\]\(mention:([^)\s]{1,320})\)/g;
 
-const PERSON = /@\[[^\]\n]{1,200}\]\(mention:([^)\s]{1,320})\)/g;
+/**
+ * plainMentions is text with each person chip shown as `@Name`, for the places that draw a
+ * message as plain text — a chat's preview in the list, a queued message — where the Markdown
+ * link would otherwise show as typed.
+ */
+export function plainMentions(text: string): string {
+  return text.replace(PERSON, (_m, name: string) => `@${name}`);
+}
 
 /** isWordChar is what may not touch a mention: a letter, a digit, `_`, `-` or `@`. */
 function isWordChar(ch: string | undefined): boolean {
@@ -38,10 +48,13 @@ function hasMention(text: string, name: string): boolean {
   }
 }
 
-/** mentionsPodium reports whether text puts the message to Podium or to the chat's assistant. */
-export function mentionsPodium(text: string, personality = ""): boolean {
+/**
+ * mentionsPodium reports whether text puts the message to the bot: by the deployment's name,
+ * by the house name, or by the chat's assistant.
+ */
+export function mentionsPodium(text: string, personality = "", brand = HOUSE_NAME): boolean {
   const plain = text.replace(PERSON, " ");
-  if (hasMention(plain, PODIUM_MENTION.slice(1))) return true;
+  if (hasMention(plain, HOUSE_NAME) || hasMention(plain, brand)) return true;
   const p = personality.trim();
   return p !== "" && hasMention(plain, p);
 }
@@ -88,19 +101,20 @@ export interface Suggestion {
 }
 
 /**
- * mentionSuggestions is what the @-list offers for query: Podium, the chat's assistant, and
- * people. Podium and the assistant are matched here; people were already matched by the
+ * mentionSuggestions is what the @-list offers for query: the deployment's name, the chat's assistant,
+ * and people. The two bot names are matched here; people were already matched by the
  * server's search.
  */
 export function mentionSuggestions(
   query: string | undefined,
   personality: string,
   members: readonly Member[],
+  brand = HOUSE_NAME,
 ): Suggestion[] {
   if (query === undefined) return [];
   const q = query.trim().toLowerCase();
   const out: Suggestion[] = [];
-  const bots = [PODIUM_MENTION.slice(1), personality.trim()].filter((n) => n !== "");
+  const bots = [...new Set([brand, personality.trim()])].filter((n) => n !== "");
   for (const name of bots) {
     if (q === "" || name.toLowerCase().startsWith(q)) {
       out.push({ key: `bot:${name}`, label: name, hint: "starts a turn", token: `@${name}` });
