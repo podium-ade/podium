@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/slack-go/slack"
@@ -130,6 +131,18 @@ type Source struct {
 	privacy map[string]string
 	seen    map[string]time.Time
 
+	// steps is each running turn's thinking-steps message, by ref (steps.go), and
+	// stepsEvery the least time between two edits of one: stepsInterval, except in a test.
+	stepsMu    sync.Mutex
+	steps      map[string]*turnSteps
+	stepsEvery time.Duration
+	// statusOff is set once Slack refuses the "is thinking…" status (a token without
+	// assistant:write, say), so a turn does not ask again for an answer already known.
+	statusOff atomic.Bool
+	// thinkingIn is every thread showing the status, by channel/thread, until the bot posts
+	// there (which clears it on Slack's side) or the turn ends.
+	thinkingIn map[string]bool
+
 	// review is the GitHub App source, nil when GitHub is not configured. A mention that
 	// names a pull-request URL (or that lands in a thread already bound to one) is
 	// forwarded there so Slack and GitHub share one session per PR.
@@ -174,6 +187,8 @@ func New(opts Options) (*Source, error) {
 		privacy:  map[string]string{},
 		seen:     map[string]time.Time{},
 		teams:    opts.TeamIDs,
+
+		stepsEvery: stepsInterval,
 	}, nil
 }
 
@@ -700,7 +715,7 @@ func (s *Source) entry(ctx context.Context, msg slack.Message) (conductor.BriefE
 		return conductor.BriefEntry{}, false
 	}
 	mine := (s.botID != "" && msg.BotID == s.botID) || (s.botUserID != "" && msg.User == s.botUserID)
-	if mine && isNoise(text) {
+	if mine && (isNoise(text) || isSteps(msg)) {
 		return conductor.BriefEntry{}, false
 	}
 	role := conductor.RoleUser
@@ -720,9 +735,20 @@ func (s *Source) entry(ctx context.Context, msg slack.Message) (conductor.BriefE
 }
 
 // isNoise reports whether one of the bot's own messages is scaffolding rather than
-// something it said.
+// something it said. Slack hands the ⏳ back as its shortcode, so both spellings count.
 func isNoise(text string) bool {
-	return text == conductor.Placeholder || strings.HasPrefix(text, "⏳")
+	return text == conductor.Placeholder || strings.HasPrefix(text, "⏳") ||
+		strings.HasPrefix(text, ":hourglass_flowing_sand:")
+}
+
+// isSteps reports whether a message is a steps message (steps.go): one holding a plan.
+func isSteps(msg slack.Message) bool {
+	for _, b := range msg.Blocks.BlockSet {
+		if b.BlockType() == slack.MBTPlan {
+			return true
+		}
+	}
+	return false
 }
 
 // Post says something new. Text over Slack's per-message limit is split at the last newline
@@ -739,6 +765,21 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	// a message that was never posted.
 	if out.Text == conductor.Placeholder {
 		return "", nil
+	}
+	// A progress line is a step in the turn's steps message (steps.go), not a message of
+	// its own. No id is returned, so the conductor never addresses an edit to it.
+	if out.Type == conductor.OutProgress {
+		if handled, err := s.addProgress(ctx, ref, out.Text); handled {
+			if err != nil {
+				s.logger.WarnContext(ctx, "showing a progress step failed", "ref", ref, "error", err)
+			}
+			return "", nil
+		}
+	}
+	// Whatever the steps led to is said under them, so they are finished first.
+	switch out.Type {
+	case conductor.OutFinal, conductor.OutFailure, conductor.OutQuestion:
+		s.endSteps(ctx, ref, out.Type == conductor.OutFailure, false)
 	}
 	first := ""
 	// Markdown first, then mentions: the mention pass writes <@U…>, which is mrkdwn's own
@@ -768,6 +809,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		}
 		if first == "" {
 			first = ts
+			s.posted(channel, thread)
 		}
 	}
 	return first, nil
@@ -895,6 +937,10 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		return fmt.Errorf("slack: %q is not a reaction", kind)
 	}
 	if kind != conductor.ReactionWorking {
+		// The turn is over: its steps, if it had any, say how long it took, and once the
+		// outcome is showing, nothing is thinking any more.
+		s.endSteps(ctx, ref, kind == conductor.ReactionFailed, true)
+		defer s.thinking(ctx, ref, false)
 		if _, err := s.write(ctx, func() (string, error) {
 			return "", s.api.RemoveReactionContext(ctx, emojiWorking, item)
 		}); err != nil && !isBenignReactionError(err) {
@@ -906,6 +952,10 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		return "", s.api.AddReactionContext(ctx, add, item)
 	}); err != nil && !isBenignReactionError(err) {
 		return fmt.Errorf("slack: react %s on %s: %w", add, trigger, err)
+	}
+	if kind == conductor.ReactionWorking {
+		// After the ⏳, which is the one thing that says somebody was heard.
+		s.thinking(ctx, ref, true)
 	}
 	return nil
 }

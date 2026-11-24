@@ -134,6 +134,7 @@ func TestNewRefusesHalfTheCredentials(t *testing.T) {
 func TestIsNoise(t *testing.T) {
 	assert.True(t, isNoise("👀 working…"))
 	assert.True(t, isNoise("⏳ reading the handler"))
+	assert.True(t, isNoise(":hourglass_flowing_sand: Worked for 22s · 51 steps"), "how Slack hands the ⏳ back")
 	assert.False(t, isNoise("the handler dereferences the first label"))
 	assert.False(t, isNoise("Something went wrong on my side. Task `task_01`."))
 }
@@ -765,6 +766,9 @@ func testSource(t *testing.T, f *fakeSlack) *Source {
 	s.archiveBase = "https://podium.slack.com"
 	s.writes = rate.NewLimiter(rate.Inf, 1)
 	s.reads = rate.NewLimiter(rate.Inf, 1)
+	// Every step edits at once, so a test sees each one; TestStepsAreEditedNoOftenerThanTheInterval
+	// puts the interval back.
+	s.stepsEvery = 0
 	return s
 }
 
@@ -780,7 +784,8 @@ func TestStartingWorkReactsAndPostsNoPlaceholder(t *testing.T) {
 	assert.Empty(t, id)
 	require.NoError(t, s.React(t.Context(), Ref("C1", "100.1", "100.1"), conductor.ReactionWorking))
 
-	assert.Equal(t, []string{"reactions.add"}, f.methods())
+	assert.Equal(t, []string{"reactions.add", "assistant.threads.setStatus"}, f.methods(),
+		"the ⏳ and the thread's thinking status, and no message")
 	assert.Equal(t, emojiWorking, f.form(t, "reactions.add", 0).Get("name"))
 	assert.Equal(t, "100.1", f.form(t, "reactions.add", 0).Get("timestamp"))
 }
@@ -804,7 +809,8 @@ func TestReactWorkingOnlyAdds(t *testing.T) {
 
 	require.NoError(t, s.React(t.Context(), Ref("C1", "100.1", "100.1"), conductor.ReactionWorking))
 
-	assert.Equal(t, []string{"reactions.add"}, f.methods())
+	assert.Equal(t, []string{"reactions.add", "assistant.threads.setStatus"}, f.methods(),
+		"the ⏳ first; the status is after it")
 	form := f.form(t, "reactions.add", 0)
 	assert.Equal(t, emojiWorking, form.Get("name"))
 	assert.Equal(t, "C1", form.Get("channel"))
