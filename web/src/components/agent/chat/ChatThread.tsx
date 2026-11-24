@@ -794,7 +794,7 @@ function CopyMessage({ text }: { text: string }) {
   }, [copied]);
   if (text.trim() === "") return null;
   return (
-    <div className="flex opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
+    <div className="flex transition-opacity can-hover:opacity-0 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
       <Tooltip label={copied ? "Copied" : "Copy"}>
         <Button
           type="button"

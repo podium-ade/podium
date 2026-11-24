@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { Plus } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
+import { useScrollStrip } from "../../hooks/useScrollStrip";
 import { PodiumMark } from "../PodiumMark";
 import { Label } from "../ui/label";
 
@@ -113,9 +114,10 @@ export function SectionTabs({
   href: (id: string) => string;
   label?: string;
 }) {
+  const strip = useScrollStrip<HTMLUListElement>(current);
   return (
-    <nav aria-label={label} className="border-b border-border px-4">
-      <ul className="-mb-px flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+    <nav aria-label={label} className="border-b border-border px-1 sm:px-4">
+      <ul ref={strip} className="-mb-px flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         {tabs.map((tab) => {
           const open = tab.id === current;
           return (
@@ -124,7 +126,7 @@ export function SectionTabs({
                 to={href(tab.id)}
                 aria-current={open ? "page" : undefined}
                 className={cn(
-                  "inline-flex min-h-12 items-center gap-2 border-b-[3px] px-3.5 text-[15px] font-semibold whitespace-nowrap",
+                  "inline-flex min-h-12 items-center gap-2 border-b-[3px] px-3 text-[15px] font-semibold whitespace-nowrap sm:px-3.5",
                   "transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   open
                     ? "border-accent text-fg"
@@ -151,7 +153,7 @@ export function SectionTabs({
 /** The raised bar under the tabs: one or two sentences on what the open section is for. */
 export function ScopeBar({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 items-center gap-3 border-b border-border bg-raised px-6 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+    <div className="grid grid-cols-1 items-center gap-3 border-b border-border bg-raised px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-6">
       <p className="m-0 max-w-[72ch] text-soft">{children}</p>
       {aside ? <div className="justify-self-start sm:justify-self-end">{aside}</div> : null}
     </div>
@@ -161,7 +163,7 @@ export function ScopeBar({ children, aside }: { children: ReactNode; aside?: Rea
 /** The field rows of the open section. */
 export function PanelBody({ children, hidden }: { children: ReactNode; hidden?: boolean }) {
   return (
-    <div hidden={hidden} className="divide-y divide-border px-6">
+    <div hidden={hidden} className="divide-y divide-border px-4 sm:px-6">
       {children}
     </div>
   );
@@ -180,7 +182,10 @@ export function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-x-10 gap-y-3 py-6 md:grid-cols-[15rem_minmax(0,1fr)]">
+    // Two columns by the pane's width (PageFrame is the container), not the window's: a tablet
+    // beside the sidebar is 768px+ wide with a pane near 560px, and the second column left
+    // there was too narrow for a control such as the effort picker.
+    <div className="grid gap-x-10 gap-y-3 py-6 @3xl:grid-cols-[15rem_minmax(0,1fr)]">
       <div className="space-y-1">
         {id ? (
           <Label htmlFor={id} className="text-base font-bold text-fg">
@@ -214,15 +219,17 @@ export function SaveBar({
   children: ReactNode;
 }) {
   return (
-    <div className="sticky bottom-0 z-10 flex items-center gap-4 border-t border-border bg-raised px-4 py-3.5 sm:px-6">
+    // The status keeps at least 12rem; where the buttons do not fit beside that (a phone with
+    // Cancel and Save) they drop under it rather than squeeze it to a word a line.
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border bg-raised px-4 py-3.5 sm:px-6">
       <p
         aria-live="polite"
-        className={cn("m-0 flex min-w-0 flex-1 items-center gap-2 text-sm", dirty ? "font-semibold text-fg" : "text-muted")}
+        className={cn("m-0 flex min-w-48 flex-1 items-center gap-2 text-sm", dirty ? "font-semibold text-fg" : "text-muted")}
       >
         {dirty ? <span aria-hidden className="size-2 shrink-0 rounded-full bg-accent" /> : null}
         {status}
       </p>
-      <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
+      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">{children}</div>
     </div>
   );
 }

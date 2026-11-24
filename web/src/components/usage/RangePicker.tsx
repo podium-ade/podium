@@ -8,6 +8,7 @@ import {
   parseDayKey,
   rangeFor,
   type Range,
+  type RangeID,
 } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -35,8 +36,28 @@ export function RangePicker({
   max?: Date;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <div className="inline-flex min-h-11 flex-wrap items-center gap-0.5 rounded-md border border-border bg-panel p-[3px]">
+    <div className="flex items-center gap-1.5 @2xl:flex-wrap">
+      {/* A phone's bar has room for the current answer, not all seven: the presets fold into
+          a select there, which still shows what is picked without a click. */}
+      <select
+        name="range"
+        aria-label="Time range"
+        value={range.id}
+        onChange={(e) => onChange(rangeFor(e.target.value as RangeID))}
+        className="min-h-11 min-w-0 rounded-md border border-border bg-panel px-3 text-sm font-medium text-fg hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none @2xl:hidden"
+      >
+        {PRESETS.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.label}
+          </option>
+        ))}
+        {range.id === "custom" ? (
+          <option value="custom" disabled>
+            {range.label}
+          </option>
+        ) : null}
+      </select>
+      <div className="hidden min-h-11 flex-wrap items-center gap-0.5 rounded-md border border-border bg-panel p-[3px] @2xl:inline-flex">
         {PRESETS.map((p) => (
           <button
             key={p.id}

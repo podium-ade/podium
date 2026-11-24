@@ -124,7 +124,7 @@ export function UsersPage() {
           />
         )
       ) : (
-        <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+        <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]" stack>
           <caption className="sr-only">People</caption>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -157,13 +157,15 @@ const headCell =
 
 function PermissionsTable() {
   return (
-    <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+    // On a phone the matrix fits rather than scrolls: the three role columns are only as wide
+    // as their headings, and the permission wraps.
+    <Table containerClassName="rounded-none border-0 bg-transparent" className="max-sm:min-w-0 sm:min-w-[640px]">
       <caption className="sr-only">What each role can do</caption>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className={headCell}>Permission</TableHead>
+          <TableHead className={cn(headCell, "px-3 sm:px-4")}>Permission</TableHead>
           {ROLES.map((role) => (
-            <TableHead key={role} className={cn(headCell, "w-28 text-center")}>
+            <TableHead key={role} className={cn(headCell, "w-px px-2 text-center sm:w-28 sm:px-4")}>
               {roleLabel(role)}
             </TableHead>
           ))}
@@ -172,7 +174,7 @@ function PermissionsTable() {
       <TableBody>
         {CAPABILITIES.map((row) => (
           <TableRow key={row.label}>
-            <TableCell className="px-4 py-4 text-sm text-fg">{row.label}</TableCell>
+            <TableCell className="px-3 py-3 text-sm text-fg sm:px-4 sm:py-4">{row.label}</TableCell>
             <AllowedCell allowed={row.member} label={`${roleLabel(RoleMember)}: ${row.label}`} />
             <AllowedCell allowed={row.admin} label={`${roleLabel(RoleAdmin)}: ${row.label}`} />
             <AllowedCell allowed={row.owner} label={`${roleLabel(RoleOwner)}: ${row.label}`} />
@@ -185,7 +187,7 @@ function PermissionsTable() {
 
 function AllowedCell({ allowed, label }: { allowed: boolean; label: string }) {
   return (
-    <TableCell className="px-4 py-4 text-center text-sm font-bold">
+    <TableCell className="px-2 py-3 text-center text-sm font-bold sm:px-4 sm:py-4">
       {allowed ? (
         <span className="text-ok" aria-label={label}>
           Yes
@@ -224,8 +226,10 @@ function UserRow({
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="px-4 py-4 text-sm text-soft">{user.login}</TableCell>
-      <TableCell className="px-4 py-4">
+      <TableCell data-stack="full" className="px-4 py-4 text-sm break-all text-soft">
+        {user.login}
+      </TableCell>
+      <TableCell data-stack="side" className="px-4 py-4">
         {manage ? (
           <Tooltip
             label={lastOwner ? "An instance with no owner cannot recover from the UI." : undefined}
@@ -253,7 +257,11 @@ function UserRow({
           <RoleBadge role={role} />
         )}
       </TableCell>
-      <TableCell className="px-4 py-4 text-sm whitespace-nowrap text-soft" title={absolute(user.lastSeenAt)}>
+      <TableCell
+        data-label="Last seen"
+        className="px-4 py-4 text-sm whitespace-nowrap text-soft"
+        title={absolute(user.lastSeenAt)}
+      >
         {relative(user.lastSeenAt)}
       </TableCell>
     </TableRow>

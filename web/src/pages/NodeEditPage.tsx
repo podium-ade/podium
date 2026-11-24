@@ -124,7 +124,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
         meta={
           <>
             <Badge tone={nodeStateTone(node)}>{nodeStateLabel(node)}</Badge>
-            <CopyValue value={node.id} label="node ID" />
+            <CopyValue value={node.id} label="node ID" truncate />
           </>
         }
       >

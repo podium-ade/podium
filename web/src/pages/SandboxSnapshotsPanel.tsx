@@ -422,7 +422,7 @@ function SandboxSnapshotRow({
       <TableCell className={cell}>
         <MobileLabel>Task</MobileLabel>
         {s.taskId ? (
-          <Link to={`/tasks/${s.taskId}`} className="font-mono text-xs underline underline-offset-2">
+          <Link to={`/tasks/${s.taskId}`} title={s.taskId} className="block truncate font-mono text-xs underline underline-offset-2">
             {s.taskId}
           </Link>
         ) : (

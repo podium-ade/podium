@@ -16,9 +16,15 @@ export function CopyValue({
   value,
   label,
   className,
+  truncate,
   children,
 }: {
   value: string;
+  /**
+   * One line, cut with an ellipsis, for a value in a bar with no room to wrap (a page's top
+   * bar on a phone). The copy button still copies all of it.
+   */
+  truncate?: boolean;
   /** What is being copied, for the button's accessible name: "Copy image". */
   label: string;
   className?: string;
@@ -26,8 +32,13 @@ export function CopyValue({
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <span className={cn("inline-flex min-w-0 items-start gap-1.5", className)}>
-      <span className="min-w-0 font-mono break-words">{children ?? value}</span>
+    <span className={cn("inline-flex min-w-0 items-start gap-1.5", truncate && "max-w-full", className)}>
+      <span
+        className={cn("min-w-0 font-mono", truncate ? "truncate" : "[overflow-wrap:anywhere]")}
+        title={truncate ? value : undefined}
+      >
+        {children ?? value}
+      </span>
       <Tooltip label={copied ? "Copied" : `Copy ${label}`}>
         <Button
           type="button"

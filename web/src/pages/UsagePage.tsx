@@ -402,7 +402,7 @@ export function UsagePage() {
           href={(path) => `${path ? `/usage/${path}` : "/usage"}${location.search}`}
         />
         <ScopeBar>{open.lead}</ScopeBar>
-        <div className="space-y-5 px-6 py-6">
+        <div className="space-y-5 px-4 py-6 sm:px-6">
           <UsageFilters usage={choices.data} filters={filters} onChange={setFilters} />
 
           <Card
@@ -502,8 +502,8 @@ function Stat({
   hint?: string;
 }) {
   return (
-    <div className="min-w-0 space-y-1 border-hairline px-5 py-4 even:border-l [&:nth-child(n+3)]:border-t xl:border-l xl:first:border-l-0 xl:[&:nth-child(n+3)]:border-t-0">
-      <p className="truncate text-2xs tracking-wide text-faint uppercase">{label}</p>
+    <div className="min-w-0 space-y-1 border-hairline px-4 py-4 even:border-l sm:px-5 [&:nth-child(n+3)]:border-t xl:border-l xl:first:border-l-0 xl:[&:nth-child(n+3)]:border-t-0">
+      <p className="text-2xs tracking-wide text-faint uppercase sm:truncate">{label}</p>
       {loading ? (
         <Skeleton className="h-7 w-24" />
       ) : (
@@ -517,8 +517,9 @@ function Stat({
           )}
         </p>
       )}
-      {/* One line, always: a detail with an icon in it is no taller than one without. */}
-      <div className="h-4 truncate text-2xs leading-4 text-faint">{detail}</div>
+      {/* One line on a wide screen: a detail with an icon in it is no taller than one without.
+          A phone's half-width cell has no room for one line, so it wraps rather than cut. */}
+      <div className="min-h-4 text-2xs leading-4 text-faint sm:h-4 sm:truncate">{detail}</div>
     </div>
   );
 }
@@ -535,10 +536,10 @@ function Delta({ now, before, label }: { now: number; before: number; label: str
   const up = change >= 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
-    <span className={cn("inline-flex h-4 items-center gap-1 align-top", up ? "text-warn" : "text-ok")}>
-      <Icon aria-hidden className="size-3" />
+    <span className={cn("align-top sm:inline-flex sm:h-4 sm:items-center sm:gap-1", up ? "text-warn" : "text-ok")}>
+      <Icon aria-hidden className="mr-1 inline size-3 align-[-1px] sm:mr-0" />
       {up ? "+" : ""}
-      {(change * 100).toFixed(0)}%<span className="text-faint">{label}</span>
+      {(change * 100).toFixed(0)}%{" "}<span className="text-faint">{label}</span>
     </span>
   );
 }

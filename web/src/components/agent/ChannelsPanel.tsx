@@ -230,7 +230,7 @@ export function ChannelsPanel() {
 
       {channels.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative block min-w-0 flex-1 sm:max-w-xs">
+          <label className="relative block min-w-0 basis-full sm:max-w-xs sm:flex-1 sm:basis-auto">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
             <Input
               data-testid="channel-search"
@@ -249,7 +249,7 @@ export function ChannelsPanel() {
               size="sm"
               aria-label="Filter by context"
               data-testid="channel-filter"
-              className="h-8 w-44"
+              className="h-8 min-w-0 flex-1 sm:w-44 sm:flex-none"
             >
               <SelectValue />
             </SelectTrigger>
@@ -267,7 +267,7 @@ export function ChannelsPanel() {
               size="sm"
               aria-label="Sort channels"
               data-testid="channel-sort"
-              className="h-8 w-52"
+              className="h-8 min-w-0 flex-1 sm:w-52 sm:flex-none"
             >
               <SelectValue />
             </SelectTrigger>

@@ -257,7 +257,7 @@ function FieldRow({ field: f, terms, onTerm }: { field: Field; terms: ReadonlySe
         <span
           className={cn(
             "flex gap-0.5 transition-opacity",
-            showing || hiding ? "opacity-100" : "opacity-0 group-hover/field:opacity-100 focus-within:opacity-100",
+            showing || hiding ? "opacity-100" : "can-hover:opacity-0 group-hover/field:opacity-100 focus-within:opacity-100",
           )}
         >
           <FilterButton

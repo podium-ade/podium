@@ -1,14 +1,14 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, Menu, Moon, Sun, X } from "lucide-react";
+import { ChevronLeft, Menu, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer } from "../lib/identity";
 import { pageCategory } from "../lib/navigation";
-import { readTheme, syncTheme, toggleTheme, watchSystemTheme, type Theme } from "../lib/theme";
 import { NotificationBell } from "./NotificationBell";
 import { useShell } from "./shell";
+import { ThemeToggle } from "./ThemeToggle";
 
 const PageActionsContext = createContext<HTMLDivElement | null>(null);
 
@@ -25,32 +25,15 @@ export function PageActions({ children }: { children: ReactNode }) {
   return createPortal(children, slot);
 }
 
-function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() =>
-    typeof document === "undefined" ? "light" : readTheme(),
-  );
-  useEffect(() => {
-    syncTheme();
-    return watchSystemTheme(setTheme);
-  }, []);
-  const dark = theme === "dark";
-  return (
-    <button
-      type="button"
-      aria-pressed={dark}
-      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-      onClick={() => setTheme(toggleTheme())}
-      className={iconButton}
-    >
-      {dark ? <Sun className="size-[18px] stroke-[1.8]" /> : <Moon className="size-[18px] stroke-[1.8]" />}
-    </button>
-  );
-}
-
 /**
  * PageFrame is the product top bar: the page title, its group, its actions, the theme
  * switch, and the notifications bell, on one 64px row. The body scrolls underneath,
  * except a bleed page (the chat), which keeps the height that remains.
+ *
+ * A narrow pane (a phone, or a tablet beside the sidebar) has no room for all of that on one
+ * row: the title would be squeezed to nothing and the actions pushed off the edge. There the
+ * bar keeps the title and the bell on top and drops the state and the actions to a second
+ * row, and the theme switch lives in the navigation drawer instead.
  */
 export function PageFrame({
   title,
@@ -83,10 +66,29 @@ export function PageFrame({
   const category = pageCategory(
     typeof window.location?.pathname === "string" ? window.location.pathname : "",
   );
+  // Whether the second row has anything in it. It holds the actions holder and the slot
+  // holder whatever happens, so it is filled once it holds a third element: something a
+  // page rendered, here or through PageActions.
+  const tools = useRef<HTMLDivElement>(null);
+  const [toolsFilled, setToolsFilled] = useState(meta != null || actions != null);
+  useLayoutEffect(() => {
+    const el = tools.current;
+    if (!el) return;
+    const sync = () => setToolsFilled(el.querySelectorAll("*").length > 2);
+    sync();
+    const mo = new MutationObserver(sync);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
   return (
     <PageActionsContext.Provider value={slot}>
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-panel px-4 sm:px-5">
+      <div className="@container flex h-full min-h-0 flex-col bg-background">
+        <header
+          className={cn(
+            "flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-panel px-4 py-2.5",
+            "@2xl:h-16 @2xl:flex-nowrap @2xl:px-5 @2xl:py-0",
+          )}
+        >
           <button
             type="button"
             className={cn(iconButton, "md:hidden")}
@@ -100,23 +102,45 @@ export function PageFrame({
           {back ? (
             <Link
               to={back.to}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md text-sm font-semibold text-soft hover:text-fg"
+              className="-mx-1 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md px-1 text-sm font-semibold text-soft hover:text-fg"
             >
               <ChevronLeft className="size-4" />
-              {back.label}
+              {/* A narrow bar keeps the chevron and gives the title the room; the name is
+                  still the link's accessible name. */}
+              <span className="sr-only @xl:not-sr-only">{back.label}</span>
             </Link>
           ) : null}
-          <h1 className="min-w-0 truncate text-lg font-bold tracking-tight text-fg">{title}</h1>
+          {/* On a narrow bar the title takes what the first row leaves (a zero basis, so a long
+              one truncates instead of wrapping the row); on a wide one it is its own width. */}
+          <h1 className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-fg @2xl:flex-initial">
+            {title}
+          </h1>
           {category ? (
-            <span className="hidden shrink-0 border-l border-border pl-3 text-sm text-muted sm:inline">
+            <span className="hidden shrink-0 border-l border-border pl-3 text-sm text-muted @2xl:inline">
               {category}
             </span>
           ) : null}
-          {meta ? <div className="flex shrink-0 items-center gap-2">{meta}</div> : null}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {actions}
-            <div ref={setSlot} className="flex items-center gap-2 empty:hidden" />
-            <ThemeToggle />
+          {/* The second row on a narrow bar. On a wide one it dissolves (contents) and its
+              pieces sit in the one row, the state beside the title and the actions at the end. */}
+          <div
+            ref={tools}
+            className={cn(
+              toolsFilled ? "flex" : "hidden",
+              "order-last w-full min-w-0 items-center justify-end gap-2 @2xl:order-none @2xl:contents",
+            )}
+          >
+            {meta ? (
+              <div className="mr-auto flex min-w-0 items-center gap-2 overflow-hidden @2xl:mr-0 @2xl:shrink-0 @2xl:overflow-visible">
+                {meta}
+              </div>
+            ) : null}
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto @2xl:ml-auto @2xl:shrink-0 @2xl:overflow-visible">
+              {actions}
+              <div ref={setSlot} className="flex items-center gap-2 empty:hidden" />
+            </div>
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2 @2xl:ml-0">
+            <ThemeToggle className="hidden md:grid" />
             {who?.agentEnabled ? <NotificationBell /> : null}
           </div>
         </header>

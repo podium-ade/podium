@@ -177,7 +177,7 @@ function TaskDetail({ id }: { id: string }) {
     <PageFrame
         back={{ to: "/tasks", label: "Tasks" }}
         title={
-          <CopyValue value={task.id} label="task ID" className="text-sm tracking-tight" />
+          <CopyValue value={task.id} label="task ID" className="text-sm tracking-tight" truncate />
         }
         meta={
           <>

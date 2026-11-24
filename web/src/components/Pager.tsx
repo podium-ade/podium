@@ -104,10 +104,11 @@ export function Pager({
         </Select>
         <Button variant="outline" size="sm" disabled={pager.page <= 1} onClick={go(pager.previous)}>
           <ChevronLeft />
-          Previous
+          {/* A phone's card has room for the arrows, not the words; they stay the names. */}
+          <span className="sr-only sm:not-sr-only">Previous</span>
         </Button>
         <Button variant="outline" size="sm" disabled={!more} onClick={go(() => pager.next(nextCursor ?? "", count))}>
-          Next
+          <span className="sr-only sm:not-sr-only">Next</span>
           <ChevronRight />
         </Button>
       </div>

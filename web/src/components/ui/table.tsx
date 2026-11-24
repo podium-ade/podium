@@ -12,9 +12,15 @@ function Table({
   containerClassName,
   stickyScrollbar,
   footer,
+  stack,
   ...props
 }: ComponentProps<"table"> & {
   containerClassName?: string;
+  /**
+   * stack turns each row into a card on a phone instead of scrolling the table sideways: the
+   * first two cells share a line and the rest take one each. See `.table-stack` in index.css.
+   */
+  stack?: boolean;
   /**
    * footer is a bar inside the table's card, under the last row and across the card's full
    * width, so it never scrolls sideways with a wide table: where a paged table's Pager goes.
@@ -58,7 +64,11 @@ function Table({
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom border-separate border-spacing-0 text-sm", className)}
+        className={cn(
+          "w-full caption-bottom border-separate border-spacing-0 text-sm",
+          stack && "table-stack",
+          className,
+        )}
         {...props}
       />
     </div>

@@ -390,7 +390,7 @@ export function TasksPage() {
                         type="button"
                         aria-label={`Copy ID of task ${t.id}`}
                         onClick={() => copyId(t.id)}
-                        className="rounded-sm p-0.5 text-faint opacity-0 outline-none transition-opacity hover:text-fg group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="rounded-sm p-0.5 text-faint outline-none transition-opacity can-hover:opacity-0 hover:text-fg group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
                       >
                         <Copy className="size-3" />
                       </button>
