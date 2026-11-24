@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import { AssistantSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT } from "../../lib/agents";
 import { catalogue } from "../../test/agents";
+import { ViewerContext, type Viewer } from "../../lib/identity";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 
 const assistant = create(AssistantSchema, {
@@ -15,10 +16,11 @@ const assistant = create(AssistantSchema, {
   effort: "high",
 });
 
-function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
+function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}, brand?: string) {
   const onSend = vi.fn();
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
+    <ViewerContext.Provider value={brand ? ({ deploymentName: brand } as Viewer) : undefined}>
     <QueryClientProvider client={qc}>
       <ChatComposer
         disabled={false}
@@ -29,7 +31,8 @@ function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
         onSend={onSend}
         {...over}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </ViewerContext.Provider>,
   );
   return { onSend };
 }
@@ -42,6 +45,12 @@ describe("ChatComposer", () => {
     mine: true,
     editable: true,
     ...over,
+  });
+
+  it("shows a person chip in a queued message as the person's name", () => {
+    mount({ running: true, queued: [item("q1", "@[Alice Ng](mention:alice@example.com) look at this")] });
+    expect(screen.getByTestId("chat-pending-item")).toHaveTextContent("@Alice Ng look at this");
+    expect(screen.getByTestId("chat-pending-item")).not.toHaveTextContent("mention:");
   });
 
   it("lists what is queued, and takes a message back into the box to edit it", async () => {
@@ -276,6 +285,27 @@ describe("ChatComposer", () => {
     await userEvent.type(box, "{Enter}");
     expect(box).toHaveValue("hey @Podium ");
     expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to Podium");
+  });
+
+  it("offers the deployment's own name as the mention once it is renamed", async () => {
+    const { onSend } = mount({ multiplayer: true }, "AI Buddy");
+    expect(screen.getByTestId("chat-multiplayer-hint")).toHaveTextContent("mention @AI Buddy");
+    expect(screen.getByTestId("chat-composer")).toHaveAttribute("placeholder", "Message the chat, or mention @AI Buddy");
+    const box = screen.getByTestId("chat-composer");
+    await userEvent.type(box, "hey @AI");
+    expect(await screen.findByTestId("chat-mention-option")).toHaveTextContent("AI Buddy");
+    await userEvent.type(box, "{Enter}");
+    expect(box).toHaveValue("hey @AI Buddy ");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to AI Buddy");
+    // choose() puts the caret back on the next frame.
+    await new Promise((r) => requestAnimationFrame(r));
+    await userEvent.type(box, "status?");
+    await userEvent.click(screen.getByTestId("chat-send"));
+    expect(onSend.mock.calls[0][0]).toBe("hey @AI Buddy status?");
+    // The house name still starts a turn; the server accepts it too.
+    await userEvent.clear(box);
+    await userEvent.type(box, "@Podium again");
+    expect(screen.getByTestId("chat-send")).toHaveAttribute("aria-label", "Send to AI Buddy");
   });
 
   it("answers to the chat's assistant by name in a shared chat", async () => {
