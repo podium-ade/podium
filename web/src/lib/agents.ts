@@ -7,6 +7,8 @@
  * that a test can build a choice without importing a picker.
  */
 
+import type { AgentBackend, AgentModel } from "../gen/podium/agent/v1/agent_pb";
+
 /** AgentChoice is the triple a playbook or a profile holds. "" means "inherit". */
 export type AgentChoice = { agent: string; model: string; effort: string };
 
@@ -125,3 +127,24 @@ export function providerName(id: string): string {
 
 /** The providers Settings shows, in order. */
 export const PROVIDERS: Provider[] = [ANTHROPIC, XAI, OPENAI, GOOGLE];
+
+/**
+ * modelName is a model as a person reads it: the catalogue's name, less its backend's own
+ * when that only repeats it ("Claude Sonnet 5.5" on Claude reads "Sonnet 5.5"). A name that is
+ * the backend's plus a number ("Grok 4.7") keeps it, or it would read as just "4.7".
+ */
+export function modelName(backend: AgentBackend, model: AgentModel): string {
+  const name = model.displayName || model.id;
+  const prefix = `${backend.displayName} `;
+  const rest = name.slice(prefix.length);
+  return name.startsWith(prefix) && /^[A-Za-z]/.test(rest) ? rest : name;
+}
+
+/** modelLabel is modelName for an id, or the id itself for one the catalogue does not know. */
+export function modelLabel(agents: AgentBackend[], id: string): string {
+  for (const b of agents) {
+    const m = b.models.find((x) => x.id === id);
+    if (m) return modelName(b, m);
+  }
+  return id;
+}

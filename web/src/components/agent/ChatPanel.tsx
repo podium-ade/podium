@@ -59,6 +59,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { LinearMcpHint } from "./LinearMcpHint";
@@ -75,6 +76,10 @@ import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
+
+
+/** PODIUM_VOICE stands for Podium's own voice (id "") in the phone's assistant select. */
+const PODIUM_VOICE = "__podium__";
 
 function RailHeading({ title, action, className }: { title: string; action?: ReactNode; className?: string }) {
   return (
@@ -761,18 +766,24 @@ function ChatRail({
         </ul>
       </nav>
         <div className="mx-3 mt-3 mb-2 sm:hidden">
-          <select
-            aria-label="Assistant"
-            value={voiceId}
-            onChange={(e) => onPickVoice(e.target.value)}
-            className="min-w-0 w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
+          {/* Radix's select, not the browser's: the browser's list ran past a phone's edge, and
+              its chevron sat on the border. Podium's own voice has the id "", which an item
+              cannot take, so it is PODIUM_VOICE here. */}
+          <Select
+            value={voiceId || PODIUM_VOICE}
+            onValueChange={(v) => onPickVoice(v === PODIUM_VOICE ? "" : v)}
           >
-            {voices.map((voice) => (
-              <option key={voice.id || "podium"} value={voice.id}>
-                {voice.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm" aria-label="Assistant" className="bg-bg">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {voices.map((voice) => (
+                <SelectItem key={voice.id || PODIUM_VOICE} value={voice.id || PODIUM_VOICE}>
+                  {voice.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -873,32 +884,32 @@ function ChatRail({
       </div>
 
       <div className="mx-3 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
-        <select
-          aria-label="Chat"
-          value={active}
-          onChange={(e) => onOpen(e.target.value)}
-          className="min-w-0 w-full flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
-        >
-          <option value="">Pick a chat…</option>
-          {viewingEntry && !ordered.some((c) => c.id === active) ? (
-            <option value={active}>{viewingEntry.title || "Untitled chat"}</option>
-          ) : null}
-          {split
-            ? origins.map((origin) => (
-                <optgroup key={origin.key} label={origin.label}>
-                  {origin.chats.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </optgroup>
-              ))
-            : ordered.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-        </select>
+        <Select value={active} onValueChange={onOpen}>
+          <SelectTrigger size="sm" aria-label="Chat" className="min-w-0 flex-1 bg-bg">
+            <SelectValue placeholder="Pick a chat…" />
+          </SelectTrigger>
+          <SelectContent className="max-h-[min(24rem,var(--radix-select-content-available-height))]">
+            {viewingEntry && !ordered.some((c) => c.id === active) ? (
+              <SelectItem value={active}>{viewingEntry.title || "Untitled chat"}</SelectItem>
+            ) : null}
+            {split
+              ? origins.map((origin) => (
+                  <SelectGroup key={origin.key}>
+                    <SelectLabel>{origin.label}</SelectLabel>
+                    {origin.chats.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.title || "Untitled chat"}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))
+              : ordered.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.title || "Untitled chat"}
+                  </SelectItem>
+                ))}
+          </SelectContent>
+        </Select>
         <Button
           type="button"
           variant="outline"

@@ -203,20 +203,25 @@ describe("ChatComposer", () => {
 
   it("shows the assistant's own model as the default, and says tasks keep theirs", async () => {
     mount();
-    // The picker is folded into a popover, but the closed control still names the model
-    // that will answer, so a human can see what they are about to override.
+    // The picker is folded into a sheet, but the closed control still names the model that
+    // will answer — as a person reads it, not its id — so a human can see what they are about
+    // to override.
     const trigger = screen.getByTestId("chat-run-config");
-    expect(trigger).toHaveTextContent("claude-opus-5");
+    expect(trigger).toHaveTextContent("Opus 5");
+    expect(trigger).not.toHaveTextContent("claude-opus-5");
     expect(screen.getByTestId("chat-effort")).toHaveTextContent("Auto");
 
     await userEvent.click(trigger);
     expect(
       await screen.findByText(/Tasks Podium starts keep their own playbook's model/),
     ).toBeInTheDocument();
-    // One click, not a menu inside a menu: the catalogue is the popover.
+    // One click, not a menu inside a menu: the catalogue is in the sheet, beside the effort.
+    expect(screen.getByRole("radiogroup", { name: "Effort levels" })).toBeInTheDocument();
     const list = await screen.findByRole("listbox", { name: "This message: models" });
     expect(list).toHaveTextContent("Inherit");
     expect(list).toHaveTextContent("grok-4.6");
+    // The chat picks from the catalogue only; a hand-typed id is a settings matter.
+    expect(screen.queryByTestId("agent-picker-custom")).toBeNull();
   });
 
   it("falls back to a plain default before the assistant has loaded", () => {
