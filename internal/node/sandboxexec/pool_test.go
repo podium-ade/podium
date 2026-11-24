@@ -28,13 +28,24 @@ type poolProvider struct {
 	created  []sandbox.CreateRequest
 	deleted  []string
 	extended map[string]time.Duration
+	gate     chan struct{} // when set, Create waits on it
 }
 
 func (p *poolProvider) Name() string { return "fake" }
 func (p *poolProvider) Capabilities() sandbox.Capabilities {
 	return sandbox.Capabilities{NativeImage: true}
 }
-func (p *poolProvider) Create(_ context.Context, req sandbox.CreateRequest) (string, error) {
+func (p *poolProvider) Create(ctx context.Context, req sandbox.CreateRequest) (string, error) {
+	p.mu.Lock()
+	gate := p.gate
+	p.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.next++
@@ -173,8 +184,9 @@ func TestAPoolIsDeletedWhenTheNodeStopsAndAfterItDies(t *testing.T) {
 // TestEachPooledImageHasAPoolOfItsOwn: a pool per image, each of the size asked for, and a task
 // takes from the one whose image is its own.
 func TestEachPooledImageHasAPoolOfItsOwn(t *testing.T) {
+	p := &poolProvider{}
 	e, err := New(Options{
-		Provider: &poolProvider{}, DataDir: t.TempDir(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Provider: p, DataDir: t.TempDir(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Agent: func() ([]byte, error) { return []byte("agent"), nil },
 		Pool:  PoolOptions{Size: 1, Images: []string{"runtime:1", "runtime-dev:1", "runtime:1"}},
 	})
@@ -182,6 +194,10 @@ func TestEachPooledImageHasAPoolOfItsOwn(t *testing.T) {
 	t.Cleanup(func() { _ = e.Close() })
 	require.Len(t, e.pools, 2, "one per image, however often it is named")
 	waitReady(t, e, 2)
+	// Hold refills, so the second take below sees the pool before it refills.
+	p.mu.Lock()
+	p.gate = make(chan struct{})
+	p.mu.Unlock()
 
 	sp := spec.TaskSpec{Image: "runtime-dev:1"}
 	sp.ApplyDefaults()
