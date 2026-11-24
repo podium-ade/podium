@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { UsageDay } from "../../gen/podium/agent/v1/agent_pb";
 import {
   billed,
@@ -20,6 +21,9 @@ import { cn } from "../../lib/utils";
 /** The two series, one tone each. Billed is the solid accent; covered is the same hue, lighter. */
 const BILLED = "bg-accent";
 const COVERED = "bg-accent/35";
+
+/** The room one day label needs, "Nov 18" plus a gap, for thinning the axis to fit. */
+const LABEL_PX = 52;
 
 /**
  * UsageTrend is spend per day across the selected range, as bars stacked in two parts: what
@@ -51,8 +55,23 @@ export function UsageTrend({
   const span = spanDays(range);
   const max = cells.reduce((m, c) => Math.max(m, c.t.cost), 0);
   const covered = cells.some((c) => c.t.subscription > 0);
-  // One label every nth bar, so they never collide however wide the range is.
-  const every = span <= 14 ? 1 : span <= 45 ? 7 : 30;
+  // One label every nth bar, so they never collide however wide the range is — or however
+  // narrow the chart: on a phone a week of daily labels is wider than the card.
+  const axis = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  // The axis is only drawn when something cost anything, so it is measured again once it is.
+  const empty = max === 0;
+  useLayoutEffect(() => {
+    const el = axis.current;
+    if (!el) return;
+    const sync = () => setWidth(el.clientWidth);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [empty]);
+  const fit = width > 0 ? Math.ceil((cells.length * LABEL_PX) / width) : 1;
+  const every = Math.max(span <= 14 ? 1 : span <= 45 ? 7 : 30, fit);
 
   return (
     <Card aria-label="Spend per day" role="region" className="flex flex-col">
@@ -120,7 +139,7 @@ export function UsageTrend({
             </div>
             {/* Labels are positioned on the bar they name rather than laid out in cells of the
                 same width, so a label may be wider than its bar without being clipped. */}
-            <div aria-hidden className="relative mt-1.5 h-4 text-2xs text-faint">
+            <div ref={axis} aria-hidden className="relative mt-1.5 h-4 text-2xs text-faint">
               {cells.map(({ day }, i) =>
                 i % every === 0 ? (
                   <span

@@ -301,6 +301,82 @@ html:not([data-theme="dark"]) .chat-code span {
   }
 }
 
+/*
+ * A table that turns into a list of cards on a phone (Table's `stack`). A settings table or a
+ * node list has a handful of rows whose columns do not fit 360px, and scrolling one sideways
+ * hides the status and the buttons a person came for. Each row becomes a two-column grid:
+ * the first cell (the name) and the second (usually the status) share the top line, and every
+ * other cell takes a line of its own. A cell can carry `data-label` to name itself there,
+ * since the header row is gone; `data-stack="full"` to take a whole line even when second,
+ * `"side"` to sit beside the first, and `"hide"` to leave a secondary column out on a phone.
+ * Unlayered, so it wins over the cells' own utilities without !important.
+ */
+@media (max-width: 639.98px) {
+  .table-stack {
+    display: block;
+    min-width: 0;
+  }
+
+  .table-stack > thead {
+    display: none;
+  }
+
+  .table-stack > tbody {
+    display: block;
+  }
+
+  .table-stack > tbody > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--color-hairline);
+  }
+
+  .table-stack > tbody > tr:last-child {
+    border-bottom: 0;
+  }
+
+  .table-stack > tbody > tr > td {
+    display: block;
+    position: static;
+    min-width: 0;
+    width: auto;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  .table-stack > tbody > tr > td:nth-child(n + 3),
+  .table-stack > tbody > tr > td[colspan],
+  .table-stack > tbody > tr > td[data-stack="full"] {
+    grid-column: 1 / -1;
+  }
+
+  /* A cell that moves up beside the first: a row's one control, such as a role picker. */
+  .table-stack > tbody > tr > td[data-stack="side"] {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .table-stack > tbody > tr > td:empty,
+  .table-stack > tbody > tr > td[data-stack="hide"] {
+    display: none;
+  }
+
+  .table-stack > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.125rem;
+    font-size: var(--text-2xs);
+    line-height: var(--text-2xs--line-height);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

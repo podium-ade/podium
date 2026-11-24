@@ -710,9 +710,13 @@ function ChatRail({
 
   return (
     <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-rail sm:w-[264px] sm:self-stretch sm:border-r sm:border-b-0">
-      <div className="shrink-0 border-b border-border">
+      {/* On a phone the rail is two compact rows above the conversation, the assistant and
+          the chat each a select, so the conversation keeps the screen. The headings, the
+          search and the source filter are the wide rail's. */}
+      <div className="shrink-0 sm:border-b sm:border-border">
       <nav aria-label="Assistants">
         <RailHeading
+          className="hidden sm:flex"
           title="Assistants"
           action={
             <Tooltip label="New assistant">
@@ -756,7 +760,7 @@ function ChatRail({
           ))}
         </ul>
       </nav>
-        <div className="mx-3 my-3 sm:hidden">
+        <div className="mx-3 mt-3 mb-2 sm:hidden">
           <select
             aria-label="Assistant"
             value={voiceId}
@@ -774,6 +778,7 @@ function ChatRail({
 
       <div className="flex shrink-0 flex-col">
         <RailHeading
+          className="hidden sm:flex"
           title="Chats"
           action={
             <Tooltip label={creating ? "Opening…" : "New chat"}>
@@ -792,7 +797,7 @@ function ChatRail({
           }
         />
         {ordered.length > 4 ? (
-          <label className="relative mx-2 mt-2 block">
+          <label className="relative mx-2 mt-2 hidden sm:block">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
             <input
               data-testid="chat-search"
@@ -867,7 +872,7 @@ function ChatRail({
         ) : null}
       </div>
 
-      <div className="mx-3 mt-2 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
+      <div className="mx-3 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
         <select
           aria-label="Chat"
           value={active}
@@ -894,6 +899,17 @@ function ChatRail({
                 </option>
               ))}
         </select>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          data-testid="chat-new-mobile"
+          aria-label="New chat"
+          disabled={creating || newDisabled}
+          onClick={onNew}
+        >
+          <Plus />
+        </Button>
         {activeChat && (roleOf(activeChat) === "" || roleOf(activeChat) === "owner") ? (
           <Tooltip label={`Delete ${activeChat.title}`}>
             <Button

@@ -493,7 +493,7 @@ function SnapshotRow({
       <TableCell className="px-4 py-4 max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
         <MobileLabel>Task</MobileLabel>
         {s.taskId ? (
-          <Link to={`/tasks/${s.taskId}`} className="font-mono text-xs underline underline-offset-2">
+          <Link to={`/tasks/${s.taskId}`} title={s.taskId} className="block truncate font-mono text-xs underline underline-offset-2">
             {s.taskId}
           </Link>
         ) : (

@@ -168,7 +168,7 @@ export function SessionsTable() {
       ) : null}
 
       {rows.length > 0 ? (
-        <Table>
+        <Table stack>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Source</TableHead>
@@ -220,7 +220,7 @@ export function SessionsTable() {
                       {kind.label}
                     </Badge>
                   </TableCell>
-                  <TableCell className="max-w-[22rem]">
+                  <TableCell data-stack="full" className="max-w-[22rem]">
                     <div className="truncate font-mono text-xs text-fg" title={s.sourceKey}>
                       {conversationLabel(s)}
                     </div>
@@ -251,23 +251,27 @@ export function SessionsTable() {
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell data-stack="hide">
                     <Chip>{ranBy(s.playbook)}</Chip>
                   </TableCell>
-                  <TableCell className="text-xs text-muted">{s.profile || "-"}</TableCell>
+                  <TableCell data-stack="hide" className="text-xs text-muted">
+                    {s.profile || "-"}
+                  </TableCell>
                   <TableCell
+                    data-stack="hide"
                     className="text-xs whitespace-nowrap text-faint"
                     title={absolute(s.createdAt)}
                   >
                     {relative(s.createdAt)}
                   </TableCell>
                   <TableCell
+                    data-stack="side"
                     className="text-xs whitespace-nowrap text-fg tabular"
                     title={absolute(s.lastTurnAt)}
                   >
                     {relative(s.lastTurnAt)}
                   </TableCell>
-                  <TableCell className="w-0">
+                  <TableCell data-stack="hide" className="w-0">
                     <ChevronRight
                       aria-hidden
                       className="size-4 text-faint transition-colors group-hover/row:text-muted"

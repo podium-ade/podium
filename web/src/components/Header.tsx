@@ -25,6 +25,7 @@ import {
 } from "../lib/navigation";
 import { CollapseIcon, NavIcon, SearchIcon } from "./NavIcon";
 import { useShell } from "./shell";
+import { ThemeToggle } from "./ThemeToggle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -463,8 +464,12 @@ export function Header() {
           </button>
         </div>
 
-        <div className="mt-auto border-t border-border p-2">
-          <AccountMenu who={who} collapsed={collapsed} />
+        <div className="mt-auto flex items-center gap-2 border-t border-border p-2">
+          <div className="min-w-0 flex-1">
+            <AccountMenu who={who} collapsed={collapsed} />
+          </div>
+          {/* A phone's top bar has no room for the theme switch, so the drawer carries it. */}
+          <ThemeToggle className="md:hidden" />
         </div>
       </aside>
     </>

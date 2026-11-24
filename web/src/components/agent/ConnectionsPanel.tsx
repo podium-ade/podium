@@ -64,7 +64,7 @@ export function ConnectionsPanel() {
       ) : null}
       {query.isPending ? <p className="p-4 text-sm text-muted">Reading connections…</p> : null}
       {data ? (
-        <Table containerClassName="rounded-none border-0 bg-transparent">
+        <Table containerClassName="rounded-none border-0 bg-transparent" stack>
           <caption className="sr-only">Connections</caption>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

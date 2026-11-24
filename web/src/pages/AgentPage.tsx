@@ -300,7 +300,7 @@ function ModelsPanel() {
     const mine = scope === "yours";
     const readOnly = mine ? !personal : !manage;
     return (
-      <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+      <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]" stack>
         <caption className="sr-only">
           {mine ? "Your model credentials" : "Global model credentials"}
         </caption>

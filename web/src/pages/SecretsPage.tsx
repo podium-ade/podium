@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Plus, TriangleAlert } from "lucide-react";
 import { Badge } from "../components/Badge";
@@ -343,9 +343,21 @@ function SecretList({
                   <TableCell className="px-4 py-4 max-[600px]:col-span-2 max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
                     <MobileLabel>Name</MobileLabel>
                     <div className="flex min-w-0 items-center gap-1">
-                      <span className="min-w-0 truncate font-mono text-xs" title={s.name}>
-                        {cut > 0 ? <span className="text-muted">{s.name.slice(0, cut + 1)}</span> : null}
-                        <span className="text-fg">{cut > 0 ? s.name.slice(cut + 1) : s.name}</span>
+                      {/* One truncated line in the table. A phone's card wraps the name at its
+                          dots instead: cut short, every podium.agent.connection.github.* read
+                          the same, because the part that tells them apart is the end. */}
+                      <span
+                        className="min-w-0 truncate font-mono text-xs max-[600px]:overflow-visible max-[600px]:whitespace-normal max-[600px]:[overflow-wrap:anywhere]"
+                        title={s.name}
+                      >
+                        {cut > 0 ? (
+                          <span className="text-muted">
+                            <DotBreaks text={s.name.slice(0, cut + 1)} />
+                          </span>
+                        ) : null}
+                        <span className="text-fg">
+                          <DotBreaks text={cut > 0 ? s.name.slice(cut + 1) : s.name} />
+                        </span>
                       </span>
                       <CopyName name={s.name} />
                       {/* The key fingerprint is only worth showing when it differs: it marks
@@ -466,4 +478,15 @@ function CopyName({ name }: { name: string }) {
       </Button>
     </Tooltip>
   );
+}
+
+/** A dotted name with a break opportunity after each dot, so it wraps between its segments. */
+function DotBreaks({ text }: { text: string }) {
+  const parts = text.split(/(?<=\.)/);
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {part}
+      {i < parts.length - 1 ? <wbr /> : null}
+    </Fragment>
+  ));
 }

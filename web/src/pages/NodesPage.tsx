@@ -169,7 +169,7 @@ export function NodesPage() {
         <>
           {/* Below its natural width the cells crush rather than wrap usefully — a meter and a
               ratio have nothing to break on — so the table scrolls inside its own container. */}
-          <Table className="min-w-[62rem]">
+          <Table className="min-w-[62rem]" stack>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Node</TableHead>
@@ -249,7 +249,7 @@ function NodeRow({ node }: { node: Node }) {
         {draining ? <div className="mt-1 text-2xs text-faint">takes no new work</div> : null}
       </TableCell>
 
-      <TableCell>
+      <TableCell data-label="Slots">
         <div className="flex items-baseline justify-between gap-2 whitespace-nowrap">
           <span className="tabular font-mono text-xs text-fg">
             {running ?? "-"}
@@ -274,14 +274,14 @@ function NodeRow({ node }: { node: Node }) {
         />
       </TableCell>
 
-      <TableCell className="text-2xs whitespace-nowrap text-muted">
+      <TableCell data-label="Machine" className="text-2xs whitespace-nowrap text-muted">
         <div className="tabular">{node.capacity?.cpuCores ?? "-"} cores</div>
         <div className="tabular">
           {node.capacity ? humanBytes(Number(node.capacity.memoryMb) * 1024 * 1024) : "-"}
         </div>
       </TableCell>
 
-      <TableCell>
+      <TableCell data-label="Labels">
         {node.labels.length === 0 ? (
           <span className="text-2xs text-faint">none</span>
         ) : (
@@ -295,11 +295,11 @@ function NodeRow({ node }: { node: Node }) {
         )}
       </TableCell>
 
-      <TableCell className="font-mono text-2xs whitespace-nowrap text-muted">
+      <TableCell data-label="Version" className="font-mono text-2xs whitespace-nowrap text-muted">
         {node.version || "-"}
       </TableCell>
 
-      <TableCell className="whitespace-nowrap">
+      <TableCell data-label="Heartbeat" className="whitespace-nowrap">
         <Tooltip
           label={
             connected

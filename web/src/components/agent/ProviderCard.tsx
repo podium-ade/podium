@@ -342,7 +342,7 @@ export function ProviderCard({
             </Badge>
           )}
         </TableCell>
-        <TableCell className="px-4 py-4">
+        <TableCell className="px-4 py-4" data-label="Credential">
           {stored ? (
             <span
               data-testid={tid("provider-key-meta")}
@@ -389,7 +389,7 @@ export function ProviderCard({
                 </Button>
               ) : (
                 // Holds Remove's place, so every row's first button starts at the same x.
-                <span aria-hidden className={cn(removeAction, "shrink-0")} />
+                <span aria-hidden className={cn(removeAction, "shrink-0 max-sm:hidden")} />
               )}
             </div>
           )}

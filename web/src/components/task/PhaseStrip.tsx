@@ -33,7 +33,7 @@ export function PhaseStrip({ task, entries }: { task: Task; entries: readonly En
   const exit = task.exitCode;
 
   return (
-    <div data-testid="phase-strip" className="space-y-2 rounded-xl border border-border bg-panel px-5 py-3">
+    <div data-testid="phase-strip" className="space-y-2 rounded-xl border border-border bg-panel px-4 py-3 sm:px-5">
       <div aria-hidden className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
         {phases.map((p) => (
           <span
@@ -62,9 +62,10 @@ export function PhaseStrip({ task, entries }: { task: Task; entries: readonly En
           </li>
         ) : null}
         {extras.length > 0 ? (
-          <li className="ml-auto flex flex-wrap gap-1">
+          <li className="ml-auto flex min-w-0 max-w-full flex-wrap gap-1">
             {extras.map((e) => (
-              <Chip key={e.key} className="font-mono">
+              // A sandbox id is one unbroken word, longer than a phone is wide.
+              <Chip key={e.key} className="max-w-full font-mono whitespace-normal [overflow-wrap:anywhere]">
                 {e.summary}
               </Chip>
             ))}

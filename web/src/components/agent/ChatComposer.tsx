@@ -422,7 +422,9 @@ export function ChatComposer({
             className="block w-full resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-fg outline-none placeholder:text-faint disabled:opacity-60"
           />
 
-          <div className="@container flex flex-nowrap items-center gap-1.5 overflow-x-auto px-2 pb-2">
+          {/* Wraps rather than scrolls: on a phone the model and effort pills fill the row, and a
+              row that scrolled sideways put Send past the edge. */}
+          <div className="@container flex flex-wrap items-center gap-1.5 px-2 pb-2">
             <input
               ref={fileInput}
               data-testid="chat-attach-input"
