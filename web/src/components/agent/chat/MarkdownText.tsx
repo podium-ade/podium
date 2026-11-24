@@ -219,7 +219,7 @@ const components = memoizeMarkdownComponents({
       return (
         <span
           data-testid="chat-mention"
-          className="rounded bg-accent/15 px-1 font-medium text-accent"
+          className="rounded bg-accent/30 px-1 font-medium text-fg"
         >
           {props.children}
         </span>
