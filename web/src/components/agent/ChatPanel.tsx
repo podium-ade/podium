@@ -951,14 +951,16 @@ function ChatRail({
               {split ? (
                 // The heading stays at the top of the list while its own chats scroll under
                 // it, so a long GitHub list never leaves the reader wondering whose rows
-                // these are. It bleeds over the list's padding to cover what scrolls under it.
+                // these are. It bleeds over the list's side padding, and -top-2 cancels its top
+                // padding: sticky measures from the content box, so top-0 would park it 8px
+                // down with the rows showing in the gap above.
                 <button
                   type="button"
                   data-testid={`chat-origin-${origin.key}`}
                   aria-expanded={!folded}
                   aria-controls={listId}
                   onClick={() => toggleOrigin(origin.key)}
-                  className="group/origin sticky top-0 z-10 -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2.5 border-b border-transparent bg-rail px-5 text-left transition-colors duration-150 hover:text-fg"
+                  className="group/origin sticky -top-2 z-10 -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2.5 border-b border-transparent bg-rail px-5 text-left transition-colors duration-150 hover:text-fg"
                 >
                   <OriginMark origin={origin.key} />
                   <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-[0.08em] text-soft uppercase group-hover/origin:text-fg">
