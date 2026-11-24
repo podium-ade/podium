@@ -82,6 +82,8 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
       echo "LINT: $(golangci-lint --version)"
       echo "MAKE: $(make --version | head -1)"
       echo "PGREP: $(pgrep --version)"
+      echo "FFMPEG: $(ffmpeg -hide_banner -encoders | grep -o libx264 | head -1)"
+      echo "PLAYWRIGHT: $(node -p "require('$(npm root -g)/playwright-core/package.json').version")"
       echo "GIT: $(git --version)"
       echo "NODE: $(node --version)"
       echo "PNPM: $(pnpm --version)"
@@ -99,6 +101,9 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     expect(run.stdout).toContain("MAKE: GNU Make");
     // deploy/run-host.sh finds and stops its services with pgrep/pkill.
     expect(run.stdout).toContain("PGREP: pgrep from procps");
+    // The walkthrough validate-pr records: encoded to H.264, driven by playwright-core.
+    expect(run.stdout).toContain("FFMPEG: libx264");
+    expect(run.stdout).toMatch(/PLAYWRIGHT: \d+\.\d+\.\d+/);
     expect(run.stdout).toMatch(/GIT: git version \d/);
     expect(run.stdout).toMatch(/NODE: v2[6-9]\./);
     expect(run.stdout).toMatch(/PNPM: 12\./);

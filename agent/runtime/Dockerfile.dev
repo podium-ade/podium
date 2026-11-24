@@ -44,11 +44,26 @@ USER root
 # stops and reports its services with pgrep and pkill. Without them `up` records no pid,
 # `down` says nothing is running while the old server keeps its port, and the next `up`
 # talks to that stale process with a fresh token and gets 401 for everything.
+#
+# ffmpeg, because the evidence a turn posts on its pull request includes a video:
+# skills/validate-pr/walkthrough.cjs encodes its recording to H.264, the one codec every
+# reviewer's browser plays (Safari will not play the VP9 the browser's own screencast writes),
+# and publish.sh re-encodes anything else it is handed. Debian's, at about 130 MB to download:
+# a static build saves little and is one more checksum to keep, and a turn without it posts
+# screenshots alone. Its filters pull in Mesa's software OpenGL and Vulkan (LLVM, the gallium
+# drivers and z3, about 200 MB), which are only ever dlopened for GPU filters an H.264 encode
+# never touches; dpkg's path-exclude keeps them out of the layer, as Dockerfile.desktop does.
 RUN set -eux; \
+    { \
+        echo 'path-exclude=/usr/lib/*/libLLVM*'; \
+        echo 'path-exclude=/usr/lib/*/libgallium-*'; \
+        echo 'path-exclude=/usr/lib/*/libz3.so*'; \
+    } > /etc/dpkg/dpkg.cfg.d/podium-dev-excludes; \
     apt-get update; \
-    apt-get install -y --no-install-recommends make procps; \
+    apt-get install -y --no-install-recommends make procps ffmpeg; \
     rm -rf /var/lib/apt/lists/*; \
     make --version; \
+    ffmpeg -hide_banner -encoders | grep -q libx264; \
     pgrep --version
 
 # Go, from the official tarball, at the exact version go.mod's `go` directive names.
@@ -153,6 +168,21 @@ RUN set -eux; \
     npm install --global "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
     npm cache clean --force; \
     chrome-devtools-mcp --version
+
+# playwright-core, for the walkthrough a turn records at the end of validate-pr. The browser
+# tools are right for finding and attacking a defect, and wrong for showing a person the
+# feature: a model driving them clicks in bursts, with no cursor, and stops recording before
+# the result it waited for arrives. walkthrough.cjs drives the page itself at a person's pace
+# and needs a real automation library to find what to click.
+#
+# -core: the library alone, no browsers downloaded. Like the MCP server above it attaches to
+# the sidecar over CDP. The version is web/pnpm-lock.yaml's, so the locators a turn writes
+# behave as they do in the repository's own e2e suite.
+ARG PLAYWRIGHT_CORE_VERSION=1.62.1
+RUN set -eux; \
+    npm install --global "playwright-core@${PLAYWRIGHT_CORE_VERSION}"; \
+    npm cache clean --force; \
+    node -e "require('$(npm root -g)/playwright-core').chromium.name()"
 
 # NODE_ENV is inherited as `production` from the base, and pnpm reads it: `pnpm install
 # --frozen-lockfile` under it silently omits devDependencies, so `make web` would then fail
