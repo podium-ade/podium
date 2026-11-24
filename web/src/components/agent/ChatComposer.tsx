@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBrand } from "../../lib/brand";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -46,6 +46,9 @@ import { BackendMark } from "./BackendMark";
 /** MIN_PX and MAX_PX bound the auto-growing box: one line, up to about eight. */
 const MIN_PX = 44;
 const MAX_PX = 220;
+
+/** TYPE is the box's padding and type, shared by the textarea and the mirror that sizes it. */
+const TYPE = "px-4 py-3.5 text-base leading-6";
 
 const EFFORT_HINT: Record<string, string> = {
   "": "The model's own default",
@@ -167,13 +170,6 @@ export function ChatComposer({
   const effective = choice.model === "" ? inherited : choice;
   const acceptImages = modelAcceptsImages(effective.model);
   const efforts = effortsFor(agents, effective);
-
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${Math.max(MIN_PX, Math.min(el.scrollHeight, MAX_PX))}px`;
-  }, [text]);
 
   useEffect(() => {
     return () => {
@@ -313,7 +309,7 @@ export function ChatComposer({
             void takeFiles([...e.dataTransfer.files]);
           }}
           className={cn(
-            "chat-composer relative rounded-3xl border bg-panel shadow-lg transition-[border-color,box-shadow] duration-150",
+            "relative rounded-3xl border bg-panel shadow-lg transition-[border-color,box-shadow] duration-150",
             dragging ? "border-accent ring-2 ring-accent" : "border-border",
           )}
         >
@@ -369,63 +365,78 @@ export function ChatComposer({
             </ul>
           ) : null}
 
-          <textarea
-            ref={box}
-            data-testid="chat-composer"
-            aria-label="Message"
-            autoFocus={focusOnMount}
-            value={text}
-            rows={1}
-            disabled={disabled}
-            placeholder={
-              disabled
-                ? "Working…"
-                : multiplayer
-                  ? `Message the chat, or mention @${brand}`
-                  : `Message ${botName || brand}`
-            }
-            onChange={(e) => {
-              setText(e.target.value);
-              setCaret(e.target.selectionStart ?? e.target.value.length);
-              setMentionClosed(false);
-              setPick(0);
-            }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            onPaste={(e) => {
-              const pasted = [...e.clipboardData.files];
-              if (pasted.length === 0) return;
-              void takeFiles(pasted);
-            }}
-            onKeyDown={(e) => {
-              if (typing && suggestions.length > 0) {
-                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                  e.preventDefault();
-                  const step = e.key === "ArrowDown" ? 1 : -1;
-                  setPick((p) => (p + step + suggestions.length) % suggestions.length);
-                  return;
-                }
-                if (e.key === "Enter" || e.key === "Tab") {
-                  e.preventDefault();
-                  choose(suggestions[Math.min(pick, suggestions.length - 1)].token);
-                  return;
+          {/* The box is sized by a hidden copy of its text in the same grid cell, not by measuring
+              the textarea itself. Measuring meant collapsing it to nothing for a moment, which let
+              the transcript above grow into the room, clamp the scroll position, and leave a reader
+              who had just jumped to the latest message a few pixels off the bottom with every key. */}
+          <div className="grid">
+            <div
+              aria-hidden
+              data-testid="chat-composer-mirror"
+              style={{ minHeight: MIN_PX, maxHeight: MAX_PX }}
+              className={`invisible overflow-hidden break-words whitespace-pre-wrap [grid-area:1/1] ${TYPE}`}
+            >
+              {text}
+              {"\n"}
+            </div>
+            <textarea
+              ref={box}
+              data-testid="chat-composer"
+              aria-label="Message"
+              autoFocus={focusOnMount}
+              value={text}
+              rows={1}
+              disabled={disabled}
+              placeholder={
+                disabled
+                  ? "Working…"
+                  : multiplayer
+                    ? `Message the chat, or mention @${brand}`
+                    : `Message ${botName || brand}`
+              }
+              onChange={(e) => {
+                setText(e.target.value);
+                setCaret(e.target.selectionStart ?? e.target.value.length);
+                setMentionClosed(false);
+                setPick(0);
+              }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+              onPaste={(e) => {
+                const pasted = [...e.clipboardData.files];
+                if (pasted.length === 0) return;
+                void takeFiles(pasted);
+              }}
+              onKeyDown={(e) => {
+                if (typing && suggestions.length > 0) {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const step = e.key === "ArrowDown" ? 1 : -1;
+                    setPick((p) => (p + step + suggestions.length) % suggestions.length);
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    choose(suggestions[Math.min(pick, suggestions.length - 1)].token);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setMentionClosed(true);
+                    return;
+                  }
                 }
                 if (e.key === "Escape") {
-                  e.preventDefault();
-                  setMentionClosed(true);
+                  box.current?.blur();
                   return;
                 }
-              }
-              if (e.key === "Escape") {
-                box.current?.blur();
-                return;
-              }
-              if (e.key !== "Enter") return;
-              if (e.shiftKey) return;
-              e.preventDefault();
-              send();
-            }}
-            className="block w-full resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-fg outline-none placeholder:text-faint disabled:opacity-60"
-          />
+                if (e.key !== "Enter") return;
+                if (e.shiftKey) return;
+                e.preventDefault();
+                send();
+              }}
+              className={`block h-full w-full resize-none bg-transparent text-fg outline-none placeholder:text-faint disabled:opacity-60 [grid-area:1/1] ${TYPE}`}
+            />
+          </div>
 
           <div className="@container flex flex-nowrap items-center gap-1.5 overflow-x-auto px-2 pb-2">
             <input

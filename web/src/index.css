@@ -209,16 +209,6 @@ body {
   }
 }
 
-/* The caret sits in the textarea. The visible chat box is the rounded shell around it,
-   so the focus outline is drawn on that shell and follows its corners. */
-.chat-composer textarea:focus-visible {
-  outline: none;
-}
-.chat-composer:has(textarea:focus-visible) {
-  outline: 3px solid var(--color-ring);
-  outline-offset: 3px;
-}
-
 ::selection {
   background: var(--color-accent);
   color: var(--color-accent-ink);
