@@ -19,6 +19,7 @@ func TestTitleFromQuery(t *testing.T) {
 		{"New chat", ""},
 		{"line one\nline two", "line one"},
 		{"/shrug what now", "what now"},
+		{"@[Alice Ng](mention:alice@x.io) can you look?", "@Alice Ng can you look?"},
 		{strings.Repeat("word ", 20), "word word word word word word word word word"},
 	}
 	for _, tc := range cases {

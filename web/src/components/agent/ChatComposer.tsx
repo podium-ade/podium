@@ -29,11 +29,11 @@ import {
 import { agent } from "../../lib/client";
 import { humanBytes } from "../../lib/format";
 import {
-  PODIUM_MENTION,
   insertMention,
   mentionQuery,
   mentionSuggestions,
   mentionsPodium,
+  plainMentions,
 } from "../../lib/mentions";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -209,7 +209,13 @@ export function ChatComposer({
     enabled: typing !== undefined && multiplayer,
     staleTime: 30_000,
   });
-  const suggestions = mentionSuggestions(typing?.query, personality, multiplayer ? (members.data?.members ?? []) : []);
+  const brand = useBrand();
+  const suggestions = mentionSuggestions(
+    typing?.query,
+    personality,
+    multiplayer ? (members.data?.members ?? []) : [],
+    brand,
+  );
   const choose = (token: string) => {
     if (!typing) return;
     const next = insertMention(text, typing.start, caret, token);
@@ -222,21 +228,20 @@ export function ChatComposer({
     });
   };
 
-  const brand = useBrand();
   const canSend = !disabled && (text.trim() !== "" || files.length > 0);
   // In a multiplayer chat only a mention is a turn; the button says which this will be.
-  const toPodium = !multiplayer || mentionsPodium(text, personality);
+  const toPodium = !multiplayer || mentionsPodium(text, personality, brand);
   // A message for Podium sent while it is answering waits in the queue; the button says so.
   const willQueue = queueing && toPodium;
   const sendLabel = disabled
     ? "Working"
     : willQueue
       ? multiplayer
-        ? "Queue for Podium"
+        ? `Queue for ${brand}`
         : "Queue"
       : multiplayer
         ? toPodium
-          ? "Send to Podium"
+          ? `Send to ${brand}`
           : "Send"
         : "Send";
   // Editing a queued message takes it out of the queue and back into the box, ahead of
@@ -273,7 +278,7 @@ export function ChatComposer({
             className="mb-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
           >
             <Users className="size-3" aria-hidden />
-            Shared chat — mention <span className="font-medium text-fg">{PODIUM_MENTION}</span> to ask it
+            Shared chat — mention <span className="font-medium text-fg">@{brand}</span> to ask it
             something.
           </p>
         ) : null}
@@ -376,7 +381,7 @@ export function ChatComposer({
               disabled
                 ? "Working…"
                 : multiplayer
-                  ? `Message the chat, or mention ${PODIUM_MENTION}`
+                  ? `Message the chat, or mention @${brand}`
                   : `Message ${botName || brand}`
             }
             onChange={(e) => {
@@ -530,7 +535,7 @@ export function ChatComposer({
                 ? `Messages here stay in Podium — they aren't posted to ${surfaceLabel(mirrored)}.`
               : running
                 ? multiplayer
-                  ? `A message mentioning ${PODIUM_MENTION} is queued until the answer in progress is done. Anything else is posted now.`
+                  ? `A message mentioning @${brand} is queued until the answer in progress is done. Anything else is posted now.`
                   : "A message sent now is queued, and gets its own turn once the answer in progress is done."
                 : "Paste or drop files to attach them."}
         </p>
@@ -609,7 +614,7 @@ function QueuedList({
                 </span>
               ) : null}
               <span className="line-clamp-1 whitespace-pre-wrap break-words sm:line-clamp-2">
-                {item.text || <span className="italic text-faint">A message</span>}
+                {plainMentions(item.text) || <span className="italic text-faint">A message</span>}
               </span>
             </span>
             {item.mine ? (

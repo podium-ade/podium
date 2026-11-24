@@ -1,10 +1,11 @@
 package chat
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // What a web message has to say to start a turn in a multiplayer chat
@@ -14,7 +15,8 @@ import (
 // nothing cleverer, so what the UI promises ("Send to Podium") and what the server does
 // cannot drift apart:
 //
-//   - PodiumMention, "@Podium", puts the message to Podium.
+//   - PodiumMention, "@Podium", puts the message to Podium, and so does "@<deployment name>"
+//     (Options.Brand), which is what the composer offers once an admin has renamed it.
 //   - "@<assistant name>" does the same in a chat bound to a personal assistant.
 //   - "@[Name](mention:<login>)" names a Podium person. It is a Markdown link, so the record
 //     renders it as one anywhere, and phase 5 tells the login.
@@ -25,8 +27,9 @@ import (
 // PodiumMention is the token the composer's Podium chip inserts.
 const PodiumMention = "@Podium"
 
-// personMention is the composer's person chip: @[Display Name](mention:login).
-var personMention = regexp.MustCompile(`@\[[^\]\n]{1,200}\]\(mention:([^)\s]{1,320})\)`)
+// personMention is the composer's person chip: @[Display Name](mention:login). The store owns the
+// pattern because it too has to read a message as a person would (a chat's preview).
+var personMention = store.PersonMention
 
 // MentionsPodium reports whether text puts the message to Podium, or to the chat's
 // personal assistant when personality is its name.
@@ -47,7 +50,7 @@ func MentionedLogins(text string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, m := range personMention.FindAllStringSubmatch(text, -1) {
-		login := strings.ToLower(strings.TrimSpace(m[1]))
+		login := strings.ToLower(strings.TrimSpace(m[2]))
 		if login == "" || seen[login] {
 			continue
 		}

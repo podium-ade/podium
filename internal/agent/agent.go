@@ -234,8 +234,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	a.chat, err = chat.New(chat.Options{
 		Store:       st,
 		DisplayName: profile.DisplayName,
-		UIURL:       cfg.WebURL(),
-		Logger:      logger,
+		// The conductor does not exist yet; the name is only asked for when a message arrives.
+		Brand: func(ctx context.Context) string {
+			if a.conductor == nil {
+				return ""
+			}
+			return a.conductor.DeploymentName(ctx)
+		},
+		UIURL:  cfg.WebURL(),
+		Logger: logger,
 		// Live frames reach a watcher whichever conductor it is connected to.
 		Bus: st,
 	})

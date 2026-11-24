@@ -92,6 +92,10 @@ type Options struct {
 	Store Store
 	// DisplayName is the bot's name, used as the author of its own transcript entries.
 	DisplayName string
+	// Brand, when set, is what this deployment is called right now. The composer offers it as the
+	// mention that starts a turn, so a multiplayer message that names it is put to the bot. It is a
+	// func because an admin can rename the deployment while the process runs.
+	Brand func(ctx context.Context) string
 	// UIURL is the web UI as a HUMAN reaches it. It becomes the deep link in the brief and
 	// in a retained memory's provenance; a chat memory with no URL is a chip that goes
 	// nowhere.
@@ -148,6 +152,7 @@ type Source struct {
 	bcast  *Broadcaster
 	name   string
 	uiURL  string
+	brand  func(ctx context.Context) string
 	logger *slog.Logger
 	// placed is Options.PlacedWait, defaulted.
 	placed time.Duration
@@ -207,6 +212,7 @@ func New(opts Options) (*Source, error) {
 		store:  opts.Store,
 		bcast:  NewBroadcaster(),
 		name:   opts.DisplayName,
+		brand:  opts.Brand,
 		uiURL:  strings.TrimSuffix(opts.UIURL, "/"),
 		logger: logger,
 		events: make(chan conductor.InboundEvent, eventBuffer),
@@ -351,7 +357,8 @@ func (s *Source) SendMessage(ctx context.Context, req SendRequest) (SendResult, 
 	// inbox's reply box sends here, so answering there is the same as answering in the chat.
 	answering := s.answersQuestion(ctx, chat, req.Login)
 	addressed := !chat.Multiplayer || answering || MentionsPodium(req.Text, personalityName) ||
-		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay))
+		(chat.PersonalityDisplay != "" && MentionsPodium(req.Text, chat.PersonalityDisplay)) ||
+		s.mentionsBrand(ctx, req.Text)
 
 	now := time.Now().UTC()
 	// A message for Podium sent while it is answering — or while others already wait — is
@@ -1017,4 +1024,13 @@ func (s *Source) storeSilentFailure(ctx context.Context, ref string) error {
 	}
 	s.bcast.Publish(ref, Frame{Kind: FrameMessage, Message: msg})
 	return nil
+}
+
+// mentionsBrand reports whether text names the deployment by its current display name, the
+// mention the composer offers in place of "@Podium" once an admin has renamed it.
+func (s *Source) mentionsBrand(ctx context.Context, text string) bool {
+	if s.brand == nil {
+		return false
+	}
+	return MentionsPodium(text, s.brand(ctx))
 }
