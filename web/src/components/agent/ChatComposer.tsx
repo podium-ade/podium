@@ -266,28 +266,8 @@ export function ChatComposer({
   };
 
   return (
-    <div className="bg-gradient-to-t from-bg via-bg/95 to-transparent pt-4">
+    <div className="bg-bg">
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
-        {multiplayer ? (
-          <p
-            data-testid="chat-multiplayer-hint"
-            className="mb-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
-          >
-            <Users className="size-3" aria-hidden />
-            Shared chat — mention <span className="font-medium text-fg">@{brand}</span> to ask it
-            something.
-          </p>
-        ) : null}
-        {queued.length > 0 ? (
-          <QueuedList
-            items={queued}
-            multiplayer={multiplayer}
-            running={running}
-            onInterrupt={onInterrupt}
-            onEdit={editQueued}
-            onRemove={onRemoveQueued}
-          />
-        ) : null}
         <div
           onDragEnter={(e) => {
             e.preventDefault();
@@ -539,6 +519,26 @@ export function ChatComposer({
             </div>
           </div>
         </div>
+        {queued.length > 0 ? (
+          <QueuedList
+            items={queued}
+            multiplayer={multiplayer}
+            running={running}
+            onInterrupt={onInterrupt}
+            onEdit={editQueued}
+            onRemove={onRemoveQueued}
+          />
+        ) : null}
+        {multiplayer ? (
+          <p
+            data-testid="chat-multiplayer-hint"
+            className="mt-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
+          >
+            <Users className="size-3" aria-hidden />
+            Shared chat — mention <span className="font-medium text-fg">@{brand}</span> to ask it
+            something.
+          </p>
+        ) : null}
         <p data-testid="chat-composer-note" className="mt-1.5 px-2 text-2xs text-faint">
           {fileError !== ""
             ? fileError
@@ -584,7 +584,7 @@ function QueuedList({
   const [expanded, setExpanded] = useState(false);
   const hidden = expanded ? 0 : Math.max(0, items.length - PHONE_ROWS);
   return (
-    <div data-testid="chat-pending" className="mb-2 overflow-hidden rounded-2xl border border-border bg-panel">
+    <div data-testid="chat-pending" className="mt-2 overflow-hidden rounded-2xl border border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs text-muted">
         <ListOrdered className="size-3.5" aria-hidden />
         <span data-testid="chat-pending-status" className="min-w-0 flex-1 truncate">

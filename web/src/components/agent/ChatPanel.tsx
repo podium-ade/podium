@@ -1938,10 +1938,6 @@ function Conversation({
           </div>
         ) : (
           <>
-            {origin === "linear" ? (
-              // The assistant reaches Linear only through the person's own MCP server.
-              <LinearMcpHint className="mx-auto w-full max-w-3xl px-6 pt-2" />
-            ) : null}
             <ChatComposer
               // Never held: what is typed while a send is in flight is queued like anything else
               // sent while Podium is busy, and a box that disabled itself as each send went out
@@ -1963,6 +1959,11 @@ function Conversation({
               onSend={submit}
               botName={botName}
             />
+            {origin === "linear" ? (
+              // The assistant reaches Linear only through the person's own MCP server. Under the
+              // composer, with its note, so the transcript runs right down to the box.
+              <LinearMcpHint className="mx-auto -mt-1.5 w-full max-w-3xl px-6 pb-3" />
+            ) : null}
           </>
         )}
       </div>
@@ -2014,7 +2015,7 @@ function Arrival({
     <div className="flex min-h-0 flex-1 flex-col">
       <ConversationTitle title="" fallback="New chat" onRename={async () => {}} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-5">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 pt-8 sm:px-5">
           <ArrivalWell
             botName={botName}
             suggesting={sending}
@@ -2095,8 +2096,8 @@ const NO_MESSAGES: ChatMessage[] = [];
 function ThreadLoading() {
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
-      {/* At the bottom, where the transcript will land: see ChatThread's bottomUp. */}
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-end gap-6 px-4 py-8 sm:px-5">
+      {/* At the top, where the transcript will land: see ChatThread. */}
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-6 px-4 pt-8 sm:px-5">
         <TranscriptSkeleton />
       </div>
     </div>
@@ -2156,7 +2157,7 @@ function ComposerPlaceholder() {
   // note line beneath it, in the note's type. Shorter, the transcript above stood taller
   // while the chat connected and dropped by the difference when the composer came in.
   return (
-    <div aria-hidden className="pt-4">
+    <div aria-hidden>
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
         <Skeleton className="h-[98px] rounded-3xl opacity-60" />
         <p className="mt-1.5 px-2 text-2xs">&nbsp;</p>
