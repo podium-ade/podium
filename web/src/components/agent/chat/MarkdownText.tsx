@@ -17,6 +17,7 @@ import { Button } from "../../ui/button";
 import { issueRefOfUrl } from "../../../lib/linearIssues";
 import { LINEAR_REF_ATTR, rehypeLinearRefs } from "../../../lib/rehypeLinearRefs";
 import { LinearIssueChip } from "./LinearIssueChip";
+import { MENTION_ATTR, remarkMentions } from "../../../lib/remarkMentions";
 
 /**
  * MarkdownText is one text part of a message, as GitHub-flavoured markdown.
@@ -32,11 +33,14 @@ import { LinearIssueChip } from "./LinearIssueChip";
  * A Linear issue the text names — "EME-6", or a link to it — becomes a chip once the conductor
  * says the viewer may see it (LinearIssueChip). The identifiers are marked after sanitizing
  * (rehypeLinearRefs), and are plain text until then.
+ *
+ * A person the text mentions, `@[Name](mention:login)`, is drawn as `@Name` in a highlighted
+ * span (remarkMentions) instead of as the link syntax it is stored as.
  */
 export const MarkdownText = memo(function MarkdownText({ className }: { className?: string }) {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMentions]}
       rehypePlugins={rehypePlugins}
       className={cn("min-w-0 text-base leading-7 text-fg break-words", className)}
       components={components}
@@ -48,6 +52,9 @@ export const MarkdownText = memo(function MarkdownText({ className }: { classNam
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img" && t !== "picture" && t !== "source"),
+  // remarkMentions' span. The attribute carries no value an attacker could use: it only
+  // switches the span's styling on.
+  attributes: { ...defaultSchema.attributes, span: [...(defaultSchema.attributes?.span ?? []), "dataMention"] },
 };
 const rehypePlugins: NonNullable<Parameters<typeof MarkdownTextPrimitive>[0]["rehypePlugins"]> = [
   rehypeRaw,
@@ -208,6 +215,16 @@ const components = memoizeMarkdownComponents({
     return issue ? <LinearIssueChip issueRef={issue}>{link}</LinearIssueChip> : link;
   },
   span: function Span(props) {
+    if ((props as Record<string, unknown>)[MENTION_ATTR] !== undefined) {
+      return (
+        <span
+          data-testid="chat-mention"
+          className="rounded bg-accent/15 px-1 font-medium text-accent"
+        >
+          {props.children}
+        </span>
+      );
+    }
     const issue = (props as Record<string, unknown>)[LINEAR_REF_ATTR];
     if (typeof issue === "string" && issue !== "") {
       return <LinearIssueChip issueRef={issue}>{props.children}</LinearIssueChip>;

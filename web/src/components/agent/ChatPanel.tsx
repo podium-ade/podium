@@ -33,7 +33,7 @@ import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
 import { assistantName, useBrand } from "../../lib/brand";
 import { IdentityKind } from "../../gen/podium/v1/identity_pb";
-import { mentionsPodium } from "../../lib/mentions";
+import { mentionsPodium, plainMentions } from "../../lib/mentions";
 import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
 import { canWrite, roleOf, sharedByLabel, unread } from "../../lib/sharing";
 import { cn } from "../../lib/utils";
@@ -670,7 +670,7 @@ function ChatRail({
     const q = query.trim().toLowerCase();
     if (q === "") return ordered;
     return ordered.filter(
-      (c) => c.title.toLowerCase().includes(q) || c.preview.toLowerCase().includes(q),
+      (c) => c.title.toLowerCase().includes(q) || plainMentions(c.preview).toLowerCase().includes(q),
     );
   }, [ordered, query]);
   const origins = useMemo(() => groupByOrigin(filtered), [filtered]);
@@ -1198,7 +1198,7 @@ function ChatRow({
           {[where, chat.startedBy && `started by ${chat.startedBy}`].filter(Boolean).join(" · ")}
         </span>
       ) : null}
-      <span className="line-clamp-2 block text-muted">{chat.preview || "Nothing said yet"}</span>
+      <span className="line-clamp-2 block text-muted">{plainMentions(chat.preview) || "Nothing said yet"}</span>
       <span className="block text-faint">
         {running ? "Running · " : ""}
         {relative(chat.lastMessageAt ?? chat.createdAt)}
@@ -1322,7 +1322,7 @@ function ChatRow({
           </span>
           {running ? <span className="sr-only">running</span> : null}
           {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
-          {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
+          {chat.preview ? <span className="sr-only">{plainMentions(chat.preview)}</span> : null}
         </button>
       </Tooltip>
       {!menu ? null : (
@@ -1575,7 +1575,8 @@ function Conversation({
   const [desktopWidth, setDesktopWidth] = useState<number | undefined>(undefined);
   const desktopStyle =
     desktopWidth === undefined ? undefined : ({ "--desktop-width": `${desktopWidth}px` } as CSSProperties);
-  const botName = assistantName(assistant?.displayName, useBrand());
+  const brand = useBrand();
+  const botName = assistantName(assistant?.displayName, brand);
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
   // to a chat with no owning login is refused — so this is the affordance, not the rule.
@@ -1760,7 +1761,7 @@ function Conversation({
   // is put to Podium while it is answering, and records talk between people at once — and
   // this only decides whether to draw the message in the transcript while the send is out.
   const submit = (text: string, choice: AgentChoice) => {
-    const toPodium = !multiplayer || mentionsPodium(text, personalityName);
+    const toPodium = !multiplayer || mentionsPodium(text, personalityName, brand);
     send.mutate({ text, choice, queues: queueing && toPodium });
   };
   // Still loading until the stream says the replay is done: the chat's own frames arrive
