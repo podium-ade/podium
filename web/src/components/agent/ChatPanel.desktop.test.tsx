@@ -200,7 +200,7 @@ describe("ChatPanel desktop", () => {
     expect(await screen.findByTestId("desktop-panel")).toBeInTheDocument();
   });
 
-  it("has the workspace's terminal in a tab beside the desktop, and keeps both connected", async () => {
+  it("has the workspace's terminal in a tab beside the desktop, preloaded, and keeps both connected", async () => {
     streamChat.mockImplementation(() =>
       frames(msgFrame(1, "assistant", "on it", "task_desk")),
     );
@@ -214,10 +214,10 @@ describe("ChatPanel desktop", () => {
     mount();
 
     await screen.findByTitle("The agent's desktop");
-    // The terminal connects when it is first opened, not before.
+    // The terminal connects with the desktop, before its tab is first opened.
     expect(
-      screen.queryByTitle("A terminal in the agent's workspace"),
-    ).not.toBeInTheDocument();
+      screen.getByTitle("A terminal in the agent's workspace"),
+    ).toHaveAttribute("src", "https://podium-desktop.example.com/t/task_desk/term/");
 
     await user.click(screen.getByRole("tab", { name: "Terminal" }));
     expect(
