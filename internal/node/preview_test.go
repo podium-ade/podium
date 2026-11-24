@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/pkg/spec"
 )
 
@@ -113,4 +114,21 @@ func TestHoldOnlyTakesNoAddress(t *testing.T) {
 
 	bare, _ := testPreviews(nil, 0)
 	require.NoError(t, bare.reserve("t2", holdOnly), "a node that publishes nothing can still hold")
+}
+
+// A sandbox node has no preview addresses: a sandbox task's ports go through its provider,
+// whatever its via says, and only a task on this node asks for an address of its own.
+func TestASandboxTaskReservesThroughItsProvider(t *testing.T) {
+	ports := map[string]*podiumv1.ExposedPort{"desktop": {Port: 6901}}
+	sbx := &podiumv1.TaskSpec{Sandbox: &podiumv1.TaskSandbox{Provider: "modal"}, Expose: &podiumv1.Expose{Ports: ports}}
+	assert.Equal(t, spec.ExposeViaSandbox, assignVia(sbx))
+	bare, _ := testPreviews(nil, 0)
+	require.NoError(t, bare.reserve("t1", assignVia(sbx)))
+
+	plain := &podiumv1.TaskSpec{Expose: &podiumv1.Expose{Ports: ports}}
+	assert.Empty(t, assignVia(plain))
+	require.ErrorIs(t, bare.reserve("t2", assignVia(plain)), errNoPreview)
+
+	hold := &podiumv1.TaskSpec{Sandbox: &podiumv1.TaskSandbox{Provider: "modal"}, Expose: &podiumv1.Expose{}}
+	assert.Equal(t, holdOnly, assignVia(hold))
 }

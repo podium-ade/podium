@@ -298,3 +298,38 @@ func TestSandboxRoomCountsSandboxesKeptUp(t *testing.T) {
 	assert.Equal(t, int32(0), room.left["boat"])
 	assert.Equal(t, int32(0), cands[0].FreeSlots, "one running, one held and one being deleted fill a cap of three")
 }
+
+// A sandbox task publishes through its provider, so an expose with no via still places on a
+// sandbox node with no preview addresses (a desktop playbook with runs_on: modal).
+func TestPickPlacesASandboxTaskWithAnUnsetViaOnASandboxNode(t *testing.T) {
+	ts := spec.TaskSpec{
+		Image:   "modal:podium-desktop",
+		Sandbox: &spec.Sandbox{Provider: "modal"},
+		Expose: &spec.Expose{TTL: spec.Duration(time.Second), Ports: map[string]spec.ExposedPort{
+			"desktop": {Port: 6901}, "terminal": {Port: 7681},
+		}},
+	}
+	ts.ApplyDefaults()
+	require.Contains(t, ts.Labels, spec.LabelSandbox)
+	require.Contains(t, ts.Labels, spec.LabelSandboxProvider+"modal")
+	cost := nodes.CostOf(ts)
+	assert.False(t, cost.Preview, "the provider gives every port its URL")
+
+	sbx := sandboxNode("node_modal", "modal", 4, 0, 0)
+	assert.Equal(t, 0, pick([]nodes.Snapshot{sbx}, ts, cost), placementReason([]nodes.Snapshot{sbx}, ts, cost))
+}
+
+// The same expose on a task that runs on a node still needs a preview address there.
+func TestAnUnsetViaOnAPlainTaskStillNeedsAPreview(t *testing.T) {
+	ts := spec.TaskSpec{Image: "alpine:3", Expose: &spec.Expose{Ports: map[string]spec.ExposedPort{"web": {Port: 80}}}}
+	ts.ApplyDefaults()
+	cost := nodes.CostOf(ts)
+	assert.True(t, cost.Preview)
+	assert.Empty(t, cost.Via)
+
+	full := node("node_docker", 4)
+	assert.Equal(t, -1, pick([]nodes.Snapshot{full}, ts, cost))
+	assert.Equal(t, ReasonNoPreview, placementReason([]nodes.Snapshot{full}, ts, cost))
+	full.FreeLANPreviews = 1
+	assert.Equal(t, 0, pick([]nodes.Snapshot{full}, ts, cost))
+}
