@@ -182,7 +182,10 @@ export function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-x-10 gap-y-3 py-6 md:grid-cols-[15rem_minmax(0,1fr)]">
+    // Two columns by the pane's width (PageFrame is the container), not the window's: a tablet
+    // beside the sidebar is 768px+ wide with a pane near 560px, and the second column left
+    // there was too narrow for a control such as the effort picker.
+    <div className="grid gap-x-10 gap-y-3 py-6 @3xl:grid-cols-[15rem_minmax(0,1fr)]">
       <div className="space-y-1">
         {id ? (
           <Label htmlFor={id} className="text-base font-bold text-fg">
