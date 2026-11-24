@@ -56,6 +56,8 @@ interface ChatContextValue {
   progress?: string;
   /** taskId is the task the running turn is using, when the stream said so. */
   taskId?: string;
+  /** lastReply is the id of the newest assistant message: its copy button always shows. */
+  lastReply?: string;
 }
 
 const ChatContext = createContext<ChatContextValue>({ botName: "Podium", busy: false });
@@ -98,11 +100,10 @@ export function ChatThread({
   // A chat opens on its last message, in place: the view is at the bottom before it is
   // first painted, rather than painted at the top and then scrolled down.
   const hasMessages = messages.length > 0;
-  // A conversation sits on the composer, as a chat does: a short one, and the skeleton drawn
-  // while one connects, at the bottom, where its messages land — not at the top, which drew
-  // the skeleton up there and then the transcript down here, and read as a jump. Only the
-  // welcome of an empty chat keeps the top.
-  const bottomUp = hasMessages || loading;
+  const lastReply = messages.reduce<string | undefined>((id, m) => (m.role === "assistant" ? m.id : id), undefined);
+  // A conversation reads from the top: a short one starts under the title and grows down
+  // towards the composer, and scrolls once it is taller than the view. The skeleton drawn
+  // while one connects sits at the top too, where the messages will land, so nothing jumps.
   useLayoutEffect(() => {
     const vp = viewport.current;
     if (hasMessages && vp) vp.scrollTop = vp.scrollHeight;
@@ -120,7 +121,7 @@ export function ChatThread({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ChatContext.Provider value={ctx}>
+      <ChatContext.Provider value={{ ...ctx, lastReply }}>
         <ThreadPrimitive.Root className="relative min-h-0 flex-1">
           <ThreadPrimitive.Viewport
             ref={viewport}
@@ -133,8 +134,10 @@ export function ChatThread({
             <div
               ref={content}
               className={cn(
-                "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5",
-                bottomUp && "justify-end",
+                // pb: once the transcript scrolls, the last message (and its copy button) stops short
+                // of the composer instead of sitting on it. A short one is top-aligned and never
+                // reaches it, so there the padding is only empty space below.
+                "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 pt-8 pb-5 sm:px-5",
                 // The transcript arrives whole, where the skeleton was, and settles in once. From
                 // part-way visible, not from nothing: the skeleton is gone the moment it lands, and
                 // a fade from nothing showed an empty frame in between.
@@ -148,11 +151,10 @@ export function ChatThread({
                   thread drew them, and a blank frame showed in between. */}
               <ThreadPrimitive.Empty>
                 {loading || hasMessages ? (
-                  // Held to the bottom and clipped at the top, it scrolls nowhere: on a phone it
-                  // is taller than the transcript, and drawn as content it painted a frame from
-                  // the top before anything put the view back at the bottom.
+                  // Clipped to the view, it scrolls nowhere: on a phone it is taller than the
+                  // transcript it stands in for.
                   <div className="relative min-h-0 flex-1 overflow-hidden">
-                    <div className="absolute inset-x-0 bottom-0">{skeleton}</div>
+                    <div className="absolute inset-x-0 top-0">{skeleton}</div>
                   </div>
                 ) : (
                   welcome
@@ -563,8 +565,9 @@ const flat = groupPartByType({});
  * name, the full measure of the column, where markdown has room to read as markdown.
  */
 function AssistantMessage() {
-  const { botName } = useContext(ChatContext);
+  const { botName, lastReply } = useContext(ChatContext);
   const custom = useCustom();
+  const id = useAuiState((s) => s.message.id);
   const createdAt = useAuiState((s) => s.message.createdAt);
   const enters = useEnters();
   const text = useAuiState((s) =>
@@ -603,7 +606,7 @@ function AssistantMessage() {
         </div>
         <ChatAttachments attachments={custom?.attachments ?? []} />
         <DeliveryNotice items={custom?.undelivered} />
-        <CopyMessage text={text} />
+        <CopyMessage text={text} always={id === lastReply} />
       </div>
     </MessagePrimitive.Root>
   );
@@ -785,7 +788,9 @@ function TaskBlock({ args, status, messages }: ToolCallMessagePartProps) {
   );
 }
 
-function CopyMessage({ text }: { text: string }) {
+/** The newest reply always shows its copy button; an older one shows it on hover (always on a
+ *  touch screen, which cannot hover). */
+function CopyMessage({ text, always }: { text: string; always: boolean }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -794,7 +799,12 @@ function CopyMessage({ text }: { text: string }) {
   }, [copied]);
   if (text.trim() === "") return null;
   return (
-    <div className="flex transition-opacity can-hover:opacity-0 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
+    <div
+      className={cn(
+        "flex transition-opacity",
+        !always && "can-hover:opacity-0 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100",
+      )}
+    >
       <Tooltip label={copied ? "Copied" : "Copy"}>
         <Button
           type="button"

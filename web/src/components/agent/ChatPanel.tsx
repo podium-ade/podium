@@ -59,6 +59,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer, type QueuedItem } from "./ChatComposer";
 import { LinearMcpHint } from "./LinearMcpHint";
@@ -75,6 +76,10 @@ import { fromFirstTurn, toThread } from "../../lib/chatThread";
 
 const railRow =
   "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
+
+
+/** PODIUM_VOICE stands for Podium's own voice (id "") in the phone's assistant select. */
+const PODIUM_VOICE = "__podium__";
 
 function RailHeading({ title, action, className }: { title: string; action?: ReactNode; className?: string }) {
   return (
@@ -761,18 +766,24 @@ function ChatRail({
         </ul>
       </nav>
         <div className="mx-3 mt-3 mb-2 sm:hidden">
-          <select
-            aria-label="Assistant"
-            value={voiceId}
-            onChange={(e) => onPickVoice(e.target.value)}
-            className="min-w-0 w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
+          {/* Radix's select, not the browser's: the browser's list ran past a phone's edge, and
+              its chevron sat on the border. Podium's own voice has the id "", which an item
+              cannot take, so it is PODIUM_VOICE here. */}
+          <Select
+            value={voiceId || PODIUM_VOICE}
+            onValueChange={(v) => onPickVoice(v === PODIUM_VOICE ? "" : v)}
           >
-            {voices.map((voice) => (
-              <option key={voice.id || "podium"} value={voice.id}>
-                {voice.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm" aria-label="Assistant" className="bg-bg">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {voices.map((voice) => (
+                <SelectItem key={voice.id || PODIUM_VOICE} value={voice.id || PODIUM_VOICE}>
+                  {voice.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -873,32 +884,32 @@ function ChatRail({
       </div>
 
       <div className="mx-3 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
-        <select
-          aria-label="Chat"
-          value={active}
-          onChange={(e) => onOpen(e.target.value)}
-          className="min-w-0 w-full flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
-        >
-          <option value="">Pick a chat…</option>
-          {viewingEntry && !ordered.some((c) => c.id === active) ? (
-            <option value={active}>{viewingEntry.title || "Untitled chat"}</option>
-          ) : null}
-          {split
-            ? origins.map((origin) => (
-                <optgroup key={origin.key} label={origin.label}>
-                  {origin.chats.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </optgroup>
-              ))
-            : ordered.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-        </select>
+        <Select value={active} onValueChange={onOpen}>
+          <SelectTrigger size="sm" aria-label="Chat" className="min-w-0 flex-1 bg-bg">
+            <SelectValue placeholder="Pick a chat…" />
+          </SelectTrigger>
+          <SelectContent className="max-h-[min(24rem,var(--radix-select-content-available-height))]">
+            {viewingEntry && !ordered.some((c) => c.id === active) ? (
+              <SelectItem value={active}>{viewingEntry.title || "Untitled chat"}</SelectItem>
+            ) : null}
+            {split
+              ? origins.map((origin) => (
+                  <SelectGroup key={origin.key}>
+                    <SelectLabel>{origin.label}</SelectLabel>
+                    {origin.chats.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.title || "Untitled chat"}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))
+              : ordered.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.title || "Untitled chat"}
+                  </SelectItem>
+                ))}
+          </SelectContent>
+        </Select>
         <Button
           type="button"
           variant="outline"
@@ -1938,10 +1949,6 @@ function Conversation({
           </div>
         ) : (
           <>
-            {origin === "linear" ? (
-              // The assistant reaches Linear only through the person's own MCP server.
-              <LinearMcpHint className="mx-auto w-full max-w-3xl px-6 pt-2" />
-            ) : null}
             <ChatComposer
               // Never held: what is typed while a send is in flight is queued like anything else
               // sent while Podium is busy, and a box that disabled itself as each send went out
@@ -1963,6 +1970,11 @@ function Conversation({
               onSend={submit}
               botName={botName}
             />
+            {origin === "linear" ? (
+              // The assistant reaches Linear only through the person's own MCP server. Under the
+              // composer, with its note, so the transcript runs right down to the box.
+              <LinearMcpHint className="mx-auto -mt-1.5 w-full max-w-3xl px-6 pb-3" />
+            ) : null}
           </>
         )}
       </div>
@@ -2014,7 +2026,7 @@ function Arrival({
     <div className="flex min-h-0 flex-1 flex-col">
       <ConversationTitle title="" fallback="New chat" onRename={async () => {}} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-5">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 pt-8 sm:px-5">
           <ArrivalWell
             botName={botName}
             suggesting={sending}
@@ -2095,8 +2107,8 @@ const NO_MESSAGES: ChatMessage[] = [];
 function ThreadLoading() {
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
-      {/* At the bottom, where the transcript will land: see ChatThread's bottomUp. */}
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-end gap-6 px-4 py-8 sm:px-5">
+      {/* At the top, where the transcript will land: see ChatThread. */}
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-6 px-4 pt-8 sm:px-5">
         <TranscriptSkeleton />
       </div>
     </div>
@@ -2156,7 +2168,7 @@ function ComposerPlaceholder() {
   // note line beneath it, in the note's type. Shorter, the transcript above stood taller
   // while the chat connected and dropped by the difference when the composer came in.
   return (
-    <div aria-hidden className="pt-4">
+    <div aria-hidden>
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
         <Skeleton className="h-[98px] rounded-3xl opacity-60" />
         <p className="mt-1.5 px-2 text-2xs">&nbsp;</p>

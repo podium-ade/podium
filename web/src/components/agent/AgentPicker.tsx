@@ -1,7 +1,7 @@
 import { useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { AgentBackend, AgentModel } from "../../gen/podium/agent/v1/agent_pb";
-import { INHERIT, providerName, type AgentChoice } from "../../lib/agents";
+import { INHERIT, modelLabel, modelName, providerName, type AgentChoice } from "../../lib/agents";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -37,6 +37,11 @@ export type AgentPickerProps = {
    * chip so effort is a decision before send, not something buried in the picker.
    */
   hideEffort?: boolean;
+  /** Focus the search box when the embedded list mounts. Defaults to embedded; the chat
+   *  passes false on a touch screen, where focusing it opens the keyboard over the list. */
+  autoFocusSearch?: boolean;
+  /** Offer "Use another model id…". The chat composer does not: it picks from the catalogue. */
+  allowCustom?: boolean;
 };
 
 /**
@@ -64,6 +69,8 @@ export function AgentPicker({
   label,
   embedded,
   hideEffort,
+  autoFocusSearch = embedded,
+  allowCustom = true,
 }: AgentPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -72,7 +79,10 @@ export function AgentPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const listID = useId();
 
-  const rows = useMemo(() => buildRows(agents, inherit !== undefined, query), [agents, inherit, query]);
+  const rows = useMemo(
+    () => buildRows(agents, inherit !== undefined, query, allowCustom),
+    [agents, inherit, query, allowCustom],
+  );
   const chosen = useMemo(() => findModel(agents, value.model), [agents, value.model]);
   const backend = useMemo(
     () => agents.find((a) => a.id === (value.agent || chosen?.backend.id)),
@@ -144,7 +154,7 @@ export function AgentPicker({
           setQuery(e.target.value);
           setActive(0);
         }}
-        autoFocus={embedded}
+        autoFocus={autoFocusSearch}
         className="w-full shrink-0 border-b border-hairline bg-transparent px-3 py-2 text-xs text-fg outline-none placeholder:text-faint"
       />
       <ul
@@ -155,7 +165,7 @@ export function AgentPicker({
       >
         {rows.length === 0 ? (
           <li className="px-3 py-2 text-xs text-muted">
-            Nothing matches. Pick “Use another model id” to type one.
+            {allowCustom ? "Nothing matches. Pick “Use another model id” to type one." : "Nothing matches."}
           </li>
         ) : null}
         {rows.map((row, i) => (
@@ -164,7 +174,7 @@ export function AgentPicker({
             row={row}
             active={i === active}
             selected={isSelected(row, value)}
-            inherited={inherited}
+            inheritedName={inherited?.model ? modelLabel(agents, inherited.model) : ""}
             onHover={() => setActive(i)}
             onPick={() => choose(row)}
           />
@@ -217,7 +227,7 @@ export function AgentPicker({
         </Popover>
       )}
 
-      {custom || (value.model !== "" && !chosen) ? (
+      {allowCustom && (custom || (value.model !== "" && !chosen)) ? (
         <CustomModel
           label={label}
           agents={agents}
@@ -270,7 +280,7 @@ function rowKey(row: Row): string {
  * search. `first` marks the row that carries its backend's header, so the grouping survives
  * filtering: a search that matches one Grok model still shows it under GROK.
  */
-function buildRows(agents: AgentBackend[], withInherit: boolean, query: string): Row[] {
+function buildRows(agents: AgentBackend[], withInherit: boolean, query: string, withCustom: boolean): Row[] {
   const q = query.trim().toLowerCase();
   const match = (b: AgentBackend, m: AgentModel) =>
     q === "" ||
@@ -288,7 +298,7 @@ function buildRows(agents: AgentBackend[], withInherit: boolean, query: string):
       first = false;
     }
   }
-  rows.push({ kind: "custom" });
+  if (withCustom) rows.push({ kind: "custom" });
   return rows;
 }
 
@@ -356,14 +366,15 @@ function RowItem({
   row,
   active,
   selected,
-  inherited,
+  inheritedName,
   onHover,
   onPick,
 }: {
   row: Row;
   active: boolean;
   selected: boolean;
-  inherited?: AgentChoice;
+  /** inheritedName is the inherited model as a person reads it, or "" when there is none. */
+  inheritedName: string;
   onHover: () => void;
   onPick: () => void;
 }) {
@@ -379,7 +390,7 @@ function RowItem({
           <span className="min-w-0 flex-1">
             <span className="block text-fg">Inherit</span>
             <span className="block truncate text-muted">
-              {inherited?.model ? `currently ${inherited.model}` : "whatever the level above says"}
+              {inheritedName ? `currently ${inheritedName}` : "whatever the level above says"}
             </span>
           </span>
         </button>
@@ -430,7 +441,8 @@ function RowItem({
           <Tick shown={selected} />
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-mono text-fg">{row.model.id}</span>
+              <span className="font-medium text-fg">{modelName(row.backend, row.model)}</span>
+              <span className="font-mono text-2xs text-faint">{row.model.id}</span>
               {row.model.contextTokens > 0 ? (
                 <span className="tabular text-2xs text-faint">{tokens(row.model.contextTokens)}</span>
               ) : null}

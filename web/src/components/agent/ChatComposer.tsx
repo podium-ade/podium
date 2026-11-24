@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUp,
   AtSign,
-  Check,
   ChevronDown,
   FileText,
   ListOrdered,
@@ -17,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type { AgentBackend, Assistant } from "../../gen/podium/agent/v1/agent_pb";
-import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { INHERIT, modelLabel, type AgentChoice } from "../../lib/agents";
 import {
   acceptList,
   addFiles,
@@ -38,7 +37,7 @@ import {
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "../ui/sheet";
 import { Tooltip } from "../ui/tooltip";
 import { AgentPicker } from "./AgentPicker";
 import { BackendMark } from "./BackendMark";
@@ -266,28 +265,8 @@ export function ChatComposer({
   };
 
   return (
-    <div className="bg-gradient-to-t from-bg via-bg/95 to-transparent pt-4">
+    <div className="bg-bg">
       <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-5">
-        {multiplayer ? (
-          <p
-            data-testid="chat-multiplayer-hint"
-            className="mb-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
-          >
-            <Users className="size-3" aria-hidden />
-            Shared chat — mention <span className="font-medium text-fg">@{brand}</span> to ask it
-            something.
-          </p>
-        ) : null}
-        {queued.length > 0 ? (
-          <QueuedList
-            items={queued}
-            multiplayer={multiplayer}
-            running={running}
-            onInterrupt={onInterrupt}
-            onEdit={editQueued}
-            onRemove={onRemoveQueued}
-          />
-        ) : null}
         <div
           onDragEnter={(e) => {
             e.preventDefault();
@@ -480,18 +459,9 @@ export function ChatComposer({
               assistant={assistant}
               choice={choice}
               onChange={onChoiceChange}
+              efforts={efforts}
               disabled={disabled}
             />
-
-            {efforts.length > 0 ? (
-              <EffortMenu
-                efforts={efforts}
-                value={choice.effort}
-                inherited={inherited.effort}
-                disabled={disabled}
-                onChange={(effort) => onChoiceChange({ ...choice, effort })}
-              />
-            ) : null}
 
             <div className="ml-auto flex items-center gap-2">
               {/* By the composer's width, not the window's: beside the desktop the composer is narrow on a wide screen. */}
@@ -539,6 +509,26 @@ export function ChatComposer({
             </div>
           </div>
         </div>
+        {queued.length > 0 ? (
+          <QueuedList
+            items={queued}
+            multiplayer={multiplayer}
+            running={running}
+            onInterrupt={onInterrupt}
+            onEdit={editQueued}
+            onRemove={onRemoveQueued}
+          />
+        ) : null}
+        {multiplayer ? (
+          <p
+            data-testid="chat-multiplayer-hint"
+            className="mt-1.5 flex items-center gap-1.5 px-2 text-2xs text-muted"
+          >
+            <Users className="size-3" aria-hidden />
+            Shared chat — mention <span className="font-medium text-fg">@{brand}</span> to ask it
+            something.
+          </p>
+        ) : null}
         <p data-testid="chat-composer-note" className="mt-1.5 px-2 text-2xs text-faint">
           {fileError !== ""
             ? fileError
@@ -584,7 +574,7 @@ function QueuedList({
   const [expanded, setExpanded] = useState(false);
   const hidden = expanded ? 0 : Math.max(0, items.length - PHONE_ROWS);
   return (
-    <div data-testid="chat-pending" className="mb-2 overflow-hidden rounded-2xl border border-border bg-panel">
+    <div data-testid="chat-pending" className="mt-2 overflow-hidden rounded-2xl border border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs text-muted">
         <ListOrdered className="size-3.5" aria-hidden />
         <span data-testid="chat-pending-status" className="min-w-0 flex-1 truncate">
@@ -736,80 +726,116 @@ function FileChip({
 }
 
 /**
- * RunConfig is the one choice this composer offers: which model answers.
- *
- * The catalogue is inlined here rather than nested behind a second trigger: a menu inside
- * a menu is what used to paint the list off the bottom of the window. One click opens a
- * portaled sheet that flips above the composer and scrolls inside the remaining viewport.
+ * RunConfig is what answers the next message: the model and how hard it thinks, one decision
+ * on one button ("Sonnet 5.5 · High"). It opens a sheet that slides over the page, up from the
+ * bottom on a phone and in from the right on a wider screen. Two chips with a popover each
+ * did not fit a phone's composer, and their lists ran off its edge.
  */
 function RunConfig({
   agents,
   assistant,
   choice,
   onChange,
+  efforts,
   disabled,
 }: {
   agents: AgentBackend[];
   assistant?: Assistant;
   choice: AgentChoice;
   onChange: (next: AgentChoice) => void;
+  efforts: string[];
   disabled: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const inherited: AgentChoice = assistant
     ? { agent: assistant.agent, model: assistant.model, effort: assistant.effort }
     : INHERIT;
   const effective = choice.model === "" ? inherited : choice;
   const backendID = choice.model === "" ? inherited.agent : choice.agent;
+  const name = effective.model === "" ? "Default model" : modelLabel(agents, effective.model);
+  // Focusing the search box on a touch screen opens the keyboard over the list.
+  const canHover = typeof window !== "undefined" && window.matchMedia?.("(hover: hover)").matches !== false;
+  const sheet = useRef<HTMLDivElement>(null);
 
   return (
-    <Popover modal={false}>
-      <Tooltip label="Which model answers">
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            data-testid="chat-run-config"
-            className="max-w-56 shrink-0 rounded-full"
-          >
-            <BackendMark id={backendID} />
-            {effective.model === "" ? (
-              <span className="max-w-40 truncate">Default model</span>
-            ) : (
-              <span className="max-w-40 truncate font-mono">{effective.model}</span>
-            )}
-            <ChevronDown />
-          </Button>
-        </PopoverTrigger>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <Tooltip label="Model and effort">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          data-testid="chat-run-config"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+          className="min-w-0 max-w-full shrink rounded-full"
+        >
+          <BackendMark id={backendID} />
+          <span className="min-w-0 truncate">{name}</span>
+          {efforts.length > 0 ? (
+            <span data-testid="chat-effort" className="shrink-0 text-muted">
+              <span aria-hidden>· </span>
+              {effortLabel(choice.effort)}
+            </span>
+          ) : null}
+          <ChevronDown />
+        </Button>
       </Tooltip>
-      <PopoverContent
-        align="start"
-        side="top"
-        className="flex w-80 flex-col gap-2 overflow-hidden p-0"
+      <SheetContent
+        ref={sheet}
+        data-testid="chat-run-sheet"
+        // On a touch screen the sheet takes focus itself: its first control drawn focused read
+        // as already pressed, and the search box would open the keyboard over the list.
+        onOpenAutoFocus={(e) => {
+          if (canHover) return;
+          e.preventDefault();
+          sheet.current?.focus();
+        }}
       >
-        <div className="shrink-0 space-y-0.5 px-3 pt-2.5 pb-1">
-          <p className="text-xs font-medium text-fg">Which model answers</p>
-          <p className="text-2xs leading-relaxed text-faint">
-            It applies to the messages you send from now on and is never saved. Tasks
+        <SheetHeader>
+          <SheetTitle>Model and effort</SheetTitle>
+          <SheetDescription>
+            For the messages you send from now on; it is never saved. Tasks
             {assistantName(assistant)} starts keep their own playbook&apos;s model.
-          </p>
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {efforts.length > 0 ? (
+            <EffortChoice
+              efforts={efforts}
+              value={choice.effort}
+              inherited={inherited.effort}
+              disabled={disabled}
+              onChange={(effort) => onChange({ ...choice, effort })}
+            />
+          ) : null}
+          <section aria-label="Model" className="px-1 pt-3 pb-2">
+            <h3 className="px-3 pb-1 text-xs font-semibold text-fg">Model</h3>
+            <AgentPicker
+              label="This message"
+              value={choice}
+              onChange={onChange}
+              agents={agents}
+              disabled={disabled}
+              embedded
+              hideEffort
+              autoFocusSearch={canHover}
+              allowCustom={false}
+              inherit={{
+                label: "Default model",
+                hint: inherited.model ? modelLabel(agents, inherited.model) : "whatever the profile says",
+              }}
+              inherited={inherited}
+            />
+          </section>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          <AgentPicker
-            label="This message"
-            value={choice}
-            onChange={onChange}
-            agents={agents}
-            disabled={disabled}
-            embedded
-            hideEffort
-            inherit={{ label: "Default model", hint: inherited.model || "whatever the profile says" }}
-            inherited={inherited}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
+        <SheetFooter>
+          <Button type="button" size="sm" onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -827,11 +853,10 @@ function effortLabel(level: string): string {
 }
 
 /**
- * EffortMenu is how Claude, Gemini and ChatGPT expose depth on the composer: a chip
- * that names the current level, opening a list with one-line tradeoffs. A drag slider
- * on the bar fights the layout and reads as a volume control, which this is not.
+ * EffortChoice is how thoroughly the message is answered: a row of levels, and one line under
+ * them on what the chosen one trades. A drag slider reads as a volume control, which this is not.
  */
-function EffortMenu({
+function EffortChoice({
   efforts,
   value,
   inherited,
@@ -844,66 +869,39 @@ function EffortMenu({
   disabled: boolean;
   onChange: (effort: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const options = ["", ...efforts];
-
+  const hint =
+    value === "" && inherited ? `Currently ${effortLabel(inherited).toLowerCase()}` : (EFFORT_HINT[value] ?? "");
   return (
-    <Popover open={open} onOpenChange={setOpen} modal={false}>
-      <Tooltip label="How thoroughly this message is answered">
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            data-testid="chat-effort"
-            aria-label="Reasoning effort"
-            className="shrink-0 rounded-full"
-          >
-            {effortLabel(value)}
-            <ChevronDown />
-          </Button>
-        </PopoverTrigger>
-      </Tooltip>
-      <PopoverContent align="start" side="top" className="w-64 p-1">
-        <p className="px-2.5 pt-1.5 pb-1 text-2xs font-medium text-faint">Effort</p>
-        <div role="radiogroup" aria-label="Effort levels">
-          {options.map((level) => {
-            const selected = value === level;
-            const hint =
-              level === "" && inherited
-                ? `currently ${effortLabel(inherited).toLowerCase()}`
-                : (EFFORT_HINT[level] ?? "");
-            return (
-              <button
-                key={level || "auto"}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                aria-label={effortLabel(level)}
-                onClick={() => {
-                  onChange(level);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left outline-none",
-                  "hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50",
-                )}
-              >
-                <Check
-                  aria-hidden
-                  className={cn("mt-0.5 size-3.5 shrink-0 text-accent", selected ? "" : "opacity-0")}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-medium text-fg">{effortLabel(level)}</span>
-                  {hint ? <span className="block text-2xs leading-snug text-muted">{hint}</span> : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <section aria-label="Effort" className="border-b border-border px-4 pt-3 pb-4">
+      <h3 className="pb-2 text-xs font-semibold text-fg">Effort</h3>
+      <div role="radiogroup" aria-label="Effort levels" className="grid grid-cols-3 gap-1.5">
+        {options.map((level) => {
+          const selected = value === level;
+          return (
+            <button
+              key={level || "auto"}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={effortLabel(level)}
+              disabled={disabled}
+              onClick={() => onChange(level)}
+              className={cn(
+                "min-h-9 rounded-md border px-2 text-xs font-medium outline-none transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50",
+                selected
+                  ? "border-accent bg-accent/10 text-fg"
+                  : "border-border text-soft hover:border-line-strong hover:bg-raised hover:text-fg",
+              )}
+            >
+              {effortLabel(level)}
+            </button>
+          );
+        })}
+      </div>
+      {hint ? <p className="pt-2 text-2xs leading-snug text-muted">{hint}</p> : null}
+    </section>
   );
 }
 
