@@ -39,7 +39,7 @@ func TestAToolCallIsAShortActionAndNeverItsContents(t *testing.T) {
 		{"a tool nobody told this source about is its name alone", `{"kind":"tool","tool":"linear_create_issue","status":"completed","input":"{\"title\":\"PRIVATE\",\"token\":\"x\"}"}`,
 			ActivityContent{Type: ActivityAction, Action: "Using", Parameter: "linear_create_issue"}, true},
 		{"a long parameter is cut", `{"kind":"tool","tool":"read","status":"completed","input":"{\"filePath\":\"` + long + `\"}"}`,
-			ActivityContent{Type: ActivityAction, Action: "Reading", Parameter: strings.Repeat("a", maxParameterRunes-1) + "…"}, true},
+			ActivityContent{Type: ActivityAction, Action: "Reading", Parameter: strings.Repeat("a", conductor.MaxStepTargetRunes-1) + "…"}, true},
 		{"input that is not an object is not shown", `{"kind":"tool","tool":"read","status":"completed","input":"PRIVATE"}`,
 			ActivityContent{Type: ActivityAction, Action: "Reading"}, true},
 		{"reasoning is its first line", `{"kind":"reasoning","text":"**Checking the tests**\n\nThe build is red because …"}`,
