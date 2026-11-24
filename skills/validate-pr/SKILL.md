@@ -268,11 +268,16 @@ printed, fix that, and run it again; never hand-edit the description around it.
 and the screenshot of each failure in the table. Do not post a running commentary while you are
 still fixing: one block, at the end, describing where the change actually landed.
 
-## Mark it ready for review — on a PASS only
+## Mark it ready for review — only a draft this turn opened, and only on a PASS
 
-The pull request was opened as a draft so nobody reviewed a change that had not been attacked
-yet. Once `publish.sh` has posted a **PASS** and exited 0, that is no longer true, so take it out
-of draft:
+**Skip this section unless this turn opened the pull request, and opened it as a draft.** A
+playbook that has its turns open a draft does it so nobody reviews a change that has not been
+attacked yet. A draft someone else opened, or one they kept as a draft on purpose, is theirs:
+taking it out of draft runs CI and requests review on work they did not say was ready. Leave it
+as it is.
+
+When it is yours: once `publish.sh` has posted a **PASS** and exited 0, there is no longer a
+reason for the draft, so take it out of draft:
 
 ```sh
 gh pr ready <pr-number>

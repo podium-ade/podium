@@ -287,7 +287,9 @@ function helpers(page) {
     const vh = page.viewportSize()?.height ?? 900;
     await overlay({ up: box.y + box.height > vh * 0.6 });
     await glide(x, y);
-    return { loc, box };
+    // Where the cursor stopped, relative to the element: the click presses HERE, not at the
+    // element's centre, or the cursor would jump at the moment of the click on a wide target.
+    return { loc, box, at: { x: x - box.x, y: y - box.y } };
   }
 
   const w = {
@@ -302,9 +304,9 @@ function helpers(page) {
 
     /** Move to it, pause, click — the way a hand does. */
     async click(target, opts = {}) {
-      const { loc } = await pointAt(target, { ...opts, actionable: true });
+      const { loc, at } = await pointAt(target, { ...opts, actionable: true });
       await sleep(jitter(220, 380));
-      await loc.click({ timeout: 5_000 });
+      await loc.click({ position: at, timeout: 5_000 });
       await sleep(opts.settle ?? 800);
     },
 
