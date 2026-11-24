@@ -467,7 +467,7 @@ function CopyName({ name }: { name: string }) {
         variant="ghost"
         size="icon-xs"
         aria-label={`Copy ${name}`}
-        className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+        className="transition-opacity can-hover:opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
         onClick={() => {
           void navigator.clipboard?.writeText(name);
           setCopied(true);

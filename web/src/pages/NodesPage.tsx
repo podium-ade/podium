@@ -236,7 +236,7 @@ function NodeRow({ node }: { node: Node }) {
                 void navigator.clipboard?.writeText(node.id);
                 setCopied(true);
               }}
-              className="size-5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+              className="size-5 transition-opacity can-hover:opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
             >
               {copied ? <Check className="text-ok" /> : <Copy />}
             </Button>

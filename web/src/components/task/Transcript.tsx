@@ -77,7 +77,7 @@ function Aside({ entry, onViewInLogs }: { entry: Entry; onViewInLogs: (key: stri
       <button
         type="button"
         onClick={() => onViewInLogs(entry.key)}
-        className="inline-flex items-center gap-1 rounded px-1 text-2xs text-accent opacity-0 transition-opacity group-hover/step:opacity-100 hover:underline focus-visible:opacity-100"
+        className="inline-flex items-center gap-1 rounded px-1 text-2xs text-accent transition-opacity can-hover:opacity-0 group-hover/step:opacity-100 hover:underline focus-visible:opacity-100"
       >
         <ScrollText className="size-3" />
         View in logs

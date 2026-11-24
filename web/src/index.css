@@ -2,6 +2,14 @@
 @import "tw-animate-css";
 
 /*
+ * can-hover: only where the pointer can hover. A control revealed on hover (a row's copy
+ * button, a chat message's actions) is hidden with `can-hover:opacity-0`, never a bare
+ * `opacity-0`: Tailwind's `hover:` already does nothing on a touch screen, so a bare one left
+ * those controls invisible on a phone for good.
+ */
+@custom-variant can-hover (@media (hover: hover));
+
+/*
   Podium design system. Light is the default, and html[data-theme="dark"] repaints the
   same tokens with the dark shell. Names the screens already use
   (bg, panel, muted, accent, …) stay, and the shadcn names alias them.
