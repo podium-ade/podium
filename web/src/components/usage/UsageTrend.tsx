@@ -72,9 +72,13 @@ export function UsageTrend({
   }, [empty]);
   const fit = width > 0 ? Math.ceil((cells.length * LABEL_PX) / width) : 1;
   const every = Math.max(span <= 14 ? 1 : span <= 45 ? 7 : 30, fit);
+  // A 1px gap between bars is a fixed width per day, so a long range on a narrow chart (a
+  // year on a phone) was wider than the card. Once a bar would be under 2px the gaps go and
+  // the bars meet.
+  const dense = width > 0 && cells.length * 3 > width;
 
   return (
-    <Card aria-label="Spend per day" role="region" className="flex flex-col">
+    <Card aria-label="Spend per day" role="region" className="flex min-w-0 flex-col">
       <CardHeader className="pb-1">
         <div>
           <CardTitle>Spend per day</CardTitle>
@@ -111,7 +115,7 @@ export function UsageTrend({
           </p>
         ) : (
           <>
-            <div className="mt-3 flex min-h-24 flex-1 items-end gap-px" role="img" aria-label={summary(cells.map((c) => c.t), range)}>
+            <div className={cn("mt-3 flex min-h-24 min-w-0 flex-1 items-end", dense ? "gap-0" : "gap-px")} role="img" aria-label={summary(cells.map((c) => c.t), range)}>
               {cells.map(({ day, row, t }) => {
                 const paid = billed(t);
                 // A day that spent something never renders as nothing: a floor keeps a cheap
