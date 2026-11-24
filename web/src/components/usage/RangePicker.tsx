@@ -40,6 +40,7 @@ export function RangePicker({
       {/* A phone's bar has room for the current answer, not all seven: the presets fold into
           a select there, which still shows what is picked without a click. */}
       <select
+        name="range"
         aria-label="Time range"
         value={range.id}
         onChange={(e) => onChange(rangeFor(e.target.value as RangeID))}
