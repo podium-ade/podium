@@ -1,10 +1,11 @@
 package chat
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // What a web message has to say to start a turn in a multiplayer chat
@@ -26,8 +27,9 @@ import (
 // PodiumMention is the token the composer's Podium chip inserts.
 const PodiumMention = "@Podium"
 
-// personMention is the composer's person chip: @[Display Name](mention:login).
-var personMention = regexp.MustCompile(`@\[[^\]\n]{1,200}\]\(mention:([^)\s]{1,320})\)`)
+// personMention is the composer's person chip: @[Display Name](mention:login). The store owns the
+// pattern because it too has to read a message as a person would (a chat's preview).
+var personMention = store.PersonMention
 
 // MentionsPodium reports whether text puts the message to Podium, or to the chat's
 // personal assistant when personality is its name.
@@ -48,7 +50,7 @@ func MentionedLogins(text string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, m := range personMention.FindAllStringSubmatch(text, -1) {
-		login := strings.ToLower(strings.TrimSpace(m[1]))
+		login := strings.ToLower(strings.TrimSpace(m[2]))
 		if login == "" || seen[login] {
 			continue
 		}

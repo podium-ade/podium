@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -1742,10 +1743,11 @@ func cleanChatTitle(title string) (string, error) {
 	return title, nil
 }
 
-// preview is the head of a message, cut on a rune boundary so a multi-byte character is
-// never split in half.
+// preview is the head of a message as a person reads it, cut on a rune boundary so a
+// multi-byte character is never split in half. A person chip is shown as the name first:
+// cut raw, it would end halfway through its own link.
 func preview(text string, limit int) string {
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(PlainMentions(text))
 	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}
@@ -1768,4 +1770,13 @@ func nonNilStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// PersonMention is the composer's person chip, @[Display Name](mention:login): a Markdown
+// link the web renders as the name. internal/agent/chat reads the login out of it.
+var PersonMention = regexp.MustCompile(`@\[([^\]\n]{1,200})\]\(mention:([^)\s]{1,320})\)`)
+
+// PlainMentions is text with each person chip as @Name, for what is shown as plain text.
+func PlainMentions(text string) string {
+	return PersonMention.ReplaceAllString(text, "@$1")
 }
