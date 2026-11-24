@@ -523,8 +523,8 @@ account — worked out again when the turn starts. Nothing is refused for a turn
   A pull request's conversation and a Linear agent session still answer only a mention. Two
   unlinked people who share a display name count as one. Chats opened before this rule keep
   the flag they had, which is sticky.
-  Once a chat is multiplayer, a message has to say `@Podium` (or the chat's assistant's name) to start a turn, the way it
-  would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
+  Once a chat is multiplayer, a message has to say `@<deployment name>` (`@Podium` until an admin renames the deployment, and still after; or the
+  chat's assistant's name) to start a turn, the way it would in Slack. What does not is recorded and starts nothing. The composer says which it will be.
 - **Anybody who may write the chat can stop its answer** (`CancelChatTurn`), on whichever
   conductor runs it — a host turn, a task, or a chat-host turn, including one still waiting for
   room on a busy chat host, which then never starts ("Stopped before I started."). A person can

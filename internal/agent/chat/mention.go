@@ -14,7 +14,8 @@ import (
 // nothing cleverer, so what the UI promises ("Send to Podium") and what the server does
 // cannot drift apart:
 //
-//   - PodiumMention, "@Podium", puts the message to Podium.
+//   - PodiumMention, "@Podium", puts the message to Podium, and so does "@<deployment name>"
+//     (Options.Brand), which is what the composer offers once an admin has renamed it.
 //   - "@<assistant name>" does the same in a chat bound to a personal assistant.
 //   - "@[Name](mention:<login>)" names a Podium person. It is a Markdown link, so the record
 //     renders it as one anywhere, and phase 5 tells the login.
