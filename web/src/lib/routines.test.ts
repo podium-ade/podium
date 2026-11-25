@@ -8,7 +8,9 @@ import {
   perTicket,
   repoNames,
   teamKeys,
-  withAllChecks,
+  GITHUB_CI,
+  ciOutcome,
+  withOutcome,
 } from "./routines";
 
 describe("repoNames", () => {
@@ -47,19 +49,27 @@ describe("GITHUB_EVENTS", () => {
     for (const e of GITHUB_EVENTS) expect(GITHUB_GROUPS).toContain(e.group);
   });
 
-  it("name a parent only that is one of them", () => {
+  it("have every CI row's two events among them", () => {
     const events = GITHUB_EVENTS.map((e) => e.event);
-    for (const e of GITHUB_EVENTS) if (e.parent) expect(events).toContain(e.parent);
+    for (const r of GITHUB_CI) expect(events).toEqual(expect.arrayContaining([r.completed, r.failed]));
   });
 });
 
-describe("withAllChecks", () => {
-  it("asks for all checks finished, or only with a failure, never both, and keeps the rest", () => {
-    expect(withAllChecks(["pull_request.opened"], "all")).toEqual(["checks.completed", "pull_request.opened"]);
-    expect(withAllChecks(["checks.completed", "pull_request.opened"], "failed")).toEqual([
+describe("a CI row", () => {
+  const [allChecks, workflowRun] = GITHUB_CI;
+
+  it("runs on every finish, only on a failure, or not at all, never on both", () => {
+    expect(withOutcome(["pull_request.opened"], allChecks, "finished")).toEqual(["checks.completed", "pull_request.opened"]);
+    expect(withOutcome(["checks.completed", "pull_request.opened"], allChecks, "failed")).toEqual([
       "checks.failed",
       "pull_request.opened",
     ]);
-    expect(withAllChecks(["checks.failed", "checks.completed", "issues.opened"], "off")).toEqual(["issues.opened"]);
+    expect(withOutcome(["checks.failed", "workflow_run.failed"], allChecks, "off")).toEqual(["workflow_run.failed"]);
+  });
+
+  it("reads asking for both as every finish, which a failure is one of", () => {
+    expect(ciOutcome(["workflow_run.failed", "workflow_run.completed"], workflowRun)).toBe("finished");
+    expect(ciOutcome(["workflow_run.failed"], workflowRun)).toBe("failed");
+    expect(ciOutcome(["checks.failed"], workflowRun)).toBe("off");
   });
 });

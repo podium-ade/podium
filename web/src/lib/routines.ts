@@ -106,18 +106,13 @@ export type GitHubGroup = "CI" | "Pull requests" | "Issues";
 
 /**
  * GITHUB_EVENTS is every GitHub event a routine can run on, as the server names it, with a plain
- * label and its group. A hint says more where the label alone could be misread. An event with a
- * parent is a narrower form of it, shown under it as a sub-toggle: a routine asks for one of the
- * two, never both.
+ * label, the shorter one its row in the editor shows under its group, and its group. A hint says
+ * more where the label alone could be misread. The CI ones are also rows of GITHUB_CI, which is how
+ * the editor shows them.
  */
-export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; hint?: string; parent?: string }[] = [
-  {
-    event: "checks.completed",
-    label: "All checks finished",
-    group: "CI",
-    hint: "Once per commit, when every workflow, check and status on it is done.",
-  },
-  { event: "checks.failed", label: "At least one failed", group: "CI", parent: "checks.completed" },
+export const GITHUB_EVENTS: { event: string; label: string; short?: string; group: GitHubGroup; hint?: string }[] = [
+  { event: "checks.completed", label: "All checks finished", group: "CI" },
+  { event: "checks.failed", label: "All checks finished, at least one failed", group: "CI" },
   {
     event: "workflow_run.failed",
     label: "Workflow run failed",
@@ -127,23 +122,74 @@ export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; 
   { event: "workflow_run.completed", label: "Workflow run completed", group: "CI" },
   { event: "check_suite.failed", label: "Check suite failed", group: "CI" },
   { event: "check_suite.completed", label: "Check suite completed", group: "CI" },
-  { event: "pull_request.opened", label: "Pull request opened", group: "Pull requests" },
-  { event: "pull_request.ready_for_review", label: "Pull request ready for review", group: "Pull requests" },
-  { event: "pull_request.synchronize", label: "Pull request got new commits", group: "Pull requests" },
-  { event: "pull_request.merged", label: "Pull request merged", group: "Pull requests" },
-  { event: "pull_request.closed", label: "Pull request closed", group: "Pull requests" },
-  { event: "pull_request_review.submitted", label: "Review submitted", group: "Pull requests" },
-  { event: "issues.opened", label: "Issue opened", group: "Issues" },
+  { event: "pull_request.opened", label: "Pull request opened", short: "Opened", group: "Pull requests" },
+  {
+    event: "pull_request.ready_for_review",
+    label: "Pull request ready for review",
+    short: "Ready for review",
+    group: "Pull requests",
+  },
+  {
+    event: "pull_request.synchronize",
+    label: "Pull request got new commits",
+    short: "Got new commits",
+    group: "Pull requests",
+  },
+  { event: "pull_request.merged", label: "Pull request merged", short: "Merged", group: "Pull requests" },
+  { event: "pull_request.closed", label: "Pull request closed", short: "Closed", group: "Pull requests" },
+  {
+    event: "pull_request_review.submitted",
+    label: "Review submitted",
+    short: "A review submitted",
+    group: "Pull requests",
+  },
+  { event: "issues.opened", label: "Issue opened", short: "Opened", group: "Issues" },
 ];
 
 /**
- * withAllChecks is events with "All checks finished" set: off, on for every commit, or on only for
- * a commit where at least one check failed.
+ * CIRow is one thing CI finishes, as the editor's table shows it: a routine runs when it
+ * finishes whatever the result, or only when it failed — one of the two, never both.
  */
-export function withAllChecks(events: string[], to: "off" | "all" | "failed"): string[] {
-  const rest = events.filter((e) => e !== "checks.completed" && e !== "checks.failed");
-  if (to === "off") return rest;
-  return [to === "failed" ? "checks.failed" : "checks.completed", ...rest];
+export type CIRow = { label: string; hint: string; completed: string; failed: string };
+
+/** GITHUB_CI is the CI rows of the GitHub events table, the one a CI routine wants first. */
+export const GITHUB_CI: CIRow[] = [
+  {
+    label: "All checks",
+    hint: "Once per commit, when every workflow, check and status on it is done.",
+    completed: "checks.completed",
+    failed: "checks.failed",
+  },
+  {
+    label: "Workflow run",
+    hint: "GitHub Actions, once per workflow.",
+    completed: "workflow_run.completed",
+    failed: "workflow_run.failed",
+  },
+  {
+    label: "Check suite",
+    hint: "Any CI app, once per suite. Actions makes one per workflow run.",
+    completed: "check_suite.completed",
+    failed: "check_suite.failed",
+  },
+];
+
+/** CIOutcome is what a CI row runs on: nothing, every finish, or only a failed one. */
+export type CIOutcome = "off" | "finished" | "failed";
+
+/** ciOutcome reads a CI row from events. Asking for both is every finish, since a failure is one. */
+export function ciOutcome(events: string[], row: CIRow): CIOutcome {
+  if (events.includes(row.completed)) return "finished";
+  if (events.includes(row.failed)) return "failed";
+  return "off";
+}
+
+/** withOutcome is events with a CI row set to an outcome, in GITHUB_EVENTS order. */
+export function withOutcome(events: string[], row: CIRow, to: CIOutcome): string[] {
+  const set = new Set(events.filter((e) => e !== row.completed && e !== row.failed));
+  if (to === "finished") set.add(row.completed);
+  if (to === "failed") set.add(row.failed);
+  return GITHUB_EVENTS.map((e) => e.event).filter((e) => set.has(e));
 }
 
 /** GITHUB_GROUPS are the groups of GITHUB_EVENTS, in the order the editor shows them. */

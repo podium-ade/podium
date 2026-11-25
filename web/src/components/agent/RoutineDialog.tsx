@@ -17,8 +17,10 @@ import {
   browserZone,
   CI_FIXER,
   CI_FIXER_ON_GITHUB,
+  GITHUB_CI,
   GITHUB_EVENTS,
-  withAllChecks,
+  ciOutcome,
+  withOutcome,
   GITHUB_GROUPS,
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
@@ -308,81 +310,81 @@ function GitHubEventsField({
         <span id={ids.events} className="text-sm font-medium">
           GitHub events
         </span>
-        <div data-testid="routine-github-events" className="rounded-lg border border-border text-sm">
+        {/* One table, as Linear's: CI by finished or only failed, then the rest one switch each. */}
+        <div
+          data-testid="routine-github-events"
+          className="grid grid-cols-[minmax(0,1fr)_repeat(2,5.5rem)] overflow-hidden rounded-lg border border-border text-sm"
+        >
           {GITHUB_GROUPS.map((group, i) => (
-            <div
-              key={group}
-              role="group"
-              aria-label={group}
-              className={cn("grid gap-2 px-3 py-2.5", i > 0 && "border-t border-border")}
-            >
-              <span className="text-xs text-muted">{group}</span>
-              <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-                {GITHUB_EVENTS.filter((e) => e.group === group && !e.parent).map((e) => {
-                  const subs = GITHUB_EVENTS.filter((s) => s.parent === e.event);
-                  if (subs.length === 0) {
+            // contents: the group is a group to a screen reader and rows of the one grid to the eye.
+            <div key={group} role="group" aria-label={group} className="contents">
+              <span
+                aria-hidden
+                className={cn("bg-raised py-1.5 pl-3 text-xs font-medium text-muted", i > 0 && "border-t border-border")}
+              >
+                {group}
+              </span>
+              {group === "CI" ? (
+                <>
+                  <span aria-hidden className="bg-raised py-1.5 text-center text-xs text-muted">
+                    Finished
+                  </span>
+                  <span aria-hidden className="bg-raised py-1.5 text-center text-xs text-muted">
+                    Only if failed
+                  </span>
+                </>
+              ) : (
+                <span className={cn("col-span-2 bg-raised", i > 0 && "border-t border-border")} />
+              )}
+              {group === "CI"
+                ? GITHUB_CI.map((row) => {
+                    const outcome = ciOutcome(events, row);
                     return (
-                      <label key={e.event} className="flex items-start gap-2 text-fg">
+                      <Fragment key={row.completed}>
+                        <label
+                          htmlFor={`${ids.events}-${row.completed}`}
+                          className="grid gap-0.5 border-t border-border py-2 pl-3 text-fg"
+                        >
+                          {row.label}
+                          <span className="text-xs text-muted">{row.hint}</span>
+                        </label>
+                        <span className="flex items-center justify-center border-t border-border">
+                          <Checkbox
+                            id={`${ids.events}-${row.completed}`}
+                            data-testid={`routine-event-${row.completed}`}
+                            aria-label={`${row.label} finished`}
+                            checked={outcome !== "off"}
+                            onCheckedChange={(v) => onEvents(withOutcome(events, row, v === true ? "finished" : "off"))}
+                          />
+                        </span>
+                        <span className="flex items-center justify-center border-t border-border">
+                          <Checkbox
+                            data-testid={`routine-event-${row.failed}`}
+                            aria-label={`${row.label} only if failed`}
+                            checked={outcome === "failed"}
+                            onCheckedChange={(v) => onEvents(withOutcome(events, row, v === true ? "failed" : "finished"))}
+                          />
+                        </span>
+                      </Fragment>
+                    );
+                  })
+                : GITHUB_EVENTS.filter((e) => e.group === group).map((e) => (
+                    <Fragment key={e.event}>
+                      <label htmlFor={`${ids.events}-${e.event}`} className="border-t border-border py-2 pl-3 text-fg">
+                        {e.short ?? e.label}
+                      </label>
+                      <span className="flex items-center justify-center border-t border-border">
                         <Checkbox
+                          id={`${ids.events}-${e.event}`}
                           data-testid={`routine-event-${e.event}`}
                           aria-label={e.label}
                           checked={events.includes(e.event)}
                           onCheckedChange={(v) => toggle(e.event, v === true)}
-                          className="mt-0.5"
                         />
-                        <span className="grid gap-0.5">
-                          {e.label}
-                          {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
-                        </span>
-                      </label>
-                    );
-                  }
-                  // "All checks finished" and its sub-toggle: the routine asks for one of the two.
-                  const failedOnly = events.includes("checks.failed");
-                  const on = failedOnly || events.includes(e.event);
-                  return (
-                    <div key={e.event} className="grid gap-2 sm:col-span-2">
-                      <label className="flex items-start gap-2 text-fg">
-                        <Checkbox
-                          data-testid={`routine-event-${e.event}`}
-                          aria-label={e.label}
-                          checked={on}
-                          onCheckedChange={(v) => onEvents(withAllChecks(events, v === true ? "all" : "off"))}
-                          className="mt-0.5"
-                        />
-                        <span className="grid gap-0.5">
-                          {e.label}
-                          {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
-                        </span>
-                      </label>
-                      {subs.map((sub) => (
-                        <label
-                          key={sub.event}
-                          className={cn("ml-6 flex items-start gap-2", on ? "text-fg" : "text-muted")}
-                        >
-                          <Checkbox
-                            data-testid={`routine-event-${sub.event}`}
-                            aria-label={sub.label}
-                            checked={failedOnly}
-                            disabled={!on}
-                            onCheckedChange={(v) => onEvents(withAllChecks(events, v === true ? "failed" : "all"))}
-                            className="mt-0.5"
-                          />
-                          {sub.label}
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Actions makes a check suite of each workflow run, so ticking both runs twice on one failure. */}
-              {group === "CI" ? (
-                <p className="text-xs leading-relaxed text-muted">
-                  Workflow runs are GitHub Actions, one event per workflow. Check suites are every CI app, Actions
-                  included, with one suite per workflow run, so pick one of the two or a failure runs the routine
-                  twice.
-                </p>
-              ) : null}
+                      </span>
+                      <span className="border-t border-border" />
+                    </Fragment>
+                  ))}
             </div>
           ))}
         </div>

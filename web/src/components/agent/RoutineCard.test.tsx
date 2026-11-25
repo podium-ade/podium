@@ -363,7 +363,7 @@ describe("RoutineDialog", () => {
     await userEvent.click(screen.getByTestId("routine-trigger-github"));
     expect(screen.queryByTestId("schedule-summary")).not.toBeInTheDocument();
     const field = screen.getByTestId("routine-github-events");
-    expect(within(field).getByRole("group", { name: "CI" })).toHaveTextContent("pick one of the two");
+    expect(within(field).getByRole("group", { name: "CI" })).toHaveTextContent("Actions makes one per workflow run");
     expect(within(field).getByRole("group", { name: "Pull requests" })).toBeInTheDocument();
     expect(within(field).getByRole("group", { name: "Issues" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Review submitted" })).toBeInTheDocument();
@@ -728,7 +728,7 @@ describe("RoutineDialog for an admin", () => {
     );
   });
 
-  it("runs on all checks finished, or with its sub-toggle only when at least one failed", async () => {
+  it("runs on all checks finished, or only when at least one failed, one of the two", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog
@@ -743,14 +743,13 @@ describe("RoutineDialog for an admin", () => {
     );
     await userEvent.click(screen.getByTestId("routine-scope-system"));
     await userEvent.click(screen.getByTestId("routine-trigger-github"));
-    const all = screen.getByTestId("routine-event-checks.completed");
+    const finished = screen.getByTestId("routine-event-checks.completed");
     const failedOnly = screen.getByTestId("routine-event-checks.failed");
-    expect(failedOnly).toBeDisabled();
 
-    await userEvent.click(all);
-    expect(failedOnly).toBeEnabled();
+    await userEvent.click(finished);
     expect(failedOnly).toHaveAttribute("data-state", "unchecked");
     await userEvent.click(failedOnly);
+    expect(finished).toHaveAttribute("data-state", "checked");
     await userEvent.click(screen.getByTestId("routine-event-pull_request.opened"));
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>
@@ -761,10 +760,14 @@ describe("RoutineDialog for an admin", () => {
     );
 
     await userEvent.click(failedOnly);
-    expect(all).toHaveAttribute("data-state", "checked");
-    await userEvent.click(all);
+    expect(finished).toHaveAttribute("data-state", "checked");
+    await userEvent.click(finished);
+    expect(finished).toHaveAttribute("data-state", "unchecked");
     expect(failedOnly).toHaveAttribute("data-state", "unchecked");
-    expect(failedOnly).toBeDisabled();
+
+    // Only if failed on its own turns the row on for failures.
+    await userEvent.click(screen.getByTestId("routine-event-workflow_run.failed"));
+    expect(screen.getByTestId("routine-event-workflow_run.completed")).toHaveAttribute("data-state", "checked");
   });
 
   it("offers no choice of who it runs as to a member, nor when editing", () => {
