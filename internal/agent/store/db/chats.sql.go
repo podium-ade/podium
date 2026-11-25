@@ -882,7 +882,7 @@ left join (
 left join linear_issues li on li.source_key = c.source_key and c.origin = 'linear'
 left join chat_rail_prefs rp on rp.chat_id = c.id and rp.login = $1::text
 where (
-    ($2::bool and $3::text = '')
+    ($2::bool and $3::text = '' and c.deleted_at is null)
     or ($3::text in ('', 'shared') and chat_visible_to(c.id, c.login, $1::text)
         and ($3::text = '' or c.login is distinct from $1::text))
     or ($3::text = '' and not $2::bool
@@ -1035,6 +1035,10 @@ type ListChatsRow struct {
 // still read it: a role in it (chat_role), or, for admin — an admin or an owner — a system
 // routine's chat or a Linear conversation, which they read as admins. Watching grants nothing,
 // so a chat they can no longer read drops out.
+//
+// A deleted mirrored chat (0036) is in nobody's list, the dev token's included: the operator
+// is usually the one who deleted it, and a delete that leaves the chat in the rail looks like
+// it did nothing. The row is still there for the mirror, and GetChat still opens it by id.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats,
 		arg.Viewer,

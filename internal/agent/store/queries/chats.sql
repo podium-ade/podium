@@ -128,8 +128,12 @@ left join chat_rail_prefs rp on rp.chat_id = c.id and rp.login = @viewer::text
 -- still read it: a role in it (chat_role), or, for admin — an admin or an owner — a system
 -- routine's chat or a Linear conversation, which they read as admins. Watching grants nothing,
 -- so a chat they can no longer read drops out.
+--
+-- A deleted mirrored chat (0036) is in nobody's list, the dev token's included: the operator
+-- is usually the one who deleted it, and a delete that leaves the chat in the rail looks like
+-- it did nothing. The row is still there for the mirror, and GetChat still opens it by id.
 where (
-    (@include_all::bool and @section::text = '')
+    (@include_all::bool and @section::text = '' and c.deleted_at is null)
     or (@section::text in ('', 'shared') and chat_visible_to(c.id, c.login, @viewer::text)
         and (@section::text = '' or c.login is distinct from @viewer::text))
     or (@section::text = '' and not @include_all::bool
