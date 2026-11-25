@@ -1,14 +1,28 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { MessageSquare, MessagesSquare, Repeat, ShieldCheck, User, Webhook, Wrench, type LucideIcon } from "lucide-react";
+import {
+  GitBranch,
+  MessageSquare,
+  MessagesSquare,
+  Repeat,
+  ShieldCheck,
+  User,
+  Webhook,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import {
   browserZone,
   CI_FIXER,
+  CI_FIXER_ON_GITHUB,
+  GITHUB_EVENTS,
+  GITHUB_GROUPS,
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
   LINEAR_TYPES,
+  repoNames,
   teamKeys,
   type ChatMode,
   type Scope,
@@ -65,6 +79,7 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
 const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: LucideIcon }[] = [
   { trigger: "schedule", label: "On a schedule", hint: "At set times, in a timezone.", icon: Repeat },
   { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: Webhook },
+  { trigger: "github", label: "On a GitHub event", hint: "When CI finishes, or a pull request or issue changes.", icon: GitBranch },
 ];
 
 /**
@@ -83,6 +98,27 @@ const CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIco
     label: "Each ticket’s conversation",
     hint: "A run joins the issue’s or project’s one conversation, where delegations, mentions and other routines are, and sees what was done on it before.",
     icon: MessagesSquare,
+  },
+];
+
+/**
+ * GITHUB_CHAT_MODES are where a routine on GitHub events runs. The pull request's chat comes
+ * first and is the default: its reviews, mentions and CI are one conversation, which is the
+ * context a run about it needs. A run about no pull request — a push to a branch, an issue —
+ * is in the routine's own chat either way.
+ */
+const GITHUB_CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[] = [
+  {
+    mode: "subject",
+    label: "The pull request’s chat",
+    hint: "A run about a pull request joins its chat, where its reviews and everything said about it are, and sees what was done on it before. Events about no pull request run in the routine’s own chat.",
+    icon: MessagesSquare,
+  },
+  {
+    mode: "routine",
+    label: "A new chat",
+    hint: "Every run is in one chat of the routine’s own, with its whole history in view. It is opened on the first run.",
+    icon: MessageSquare,
   },
 ];
 
@@ -106,7 +142,7 @@ function LinearEventsField({
   chatMode: ChatMode;
   onChatMode: (mode: ChatMode) => void;
 }) {
-  const ids = { events: useId(), teams: useId(), chatMode: useId() };
+  const ids = { events: useId(), teams: useId() };
   const connections = useQuery({
     queryKey: ["agent", "connections"],
     queryFn: () => agent.getConnections({}),
@@ -183,37 +219,169 @@ function LinearEventsField({
           Team keys, separated by commas. Leave empty for every team.
         </p>
       </div>
-      <div className="grid gap-1.5" role="group" aria-labelledby={ids.chatMode}>
-        <span id={ids.chatMode} className="text-sm font-medium">
-          Runs happen in
-        </span>
-        <ToggleGroup
-          type="single"
-          value={chatMode}
-          aria-label="Runs happen in"
-          onValueChange={(v) => v && onChatMode(v as ChatMode)}
-          className="grid w-full grid-cols-2 border-border bg-raised"
-        >
-          {CHAT_MODES.map((m) => (
-            <ToggleGroupItem
-              key={m.mode}
-              value={m.mode}
-              data-testid={`routine-chat-mode-${m.mode}`}
-              className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-            >
-              <m.icon aria-hidden />
-              {m.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <p data-testid="routine-chat-mode-hint" className="text-xs leading-relaxed text-muted">
-          {CHAT_MODES.find((m) => m.mode === chatMode)?.hint}
-        </p>
-      </div>
+      <ChatModeField modes={CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
     </>
   );
 }
 
+/**
+ * ChatModeField is where a routine on events runs, among the modes its source offers: a
+ * ticket's or pull request's conversation, or a chat of the routine's own.
+ */
+function ChatModeField({
+  modes,
+  chatMode,
+  onChatMode,
+}: {
+  modes: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[];
+  chatMode: ChatMode;
+  onChatMode: (mode: ChatMode) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="grid gap-1.5" role="group" aria-labelledby={id}>
+      <span id={id} className="text-sm font-medium">
+        Runs happen in
+      </span>
+      <ToggleGroup
+        type="single"
+        value={chatMode}
+        aria-label="Runs happen in"
+        onValueChange={(v) => v && onChatMode(v as ChatMode)}
+        className="grid w-full grid-cols-2 border-border bg-raised"
+      >
+        {modes.map((m) => (
+          <ToggleGroupItem
+            key={m.mode}
+            value={m.mode}
+            data-testid={`routine-chat-mode-${m.mode}`}
+            className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+          >
+            <m.icon aria-hidden />
+            {m.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      <p data-testid="routine-chat-mode-hint" className="text-xs leading-relaxed text-muted">
+        {modes.find((m) => m.mode === chatMode)?.hint}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * GitHubEventsField is what a routine on GitHub events runs on: the events, grouped as CI, pull
+ * requests and issues, and optionally the repositories. The GitHub App's webhook delivers them,
+ * so the field says when it is not set up — the routine saves, and runs once it is. Under them
+ * is where its runs happen: the pull request's chat, by default, or a chat of its own.
+ */
+function GitHubEventsField({
+  events,
+  onEvents,
+  repos,
+  onRepos,
+  chatMode,
+  onChatMode,
+}: {
+  events: string[];
+  onEvents: (events: string[]) => void;
+  repos: string;
+  onRepos: (repos: string) => void;
+  chatMode: ChatMode;
+  onChatMode: (mode: ChatMode) => void;
+}) {
+  const ids = { events: useId(), repos: useId() };
+  const connections = useQuery({
+    queryKey: ["agent", "connections"],
+    queryFn: () => agent.getConnections({}),
+    staleTime: 30_000,
+  });
+  const gh = connections.data?.github;
+  // Deliveries arrive only once the App has a webhook secret and a listen address.
+  const delivering = Boolean(gh?.configured && gh?.reviews);
+  const toggle = (event: string, on: boolean) =>
+    onEvents(GITHUB_EVENTS.map((e) => e.event).filter((e) => (e === event ? on : events.includes(e))));
+  return (
+    <>
+      <div className="grid gap-1.5" role="group" aria-labelledby={ids.events}>
+        <span id={ids.events} className="text-sm font-medium">
+          GitHub events
+        </span>
+        <div data-testid="routine-github-events" className="rounded-lg border border-border text-sm">
+          {GITHUB_GROUPS.map((group, i) => (
+            <div
+              key={group}
+              role="group"
+              aria-label={group}
+              className={cn("grid gap-2 px-3 py-2.5", i > 0 && "border-t border-border")}
+            >
+              <span className="text-xs text-muted">{group}</span>
+              <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                {GITHUB_EVENTS.filter((e) => e.group === group).map((e) => (
+                  <label key={e.event} className="flex items-start gap-2 text-fg">
+                    <Checkbox
+                      data-testid={`routine-event-${e.event}`}
+                      aria-label={e.label}
+                      checked={events.includes(e.event)}
+                      onCheckedChange={(v) => toggle(e.event, v === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="grid gap-0.5">
+                      {e.label}
+                      {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {/* Actions makes a check suite of each workflow run, so ticking both runs twice on one failure. */}
+              {group === "CI" ? (
+                <p className="text-xs leading-relaxed text-muted">
+                  Workflow runs are GitHub Actions. Check suites are every CI app, Actions included, with one suite
+                  per workflow run, so pick one of the two or a failure runs the routine twice.
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <p
+          data-testid="routine-github-hint"
+          className={cn("text-xs leading-relaxed", connections.isSuccess && !delivering ? "text-warn" : "text-muted")}
+        >
+          {connections.isSuccess && !delivering ? (
+            <>
+              The GitHub App’s webhook is not set up, so no events arrive yet. Set it up under{" "}
+              <Link to="/org/settings/connections" className="underline underline-offset-2 hover:text-fg">
+                Connections
+              </Link>
+              .
+            </>
+          ) : (
+            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews or Issues. Each run is given the events that arrived since the last one."
+          )}
+        </p>
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.repos} className="text-sm font-medium">
+          Repositories{" "}
+          <span className="font-normal text-muted">(optional)</span>
+        </label>
+        <Input
+          id={ids.repos}
+          data-testid="routine-repos"
+          value={repos}
+          onChange={(e) => onRepos(e.target.value)}
+          placeholder="acme/api, acme"
+          aria-describedby={`${ids.repos}-hint`}
+        />
+        <p id={`${ids.repos}-hint`} className="text-xs text-muted">
+          owner/name, or an owner for all of its repositories, separated by commas. Leave empty for every repository
+          the App is installed on.
+        </p>
+      </div>
+      <ChatModeField modes={GITHUB_CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
+    </>
+  );
+}
 
 type SectionKey = "instruction" | "trigger" | "identity" | "limits";
 
@@ -296,11 +464,26 @@ export function RoutineDialog({
   );
   // Remounted by a template, so the schedule editor reads the schedule it was given afresh.
   const [scheduleKey, setScheduleKey] = useState(0);
-  const [trigger, setTrigger] = useState<Trigger>(initial.trigger === "linear" ? "linear" : "schedule");
+  const [trigger, setTrigger] = useState<Trigger>(
+    initial.trigger === "linear" || initial.trigger === "github" ? initial.trigger : "schedule",
+  );
   const linear = trigger === "linear";
-  const [events, setEvents] = useState<string[]>(initial.events ?? []);
-  const [teams, setTeams] = useState((initial.teams ?? []).join(", "));
-  const [chatMode, setChatMode] = useState<ChatMode>(initial.chatMode === "subject" ? "subject" : "routine");
+  const github = trigger === "github";
+  // Each source keeps its own events and filter, so switching between them never carries one
+  // source's events to the other, and switching back finds what was chosen.
+  const [linearEvents, setLinearEvents] = useState<string[]>(initial.trigger === "linear" ? (initial.events ?? []) : []);
+  const [teams, setTeams] = useState(initial.trigger === "linear" ? (initial.teams ?? []).join(", ") : "");
+  const [githubEvents, setGitHubEvents] = useState<string[]>(initial.trigger === "github" ? (initial.events ?? []) : []);
+  const [repos, setRepos] = useState(initial.trigger === "github" ? (initial.teams ?? []).join(", ") : "");
+  const events = linear ? linearEvents : github ? githubEvents : [];
+  const [chatMode, setChatMode] = useState<ChatMode>(
+    initial.trigger === "linear" && initial.chatMode === "subject" ? "subject" : "routine",
+  );
+  // A routine on GitHub events contributes to the pull request's chat unless it was saved to
+  // run in its own: that conversation is the context its reviews and CI share.
+  const [githubChatMode, setGitHubChatMode] = useState<ChatMode>(
+    initial.trigger === "github" && initial.chatMode === "routine" ? "routine" : "subject",
+  );
   const [timezone, setTimezone] = useState(initial.timezone || browserZone());
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
@@ -326,6 +509,15 @@ export function RoutineDialog({
       : "";
 
   const useTemplate = () => {
+    // On GitHub events the run is given each failed workflow run, so the template waits for them
+    // instead of looking every few minutes.
+    if (github) {
+      setName(CI_FIXER_ON_GITHUB.name);
+      setInstruction(CI_FIXER_ON_GITHUB.instruction);
+      setNotes(CI_FIXER_ON_GITHUB.notes);
+      setGitHubEvents(CI_FIXER_ON_GITHUB.events);
+      return;
+    }
     setName(CI_FIXER.name);
     setInstruction(CI_FIXER.instruction);
     setNotes(CI_FIXER.notes);
@@ -344,12 +536,13 @@ export function RoutineDialog({
           instruction: instruction.trim(),
           notes: notes.trim(),
           // One or the other, never both: the server refuses a draft that names a schedule and events.
-          schedule: linear ? "" : schedule.trim(),
+          schedule: linear || github ? "" : schedule.trim(),
           trigger,
-          events: linear ? events : [],
-          teams: linear ? teamKeys(teams) : [],
-          // A run on a schedule is about no ticket: the server refuses a ticket's conversation there.
-          chatMode: linear ? chatMode : "routine",
+          events,
+          // teams is the filter of whichever source it is: Linear team keys, or GitHub repositories.
+          teams: linear ? teamKeys(teams) : github ? repoNames(repos) : [],
+          // Only a Linear run is about a ticket: the server refuses a ticket's conversation elsewhere.
+          chatMode: linear ? chatMode : github ? githubChatMode : "routine",
           timezone: timezone.trim() || "UTC",
           personalityId: system
             ? ""
@@ -442,13 +635,15 @@ export function RoutineDialog({
       ? "Say what to do each run to save."
       : linear && events.length === 0
         ? "Choose at least one Linear event to save."
-        : capProblem
+        : github && events.length === 0
+          ? "Choose at least one GitHub event to save."
+          : capProblem
           ? "Fix the spend cap to save."
           : "";
   // The menu marks a section whose choice is unfinished, not one nobody has reached yet: an
   // empty name on a new routine is said beside Save, and is not a mark on the menu.
   const troubled = new Set<SectionKey>();
-  if (linear && events.length === 0) troubled.add("trigger");
+  if ((linear || github) && events.length === 0) troubled.add("trigger");
   if (capProblem) troubled.add("limits");
 
   const timezoneField = (hint: string) => (
@@ -534,8 +729,9 @@ export function RoutineDialog({
                 <span className="grid gap-0.5">
                   <span className="font-medium text-fg">Start from “Fix failing CI”</span>
                   <span className="text-xs text-muted">
-                    Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up
-                    after 3 tries. It only proposes until you edit it to push.
+                    {github
+                      ? "Runs on each failed workflow run and proposes a fix on its pull request, once per commit, giving up after 3 tries. It only proposes until you edit it to push."
+                      : "Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after 3 tries. It only proposes until you edit it to push."}
                   </span>
                 </span>
               </button>
@@ -596,7 +792,7 @@ export function RoutineDialog({
                 value={trigger}
                 aria-label="Runs"
                 onValueChange={(v) => v && setTrigger(v as Trigger)}
-                className="grid w-full items-stretch gap-2 border-0 bg-transparent p-0 sm:grid-cols-2"
+                className="grid w-full items-stretch gap-2 border-0 bg-transparent p-0 md:grid-cols-3"
               >
                 {TRIGGERS.map((t) => (
                   <ToggleGroupItem
@@ -616,12 +812,21 @@ export function RoutineDialog({
             ) : null}
             {linear ? (
               <LinearEventsField
-                events={events}
-                onEvents={setEvents}
+                events={linearEvents}
+                onEvents={setLinearEvents}
                 teams={teams}
                 onTeams={setTeams}
                 chatMode={chatMode}
                 onChatMode={setChatMode}
+              />
+            ) : github ? (
+              <GitHubEventsField
+                events={githubEvents}
+                onEvents={setGitHubEvents}
+                repos={repos}
+                onRepos={setRepos}
+                chatMode={githubChatMode}
+                onChatMode={setGitHubChatMode}
               />
             ) : (
               <>
@@ -716,7 +921,7 @@ export function RoutineDialog({
                   "Reaching the cap pauses the routine until midnight in its timezone, and it starts again on its own."}
               </p>
             </div>
-            {linear ? timezoneField("The day the spend cap counts ends at midnight here.") : null}
+            {linear || github ? timezoneField("The day the spend cap counts ends at midnight here.") : null}
           </Section>
             </div>
           </div>

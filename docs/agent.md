@@ -2718,9 +2718,11 @@ must appear as *your* bot.
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
    `pull_requests: write`, `contents: write` (clone and push use the same App), and `checks: read`,
    `statuses: read`, `actions: read` so a reviewer can read the CI on a pull request. Events:
-   `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.
-   An App that already exists does not pick this up from the manifest: add `pull_request`
-   on its webhook settings.
+   `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, and
+   `workflow_run`, `check_suite` and `issues` for routines on GitHub events
+   ([On a GitHub event](#on-a-github-event)). An App that already exists does not pick this up
+   from the manifest: add the permissions and events on its settings, and accept the new
+   permissions on each installation.
 2. Generate a private key. Paste the PEM under Access → Connections, with the App id.
    That is the same key clone tokens mint from. The old key-file variable is ignored.
 3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at the listen
@@ -3884,9 +3886,9 @@ needs a machine. Nothing about any one job is written into Podium.
 
 **A routine has a chat of its own.** A routine on a schedule gets it when it is made; it is listed
 under **Routines** in the chat rail (as well as on the Routines page), and is where the routine's
-history lives. A routine on Linear events gets one only when a run needs it: one that runs in each
-ticket's conversation never does, and one that runs in its own chat gets it on its first run, so
-saving one leaves no empty chat behind. A routine with no chat opens on a page of its own from
+history lives. A routine on Linear or GitHub events gets one only when a run needs it: one that
+runs in each ticket's conversation never does, and one that runs in its own chat gets it on its
+first run, so saving one leaves no empty chat behind. A routine with no chat opens on a page of its own from
 the Routines page, with its card, notes, history and recent runs, each run linking to the
 conversation it ran in. It is an ordinary web chat of its owner's in
 every other way — they can write in it, ask "why did you skip #42?", and delete it — except that a
@@ -3946,7 +3948,7 @@ theirs, their routine's — keeps their own Linear MCP server, as before.
   tool answers with a link to the routine's chat, which the assistant puts in its reply.
 
 A routine runs on a schedule or, when an admin sets it up, on Linear events ([On a Linear
-event](#on-a-linear-event)). A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
+event](#on-a-linear-event)) or GitHub events ([On a GitHub event](#on-a-github-event)). A schedule is a five-field cron expression (presets cover the common ones) read in an IANA
 timezone, so a routine at 09:00 stays at 09:00 across daylight saving. A personal routine may run
 **at most every 15 minutes**; a schedule tighter than that anywhere in the week is refused, with
 the gap it found. Each routine runs a fixed few seconds past its minute (a jitter from its id), so
@@ -4021,7 +4023,7 @@ routine until midnight in its timezone, with the reason on its card, and it resu
 then. Admins may also cap what **one person's routines** spend together in 24 hours (Settings →
 Routines); a person over it has their scheduled runs skipped, not paused, until the 24 hours roll
 on. When Podium or an admin pauses a personal routine, its owner gets a **routine** notice in their
-inbox saying why — except for a routine on Linear events that has no chat, since a notice is about
+inbox saying why — except for a routine on events that has no chat, since a notice is about
 a chat; its row on the Routines page says why. A system routine has no owner to tell; its card says why.
 
 **History and audit.** Every change to what a routine is told — its instruction, notes, schedule
@@ -4154,6 +4156,88 @@ Before this, a routine in this mode opened a chat of its own for each ticket. Th
 ordinary chats of the routine; its next event about such a ticket runs in the ticket's
 conversation.
 
+### On a GitHub event
+
+A routine can run when something happens on GitHub instead of on a schedule: "when a workflow
+run fails on a pull request, find out why and propose the fix", "when a pull request is merged
+into main, write the release note". In the routine dialog, **Runs → On a GitHub event** replaces
+the schedule with the events it runs on and, optionally, the repositories. It is the same
+machinery as [On a Linear event](#on-a-linear-event) — the same table, tick, guards and brief —
+fed by the GitHub App's webhook instead of the Linear app's.
+
+- **Who may set it.** Admins and owners, in either scope, and nobody else; the API refuses a
+  member's draft that names GitHub events (`PermissionDenied`). The events carry every repository
+  the App is installed on, whatever the member can read.
+- **The events.** GitHub's own names, `<event>.<action>`, with three of Podium's:
+
+  | event | what it is |
+  |---|---|
+  | `workflow_run.failed` | a GitHub Actions workflow run completed with `failure`, `timed_out` or `startup_failure` |
+  | `workflow_run.completed` | a workflow run completed, whatever its conclusion |
+  | `check_suite.failed`, `check_suite.completed` | the same for a check suite: any CI app's, Actions' included |
+  | `pull_request.opened`, `.ready_for_review`, `.synchronize` (new commits), `.closed` | as GitHub sends them |
+  | `pull_request.merged` | a pull request closed by merging it |
+  | `pull_request_review.submitted` | a review submitted on a pull request |
+  | `issues.opened` | an issue opened |
+
+  A delivery answers to its own name and to Podium's, so a routine on `workflow_run.completed`
+  sees a failed run too, and one on both is given the failed run once, as `workflow_run.failed`.
+  Actions makes a check suite per workflow run, so a routine on both `workflow_run` and
+  `check_suite` events runs twice for each; choose one. **Repositories** are `owner/name`, or an
+  owner for all of theirs, comma-separated, read without regard to case; empty is every
+  repository the App is installed on.
+- **What is kept.** Not the delivery: GitHub repeats the whole repository and sender in every
+  one. Each is read into what a run acts on — the repository, the workflow or CI app, the
+  conclusion, the branch and commit, the pull requests it is on (number, link, head and base;
+  GitHub names only open ones from the same repository), a pull request's or issue's title, body
+  (cut to 2,000 characters), author and labels, a review's state and body — with the link to it
+  and who sent it. A failed job's log is not in it: the run reads it with `github-read`, as the
+  routine's owner or, for a system routine, as the App.
+- **How it runs.** Exactly as a routine on Linear events: `routine_events` with
+  `unique (routine, delivery)` keyed by GitHub's delivery id, the oldest twenty per run, a busy
+  chat keeping them waiting, a day's wait and 200 waiting at most, 60 event runs an hour pausing
+  it, the spend caps, no Run now, and a divider that says what started it ("Routine run · … ·
+  GitHub: workflow “CI” failed on acme/api#42"). The brief fences the events as data from GitHub
+  written by other people: titles, bodies, branch names and commit messages are whatever anybody
+  who can push or comment typed.
+- **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
+  chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,
+  opened on its first run. Changing it affects later runs only, and history records the change.
+- **In the pull request's chat.** An event about a pull request — a pull request's or review's
+  own, or a workflow run or check suite on a commit GitHub lists an open pull request for (the
+  first, when it lists several) — has the subject `PullRequest:<owner>/<name>#<n>`, and its run
+  is a turn of `github:<owner>/<name>#<n>`: the conversation the App's reviews of it, every
+  mention of the App on it and every web message in its chat are turns of. A review, a CI
+  failure and the fix are then one history, which is the context each of them needs. The run
+  opens the chat when nothing has yet (origin `github`, titled "#42: Fix login" as a review's
+  is), and the review source finds it there later. Everything else is as for a Linear ticket's
+  conversation ([In each ticket's conversation](#in-each-tickets-conversation)): the run is its
+  routine's and runs as its owner or as nobody, briefed with its routine and events and offered
+  `routine_finish`, preceded by a line saying it is a turn of the pull request's conversation and
+  not to redo work done there or start work already running; one turn at a time per pull request
+  and one run of the routine at a time; its answer stays in Podium, and posting on GitHub is what
+  `comment_on_pull_request` is for. Events about no pull request — a push to a branch, an issue —
+  run in the routine's own chat, opened the first time one does.
+- **Who reads it.** A personal routine's owner is given a viewer's row on each pull request's
+  chat their routine ran in, which also lists it among their chats. A system routine's runs are
+  read by admins and owners: they read, and only read, any pull request's chat a routine has run
+  in, without being joined to it. A routine's task in a pull request's chat sends nobody an
+  away notice: whoever last wrote there did not ask for it.
+- **The App's own changes.** A pull request, review or issue the App made itself never reaches a
+  routine, so one that acts on pull requests cannot start itself again. A workflow run or check
+  suite is kept whoever pushed the commit: a fix the App pushed that failed again is exactly what
+  a CI routine needs to see. Its state bounds the attempts ([Fix failing CI](#fix-failing-ci)), and
+  the 60-runs-an-hour guard bounds the rest.
+
+**Setting it up on GitHub.** Subscribe the App to the events the routines need — *Workflow runs*,
+*Check suites*, *Pull requests*, *Pull request reviews*, *Issues* — with *Actions* and *Checks*
+read-only ([Setting it up](#setting-it-up)). The webhook is the one reviews use, so it needs the
+webhook secret and listen address under Connections; until they are saved the dialog says so, and
+a routine saves but is given nothing. Every verified delivery is offered to the routines before
+the review source looks at it, whatever that makes of it. Only a conductor that runs routines
+keeps events, and one the conductor failed to store is logged as lost: GitHub was already
+answered.
+
 ### Examples: Linear through your own MCP server
 
 Two routines that need nothing from Podium beyond a schedule and an instruction. Both assume the
@@ -4231,6 +4315,13 @@ and adds "delegate the fix to `ci-fixer`, once per failing commit" to the instru
 state keeps which commits it handled and how many attempts each pull request has had, so a fix is
 attempted once per commit and three times per pull request at most. Run it against a sandbox
 repository first.
+
+**On the event instead of every ten minutes.** With **Runs → On a GitHub event** chosen, the same
+button fills the event version: it runs on `workflow_run.failed` alone, so a run starts only when
+a workflow has failed and is given that run — the pull request, the commit, the workflow and the
+link — rather than looking through every open pull request. The guard rails are the same, and a
+failure on no pull request (a push to a branch) is reported and left alone. Name the repositories
+under **Repositories** to keep it to them.
 
 ### Needs
 

@@ -484,3 +484,143 @@ func TestARoutineRunsInTheIssuesConversationAsItsOwner(t *testing.T) {
 		Conversation: true,
 	}))
 }
+
+// A routine on GitHub events that runs in each pull request's conversation runs as a turn of the
+// pull request's chat — github:<owner>/<name>#<n>, the one its reviews and web messages are in —
+// opened by the run when the review source has not, and as its routine's, never as whoever owns
+// that chat.
+func TestARoutineRunsInThePullRequestsConversationAsItsOwner(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	fake := newFakePodium(t)
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	require.NoError(t, err)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Mirror = web })
+
+	routine, err := st.CreateRoutine(ctx, testSpeaker, store.RoutineDraft{
+		Name: "Fix failing CI", Kind: store.RoutineKindGitHub, Events: []string{"workflow_run.failed"}, Timezone: "UTC",
+		Instruction: "Find out why the run failed.", ChatMode: store.RoutineChatModeSubject,
+	}, "")
+	require.NoError(t, err)
+	require.Empty(t, routine.ChatID)
+	_, err = st.StoreGitHubRoutineEvents(ctx, store.GitHubDelivery{
+		DeliveryID: "gh-1", Events: []string{"workflow_run.failed", "workflow_run.completed"}, Repo: "Acme/api",
+		SubjectKey: store.GitHubPullSubject("Acme/api", 42), SubjectTitle: "#42: Fix login", ReceivedAt: time.Now(),
+		Payload: []byte(`{"source":"github","type":"workflow_run","action":"completed",` +
+			`"data":{"repo":"Acme/api","workflow":"CI","pull_requests":[{"number":42}]}}`),
+	})
+	require.NoError(t, err)
+	subjects, err := st.PendingRoutineSubjects(ctx, routine.ID)
+	require.NoError(t, err)
+	require.Len(t, subjects, 1)
+	assert.Equal(t, "#42: Fix login", subjects[0].Title)
+	key := store.ConversationKey(subjects[0].Key)
+	require.Equal(t, "github:Acme/api#42", key)
+	conv, created, err := st.EnsureConversation(ctx, key, subjects[0].Title)
+	require.NoError(t, err)
+	require.True(t, created)
+	assert.Equal(t, store.OriginGitHub, conv.Origin)
+	assert.Equal(t, "#42: Fix login", conv.Title)
+	again, created, err := st.EnsureConversation(ctx, key, "other")
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, conv.ID, again.ID, "one chat per pull request, whoever opens it")
+	_, err = st.ClaimChatOwner(ctx, conv.ID, "bob@acme.com")
+	require.NoError(t, err)
+
+	run, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now(), store.RoutineTriggerEvent, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = st.AttachRoutineSubjectEvents(ctx, run.ID, routine.ID, subjects[0].Key, 20)
+	require.NoError(t, err)
+	require.NoError(t, st.SetRoutineRunChat(ctx, run.ID, conv.ID))
+	require.NoError(t, st.NoteRoutineReader(ctx, key, conv.ID, testSpeaker))
+	role, err := st.ChatRole(ctx, conv.ID, testSpeaker)
+	require.NoError(t, err)
+	assert.Equal(t, store.RoleViewer, role, "the routine's owner reads the conversation their routine ran in")
+	ran, err := st.RoutineRanInChat(ctx, conv.ID)
+	require.NoError(t, err)
+	assert.True(t, ran)
+
+	sess, err := st.GetSessionByKey(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, store.OriginGitHub, sess.SourceKind, "the review source's session")
+	turn, err := st.CreateTurnFor(ctx, sess.ID, conv.ID, testSpeaker, store.Backend{})
+	require.NoError(t, err)
+	require.NoError(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: conv.ID, Login: testSpeaker, Instruction: routine.Instruction, RoutineID: routine.ID, RunID: run.ID,
+		Conversation: true,
+	}))
+	ev := <-web.Events()
+	assert.Equal(t, key, ev.SourceKey, "a turn of the pull request's session")
+	assert.Equal(t, testSpeaker, ev.Login, "as the routine's owner, not the chat's")
+	r.cond.NoteRoutineTurnForTest(ctx, turn.ID, ev)
+	token, err := r.cond.MintChatTurnTokenForTest(web, sess.ID, turn.ID, conv.ID, testSpeaker)
+	require.NoError(t, err)
+
+	b := r.cond.BriefRoutineForTest(ctx, web, ev)
+	require.NotNil(t, b)
+	assert.True(t, b.GitHub)
+	require.Len(t, b.Events, 1)
+	assert.Equal(t, "workflow_run.failed", b.Events[0].Event)
+
+	_, err = r.cond.FinishRoutine(ctx, token, conductor.RoutineFinishRequest{Status: "done", Summary: "Proposed a fix."})
+	require.NoError(t, err)
+	r.cond.PostForTest(ctx, web, conv.ID, conductor.Outbound{Type: conductor.OutFinal, Text: "The login test times out."})
+	msgs, err := st.ListChatMessages(ctx, conv.ID, 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, msgs)
+	assert.Contains(t, msgs[0].Text, "GitHub: workflow “CI” failed on Acme/api#42")
+	assert.Equal(t, "The login test times out.", msgs[len(msgs)-1].Text)
+}
+
+// A system routine's run in a pull request's conversation still reads GitHub as the App: it is
+// found by its run, not by the chat, which is the pull request's and no routine's.
+func TestASystemRoutinesRunInAPullRequestsConversationReadsAsTheApp(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	fake := newFakePodium(t)
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	require.NoError(t, err)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Mirror = web })
+
+	routine, err := st.CreateSystemRoutine(ctx, "admin@acme.com", store.RoutineDraft{
+		Name: "Fix failing CI", Kind: store.RoutineKindGitHub, Events: []string{"workflow_run.failed"}, Timezone: "UTC",
+		Instruction: "Find out why the run failed.", ChatMode: store.RoutineChatModeSubject,
+	})
+	require.NoError(t, err)
+	key := store.GitHubPullKey("acme/api", 42)
+	conv, _, err := st.EnsureConversation(ctx, key, "#42: Fix login")
+	require.NoError(t, err)
+	run, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now(), store.RoutineTriggerEvent, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	sess, err := st.GetSessionByKey(ctx, key)
+	require.NoError(t, err)
+	turn, err := st.CreateTurnFor(ctx, sess.ID, conv.ID, "", store.Backend{})
+	require.NoError(t, err)
+	require.NoError(t, web.RunRoutine(ctx, chat.RoutineRun{
+		ChatID: conv.ID, Instruction: routine.Instruction, RoutineID: routine.ID, RunID: run.ID,
+		System: true, Conversation: true,
+	}))
+	ev := <-web.Events()
+	r.cond.NoteRoutineTurnForTest(ctx, turn.ID, ev)
+	token, err := r.cond.MintChatTurnTokenForTest(web, sess.ID, turn.ID, conv.ID, "")
+	require.NoError(t, err)
+
+	got, err := r.cond.SystemRoutineForTest(ctx, token)
+	require.NoError(t, err, "the run is its system routine's, though the chat is the pull request's")
+	assert.Equal(t, routine.ID, got.ID)
+
+	// A person's own message in that conversation is no system routine's.
+	plain, err := st.CreateTurnFor(ctx, sess.ID, conv.ID, testSpeaker, store.Backend{})
+	require.NoError(t, err)
+	other, err := r.cond.MintChatTurnTokenForTest(web, sess.ID, plain.ID, conv.ID, testSpeaker)
+	require.NoError(t, err)
+	_, err = r.cond.SystemRoutineForTest(ctx, other)
+	assert.Error(t, err)
+}

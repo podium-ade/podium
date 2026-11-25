@@ -26,23 +26,45 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
   };
 }
 
-/** Trigger is what starts a routine's runs: its schedule, or Linear events. */
-export type Trigger = "schedule" | "linear";
+/** Trigger is what starts a routine's runs: its schedule, Linear events, or GitHub events. */
+export type Trigger = "schedule" | "linear" | "github";
 
 /**
- * ChatMode is where a routine on Linear events runs: all in its own chat, or in each ticket's
- * conversation — the one every agent session on the issue is a turn of.
+ * ChatMode is where a routine on events runs: all in its own chat, or in each ticket's or pull
+ * request's conversation — the one every agent session on a Linear issue is a turn of, or the
+ * chat a pull request's reviews are in.
  */
 export type ChatMode = "routine" | "subject";
 
-/** perTicket is a routine on Linear events whose runs each happen in the conversation of the ticket they are about. */
+/**
+ * perTicket is a routine on events whose runs each happen in the conversation of what they are
+ * about: a Linear ticket's, or a pull request's.
+ */
 export function perTicket(r: Pick<Routine, "trigger" | "chatMode">): boolean {
-  return isLinear(r) && r.chatMode === "subject";
+  return onEvents(r) && r.chatMode === "subject";
+}
+
+/** perTicketText says where such a routine's runs are, after what it runs on: "in each pull request’s chat". */
+export function perTicketText(r: Pick<Routine, "trigger">): string {
+  return isGitHub(r) ? "in each pull request’s chat" : "in each ticket’s conversation";
 }
 
 /** isLinear is a routine that runs on Linear events instead of a schedule. */
 export function isLinear(r: Pick<Routine, "trigger">): boolean {
   return r.trigger === "linear";
+}
+
+/** isGitHub is a routine that runs on events the GitHub App's webhook delivers instead of a schedule. */
+export function isGitHub(r: Pick<Routine, "trigger">): boolean {
+  return r.trigger === "github";
+}
+
+/**
+ * onEvents is a routine that runs when its events arrive, from Linear or GitHub: it has no
+ * schedule, no next run and nothing to run by hand, and what it has instead is the events waiting.
+ */
+export function onEvents(r: Pick<Routine, "trigger">): boolean {
+  return isLinear(r) || isGitHub(r);
 }
 
 /** LINEAR_TYPES are the Linear entities a routine can run on, as the server lists them, with their names in words. */
@@ -76,15 +98,62 @@ export function teamKeys(text: string): string[] {
   return [...new Set(keys)];
 }
 
-/** runsText says when a routine runs: "Runs every day at 09:00", "Runs on Linear: issue created (ENG)". */
+/**
+ * GitHubGroup is a kind of GitHub event, as the editor lists them: CI results, pull requests, and
+ * issues.
+ */
+export type GitHubGroup = "CI" | "Pull requests" | "Issues";
+
+/**
+ * GITHUB_EVENTS is every GitHub event a routine can run on, as the server names it, with a plain
+ * label and its group. A hint says more where the label alone could be misread.
+ */
+export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; hint?: string }[] = [
+  {
+    event: "workflow_run.failed",
+    label: "Workflow run failed",
+    group: "CI",
+    hint: "Failed, timed out or could not start.",
+  },
+  { event: "workflow_run.completed", label: "Workflow run completed", group: "CI" },
+  { event: "check_suite.failed", label: "Check suite failed", group: "CI" },
+  { event: "check_suite.completed", label: "Check suite completed", group: "CI" },
+  { event: "pull_request.opened", label: "Pull request opened", group: "Pull requests" },
+  { event: "pull_request.ready_for_review", label: "Pull request ready for review", group: "Pull requests" },
+  { event: "pull_request.synchronize", label: "Pull request got new commits", group: "Pull requests" },
+  { event: "pull_request.merged", label: "Pull request merged", group: "Pull requests" },
+  { event: "pull_request.closed", label: "Pull request closed", group: "Pull requests" },
+  { event: "pull_request_review.submitted", label: "Review submitted", group: "Pull requests" },
+  { event: "issues.opened", label: "Issue opened", group: "Issues" },
+];
+
+/** GITHUB_GROUPS are the groups of GITHUB_EVENTS, in the order the editor shows them. */
+export const GITHUB_GROUPS: GitHubGroup[] = ["CI", "Pull requests", "Issues"];
+
+/**
+ * repoNames reads the Repositories field: owner/name or a whole owner each, comma- or
+ * space-separated, lower case, each once.
+ */
+export function repoNames(text: string): string[] {
+  const names = text
+    .split(/[\s,]+/)
+    .map((n) => n.trim().toLowerCase())
+    .filter((n) => n !== "");
+  return [...new Set(names)];
+}
+
+/**
+ * runsText says when a routine runs: "Runs every day at 09:00", "Runs on Linear: issue created (ENG)",
+ * "Runs on GitHub: workflow run failed (acme/api)".
+ */
 export function runsText(r: Pick<Routine, "trigger" | "scheduleText">): string {
-  if (isLinear(r)) {
+  if (onEvents(r)) {
     return `Runs ${r.scheduleText.charAt(0).toLowerCase()}${r.scheduleText.slice(1)}`;
   }
   return `Runs ${r.scheduleText}`;
 }
 
-/** waitingText is how many Linear events wait for a routine's next run, in words. */
+/** waitingText is how many events wait for a routine's next run, in words. */
 export function waitingText(n: number): string {
   if (n <= 0) return "none";
   return n === 1 ? "1 event" : `${n} events`;
@@ -120,14 +189,39 @@ export const CI_FIXER: Pick<RoutineDraft, "name" | "instruction" | "notes" | "sc
   notes: "- Never fix CI by disabling a lint rule or skipping a test.",
 };
 
+/**
+ * CI_FIXER_ON_GITHUB is CI_FIXER for a routine on GitHub events: instead of looking for failed
+ * checks every few minutes, each run is given the workflow runs that failed since the last one.
+ * The guard rails are the same.
+ */
+export const CI_FIXER_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "notes" | "events"> = {
+  name: "Fix failing CI",
+  events: ["workflow_run.failed"],
+  instruction: [
+    "Each event in this run is a GitHub Actions workflow run that failed.",
+    "",
+    "For each one on a pull request:",
+    "1. Skip it if the same workflow also fails on the pull request's base branch — the fault is not in the pull request. Say so once.",
+    "2. Skip it if the state shows you already handled this commit (key: owner/repo#number@sha).",
+    "3. Skip it, and say you are giving up, if the state shows 3 attempts on this pull request already.",
+    "4. Read the failed job's log and work out the smallest change that fixes it.",
+    "5. Propose it: comment on the pull request with what failed, why, and the change you would make. Do not push anything.",
+    "",
+    "A failure on no pull request — a push to a branch — is reported, and nothing else is done about it.",
+    "",
+    "Record every commit you handled and the attempts per pull request in the state. Finish idle when every event was already handled.",
+  ].join("\n"),
+  notes: CI_FIXER.notes,
+};
+
 /** routineChatPath is the address of a routine's chat, under its assistant when it has one. */
 export function routineChatPath(r: Pick<Routine, "personalityId" | "chatId">): string {
   return r.personalityId ? `/agent/chat/a/${r.personalityId}/${r.chatId}` : `/agent/chat/${r.chatId}`;
 }
 
 /**
- * routinePath is where a routine is opened: its chat, or — for a routine on Linear events that
- * has none, because it runs in each ticket's conversation or has not run yet — its own page.
+ * routinePath is where a routine is opened: its chat, or — for a routine on events that has none,
+ * because it runs in each ticket's conversation or has not run yet — its own page.
  */
 export function routinePath(r: Pick<Routine, "id" | "personalityId" | "chatId">): string {
   return r.chatId ? routineChatPath(r) : `/agent/routines/${r.id}`;
@@ -158,8 +252,9 @@ export function money(usd: number): string {
 /** routineStatus is a routine's state in a few words: running, its next run, or why it is paused. */
 export function routineStatus(r: Routine): string {
   if (r.running) return "Running now";
-  if (r.enabled && isLinear(r)) {
-    return r.pendingEvents > 0 ? `${waitingText(r.pendingEvents)} waiting` : "Waiting for Linear events";
+  if (r.enabled && onEvents(r)) {
+    if (r.pendingEvents > 0) return `${waitingText(r.pendingEvents)} waiting`;
+    return isGitHub(r) ? "Waiting for GitHub events" : "Waiting for Linear events";
   }
   if (r.enabled) return `Next ${upcoming(r.nextRunAt)}`;
   if (r.pausedUntil) return `Paused until ${upcoming(r.pausedUntil)}`;

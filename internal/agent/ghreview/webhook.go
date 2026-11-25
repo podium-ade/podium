@@ -72,6 +72,9 @@ func (s *Source) serveWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Routines on GitHub events are offered every delivery, whatever the review source makes
+	// of it: a failed workflow run is nothing to review and all a CI routine needs.
+	s.keepForRoutines(r.Context(), event, delivery, body)
 	s.handleDelivery(r.Context(), event, delivery, body)
 	w.WriteHeader(http.StatusOK)
 }

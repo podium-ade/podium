@@ -340,6 +340,23 @@ SAML is not implemented.
   control, exactly as for the ticket text above. A change the app made itself never reaches a
   routine, and more than 60 event runs in an hour pause one, so a routine that edits what it
   watches cannot run itself without end.
+- **A routine on GitHub events is for admins and owners only, for the same reason.** The GitHub
+  App's webhook delivers every workflow run, check suite, pull request, review and issue in every
+  repository the App is installed on, and a member's routine would read repositories the member
+  cannot; the API refuses anybody else. Limiting it to repositories narrows what it is given and
+  is not an access control. What a GitHub event carries — a pull request's title and body, a
+  review, an issue, a branch name, a commit message — was written by **anybody who can push to or
+  comment on those repositories**, which on a public repository is anybody at all, and the brief
+  fences it as data from GitHub exactly as it does Linear's. A "fix failing CI" routine whose fix
+  playbook can push is the sharpest case: a contributor's pull request decides what the failing
+  test says. Keep such a routine to repositories whose contributors you trust, start it proposing
+  rather than pushing, and let its state cap the attempts. A pull request, review or issue the App
+  made itself never reaches a routine; a workflow run its own push started does, deliberately, and
+  the 60-runs-an-hour pause bounds a fix that keeps failing. By default a run is a turn of the pull
+  request's own chat, which holds its reviews and whatever anybody wrote there: that is more of
+  the same untrusted text in the run's context, not less. Its owner is given a viewer's row on
+  each such chat, and admins read the ones a routine ran in — read access to a conversation about
+  a repository the App already reads, never write.
 - **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium

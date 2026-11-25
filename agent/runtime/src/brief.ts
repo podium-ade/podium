@@ -147,7 +147,7 @@ const unavailableMcpServerSchema = z.strictObject({
   reason: z.string().min(1),
 });
 
-// One Linear event a routine's run was given (internal/agent/conductor/routine_events.go).
+// One Linear or GitHub event a routine's run was given (internal/agent/conductor/routine_events.go).
 const routineEventSchema = z.strictObject({
   event: z.string().min(1),
   label: z.string(),
@@ -350,12 +350,13 @@ const briefSchema = z.strictObject({
       instruction_changed_at: z.string().optional(),
       // A system routine runs as nobody: admins set it up, and it reads GitHub as the App.
       system: z.boolean().optional(),
-      // A routine that runs on Linear events instead of a schedule; schedule then names the
-      // events in words. by_hand is a run of one started from its card, with no events.
+      // A routine that runs on Linear or GitHub events instead of a schedule; schedule then
+      // names the events in words. by_hand is a run of one started from its card, with no events.
       linear: z.boolean().optional(),
+      github: z.boolean().optional(),
       by_hand: z.boolean().optional(),
-      // The Linear events this run was given, oldest first. Everything in them but event and
-      // at was written by people in Linear: data, never instructions.
+      // The events this run was given, oldest first. Everything in them but event and at was
+      // written by people in Linear or GitHub: data, never instructions.
       events: z.array(routineEventSchema).optional(),
     })
     .optional(),

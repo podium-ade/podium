@@ -391,15 +391,19 @@ message Routine {
   string created_by = 27;
   // last_run_status is the latest run's status that was not skipped, "" before the first.
   string last_run_status = 28;
-  // trigger is what starts the routine's runs: "schedule" (schedule and timezone) or
-  // "linear" (Linear events). A linear routine has no schedule and no next_run_at, and its
-  // schedule_text names the events ("On Linear: issue created (ENG)").
+  // trigger is what starts the routine's runs: "schedule" (schedule and timezone), "linear"
+  // (Linear events) or "github" (GitHub App events). A routine on events has no schedule and no
+  // next_run_at, and its schedule_text names the events ("On Linear: issue created (ENG)", "On
+  // GitHub: workflow run failed (acme/api)").
   string trigger = 29;
-  // events are a linear routine's Linear events, "<Type>.<action>" each ("Issue.create").
+  // events are a routine on events' events: Linear's, "<Type>.<action>" each ("Issue.create"),
+  // or GitHub's, "<event>.<action>" each ("workflow_run.failed").
   repeated string events = 30;
-  // teams are the Linear team keys a linear routine is limited to; empty is every team.
+  // teams is what a routine on events is limited to; empty is everything. A linear routine's
+  // are Linear team keys; a github routine's are repositories, "owner/name" or an owner for all
+  // of theirs, lower case.
   repeated string teams = 31;
-  // pending_events is how many Linear events wait for the routine's next run.
+  // pending_events is how many events wait for the routine's next run.
   int32 pending_events = 32;
   // chat_mode is where a linear routine's runs happen: "routine" (every run in chat_id) or
   // "subject" (in each ticket's conversation: an issue's or project's events run as a turn in
@@ -442,8 +446,9 @@ message RoutineDraft {
   repeated string repos = 9;
   // daily_cap_usd: see Routine. 0 is no cap of its own.
   double daily_cap_usd = 10;
-  // trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear"
-  // draft names at least one event and no schedule, and only admins and owners may save one.
+  // trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear" or
+  // "github" draft names at least one event and no schedule, and only admins and owners may
+  // save one.
   string trigger = 11;
   repeated string events = 12;
   repeated string teams = 13;

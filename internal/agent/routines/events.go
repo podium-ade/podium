@@ -64,7 +64,7 @@ func (s *Scheduler) fireEvents(ctx context.Context) {
 // fireEvent runs one linear routine with the events waiting for it, or leaves them waiting and
 // says why.
 func (s *Scheduler) fireEvent(ctx context.Context, r store.Routine, now time.Time) {
-	if !r.OnLinear() || !r.Enabled {
+	if !r.OnEvents() || !r.Enabled {
 		return
 	}
 	if dropped, err := s.events.CapPendingRoutineEvents(ctx, r.ID, MaxPendingEvents); err != nil {
@@ -163,7 +163,7 @@ func (s *Scheduler) startEventRun(ctx context.Context, r store.Routine, now time
 	cr := chatRun(target, run)
 	if conversation {
 		cr.Conversation = true
-		cr.Instruction = ConversationPreamble + cr.Instruction
+		cr.Instruction = preambleFor(subjectKey(sub)) + cr.Instruction
 	}
 	if err := s.runner.RunRoutine(ctx, cr); err != nil {
 		s.releaseEvents(ctx, run.ID)
@@ -202,7 +202,7 @@ func subjectKey(sub *store.RoutineSubject) string {
 	if sub == nil {
 		return ""
 	}
-	return store.LinearConversationKey(sub.Key)
+	return store.ConversationKey(sub.Key)
 }
 
 // routineChat is r's own chat, opened now when it has none.

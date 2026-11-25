@@ -22,14 +22,14 @@ import (
 type fakeSubjects struct {
 	ev       *fakeEvents
 	about    map[int]string
-	convs    map[string]string // conversation key -> chat
-	people   map[string][]store.LinearPerson
-	runChats map[string]string // run -> chat
+	convs    map[string]string   // conversation key -> chat
+	readers  map[string][]string // conversation key -> owners recorded as reading it
+	runChats map[string]string   // run -> chat
 }
 
 func newFakeSubjects(ev *fakeEvents) *fakeSubjects {
 	return &fakeSubjects{
-		ev: ev, about: map[int]string{}, convs: map[string]string{}, people: map[string][]store.LinearPerson{},
+		ev: ev, about: map[int]string{}, convs: map[string]string{}, readers: map[string][]string{},
 		runChats: map[string]string{},
 	}
 }
@@ -80,21 +80,25 @@ func (f *fakeSubjects) AttachRoutineSubjectEvents(_ context.Context, run, routin
 	return n, nil
 }
 
-func (f *fakeSubjects) EnsureLinearConversation(_ context.Context, key, title string) (store.Chat, bool, error) {
+func (f *fakeSubjects) EnsureConversation(_ context.Context, key, title string) (store.Chat, bool, error) {
 	f.ev.st.mu.Lock()
 	defer f.ev.st.mu.Unlock()
+	origin := store.OriginLinear
+	if store.IsGitHubConversation(key) {
+		origin = store.OriginGitHub
+	}
 	if id, ok := f.convs[key]; ok {
-		return store.Chat{ID: id, SourceKey: key, Origin: store.OriginLinear}, false, nil
+		return store.Chat{ID: id, SourceKey: key, Origin: origin}, false, nil
 	}
 	id := "chat_" + key
 	f.convs[key] = id
-	return store.Chat{ID: id, SourceKey: key, Origin: store.OriginLinear, Title: title}, true, nil
+	return store.Chat{ID: id, SourceKey: key, Origin: origin, Title: title}, true, nil
 }
 
-func (f *fakeSubjects) RecordLinearPeople(_ context.Context, key string, people []store.LinearPerson, _ time.Time) error {
+func (f *fakeSubjects) NoteRoutineReader(_ context.Context, key, _, login string) error {
 	f.ev.st.mu.Lock()
 	defer f.ev.st.mu.Unlock()
-	f.people[key] = append(f.people[key], people...)
+	f.readers[key] = append(f.readers[key], login)
 	return nil
 }
 
@@ -164,7 +168,7 @@ func TestEachTicketsEventsRunInItsConversationOneRunAtATime(t *testing.T) {
 	assert.Equal(t, []int{first, third}, []int{given[0].id, given[1].id})
 	assert.Equal(t, 1, sub.ev.waiting("rtn_triage"))
 	assert.Empty(t, st.routines["rtn_triage"].ChatID, "the routine opened no chat of its own")
-	assert.Empty(t, sub.people["linear:a"], "a system routine has no owner to record")
+	assert.Empty(t, sub.readers["linear:a"], "a system routine has no owner to record")
 
 	// While that run goes, the next ticket waits.
 	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())
@@ -201,7 +205,7 @@ func TestAProjectIsAConversationAndTheOwnerIsRecordedOnIt(t *testing.T) {
 	assert.Equal(t, "chat_linear:project:p", runner.runs[0].ChatID)
 	assert.Equal(t, "ana@acme.com", runner.runs[0].Login, "the run is its owner's, in whoever's conversation")
 	assert.Equal(t, "pers_ana", runner.runs[0].PersonalityID, "with the routine's assistant")
-	assert.Equal(t, []store.LinearPerson{{Login: "ana@acme.com", Via: store.LinearViaRoutine}}, sub.people["linear:project:p"])
+	assert.Equal(t, []string{"ana@acme.com"}, sub.readers["linear:project:p"])
 }
 
 // A conversation with a turn going — a delegation, somebody's mention, another routine — keeps
@@ -279,4 +283,33 @@ func TestARoutineInItsOwnChatOpensItOnItsFirstRun(t *testing.T) {
 	require.Len(t, runner.runs, 1)
 	assert.Equal(t, "chat_rtn_triage", runner.runs[0].ChatID)
 	assert.Equal(t, "chat_rtn_triage", st.routines[r.ID].ChatID)
+}
+
+// A routine on GitHub events in each pull request's conversation runs an event about a pull
+// request as a turn of that pull request's conversation — the chat its reviews are in — and an
+// event about none (a push to a branch) in its own chat.
+func TestAPullRequestsEventsRunInItsConversation(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	st, runner := newFakeStore(), &fakeRunner{}
+	sub := newFakeSubjects(&fakeEvents{st: st})
+	r := perTicket()
+	r.Kind, r.Events, r.Teams = store.RoutineKindGitHub, []string{"workflow_run.failed"}, nil
+	r.Scope, r.OwnerLogin = store.RoutineScopePersonal, "ana@acme.com"
+	st.routines[r.ID] = r
+	sub.add(r.ID, "PullRequest:Acme/api#42", now.Add(-2*time.Minute))
+	sub.add(r.ID, "", now.Add(-time.Minute))
+
+	newSubjectScheduler(t, sub, runner, now).Tick(context.Background())
+	require.Len(t, runner.runs, 1)
+	got := runner.runs[0]
+	assert.Equal(t, "chat_github:Acme/api#42", got.ChatID, "the pull request's conversation, keyed as its reviews are")
+	assert.True(t, got.Conversation)
+	assert.True(t, strings.HasPrefix(got.Instruction, PullRequestPreamble), "told it is a turn of the pull request's conversation")
+	assert.Equal(t, []string{"ana@acme.com"}, sub.readers["github:Acme/api#42"], "its owner may read it")
+
+	finish(st, got.RunID)
+	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())
+	require.Len(t, runner.runs, 2)
+	assert.False(t, runner.runs[1].Conversation, "a push to a branch is no pull request's: the routine's own chat")
+	assert.NotEmpty(t, st.routines[r.ID].ChatID, "opened for it")
 }

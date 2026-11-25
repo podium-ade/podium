@@ -119,6 +119,32 @@ describe("RoutineCard", () => {
     expect(screen.queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
   });
 
+  it("says a routine on GitHub events runs on them, and what is waiting instead of a next run", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({
+        schedule: "",
+        scheduleText: "On GitHub: workflow run failed (acme/api)",
+        timezone: "America/Toronto",
+        trigger: "github",
+        events: ["workflow_run.failed"],
+        teams: ["acme/api"],
+        nextRunAt: undefined,
+        pendingEvents: 0,
+        idleCount: 0,
+        chatId: "",
+      }),
+    });
+    mount(<RoutineCard routineId="rtn_1" />);
+
+    expect(await screen.findByText("Runs on GitHub: workflow run failed (acme/api)")).toBeInTheDocument();
+    expect(screen.queryByText(/America\/Toronto/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/in each ticket’s conversation/)).not.toBeInTheDocument();
+    const status = screen.getByTestId("routine-status");
+    expect(status).toHaveTextContent("Waiting for GitHub events");
+    expect(status).not.toHaveTextContent("Next");
+    expect(screen.queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
+  });
+
   it("shows why Podium paused it, and the note the agent proposed", async () => {
     getRoutine.mockResolvedValue({
       routine: routine({ enabled: false, pausedReason: "5 runs failed within an hour.", proposedNote: "skip drafts" }),
@@ -167,6 +193,25 @@ describe("RoutineCard", () => {
     expect(getRoutine).toHaveBeenCalledWith({ id: "rtn_1" });
     expect(screen.getByText("· in each ticket’s conversation", { exact: false })).toBeInTheDocument();
     expect(screen.queryByTestId("routine-chat-link")).not.toBeInTheDocument();
+  });
+
+  it("says a routine on GitHub events runs in each pull request's chat", async () => {
+    getRoutine.mockResolvedValue({
+      routine: routine({
+        schedule: "",
+        scheduleText: "On GitHub: workflow run failed",
+        trigger: "github",
+        events: ["workflow_run.failed"],
+        chatMode: "subject",
+        nextRunAt: undefined,
+        chatId: "",
+      }),
+    });
+    mount(<RoutineCard routineId="rtn_1" />);
+
+    expect(await screen.findByText("Runs on GitHub: workflow run failed")).toBeInTheDocument();
+    expect(screen.getByText("· in each pull request’s chat", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(/ticket’s conversation/)).not.toBeInTheDocument();
   });
 
   it("links the routine's own chat from its page once it has one", async () => {
@@ -303,9 +348,158 @@ describe("RoutineDialog", () => {
     );
   });
 
+  it("offers an admin a routine on GitHub events, with its events and repositories, in its own chat", async () => {
+    getConnections.mockResolvedValue({ github: { configured: true, reviews: false } });
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Fix CI", instruction: "Fix each failed run.", timezone: "UTC" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("routine-trigger-github"));
+    expect(screen.queryByTestId("schedule-summary")).not.toBeInTheDocument();
+    const field = screen.getByTestId("routine-github-events");
+    expect(within(field).getByRole("group", { name: "CI" })).toHaveTextContent("pick one of the two");
+    expect(within(field).getByRole("group", { name: "Pull requests" })).toBeInTheDocument();
+    expect(within(field).getByRole("group", { name: "Issues" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Review submitted" })).toBeInTheDocument();
+    // A run about a pull request joins the pull request's chat unless it is told otherwise.
+    expect(screen.getByTestId("routine-chat-mode-subject")).toHaveAttribute("data-state", "on");
+    expect(screen.getByTestId("routine-chat-mode-subject")).toHaveTextContent("The pull request’s chat");
+    expect(screen.getByTestId("routine-chat-mode-routine")).toHaveTextContent("A new chat");
+    expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent("where its reviews and everything said about it are");
+    // The spend cap's day is still counted in a timezone.
+    expect(screen.getByTestId("routine-timezone")).toBeInTheDocument();
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
+    expect(screen.getByText("Choose at least one GitHub event to save.")).toBeInTheDocument();
+
+    // No webhook, no deliveries: it says so and where, and still saves.
+    await waitFor(() => expect(screen.getByTestId("routine-github-hint")).toHaveTextContent("webhook is not set up"));
+    expect(screen.getByTestId("routine-github-hint")).toHaveClass("text-warn");
+    expect(within(screen.getByTestId("routine-github-hint")).getByRole("link", { name: "Connections" })).toHaveAttribute(
+      "href",
+      "/org/settings/connections",
+    );
+
+    await userEvent.click(screen.getByTestId("routine-event-check_suite.failed"));
+    await userEvent.click(screen.getByTestId("routine-event-workflow_run.failed"));
+    await userEvent.type(screen.getByTestId("routine-repos"), "Acme/API, acme  acme/api");
+    await userEvent.click(screen.getByTestId("routine-save"));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "github",
+          schedule: "",
+          events: ["workflow_run.failed", "check_suite.failed"],
+          teams: ["acme/api", "acme"],
+          chatMode: "subject",
+        }),
+        "personal",
+      ),
+    );
+  });
+
+  it("says which webhook events the GitHub App needs once its webhook is set up", async () => {
+    getConnections.mockResolvedValue({ github: { configured: true, reviews: true } });
+    mount(
+      <RoutineDialog open title="Routine" lockAssistant canChooseTrigger initial={{ trigger: "github" }} onClose={() => {}} onSave={vi.fn()} />,
+    );
+    const hint = screen.getByTestId("routine-github-hint");
+    await waitFor(() => expect(hint).toHaveTextContent("Workflow runs, Check suites, Pull requests"));
+    expect(hint).toHaveClass("text-muted");
+  });
+
+  it("never carries one source's events to the other", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{
+          name: "Triage",
+          instruction: "Label each new issue.",
+          timezone: "UTC",
+          trigger: "linear",
+          events: ["Issue.create"],
+          teams: ["ENG"],
+          chatMode: "subject",
+        }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("routine-trigger-github"));
+    expect(screen.getByTestId("routine-repos")).toHaveValue("");
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("routine-event-issues.opened"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        // GitHub's own default, whatever the Linear routine it came from ran in.
+        expect.objectContaining({ trigger: "github", events: ["issues.opened"], teams: [], chatMode: "subject" }),
+        "personal",
+      ),
+    );
+
+    // Back on Linear, what was chosen there is as it was.
+    await userEvent.click(screen.getByTestId("routine-trigger-linear"));
+    expect(screen.getByTestId("routine-event-Issue.create")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-teams")).toHaveValue("ENG");
+  });
+
+  it("opens a routine on GitHub events with its events and repositories", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{
+          name: "Fix CI",
+          instruction: "Fix each failed run.",
+          timezone: "UTC",
+          trigger: "github",
+          events: ["workflow_run.failed"],
+          teams: ["acme/api", "acme"],
+          chatMode: "routine",
+        }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-trigger-github")).toHaveAttribute("data-state", "on");
+    expect(screen.getByTestId("routine-event-workflow_run.failed")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-repos")).toHaveValue("acme/api, acme");
+    expect(screen.getByTestId("routine-chat-mode-routine")).toHaveAttribute("data-state", "on");
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "github",
+          events: ["workflow_run.failed"],
+          teams: ["acme/api", "acme"],
+          chatMode: "routine",
+        }),
+        "personal",
+      ),
+    );
+
+    // Moved to the pull request's chat, it says so and saves it.
+    await userEvent.click(screen.getByTestId("routine-chat-mode-subject"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ trigger: "github", chatMode: "subject" }), "personal"),
+    );
+  });
+
   it("does not offer Linear events to a person who is not an admin", () => {
     mount(<RoutineDialog open title="Routine" initial={{}} onClose={() => {}} onSave={async () => {}} />);
     expect(screen.queryByTestId("routine-trigger-linear")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("routine-trigger-github")).not.toBeInTheDocument();
     expect(screen.getByTestId("schedule-summary")).toBeInTheDocument();
   });
 
@@ -499,6 +693,34 @@ describe("RoutineDialog for an admin", () => {
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
         expect.objectContaining({ name: "Fix failing CI", repos: [], dailyCapUsd: 4.5, personalityId: "" }),
+        "system",
+      ),
+    );
+  });
+
+  it("starts a system routine on GitHub events from the template that waits for failed workflow runs", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine" canChooseScope canChooseTrigger initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
+    );
+    await userEvent.click(screen.getByTestId("routine-scope-system"));
+    await userEvent.click(screen.getByTestId("routine-trigger-github"));
+    await userEvent.click(screen.getByTestId("routine-template-ci"));
+    expect(screen.getByTestId("routine-name")).toHaveValue("Fix failing CI");
+    expect((screen.getByTestId("routine-instruction") as HTMLTextAreaElement).value).toContain(
+      "Each event in this run is a GitHub Actions workflow run that failed.",
+    );
+    expect(screen.getByTestId("routine-event-workflow_run.failed")).toHaveAttribute("data-state", "checked");
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Fix failing CI",
+          trigger: "github",
+          schedule: "",
+          events: ["workflow_run.failed"],
+          notes: "- Never fix CI by disabling a lint rule or skipping a test.",
+        }),
         "system",
       ),
     );

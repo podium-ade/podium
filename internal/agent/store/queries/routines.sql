@@ -245,23 +245,28 @@ select (coalesce((select sum(t.cost_usd) from turns t
 -- name: RunningRoutineRunOf :one
 select * from routine_runs where routine_id = @routine_id and status = 'running' order by created_at desc limit 1;
 
--- InsertRoutineEvents stores one Linear delivery for every enabled routine that asks for its
--- event, in its team when the routine names teams. It is one statement, so the webhook that
--- calls it does one round trip whatever the number of routines. A delivery stored before is
--- not stored again.
+-- InsertRoutineEvents stores one delivery for every enabled routine of @kind that asks for one
+-- of its events, in its scope when the routine names one: a Linear team key, or a GitHub
+-- repository or owner. @events is every name the delivery answers to, the most specific first
+-- ("workflow_run.failed" before "workflow_run.completed"), and each routine's row keeps the
+-- first it asked for. It is one statement, so the webhook that calls it does one round trip
+-- whatever the number of routines. A delivery stored before is not stored again.
 -- name: InsertRoutineEvents :execrows
 insert into routine_events (routine_id, delivery_id, event, payload, received_at, subject_key, subject_title)
-select r.id, @delivery_id::text, @event::text, @payload::jsonb, @received_at,
+select r.id, @delivery_id::text,
+       (select u.e from unnest(@events::text[]) with ordinality as u(e, i)
+         where u.e = any(r.events) order by u.i limit 1),
+       @payload::jsonb, @received_at,
        sqlc.narg('subject_key')::text, sqlc.narg('subject_title')::text
   from routines r
- where r.enabled and r.trigger_kind = 'linear' and @event::text = any(r.events)
-   and (cardinality(r.teams) = 0 or @team_key::text = any(r.teams))
+ where r.enabled and r.trigger_kind = @kind::text and r.events && @events::text[]
+   and (cardinality(r.teams) = 0 or r.teams && @scopes::text[])
 on conflict (routine_id, delivery_id) do nothing;
 
--- RoutinesWithPendingEvents is every enabled linear routine with an event waiting.
+-- RoutinesWithPendingEvents is every enabled routine on events with an event waiting.
 -- name: RoutinesWithPendingEvents :many
 select r.* from routines r
-where r.enabled and r.trigger_kind = 'linear'
+where r.enabled and r.trigger_kind in ('linear', 'github')
   and exists (select 1 from routine_events e where e.routine_id = r.id and e.run_id is null)
 order by r.id
 limit @page_limit::int;
@@ -345,3 +350,8 @@ where id in (
   limit @max::int
   for update skip locked
 );
+
+-- RoutineRanInChat reports whether any routine's run happened in a chat that is not its own:
+-- a pull request's conversation an admin may then read (docs/agent.md, "On a GitHub event").
+-- name: RoutineRanInChat :one
+select exists (select 1 from routine_runs where chat_id = @chat_id::text)::bool;

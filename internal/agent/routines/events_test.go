@@ -73,7 +73,7 @@ func (f *fakeEvents) RoutinesWithPendingEvents(context.Context, int) ([]store.Ro
 	defer f.st.mu.Unlock()
 	var out []store.Routine
 	for _, r := range f.st.routines {
-		if r.Enabled && r.OnLinear() && len(f.pending(r.ID)) > 0 {
+		if r.Enabled && r.OnEvents() && len(f.pending(r.ID)) > 0 {
 			out = append(out, r)
 		}
 	}

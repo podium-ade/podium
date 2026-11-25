@@ -172,3 +172,82 @@ func TestWaitingEventsAreCappedAndPruned(t *testing.T) {
 	assert.Equal(t, "b", given[0].DeliveryID)
 	assert.Equal(t, "c", given[1].DeliveryID)
 }
+
+func githubDelivery(id, repo string, events ...string) GitHubDelivery {
+	payload, _ := json.Marshal(map[string]any{
+		"source": "github", "type": "workflow_run", "action": "completed",
+		"data": map[string]any{"repo": repo, "workflow": "CI"},
+	})
+	return GitHubDelivery{DeliveryID: id, Events: events, Repo: repo, Payload: payload, ReceivedAt: time.Now().UTC()}
+}
+
+func TestAGitHubDeliveryIsKeptForEachRoutineThatAsksForItUnderTheNameItAskedFor(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	onFailures := githubDraft() // workflow_run.failed, pull_request.opened; acme/api, acme/web, globex
+	failures, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onFailures)
+	require.NoError(t, err)
+	assert.Empty(t, failures.ChatID, "a routine on GitHub events opens its chat on its first run")
+	onCompleted := githubDraft()
+	onCompleted.Events, onCompleted.Teams = []string{"workflow_run.completed"}, nil
+	completed, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onCompleted)
+	require.NoError(t, err)
+	both := githubDraft()
+	both.Events, both.Teams = []string{"workflow_run.completed", "workflow_run.failed"}, []string{"globex"}
+	bothRoutine, err := s.CreateSystemRoutine(ctx, "admin@acme.com", both)
+	require.NoError(t, err)
+	linear, err := s.CreateSystemRoutine(ctx, "admin@acme.com", linearDraft())
+	require.NoError(t, err)
+
+	failed := []string{"workflow_run.failed", "workflow_run.completed"}
+	n, err := s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-1", "Acme/API", failed...))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "the routine on failures in acme/api and the one on every completion; not globex's")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-1", "acme/api", failed...))
+	require.NoError(t, err)
+	assert.Zero(t, n, "a redelivery is kept once")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-2", "globex/site", failed...))
+	require.NoError(t, err)
+	assert.Equal(t, 3, n, "an owner named reaches every repository of theirs")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-3", "acme/api", "workflow_run.completed"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "a run that passed reaches only the routine on every completion")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-4", "acme/api", "Issue.create"))
+	require.NoError(t, err)
+	assert.Zero(t, n, "a Linear event name is no GitHub event")
+	n, err = s.StoreRoutineEvents(ctx, linearDelivery("g-5", "Issue.create", "ENG", time.Now()))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "a Linear delivery reaches the Linear routine alone")
+
+	pending, err := s.PendingRoutineEvents(ctx, []string{failures.ID, completed.ID, bothRoutine.ID, linear.ID})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{failures.ID: 2, completed.ID: 3, bothRoutine.ID: 1, linear.ID: 1}, pending)
+
+	// Each routine's row names the event it asked for, the most specific when it asked for both.
+	run, ok, err := s.ClaimRoutineRun(ctx, bothRoutine.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineEvents(ctx, run.ID, bothRoutine.ID, 20)
+	require.NoError(t, err)
+	got, err := s.RoutineEventsForRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "workflow_run.failed", got[0].Event)
+
+	run, ok, err = s.ClaimRoutineRun(ctx, completed.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineEvents(ctx, run.ID, completed.ID, 20)
+	require.NoError(t, err)
+	got, err = s.RoutineEventsForRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	for _, e := range got {
+		assert.Equal(t, "workflow_run.completed", e.Event)
+	}
+
+	waiting, err := s.RoutinesWithPendingEvents(ctx, 10)
+	require.NoError(t, err)
+	assert.Len(t, waiting, 2, "the routine on failures and the Linear one still have events waiting")
+}

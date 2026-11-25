@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -279,6 +280,99 @@ func TestARoutineOnLinearEventsIsAnAdminsToSet(t *testing.T) {
 	got, err := f.adminClient("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{Id: r.GetId()}))
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), got.Msg.GetRoutine().GetPendingEvents())
+}
+
+func ciDraft() *agentv1.RoutineDraft {
+	return &agentv1.RoutineDraft{
+		Name: "Fix failing CI", Timezone: "UTC", Trigger: store.RoutineKindGitHub,
+		Events: []string{"workflow_run.failed"}, Teams: []string{"Acme/API"},
+		Instruction: "Look at why each failed run failed, and propose the fix on its pull request.",
+	}
+}
+
+// A routine on GitHub events is an admin's to set, as one on Linear events is: the events carry
+// every repository the App is installed on. It has no schedule, no next run and no Run now, and
+// its runs are in its own chat.
+func TestARoutineOnGitHubEventsIsAnAdminsToSet(t *testing.T) {
+	ctx := context.Background()
+	f := newSharingFixture(t)
+
+	for _, scope := range []string{store.RoutineScopePersonal, store.RoutineScopeSystem} {
+		_, err := f.clientAs("bob").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+			Draft: ciDraft(), Scope: scope,
+		}))
+		assert.Equal(t, "permission_denied", codeOf(err), scope)
+	}
+
+	created, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+		Draft: ciDraft(), Scope: store.RoutineScopeSystem,
+	}))
+	require.NoError(t, err)
+	r := created.Msg.GetRoutine()
+	assert.Equal(t, store.RoutineKindGitHub, r.GetTrigger())
+	assert.Equal(t, []string{"workflow_run.failed"}, r.GetEvents())
+	assert.Equal(t, []string{"acme/api"}, r.GetTeams())
+	assert.Equal(t, "On GitHub: workflow run failed (acme/api)", r.GetScheduleText())
+	assert.Nil(t, r.GetNextRunAt())
+	assert.Empty(t, r.GetChatId(), "its chat is opened by its first run")
+
+	perPR := ciDraft()
+	perPR.ChatMode = store.RoutineChatModeSubject
+	inPRs, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{Draft: perPR}))
+	require.NoError(t, err, "it may run in each pull request's conversation")
+	assert.Equal(t, store.RoutineChatModeSubject, inPRs.Msg.GetRoutine().GetChatMode())
+	assert.Equal(t, "On GitHub: workflow run failed (acme/api)", inPRs.Msg.GetRoutine().GetScheduleText())
+
+	_, err = f.adminClient("alice").RunRoutineNow(ctx, connect.NewRequest(&agentv1.RunRoutineNowRequest{Id: r.GetId()}))
+	assert.Error(t, err, "it runs when its events arrive")
+
+	n, err := f.store.StoreGitHubRoutineEvents(ctx, store.GitHubDelivery{
+		DeliveryID: "gh-1", Events: []string{"workflow_run.failed", "workflow_run.completed"}, Repo: "acme/api",
+		Payload: []byte(`{"source":"github","type":"workflow_run","action":"completed","data":{"repo":"acme/api"}}`),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "both routines on failures in acme/api")
+	got, err := f.adminClient("alice").GetRoutine(ctx, connect.NewRequest(&agentv1.GetRoutineRequest{Id: r.GetId()}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), got.Msg.GetRoutine().GetPendingEvents())
+}
+
+// An admin reads a pull request's conversation once a routine has run in it — where a system
+// routine's runs are — and only reads it; one no routine ran in is no admin's to read.
+func TestAnAdminReadsAPullRequestsConversationARoutineRanIn(t *testing.T) {
+	ctx := context.Background()
+	f := newSharingFixture(t)
+
+	created, err := f.adminClient("alice").CreateRoutine(ctx, connect.NewRequest(&agentv1.CreateRoutineRequest{
+		Draft: func() *agentv1.RoutineDraft { d := ciDraft(); d.ChatMode = store.RoutineChatModeSubject; return d }(),
+		Scope: store.RoutineScopeSystem,
+	}))
+	require.NoError(t, err)
+	conv, _, err := f.store.EnsureConversation(ctx, store.GitHubPullKey("acme/api", 42), "#42: Fix login")
+	require.NoError(t, err)
+
+	role, err := f.svc.chatRole(adminCtx("alice"), conv, "alice")
+	require.NoError(t, err)
+	assert.Empty(t, role, "no routine has run in it")
+
+	run, ok, err := f.store.ClaimRoutineRun(ctx, created.Msg.GetRoutine().GetId(), time.Now(),
+		store.RoutineTriggerEvent, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, f.store.SetRoutineRunChat(ctx, run.ID, conv.ID))
+
+	role, err = f.svc.chatRole(adminCtx("alice"), conv, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, store.RoleViewer, role, "an admin reads the system routine's runs where they are")
+	role, err = f.svc.chatRole(ctx, conv, "bob")
+	require.NoError(t, err)
+	assert.Empty(t, role, "a member does not")
+	opened, err := f.svc.openChat(adminCtx("alice"), conv, "alice", "")
+	require.NoError(t, err)
+	assert.Equal(t, store.RoleViewer, opened)
+	grants, err := f.store.ListChatAccess(ctx, conv.ID)
+	require.NoError(t, err)
+	assert.Empty(t, grants, "reading it as an admin joins nobody to it")
 }
 
 // A routine on Linear events may run in each ticket's conversation, and then has no chat of its

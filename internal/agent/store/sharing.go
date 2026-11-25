@@ -51,6 +51,9 @@ const (
 const (
 	GrantedByLink    = "link"
 	GrantedByMembers = "members"
+	// GrantedByRoutine is a routine's owner let read the pull request's conversation their
+	// routine ran in (NoteRoutineReader).
+	GrantedByRoutine = "routine"
 )
 
 // ErrNoSuchMember is sharing with a login that has never signed in to Podium. A share is

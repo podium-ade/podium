@@ -102,7 +102,22 @@ func (s *AgentService) chatRole(ctx context.Context, c store.Chat, login string)
 		// what they may do in one beyond that is what their own part in it gives them.
 		return store.RoleViewer, nil
 	}
+	if err == nil && role == "" && Infra(ctx) && s.routineRanIn(ctx, c) {
+		// A pull request's conversation a routine ran in is where a system routine's runs are
+		// (0057), and admins read a system routine's runs: they read it, and only read it.
+		return store.RoleViewer, nil
+	}
 	return role, err
+}
+
+// routineRanIn reports whether c is a pull request's conversation a routine's run happened in.
+// A read that fails is no.
+func (s *AgentService) routineRanIn(ctx context.Context, c store.Chat) bool {
+	if !store.IsGitHubConversation(c.SourceKey) {
+		return false
+	}
+	ran, err := s.store.RoutineRanInChat(ctx, c.ID)
+	return err == nil && ran
 }
 
 // openChat is chatRole for somebody opening a chat, which is the one moment general access
@@ -122,6 +137,11 @@ func (s *AgentService) openChat(ctx context.Context, c store.Chat, login, linkTo
 	if store.IsLinearConversation(c.SourceKey) && role != "" && !validLinkToken(c, linkToken) {
 		// A Linear issue's conversation read by having touched the issue, or as an admin, is
 		// not joined either: who may read it follows the issue, not a row opening it wrote.
+		return role, nil
+	}
+	if store.IsGitHubConversation(c.SourceKey) && role == store.RoleViewer && Infra(ctx) &&
+		!validLinkToken(c, linkToken) && s.routineRanIn(ctx, c) {
+		// Nor is a pull request's conversation an admin reads because a routine ran in it.
 		return role, nil
 	}
 	via := ""

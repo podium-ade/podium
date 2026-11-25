@@ -26,10 +26,12 @@ const (
 	RoutineScopeSystem   = "system"
 )
 
-// What starts a routine's runs: its schedule, or Linear events (routine_events.go).
+// What starts a routine's runs: its schedule, Linear events or GitHub events
+// (routine_events.go).
 const (
 	RoutineKindSchedule = "schedule"
 	RoutineKindLinear   = "linear"
+	RoutineKindGitHub   = "github"
 )
 
 // Where a routine's runs happen (0047). Every run of a routine on a schedule is in its one
@@ -44,7 +46,7 @@ const (
 const (
 	RoutineTriggerSchedule = "schedule"
 	RoutineTriggerManual   = "manual"
-	// RoutineTriggerEvent is a run of a linear routine, started by the events it was given.
+	// RoutineTriggerEvent is a run of a routine on events, started by the events it was given.
 	RoutineTriggerEvent = "event"
 )
 
@@ -75,15 +77,16 @@ type Routine struct {
 	Scope      string
 	OwnerLogin string
 	Name       string
-	// Kind is RoutineKindSchedule or RoutineKindLinear: what starts its runs.
+	// Kind is RoutineKindSchedule, RoutineKindLinear or RoutineKindGitHub: what starts its runs.
 	Kind string
 	// Schedule is a five-field cron expression, read in Timezone. Empty for a linear routine,
 	// which keeps Timezone for its daily spend cap.
 	Schedule string
 	Timezone string
-	// Events are the Linear events a linear routine runs on, "Issue.create" each, and Teams
-	// the Linear team keys it is limited to, empty for every team. Both are empty for a
-	// routine on a schedule.
+	// Events are the events a routine on events runs on: Linear's ("Issue.create") or
+	// GitHub's ("workflow_run.failed"). Teams is what it is limited to, empty for everything:
+	// Linear team keys, or GitHub repositories ("owner/name") and owners. Both are empty for
+	// a routine on a schedule.
 	Events []string
 	Teams  []string
 	// ChatMode is RoutineChatModeRoutine or RoutineChatModeSubject: whether a linear routine's
@@ -130,9 +133,17 @@ func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
 // OnLinear reports whether the routine runs on Linear events rather than a schedule.
 func (r Routine) OnLinear() bool { return r.Kind == RoutineKindLinear }
 
-// PerSubject reports whether the routine's runs on Linear events each happen in the chat of
-// what the events are about, rather than all in its own chat.
-func (r Routine) PerSubject() bool { return r.OnLinear() && r.ChatMode == RoutineChatModeSubject }
+// OnGitHub reports whether the routine runs on GitHub events rather than a schedule.
+func (r Routine) OnGitHub() bool { return r.Kind == RoutineKindGitHub }
+
+// OnEvents reports whether the routine runs on events — Linear's or GitHub's — rather than a
+// schedule: it has no next run, nothing to run by hand, and runs with the events it is given.
+func (r Routine) OnEvents() bool { return r.OnLinear() || r.OnGitHub() }
+
+// PerSubject reports whether the routine's runs on events each happen in the conversation of
+// what the events are about — a Linear issue's or project's, a pull request's — rather than all
+// in its own chat.
+func (r Routine) PerSubject() bool { return r.OnEvents() && r.ChatMode == RoutineChatModeSubject }
 
 // When is what starts the routine's runs as its history records it: the cron expression, or
 // the Linear events in words. Nothing parses it.
@@ -140,11 +151,14 @@ func (r Routine) PerSubject() bool { return r.OnLinear() && r.ChatMode == Routin
 // Running in each ticket's conversation is part of it, so that switching it is a change the
 // history records.
 func (r Routine) When() string {
+	if r.PerSubject() && r.OnGitHub() {
+		return DescribeGitHubTrigger(r.Events, r.Teams) + " · in each pull request's conversation"
+	}
 	if r.PerSubject() {
 		return DescribeLinearTrigger(r.Events, r.Teams) + " · in each ticket's conversation"
 	}
-	if r.OnLinear() {
-		return DescribeLinearTrigger(r.Events, r.Teams)
+	if r.OnEvents() {
+		return DescribeEventTrigger(r.Kind, r.Events, r.Teams)
 	}
 	return r.Schedule
 }
@@ -153,8 +167,9 @@ func (r Routine) When() string {
 // worked out by the caller, which owns the cron arithmetic.
 type RoutineDraft struct {
 	Name string
-	// Kind is RoutineKindSchedule (or empty, which is the same) or RoutineKindLinear. A linear
-	// draft names Events and, optionally, Teams, and no Schedule.
+	// Kind is RoutineKindSchedule (or empty, which is the same), RoutineKindLinear or
+	// RoutineKindGitHub. A draft on events names Events and, optionally, Teams, and no
+	// Schedule.
 	Kind     string
 	Schedule string
 	Events   []string
@@ -305,7 +320,7 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		return Routine{}, err
 	}
 	var chatID *string
-	if d.Kind != RoutineKindLinear {
+	if d.Kind == RoutineKindSchedule {
 		chat, err := s.createChat(ctx, owner, d.Name, d.PersonalityID, personalityDisplay)
 		if err != nil {
 			return Routine{}, fmt.Errorf("create routine: open its chat: %w", err)
@@ -363,7 +378,7 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 		return Routine{}, err
 	}
 	var chatID *string
-	if d.Kind != RoutineKindLinear {
+	if d.Kind == RoutineKindSchedule {
 		id, err := s.createSystemRoutineChat(ctx, d.Name, actor)
 		if err != nil {
 			return Routine{}, fmt.Errorf("create system routine: open its chat: %w", err)
@@ -665,8 +680,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 	if revised(before, r) {
 		s.recordRevision(ctx, r, actor)
 	}
-	if r.ChatID == "" && !r.OnLinear() {
-		// A routine moved from Linear events to a schedule runs in its own chat, which it may
+	if r.ChatID == "" && !r.OnEvents() {
+		// A routine moved from events to a schedule runs in its own chat, which it may
 		// never have needed until now.
 		if chatID, _, err := s.EnsureRoutineChat(ctx, r); err == nil {
 			r.ChatID = chatID

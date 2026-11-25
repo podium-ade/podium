@@ -10,7 +10,9 @@ package api
 //
 // A routine that runs on Linear events is for admins and owners too, in either scope: the
 // events carry issues from every team the Linear app can see, so a member's routine would read
-// teams the member is not in. Only an admin may set a draft's trigger to Linear.
+// teams the member is not in. Only an admin may set a draft's trigger to Linear. GitHub events
+// are the same: they carry every repository the GitHub App is installed on, whatever the
+// member can read.
 
 import (
 	"context"
@@ -292,10 +294,10 @@ func (s *AgentService) ResumeRoutine(
 	if err != nil {
 		return nil, err
 	}
-	// A routine on Linear events has no schedule; the events that waited while it was paused
-	// run on the next tick.
+	// A routine on events has no schedule; the events that waited while it was paused run on
+	// the next tick.
 	next := time.Now()
-	if !r.OnLinear() {
+	if !r.OnEvents() {
 		sched, err := routines.Parse(r.Schedule, r.Timezone)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
@@ -482,7 +484,7 @@ func (s *AgentService) ListMemberRoutines(
 			Id: r.ID, Name: r.Name, OwnerLogin: r.OwnerLogin, ScheduleText: scheduleText(r),
 			Timezone: r.Timezone, Enabled: r.Enabled, PausedReason: r.PausedReason,
 		}
-		if !r.OnLinear() {
+		if !r.OnEvents() {
 			m.NextRunAt = timestamppb.New(r.NextRunAt)
 		}
 		if spend, err := s.store.RoutineSpendSince(ctx, r.ID, since); err == nil {
@@ -650,14 +652,19 @@ func (s *AgentService) routineDraft(
 	if strings.TrimSpace(d.Timezone) == "" {
 		d.Timezone = "UTC"
 	}
-	if d.Kind == store.RoutineKindLinear {
-		// Linear events carry issues from every team the app can see, so a routine on them is
-		// an admin's to set, whoever it runs as. It has no schedule to parse or floor to hold:
-		// how often it runs is what Linear sends, bounded by the scheduler's guards.
+	if d.Kind == store.RoutineKindLinear || d.Kind == store.RoutineKindGitHub {
+		// Linear events carry issues from every team the app can see, and GitHub events every
+		// repository the App is installed on, so a routine on them is an admin's to set,
+		// whoever it runs as. It has no schedule to parse or floor to hold: how often it runs
+		// is what the events are, bounded by the scheduler's guards.
 		if !Infra(ctx) {
-			return store.RoutineDraft{}, "", connect.NewError(connect.CodePermissionDenied,
-				errors.New("only admins and owners can set a routine to run on Linear events: they carry issues "+
-					"from every team the Linear app can see"))
+			why := "only admins and owners can set a routine to run on Linear events: they carry issues " +
+				"from every team the Linear app can see"
+			if d.Kind == store.RoutineKindGitHub {
+				why = "only admins and owners can set a routine to run on GitHub events: they carry every " +
+					"repository the GitHub App is installed on"
+			}
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodePermissionDenied, errors.New(why))
 		}
 		if _, err := time.LoadLocation(strings.TrimSpace(d.Timezone)); err != nil {
 			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
@@ -698,15 +705,15 @@ func (s *AgentService) routineDraft(
 
 // scheduleText is what starts a routine's runs, in words.
 func scheduleText(r store.Routine) string {
-	if r.OnLinear() {
-		return store.DescribeLinearTrigger(r.Events, r.Teams)
+	if r.OnEvents() {
+		return store.DescribeEventTrigger(r.Kind, r.Events, r.Teams)
 	}
 	return routines.Describe(r.Schedule)
 }
 
 // triggerDetails adds what starts a routine's runs to an audit entry's details.
 func triggerDetails(r store.Routine, details map[string]any) map[string]any {
-	if r.OnLinear() {
+	if r.OnEvents() {
 		details["trigger"], details["events"], details["teams"] = r.Kind, r.Events, r.Teams
 		details["chat_mode"] = r.ChatMode
 		return details
@@ -766,8 +773,8 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		Repos:         r.Repos,
 		CreatedBy:     r.CreatedBy,
 	}
-	if r.OnLinear() {
-		// Its runs come when Linear's events do; there is no next one to name.
+	if r.OnEvents() {
+		// Its runs come when its events do; there is no next one to name.
 		if pending, err := s.store.PendingRoutineEvents(ctx, []string{r.ID}); err == nil {
 			out.PendingEvents = int32(pending[r.ID])
 		}

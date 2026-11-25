@@ -95,6 +95,35 @@ describe("RoutinesPanel", () => {
     expect(within(row).getByRole("button", { name: /pause/i })).toBeInTheDocument();
   });
 
+  it("shows what waits for a routine on GitHub events, and opens its page until its first run", async () => {
+    listRoutines.mockResolvedValue({
+      routines: [
+        routine({
+          schedule: "",
+          scheduleText: "On GitHub: workflow run failed (acme/api)",
+          trigger: "github",
+          events: ["workflow_run.failed"],
+          teams: ["acme/api"],
+          nextRunAt: undefined,
+          pendingEvents: 1,
+          timezone: "Europe/Madrid",
+          chatId: "",
+        }),
+      ],
+    });
+    mount();
+
+    const row = await screen.findByTestId("routine-row");
+    expect(row).toHaveTextContent("Runs on GitHub: workflow run failed (acme/api)");
+    expect(row).not.toHaveTextContent("Europe/Madrid");
+    expect(row).not.toHaveTextContent("in each ticket’s conversation");
+    const status = within(row).getByTestId("routine-row-status");
+    expect(status).toHaveTextContent("Waiting1 event");
+    expect(status).not.toHaveTextContent("Next run");
+    expect(within(row).queryByRole("button", { name: /run now/i })).not.toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "PR digest" })).toHaveAttribute("href", "/agent/routines/rtn_1");
+  });
+
   it("says when a routine on Linear events runs in each ticket's conversation, and opens its page when it has no chat", async () => {
     listRoutines.mockResolvedValue({
       routines: [

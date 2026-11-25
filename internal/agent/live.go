@@ -97,7 +97,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 	var gh *ghreview.Source
 	if cfg.GitHubSourceEnabled() {
 		var err error
-		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger)
+		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger, l.githubRoutineEvents)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -580,6 +580,15 @@ func (l *liveConnections) LinearDataChange(ctx context.Context, d agentlinear.Da
 	})
 }
 
+// githubRoutineEvents keeps a GitHub App delivery for the routines that run on it. Like a Linear
+// data change, it is kept only where routines run, which is asked when it arrives.
+func (l *liveConnections) githubRoutineEvents(ctx context.Context, d store.GitHubDelivery) (int, error) {
+	if l.store == nil || !l.routinesRun {
+		return 0, nil
+	}
+	return l.store.StoreGitHubRoutineEvents(ctx, d)
+}
+
 // linearRevoked records on the saved app that Linear revoked it, so Settings → Connections
 // says so until it is saved again.
 func (l *liveConnections) linearRevoked(clientID string) func(context.Context) {
@@ -615,6 +624,7 @@ func (l *liveConnections) githubSource() *ghreview.Source {
 // Slack bound to a review.
 func newGitHubSource(
 	cfg config.Config, st *store.Store, slack *agentslack.Source, hooks *webhooks.Server, logger *slog.Logger,
+	routines ghreview.RoutineSink,
 ) (*ghreview.Source, error) {
 	pem, err := cfg.GitHubAppPrivateKey()
 	if err != nil {
@@ -640,6 +650,7 @@ func newGitHubSource(
 		Listen:        cfg.GitHubWebhookListen,
 		Serve:         serve,
 		Slack:         bridge,
+		Routines:      routines,
 		Logger:        logger,
 		TaskURL: func(taskID string) string {
 			if taskID == "" {

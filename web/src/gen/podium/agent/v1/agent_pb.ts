@@ -195,30 +195,34 @@ export type Routine = Message<"podium.agent.v1.Routine"> & {
   lastRunStatus: string;
 
   /**
-   * trigger is what starts the routine's runs: "schedule" (schedule and timezone) or
-   * "linear" (Linear events). A linear routine has no schedule and no next_run_at, and its
-   * schedule_text names the events ("On Linear: issue created (ENG)").
+   * trigger is what starts the routine's runs: "schedule" (schedule and timezone), "linear"
+   * (Linear events) or "github" (GitHub App events). A routine on events has no schedule and no
+   * next_run_at, and its schedule_text names the events ("On Linear: issue created (ENG)", "On
+   * GitHub: workflow run failed (acme/api)").
    *
    * @generated from field: string trigger = 29;
    */
   trigger: string;
 
   /**
-   * events are a linear routine's Linear events, "<Type>.<action>" each ("Issue.create").
+   * events are a routine on events' events: Linear's, "<Type>.<action>" each ("Issue.create"),
+   * or GitHub's, "<event>.<action>" each ("workflow_run.failed").
    *
    * @generated from field: repeated string events = 30;
    */
   events: string[];
 
   /**
-   * teams are the Linear team keys a linear routine is limited to; empty is every team.
+   * teams is what a routine on events is limited to; empty is everything. A linear routine's
+   * are Linear team keys; a github routine's are repositories, "owner/name" or an owner for all
+   * of theirs, lower case.
    *
    * @generated from field: repeated string teams = 31;
    */
   teams: string[];
 
   /**
-   * pending_events is how many Linear events wait for the routine's next run.
+   * pending_events is how many events wait for the routine's next run.
    *
    * @generated from field: int32 pending_events = 32;
    */
@@ -377,8 +381,9 @@ export type RoutineDraft = Message<"podium.agent.v1.RoutineDraft"> & {
   dailyCapUsd: number;
 
   /**
-   * trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear"
-   * draft names at least one event and no schedule, and only admins and owners may save one.
+   * trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear" or
+   * "github" draft names at least one event and no schedule, and only admins and owners may
+   * save one.
    *
    * @generated from field: string trigger = 11;
    */

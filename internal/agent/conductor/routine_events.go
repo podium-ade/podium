@@ -1,9 +1,14 @@
 package conductor
 
-// The Linear events a routine's run was given (docs/agent.md, "On a Linear event"). They are
-// read from the database by the run's id when the brief is built, so the turn sees them on
-// whichever conductor runs it, and they go into the brief's routine block as data: what people
-// wrote in Linear, which the runtime fences off and tells the model not to obey.
+// The Linear or GitHub events a routine's run was given (docs/agent.md, "On a Linear event",
+// "On a GitHub event"). They are read from the database by the run's id when the brief is
+// built, so the turn sees them on whichever conductor runs it, and they go into the brief's
+// routine block as data: what people wrote in Linear or GitHub, which the runtime fences off
+// and tells the model not to obey.
+//
+// A GitHub event is stored in the shape a Linear one is — type, action, url, createdAt,
+// actor.name and data — with "source": "github", so both are briefed alike
+// (ghreview.RoutineDelivery).
 
 import (
 	"context"
@@ -27,10 +32,11 @@ const (
 	maxEventsBriefBytes = 20 * 1024
 )
 
-// BriefRoutineEvent is one Linear event a run was given. Everything in it but Event and At
-// was written by people in Linear: it is data, never instructions.
+// BriefRoutineEvent is one event a run was given. Everything in it but Event and At was
+// written by people in Linear or GitHub: it is data, never instructions.
 type BriefRoutineEvent struct {
-	// Event is "<Type>.<action>", as the routine names it ("Issue.create").
+	// Event is "<Type>.<action>", as the routine names it ("Issue.create",
+	// "workflow_run.failed").
 	Event string `json:"event"`
 	// Label is the event in words ("issue created").
 	Label string `json:"label"`
@@ -66,7 +72,7 @@ type eventPayload struct {
 func (c *Conductor) briefRoutineEvents(ctx context.Context, runID string) []BriefRoutineEvent {
 	events, err := c.store.RoutineEventsForRun(ctx, runID)
 	if err != nil {
-		c.logger.WarnContext(ctx, "reading a routine run's Linear events failed; briefing without them",
+		c.logger.WarnContext(ctx, "reading a routine run's events failed; briefing without them",
 			"run_id", runID, "error", err)
 		return nil
 	}
@@ -106,7 +112,7 @@ func BriefEvents(events []store.RoutineEvent) []BriefRoutineEvent {
 		size := len(b.Data) + len(b.UpdatedFrom)
 		if size > budget {
 			b.Data, _ = json.Marshal(map[string]string{
-				"note": "Left out: this run was given more Linear data than a brief holds. Read it from Linear.",
+				"note": "Left out: this run was given more event data than a brief holds. Read it from where it came from.",
 			})
 			b.UpdatedFrom, b.Trimmed = nil, true
 			size = len(b.Data)
@@ -146,7 +152,7 @@ func TrimJSON(raw json.RawMessage, limit int) (json.RawMessage, bool) {
 			return b, true
 		}
 	}
-	return json.RawMessage(`{"_trimmed":"too large to brief; read it from Linear"}`), true
+	return json.RawMessage(`{"_trimmed":"too large to brief; read it from where it came from"}`), true
 }
 
 // shorten is a copy of v with every string at most runes long and every list at most items.
@@ -183,8 +189,11 @@ func shorten(v any, runes, items int) any {
 
 // eventSubject names what an event is about, for the run's divider: "ENG-12 created", "comment
 // on ENG-12 created", "project “Launch” updated". It reads the identifier or name Linear sent,
-// and falls back to the event in words.
+// and falls back to the event in words. A GitHub event is githubEventSubject's.
 func eventSubject(e store.RoutineEvent) string {
+	if isGitHubEvent(e) {
+		return githubEventSubject(e)
+	}
 	var p struct {
 		Type   string `json:"type"`
 		Action string `json:"action"`
@@ -211,13 +220,78 @@ func eventSubject(e store.RoutineEvent) string {
 	return label
 }
 
+// isGitHubEvent reports whether e came from the GitHub App's webhook.
+func isGitHubEvent(e store.RoutineEvent) bool {
+	_, ok := store.CanonicalGitHubEvent(e.Event)
+	return ok
+}
+
+// githubEventSubject names a GitHub event for the run's divider: "workflow “CI” failed on
+// acme/api#42", "acme/api#42 opened", "issue acme/api#7 opened". It falls back to the event in
+// words, on the repository when it is known.
+func githubEventSubject(e store.RoutineEvent) string {
+	var p struct {
+		Data struct {
+			Repo         string `json:"repo"`
+			Number       int    `json:"number"`
+			Workflow     string `json:"workflow"`
+			App          string `json:"app"`
+			HeadBranch   string `json:"head_branch"`
+			PullRequests []struct {
+				Number int `json:"number"`
+			} `json:"pull_requests"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(e.Payload, &p)
+	d := p.Data
+	label := store.RoutineEventLabel(e.Event)
+	verb := label[strings.LastIndex(label, " ")+1:]
+	typ, _, _ := strings.Cut(e.Event, ".")
+	ref := func(n int) string { return fmt.Sprintf("%s#%d", d.Repo, n) }
+	switch typ {
+	case "workflow_run", "check_suite":
+		what := "workflow"
+		name := d.Workflow
+		if typ == "check_suite" {
+			what, name = "checks", d.App
+		}
+		if name != "" && utf8.RuneCountInString(name) <= 60 {
+			what += " “" + name + "”"
+		}
+		switch {
+		case len(d.PullRequests) > 0 && d.Repo != "":
+			return what + " " + verb + " on " + ref(d.PullRequests[0].Number)
+		case d.HeadBranch != "" && d.Repo != "":
+			return what + " " + verb + " on " + d.Repo + "@" + d.HeadBranch
+		}
+		return what + " " + verb
+	case "pull_request", "pull_request_review":
+		if d.Repo != "" && d.Number > 0 {
+			if typ == "pull_request_review" {
+				return "review submitted on " + ref(d.Number)
+			}
+			return ref(d.Number) + " " + strings.TrimPrefix(label, "pull request ")
+		}
+	case "issues":
+		if d.Repo != "" && d.Number > 0 {
+			return "issue " + ref(d.Number) + " " + verb
+		}
+	}
+	return label
+}
+
 // eventDivider is what a run's divider adds for the events it was given: "Linear: ENG-12
-// created", "Linear: ENG-12 created and 3 more".
+// created", "Linear: ENG-12 created and 3 more", "GitHub: workflow “CI” failed on
+// acme/api#42".
 func eventDivider(events []store.RoutineEvent) string {
 	if len(events) == 0 {
 		return ""
 	}
-	out := "Linear: " + eventSubject(events[0])
+	source := "Linear: "
+	if isGitHubEvent(events[0]) {
+		source = "GitHub: "
+	}
+	out := source + eventSubject(events[0])
 	if len(events) > 1 {
 		out += fmt.Sprintf(" and %d more", len(events)-1)
 	}

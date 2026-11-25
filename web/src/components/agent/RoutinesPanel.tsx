@@ -9,13 +9,14 @@ import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 import {
   draftOf,
-  isLinear,
   perTicket,
+  perTicketText,
   isSystem,
   BLANK_ROUTINE,
   duplicateOf,
   type NewRoutine,
   money,
+  onEvents,
   routinePath,
   routinesKey,
   runsText,
@@ -262,7 +263,7 @@ function RoutineRow({
   const brand = useBrand();
   const flagged = !r.enabled && r.pausedReason !== "";
   const system = isSystem(r);
-  const linear = isLinear(r);
+  const evented = onEvents(r);
   // An admin's pause says so itself; Podium's own say what Podium saw.
   const why = /^paused by/i.test(r.pausedReason) ? r.pausedReason : `Paused by ${brand}. ${r.pausedReason}`;
   return (
@@ -290,8 +291,8 @@ function RoutineRow({
         </div>
         <p className="text-sm text-muted">
           {runsText(r)}
-          {!linear && r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
-          {perTicket(r) ? <span className="text-faint"> · in each ticket’s conversation</span> : null}
+          {!evented && r.timezone && r.timezone !== "UTC" ? <span className="text-faint"> · {r.timezone}</span> : null}
+          {perTicket(r) ? <span className="text-faint"> · {perTicketText(r)}</span> : null}
           {system ? <span className="text-faint"> · as {brand}</span> : null}
         </p>
         {flagged ? (
@@ -307,13 +308,13 @@ function RoutineRow({
         className="m-0 grid grid-cols-3 gap-x-6 text-xs tabular-nums sm:w-max lg:grid-cols-[7.5rem_6.5rem_4rem]"
       >
         <div className="min-w-0">
-          {/* A routine on Linear events has no next run: what it has is the events waiting for one. */}
-          <dt className="text-faint">{linear ? "Waiting" : "Next run"}</dt>
+          {/* A routine on events has no next run: what it has is the events waiting for one. */}
+          <dt className="text-faint">{evented ? "Waiting" : "Next run"}</dt>
           <dd className="m-0 truncate text-fg">
             {r.running
               ? "running now"
               : r.enabled
-                ? linear
+                ? evented
                   ? waitingText(r.pendingEvents)
                   : upcoming(r.nextRunAt)
                 : r.pausedUntil
@@ -334,8 +335,8 @@ function RoutineRow({
       </dl>
 
       <div className="flex items-center gap-1.5 lg:justify-end">
-        {/* A routine on Linear events runs when they arrive; there is nothing to run by hand. */}
-        {linear ? null : (
+        {/* A routine on events runs when they arrive; there is nothing to run by hand. */}
+        {evented ? null : (
           <Button size="sm" variant="outline" disabled={busy || r.running} onClick={onRun}>
             <Zap />
             Run now
@@ -380,7 +381,7 @@ function RoutineRow({
 
 /**
  * RoutinePage is a routine that has no chat of its own: one on Linear events that runs in each
- * ticket's conversation, or one that has not run yet. Its card — when it runs, the controls, its
+ * ticket's conversation, or one on Linear or GitHub events that has not run yet. Its card — when it runs, the controls, its
  * notes and history — and its recent runs, each linking to the conversation it ran in, are here
  * instead of at the top of a chat.
  */
@@ -391,7 +392,7 @@ export function RoutinePage() {
     <PageFrame
       title="Routine"
       back={{ to: "/agent/routines", label: "Routines" }}
-      lead="A routine on Linear events that runs in each ticket’s conversation has no chat of its own: what each run said is in the conversation it ran in."
+      lead="This routine has no chat of its own: one that runs in each ticket’s or pull request’s conversation never needs one, and one on events gets its chat on its first run. Each run below links to the conversation it ran in."
     >
       <div className="-mx-4 space-y-4 sm:-mx-6">
         <RoutineCard routineId={id} onDeleted={() => void navigate("/agent/routines")} />

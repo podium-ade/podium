@@ -71,15 +71,19 @@ type Routine struct {
 	CreatedBy string `protobuf:"bytes,27,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	// last_run_status is the latest run's status that was not skipped, "" before the first.
 	LastRunStatus string `protobuf:"bytes,28,opt,name=last_run_status,json=lastRunStatus,proto3" json:"last_run_status,omitempty"`
-	// trigger is what starts the routine's runs: "schedule" (schedule and timezone) or
-	// "linear" (Linear events). A linear routine has no schedule and no next_run_at, and its
-	// schedule_text names the events ("On Linear: issue created (ENG)").
+	// trigger is what starts the routine's runs: "schedule" (schedule and timezone), "linear"
+	// (Linear events) or "github" (GitHub App events). A routine on events has no schedule and no
+	// next_run_at, and its schedule_text names the events ("On Linear: issue created (ENG)", "On
+	// GitHub: workflow run failed (acme/api)").
 	Trigger string `protobuf:"bytes,29,opt,name=trigger,proto3" json:"trigger,omitempty"`
-	// events are a linear routine's Linear events, "<Type>.<action>" each ("Issue.create").
+	// events are a routine on events' events: Linear's, "<Type>.<action>" each ("Issue.create"),
+	// or GitHub's, "<event>.<action>" each ("workflow_run.failed").
 	Events []string `protobuf:"bytes,30,rep,name=events,proto3" json:"events,omitempty"`
-	// teams are the Linear team keys a linear routine is limited to; empty is every team.
+	// teams is what a routine on events is limited to; empty is everything. A linear routine's
+	// are Linear team keys; a github routine's are repositories, "owner/name" or an owner for all
+	// of theirs, lower case.
 	Teams []string `protobuf:"bytes,31,rep,name=teams,proto3" json:"teams,omitempty"`
-	// pending_events is how many Linear events wait for the routine's next run.
+	// pending_events is how many events wait for the routine's next run.
 	PendingEvents int32 `protobuf:"varint,32,opt,name=pending_events,json=pendingEvents,proto3" json:"pending_events,omitempty"`
 	// chat_mode is where a linear routine's runs happen: "routine" (every run in chat_id) or
 	// "subject" (in each ticket's conversation: an issue's or project's events run as a turn in
@@ -489,8 +493,9 @@ type RoutineDraft struct {
 	Repos []string `protobuf:"bytes,9,rep,name=repos,proto3" json:"repos,omitempty"`
 	// daily_cap_usd: see Routine. 0 is no cap of its own.
 	DailyCapUsd float64 `protobuf:"fixed64,10,opt,name=daily_cap_usd,json=dailyCapUsd,proto3" json:"daily_cap_usd,omitempty"`
-	// trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear"
-	// draft names at least one event and no schedule, and only admins and owners may save one.
+	// trigger, events and teams: see Routine. An empty trigger is "schedule". A "linear" or
+	// "github" draft names at least one event and no schedule, and only admins and owners may
+	// save one.
 	Trigger string   `protobuf:"bytes,11,opt,name=trigger,proto3" json:"trigger,omitempty"`
 	Events  []string `protobuf:"bytes,12,rep,name=events,proto3" json:"events,omitempty"`
 	Teams   []string `protobuf:"bytes,13,rep,name=teams,proto3" json:"teams,omitempty"`

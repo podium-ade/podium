@@ -44,6 +44,11 @@ func (c *Conductor) notifyAway(ctx context.Context, src Source, ref string, dlg 
 		// spoke first, and did not ask for what a routine's run, or somebody else, delegated.
 		return
 	}
+	if turn, err := c.store.GetTurn(ctx, dlg.TurnID); err == nil && turn.RoutineRunID != "" {
+		// A routine's run asked for it, in its own chat or in a pull request's conversation,
+		// whose asker is whoever wrote in it last: nobody there asked for this task.
+		return
+	}
 	login := c.asker(ctx, src, sess)
 	if login == "" {
 		return

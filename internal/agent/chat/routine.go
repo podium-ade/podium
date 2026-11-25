@@ -35,10 +35,11 @@ type RoutineRun struct {
 	Override profiles.Override
 	// System is a system routine's run: its chat has no owner, and it runs as nobody.
 	System bool
-	// Conversation is a run in a Linear issue's or project's conversation rather than the
-	// routine's own chat (0048). That chat is the issue's, owned by whoever spoke in it first,
-	// and is shared by every turn about the issue: the run is still its routine's — its owner's,
-	// or nobody's — and it answers with its routine's assistant, never the chat's owner's.
+	// Conversation is a run in a Linear issue's or project's conversation (0048), or a pull
+	// request's (0057), rather than the routine's own chat. That chat is the issue's or pull
+	// request's, owned by whoever spoke in it first, and is shared by every turn about it: the
+	// run is still its routine's — its owner's, or nobody's — and it answers with its routine's
+	// assistant, never the chat's owner's.
 	Conversation bool
 	// PersonalityID is the routine's assistant, which a run in a conversation answers with.
 	PersonalityID string
@@ -67,9 +68,11 @@ func (s *Source) RunRoutine(ctx context.Context, run RoutineRun) error {
 	var personalityName, personalityPrompt string
 	var personalityModel profiles.Override
 	if run.Conversation {
-		// The issue's conversation is nobody's in particular; the run is its routine's.
-		if !store.IsLinearConversation(chat.SourceKey) {
-			return fmt.Errorf("run routine: chat %s is not a Linear issue's or project's conversation", run.ChatID)
+		// The issue's or pull request's conversation is nobody's in particular; the run is its
+		// routine's.
+		if !store.IsLinearConversation(chat.SourceKey) && !store.IsGitHubConversation(chat.SourceKey) {
+			return fmt.Errorf("run routine: chat %s is not a Linear issue's or project's conversation, "+
+				"nor a pull request's", run.ChatID)
 		}
 		if run.System && run.Login != "" {
 			return errors.New("run routine: a system routine runs as nobody")

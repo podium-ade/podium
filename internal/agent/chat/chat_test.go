@@ -876,6 +876,20 @@ func TestSetAutoTitleReplacesAQueryTitle(t *testing.T) {
 	assert.Equal(t, "August account totals", got.Title)
 }
 
+func TestAPullRequestsChatKeepsItsPullRequestsName(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_pr", "")
+	c := st.chats["chat_pr"]
+	c.SourceKey, c.Origin, c.Title = "github:acme/api#42", store.OriginGitHub, "#42: Fix login"
+	st.chats["chat_pr"] = c
+	src := newSource(t, st)
+
+	require.NoError(t, src.SetAutoTitle(context.Background(), "chat_pr", "CI failure triage"))
+	got, err := st.GetChat(context.Background(), "chat_pr")
+	require.NoError(t, err)
+	assert.Equal(t, "#42: Fix login", got.Title, "the pull request names its conversation, not a turn in it")
+}
+
 func TestAnEmptyMessageIsRefused(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")

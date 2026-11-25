@@ -710,9 +710,16 @@ func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest)
 
 // SetAutoTitle is the model-written name of a chat, applied only while AutoTitle is still
 // true. The first turn writes ChatTitleArtifact; the conductor reads it and calls this.
+//
+// A pull request's conversation is named by its pull request ("#42: Fix login"), and the review
+// source keeps it so: a turn in it — a routine's run that opened it, a web message — never
+// renames it.
 func (s *Source) SetAutoTitle(ctx context.Context, ref, title string) error {
 	title = SanitizeTitle(title)
 	if title == "" {
+		return nil
+	}
+	if c, err := s.store.GetChat(ctx, ref); err == nil && store.IsGitHubConversation(c.SourceKey) {
 		return nil
 	}
 	chat, err := s.store.SetChatTitle(ctx, ref, title)

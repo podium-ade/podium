@@ -115,6 +115,9 @@ type SourceOptions struct {
 	Reviews ReviewMemory
 	// Filters is read on every delivery. Nil is the default Filters.
 	Filters FilterLookup
+	// Routines keeps each verified delivery for the routines that run on GitHub events
+	// (routine_events.go). Nil keeps nothing: this conductor runs no routines.
+	Routines RoutineSink
 	// Serve, when set, serves the webhook handler on a listener the caller owns: the
 	// conductor's, which puts another app's webhooks on the same address when the two are
 	// configured alike. It blocks until ctx ends, like Run. Nil binds Listen here.
@@ -147,6 +150,8 @@ type Source struct {
 	now       func() time.Time
 
 	filters FilterLookup
+	// routines keeps deliveries for the routines on GitHub events; nil keeps none.
+	routines RoutineSink
 
 	slug      string
 	mentionRE *regexp.Regexp
@@ -232,6 +237,7 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		taskURL:       taskURL,
 		now:           now,
 		filters:       opts.Filters,
+		routines:      opts.Routines,
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
 		reviewIDs:     map[string]int64{},

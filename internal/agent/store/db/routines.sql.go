@@ -540,37 +540,44 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (R
 
 const insertRoutineEvents = `-- name: InsertRoutineEvents :execrows
 insert into routine_events (routine_id, delivery_id, event, payload, received_at, subject_key, subject_title)
-select r.id, $1::text, $2::text, $3::jsonb, $4,
+select r.id, $1::text,
+       (select u.e from unnest($2::text[]) with ordinality as u(e, i)
+         where u.e = any(r.events) order by u.i limit 1),
+       $3::jsonb, $4,
        $5::text, $6::text
   from routines r
- where r.enabled and r.trigger_kind = 'linear' and $2::text = any(r.events)
-   and (cardinality(r.teams) = 0 or $7::text = any(r.teams))
+ where r.enabled and r.trigger_kind = $7::text and r.events && $2::text[]
+   and (cardinality(r.teams) = 0 or r.teams && $8::text[])
 on conflict (routine_id, delivery_id) do nothing
 `
 
 type InsertRoutineEventsParams struct {
 	DeliveryID   string
-	Event        string
+	Events       []string
 	Payload      []byte
 	ReceivedAt   time.Time
 	SubjectKey   *string
 	SubjectTitle *string
-	TeamKey      string
+	Kind         string
+	Scopes       []string
 }
 
-// InsertRoutineEvents stores one Linear delivery for every enabled routine that asks for its
-// event, in its team when the routine names teams. It is one statement, so the webhook that
-// calls it does one round trip whatever the number of routines. A delivery stored before is
-// not stored again.
+// InsertRoutineEvents stores one delivery for every enabled routine of @kind that asks for one
+// of its events, in its scope when the routine names one: a Linear team key, or a GitHub
+// repository or owner. @events is every name the delivery answers to, the most specific first
+// ("workflow_run.failed" before "workflow_run.completed"), and each routine's row keeps the
+// first it asked for. It is one statement, so the webhook that calls it does one round trip
+// whatever the number of routines. A delivery stored before is not stored again.
 func (q *Queries) InsertRoutineEvents(ctx context.Context, arg InsertRoutineEventsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertRoutineEvents,
 		arg.DeliveryID,
-		arg.Event,
+		arg.Events,
 		arg.Payload,
 		arg.ReceivedAt,
 		arg.SubjectKey,
 		arg.SubjectTitle,
-		arg.TeamKey,
+		arg.Kind,
+		arg.Scopes,
 	)
 	if err != nil {
 		return 0, err
@@ -1226,6 +1233,19 @@ func (q *Queries) RoutineFailuresSince(ctx context.Context, arg RoutineFailuresS
 	return column_1, err
 }
 
+const routineRanInChat = `-- name: RoutineRanInChat :one
+select exists (select 1 from routine_runs where chat_id = $1::text)::bool
+`
+
+// RoutineRanInChat reports whether any routine's run happened in a chat that is not its own:
+// a pull request's conversation an admin may then read (docs/agent.md, "On a GitHub event").
+func (q *Queries) RoutineRanInChat(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRow(ctx, routineRanInChat, chatID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const routineSpendSince = `-- name: RoutineSpendSince :one
 select (coalesce((select sum(t.cost_usd) from turns t
                     join routine_runs r on r.id = t.routine_run_id
@@ -1252,13 +1272,13 @@ func (q *Queries) RoutineSpendSince(ctx context.Context, arg RoutineSpendSincePa
 
 const routinesWithPendingEvents = `-- name: RoutinesWithPendingEvents :many
 select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode from routines r
-where r.enabled and r.trigger_kind = 'linear'
+where r.enabled and r.trigger_kind in ('linear', 'github')
   and exists (select 1 from routine_events e where e.routine_id = r.id and e.run_id is null)
 order by r.id
 limit $1::int
 `
 
-// RoutinesWithPendingEvents is every enabled linear routine with an event waiting.
+// RoutinesWithPendingEvents is every enabled routine on events with an event waiting.
 func (q *Queries) RoutinesWithPendingEvents(ctx context.Context, pageLimit int32) ([]Routine, error) {
 	rows, err := q.db.Query(ctx, routinesWithPendingEvents, pageLimit)
 	if err != nil {
