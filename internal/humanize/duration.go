@@ -21,7 +21,7 @@ func Duration(d time.Duration) string {
 		return fmt.Sprintf("%dd %dh", days, hours)
 	case hours > 0:
 		return fmt.Sprintf("%dh %dm", hours, minutes)
-	case minutes > 1:
+	case minutes > 0:
 		return fmt.Sprintf("%dm %ds", minutes, seconds)
 	default:
 		return fmt.Sprintf("%ds", seconds)
