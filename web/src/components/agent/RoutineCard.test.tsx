@@ -372,8 +372,9 @@ describe("RoutineDialog", () => {
     expect(screen.getByTestId("routine-chat-mode-subject")).toHaveTextContent("The pull request’s chat");
     expect(screen.getByTestId("routine-chat-mode-routine")).toHaveTextContent("A new chat");
     expect(screen.getByTestId("routine-chat-mode-hint")).toHaveTextContent("where its reviews and everything said about it are");
-    // The spend cap's day is still counted in a timezone.
-    expect(screen.getByTestId("routine-timezone")).toBeInTheDocument();
+    // Nothing is scheduled, so no timezone is asked for; the spend cap's day ends in the browser's.
+    expect(screen.queryByTestId("routine-timezone")).not.toBeInTheDocument();
+    expect(screen.getByText(/until midnight in (?!its timezone)\S+, and it starts again/)).toBeInTheDocument();
     expect(screen.getByTestId("routine-save")).toBeDisabled();
     expect(screen.getByText("Choose at least one GitHub event to save.")).toBeInTheDocument();
 

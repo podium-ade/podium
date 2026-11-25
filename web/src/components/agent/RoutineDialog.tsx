@@ -961,12 +961,13 @@ export function RoutineDialog({
                   className="pl-7 tabular-nums"
                 />
               </div>
+              {/* A routine on events has no schedule to read in a timezone, so none is asked for: its
+                  spend cap's day ends at midnight in the one it was made in, the browser's. */}
               <p id={`${ids.cap}-hint`} className={cn("text-xs", capProblem ? "text-warn" : "text-muted")}>
                 {capProblem ||
-                  "Reaching the cap pauses the routine until midnight in its timezone, and it starts again on its own."}
+                  `Reaching the cap pauses the routine until midnight in ${linear || github ? timezone || "UTC" : "its timezone"}, and it starts again on its own.`}
               </p>
             </div>
-            {linear || github ? timezoneField("The day the spend cap counts ends at midnight here.") : null}
           </Section>
             </div>
           </div>

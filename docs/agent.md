@@ -4071,7 +4071,8 @@ schedule with the events it runs on and, optionally, the teams.
   the app asks Linear for its key once and keeps it ten minutes.
 - **What it is.** One kind or the other, never both: a routine on Linear events has no schedule
   and no next run, its card and row say "Runs on Linear: issue created (ENG)" and how many events
-  are waiting, and it keeps a timezone for its daily spend cap. It has no **Run now**: it runs when
+  are waiting, and it keeps a timezone for its daily spend cap — the browser's it was made in,
+  which the dialog names in the cap's hint rather than asking for. It has no **Run now**: it runs when
   its events arrive, and a run by hand would have none to act on (the API refuses one).
 - **How it runs.** The Linear app's webhook hands every data change to the routines that ask for
   it: one row per routine in `routine_events`, with `unique (routine, delivery)` so a delivery
