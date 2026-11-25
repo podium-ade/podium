@@ -6,7 +6,7 @@ import "fmt"
 
 // Count is n with noun, made plural with an "s" unless n is exactly one.
 func Count(n int, noun string) string {
-	if n > 1 {
+	if n != 1 {
 		return fmt.Sprintf("%d %ss", n, noun)
 	}
 	return fmt.Sprintf("%d %s", n, noun)
