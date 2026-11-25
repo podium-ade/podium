@@ -1270,6 +1270,29 @@ func (q *Queries) RoutineSpendSince(ctx context.Context, arg RoutineSpendSincePa
 	return column_1, err
 }
 
+const routinesWantEvents = `-- name: RoutinesWantEvents :one
+select exists (
+  select 1 from routines r
+   where r.enabled and r.trigger_kind = $1::text and r.events && $2::text[]
+     and (cardinality(r.teams) = 0 or r.teams && $3::text[])
+)::bool
+`
+
+type RoutinesWantEventsParams struct {
+	Kind   string
+	Events []string
+	Scopes []string
+}
+
+// RoutinesWantEvents is whether any enabled routine of @kind asks for one of @events in one of
+// @scopes, so a delivery that costs GitHub API calls to read is read only when one would.
+func (q *Queries) RoutinesWantEvents(ctx context.Context, arg RoutinesWantEventsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, routinesWantEvents, arg.Kind, arg.Events, arg.Scopes)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const routinesWithPendingEvents = `-- name: RoutinesWithPendingEvents :many
 select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode from routines r
 where r.enabled and r.trigger_kind in ('linear', 'github')

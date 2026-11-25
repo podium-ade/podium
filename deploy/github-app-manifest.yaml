@@ -51,4 +51,5 @@ default_events:
   # delivery no routine asks for is dropped.
   - workflow_run
   - check_suite
+  - status
   - issues

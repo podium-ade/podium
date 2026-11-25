@@ -118,6 +118,15 @@ func TestARunsDividerSaysWhichGitHubEventStartedIt(t *testing.T) {
 	assert.Equal(t, "GitHub: review submitted on acme/api#7", eventDivider([]store.RoutineEvent{review}))
 	assert.Equal(t, "GitHub: issue acme/web#3 opened", eventDivider([]store.RoutineEvent{issue}))
 
+	checksFailed := storedEvent(t, "checks.failed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "checks": 5, "checks_failed": 2, "pull_requests": []any{map[string]any{"number": 42}},
+	}})
+	checksDone := storedEvent(t, "checks.completed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "checks": 5, "head_branch": "main",
+	}})
+	assert.Equal(t, "GitHub: all checks finished, 2 of 5 failed on acme/api#42", eventDivider([]store.RoutineEvent{checksFailed}))
+	assert.Equal(t, "GitHub: all checks finished on acme/api@main", eventDivider([]store.RoutineEvent{checksDone}))
+
 	b := BriefEvents([]store.RoutineEvent{failed})
 	require.Len(t, b, 1)
 	assert.Equal(t, "workflow run failed", b[0].Label)

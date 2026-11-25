@@ -356,7 +356,10 @@ SAML is not implemented.
   request's own chat, which holds its reviews and whatever anybody wrote there: that is more of
   the same untrusted text in the run's context, not less. Its owner is given a viewer's row on
   each such chat, and admins read the ones a routine ran in — read access to a conversation about
-  a repository the App already reads, never write.
+  a repository the App already reads, never write. **All checks finished** has the conductor read
+  a commit's checks from GitHub as the App when a workflow on it ends — only for a repository an
+  enabled routine asks it for — and keeps check names and links, which a workflow file's author
+  chose: the same untrusted text, fenced the same way.
 - **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium

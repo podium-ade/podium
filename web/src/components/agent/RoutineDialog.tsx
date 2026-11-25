@@ -18,6 +18,7 @@ import {
   CI_FIXER,
   CI_FIXER_ON_GITHUB,
   GITHUB_EVENTS,
+  withAllChecks,
   GITHUB_GROUPS,
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
@@ -317,27 +318,69 @@ function GitHubEventsField({
             >
               <span className="text-xs text-muted">{group}</span>
               <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-                {GITHUB_EVENTS.filter((e) => e.group === group).map((e) => (
-                  <label key={e.event} className="flex items-start gap-2 text-fg">
-                    <Checkbox
-                      data-testid={`routine-event-${e.event}`}
-                      aria-label={e.label}
-                      checked={events.includes(e.event)}
-                      onCheckedChange={(v) => toggle(e.event, v === true)}
-                      className="mt-0.5"
-                    />
-                    <span className="grid gap-0.5">
-                      {e.label}
-                      {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
-                    </span>
-                  </label>
-                ))}
+                {GITHUB_EVENTS.filter((e) => e.group === group && !e.parent).map((e) => {
+                  const subs = GITHUB_EVENTS.filter((s) => s.parent === e.event);
+                  if (subs.length === 0) {
+                    return (
+                      <label key={e.event} className="flex items-start gap-2 text-fg">
+                        <Checkbox
+                          data-testid={`routine-event-${e.event}`}
+                          aria-label={e.label}
+                          checked={events.includes(e.event)}
+                          onCheckedChange={(v) => toggle(e.event, v === true)}
+                          className="mt-0.5"
+                        />
+                        <span className="grid gap-0.5">
+                          {e.label}
+                          {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
+                        </span>
+                      </label>
+                    );
+                  }
+                  // "All checks finished" and its sub-toggle: the routine asks for one of the two.
+                  const failedOnly = events.includes("checks.failed");
+                  const on = failedOnly || events.includes(e.event);
+                  return (
+                    <div key={e.event} className="grid gap-2 sm:col-span-2">
+                      <label className="flex items-start gap-2 text-fg">
+                        <Checkbox
+                          data-testid={`routine-event-${e.event}`}
+                          aria-label={e.label}
+                          checked={on}
+                          onCheckedChange={(v) => onEvents(withAllChecks(events, v === true ? "all" : "off"))}
+                          className="mt-0.5"
+                        />
+                        <span className="grid gap-0.5">
+                          {e.label}
+                          {e.hint ? <span className="text-xs text-muted">{e.hint}</span> : null}
+                        </span>
+                      </label>
+                      {subs.map((sub) => (
+                        <label
+                          key={sub.event}
+                          className={cn("ml-6 flex items-start gap-2", on ? "text-fg" : "text-muted")}
+                        >
+                          <Checkbox
+                            data-testid={`routine-event-${sub.event}`}
+                            aria-label={sub.label}
+                            checked={failedOnly}
+                            disabled={!on}
+                            onCheckedChange={(v) => onEvents(withAllChecks(events, v === true ? "failed" : "all"))}
+                            className="mt-0.5"
+                          />
+                          {sub.label}
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
               {/* Actions makes a check suite of each workflow run, so ticking both runs twice on one failure. */}
               {group === "CI" ? (
                 <p className="text-xs leading-relaxed text-muted">
-                  Workflow runs are GitHub Actions. Check suites are every CI app, Actions included, with one suite
-                  per workflow run, so pick one of the two or a failure runs the routine twice.
+                  Workflow runs are GitHub Actions, one event per workflow. Check suites are every CI app, Actions
+                  included, with one suite per workflow run, so pick one of the two or a failure runs the routine
+                  twice.
                 </p>
               ) : null}
             </div>
@@ -356,7 +399,7 @@ function GitHubEventsField({
               .
             </>
           ) : (
-            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews or Issues. Each run is given the events that arrived since the last one."
+            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews or Issues. All checks finished needs Workflow runs or Check suites, and Statuses for CI that reports commit statuses. Each run is given the events that arrived since the last one."
           )}
         </p>
       </div>

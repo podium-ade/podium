@@ -4168,10 +4168,12 @@ fed by the GitHub App's webhook instead of the Linear app's.
 - **Who may set it.** Admins and owners, in either scope, and nobody else; the API refuses a
   member's draft that names GitHub events (`PermissionDenied`). The events carry every repository
   the App is installed on, whatever the member can read.
-- **The events.** GitHub's own names, `<event>.<action>`, with three of Podium's:
+- **The events.** GitHub's own names, `<event>.<action>`, with some of Podium's:
 
   | event | what it is |
   |---|---|
+  | `checks.completed` | **All checks finished**: every check on a commit is done — once per commit, however many workflows and CI apps it has |
+  | `checks.failed` | the same with its sub-toggle **At least one failed** on: done, and at least one failed |
   | `workflow_run.failed` | a GitHub Actions workflow run completed with `failure`, `timed_out` or `startup_failure` |
   | `workflow_run.completed` | a workflow run completed, whatever its conclusion |
   | `check_suite.failed`, `check_suite.completed` | the same for a check suite: any CI app's, Actions' included |
@@ -4186,6 +4188,24 @@ fed by the GitHub App's webhook instead of the Linear app's.
   `check_suite` events runs twice for each; choose one. **Repositories** are `owner/name`, or an
   owner for all of theirs, comma-separated, read without regard to case; empty is every
   repository the App is installed on.
+- **All checks finished.** GitHub has no delivery that says a commit's CI is done: a repository
+  with five workflows sends five `workflow_run` deliveries per push, each when its own workflow
+  ends, so a routine on `workflow_run.failed` can start before the rest have finished, and more
+  than once. `checks` is Podium's instead. Each time a workflow run or check suite completes, or
+  a commit status stops being pending, the conductor waits five seconds and reads the commit's
+  check suites, check runs and statuses from GitHub (as the App). When none is still running,
+  the commit is kept as one `checks.completed` event, and as `checks.failed` too when one of
+  them concluded `failure`, `timed_out` or `startup_failure`, or a status `failure` or `error`.
+  Its delivery id is `checks:<owner>/<name>@<sha>:<failed|passed>`, so however many finishes
+  see the commit done, a routine is given it once — and again only if a re-run turns its
+  outcome around. The App's own checks are left out, and so is a check suite with no check in
+  it (an app that never ran one leaves its suite queued for good). Statuses need the App's
+  *Commit statuses* read permission; without it only checks are waited for. Nothing is read
+  from GitHub unless an enabled routine asks for `checks` on that repository. The event says
+  how many checks there were, how many failed and which (name, CI app, conclusion, link, and
+  for an Actions job the job id `get_job_log` reads), the branch, and the pull request whose
+  head the commit is — open ones first, so a pull request from a fork is found too — which
+  is the conversation it runs in.
 - **What is kept.** Not the delivery: GitHub repeats the whole repository and sender in every
   one. Each is read into what a run acts on — the repository, the workflow or CI app, the
   conclusion, the branch and commit, the pull requests it is on (number, link, head and base;
@@ -4230,8 +4250,10 @@ fed by the GitHub App's webhook instead of the Linear app's.
   the 60-runs-an-hour guard bounds the rest.
 
 **Setting it up on GitHub.** Subscribe the App to the events the routines need — *Workflow runs*,
-*Check suites*, *Pull requests*, *Pull request reviews*, *Issues* — with *Actions* and *Checks*
-read-only ([Setting it up](#setting-it-up)). The webhook is the one reviews use, so it needs the
+*Check suites*, *Pull requests*, *Pull request reviews*, *Issues*, and *Statuses* for **All checks
+finished** on CI that reports commit statuses — with *Actions*, *Checks* and *Commit statuses*
+read-only ([Setting it up](#setting-it-up)). **All checks finished** is read on *Workflow runs* or
+*Check suites* (either is enough for GitHub Actions; *Check suites* for any other CI app). The webhook is the one reviews use, so it needs the
 webhook secret and listen address under Connections; until they are saved the dialog says so, and
 a routine saves but is given nothing. Every verified delivery is offered to the routines before
 the review source looks at it, whatever that makes of it. Only a conductor that runs routines
@@ -4317,8 +4339,9 @@ attempted once per commit and three times per pull request at most. Run it again
 repository first.
 
 **On the event instead of every ten minutes.** With **Runs → On a GitHub event** chosen, the same
-button fills the event version: it runs on `workflow_run.failed` alone, so a run starts only when
-a workflow has failed and is given that run — the pull request, the commit, the workflow and the
+button fills the event version: it runs on **All checks finished → At least one failed**
+(`checks.failed`) alone, so a run starts once per commit, when all of its CI is done and some of
+it failed, and is given that commit — the pull request, the failed checks and their jobs, and the
 link — rather than looking through every open pull request. The guard rails are the same, and a
 failure on no pull request (a push to a branch) is reported and left alone. Name the repositories
 under **Repositories** to keep it to them.

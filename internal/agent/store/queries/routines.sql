@@ -263,6 +263,15 @@ select r.id, @delivery_id::text,
    and (cardinality(r.teams) = 0 or r.teams && @scopes::text[])
 on conflict (routine_id, delivery_id) do nothing;
 
+-- RoutinesWantEvents is whether any enabled routine of @kind asks for one of @events in one of
+-- @scopes, so a delivery that costs GitHub API calls to read is read only when one would.
+-- name: RoutinesWantEvents :one
+select exists (
+  select 1 from routines r
+   where r.enabled and r.trigger_kind = @kind::text and r.events && @events::text[]
+     and (cardinality(r.teams) = 0 or r.teams && @scopes::text[])
+)::bool;
+
 -- RoutinesWithPendingEvents is every enabled routine on events with an event waiting.
 -- name: RoutinesWithPendingEvents :many
 select r.* from routines r

@@ -251,3 +251,35 @@ func TestAGitHubDeliveryIsKeptForEachRoutineThatAsksForItUnderTheNameItAskedFor(
 	require.NoError(t, err)
 	assert.Len(t, waiting, 2, "the routine on failures and the Linear one still have events waiting")
 }
+
+func TestWhetherARoutineWantsACommitsFinishedChecksIsAskedBeforeReadingThem(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	checks := []string{"checks.failed", "checks.completed"}
+
+	want, err := s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "no routine at all")
+
+	_, err = s.CreateSystemRoutine(ctx, "admin@acme.com", githubDraft()) // workflow_run.failed…; acme/api, acme/web, globex
+	require.NoError(t, err)
+	want, err = s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "a routine on workflow runs alone")
+
+	onChecks := githubDraft()
+	onChecks.Events = []string{"checks.failed"}
+	routine, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onChecks)
+	require.NoError(t, err)
+	for repo, expected := range map[string]bool{"Acme/API": true, "globex/site": true, "initech/app": false} {
+		want, err = s.GitHubRoutinesWant(ctx, repo, checks)
+		require.NoError(t, err)
+		assert.Equal(t, expected, want, repo)
+	}
+
+	_, err = s.SetRoutineEnabled(ctx, routine.ID, false, "", time.Time{})
+	require.NoError(t, err)
+	want, err = s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "a paused routine")
+}

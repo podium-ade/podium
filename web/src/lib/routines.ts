@@ -106,9 +106,18 @@ export type GitHubGroup = "CI" | "Pull requests" | "Issues";
 
 /**
  * GITHUB_EVENTS is every GitHub event a routine can run on, as the server names it, with a plain
- * label and its group. A hint says more where the label alone could be misread.
+ * label and its group. A hint says more where the label alone could be misread. An event with a
+ * parent is a narrower form of it, shown under it as a sub-toggle: a routine asks for one of the
+ * two, never both.
  */
-export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; hint?: string }[] = [
+export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; hint?: string; parent?: string }[] = [
+  {
+    event: "checks.completed",
+    label: "All checks finished",
+    group: "CI",
+    hint: "Once per commit, when every workflow, check and status on it is done.",
+  },
+  { event: "checks.failed", label: "At least one failed", group: "CI", parent: "checks.completed" },
   {
     event: "workflow_run.failed",
     label: "Workflow run failed",
@@ -126,6 +135,16 @@ export const GITHUB_EVENTS: { event: string; label: string; group: GitHubGroup; 
   { event: "pull_request_review.submitted", label: "Review submitted", group: "Pull requests" },
   { event: "issues.opened", label: "Issue opened", group: "Issues" },
 ];
+
+/**
+ * withAllChecks is events with "All checks finished" set: off, on for every commit, or on only for
+ * a commit where at least one check failed.
+ */
+export function withAllChecks(events: string[], to: "off" | "all" | "failed"): string[] {
+  const rest = events.filter((e) => e !== "checks.completed" && e !== "checks.failed");
+  if (to === "off") return rest;
+  return [to === "failed" ? "checks.failed" : "checks.completed", ...rest];
+}
 
 /** GITHUB_GROUPS are the groups of GITHUB_EVENTS, in the order the editor shows them. */
 export const GITHUB_GROUPS: GitHubGroup[] = ["CI", "Pull requests", "Issues"];
@@ -191,21 +210,22 @@ export const CI_FIXER: Pick<RoutineDraft, "name" | "instruction" | "notes" | "sc
 
 /**
  * CI_FIXER_ON_GITHUB is CI_FIXER for a routine on GitHub events: instead of looking for failed
- * checks every few minutes, each run is given the workflow runs that failed since the last one.
+ * checks every few minutes, each run is given the commits whose checks all finished with one failed.
  * The guard rails are the same.
  */
 export const CI_FIXER_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "notes" | "events"> = {
   name: "Fix failing CI",
-  events: ["workflow_run.failed"],
+  events: ["checks.failed"],
   instruction: [
-    "Each event in this run is a GitHub Actions workflow run that failed.",
+    "Each event in this run is a commit whose checks have all finished, at least one of them failed. It lists the failed checks, with the job to read each GitHub Actions one's log by.",
     "",
     "For each one on a pull request:",
-    "1. Skip it if the same workflow also fails on the pull request's base branch — the fault is not in the pull request. Say so once.",
-    "2. Skip it if the state shows you already handled this commit (key: owner/repo#number@sha).",
-    "3. Skip it, and say you are giving up, if the state shows 3 attempts on this pull request already.",
-    "4. Read the failed job's log and work out the smallest change that fixes it.",
-    "5. Propose it: comment on the pull request with what failed, why, and the change you would make. Do not push anything.",
+    "1. Skip it if the commit is no longer the pull request's head — a newer push is being checked.",
+    "2. Skip a check that also fails on the pull request's base branch — the fault is not in the pull request. Say so once.",
+    "3. Skip it if the state shows you already handled this commit (key: owner/repo#number@sha).",
+    "4. Skip it, and say you are giving up, if the state shows 3 attempts on this pull request already.",
+    "5. Read the failed jobs' logs and work out the smallest change that fixes them.",
+    "6. Propose it: comment on the pull request with what failed, why, and the change you would make. Do not push anything.",
     "",
     "A failure on no pull request — a push to a branch — is reported, and nothing else is done about it.",
     "",

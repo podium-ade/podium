@@ -50,13 +50,18 @@ var (
 )
 
 // RoutineGitHubEvents are the GitHub events a routine may run on, in the order the UI lists
-// them, "<event>.<action>" as GitHub names them in a webhook delivery — with three of
+// them, "<event>.<action>" as GitHub names them in a webhook delivery — with some of
 // Podium's own: "failed" is a workflow run or check suite that completed with a failing
 // conclusion (GitHubFailedConclusions), and "merged" a pull request closed by merging it. A
 // delivery answers to its own name and to Podium's, so a routine on
 // "workflow_run.completed" sees a failed run as well. GitHub sends many others; nothing runs
 // on those.
+//
+// "checks" is no delivery of GitHub's: it is a commit whose every check has finished, made
+// once per commit when its last workflow run, check suite or status finishes
+// (ghreview/commit_checks.go). "checks.failed" is one where at least one of them failed.
 var RoutineGitHubEvents = []string{
+	"checks.completed", "checks.failed",
 	"workflow_run.failed", "workflow_run.completed",
 	"check_suite.failed", "check_suite.completed",
 	"pull_request.opened", "pull_request.ready_for_review", "pull_request.synchronize",
@@ -70,6 +75,7 @@ var RoutineGitHubEvents = []string{
 var GitHubFailedConclusions = []string{"failure", "timed_out", "startup_failure"}
 
 var githubEventWords = map[string]string{
+	"checks.completed": "all checks finished", "checks.failed": "all checks finished, at least one failed",
 	"workflow_run.failed": "workflow run failed", "workflow_run.completed": "workflow run completed",
 	"check_suite.failed": "check suite failed", "check_suite.completed": "check suite completed",
 	"pull_request.opened": "pull request opened", "pull_request.ready_for_review": "pull request ready for review",
@@ -448,17 +454,9 @@ func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) 
 	if at.IsZero() {
 		at = time.Now()
 	}
-	// A routine limited to an owner sees every repository of theirs.
-	scopes := []string{}
-	if repo := strings.ToLower(strings.TrimSpace(d.Repo)); repo != "" {
-		scopes = append(scopes, repo)
-		if owner, _, ok := strings.Cut(repo, "/"); ok && owner != "" {
-			scopes = append(scopes, owner)
-		}
-	}
 	params := db.InsertRoutineEventsParams{
 		Kind: RoutineKindGitHub, DeliveryID: d.DeliveryID, Events: events,
-		Payload: BoundRoutineEventPayload(d.Payload), ReceivedAt: at.UTC(), Scopes: scopes,
+		Payload: BoundRoutineEventPayload(d.Payload), ReceivedAt: at.UTC(), Scopes: githubScopes(d.Repo),
 	}
 	if key := strings.TrimSpace(d.SubjectKey); key != "" {
 		_, title := subjectOf("PullRequest", strings.TrimPrefix(key, "PullRequest:"), d.SubjectTitle)
@@ -469,6 +467,33 @@ func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) 
 		return 0, fmt.Errorf("store GitHub delivery %s for routines: %w", d.DeliveryID, err)
 	}
 	return int(n), nil
+}
+
+// GitHubRoutinesWant reports whether an enabled routine on GitHub events asks for one of
+// events on repo ("owner/name"). It is asked before an event that costs GitHub API calls to
+// make is made.
+func (s *Store) GitHubRoutinesWant(ctx context.Context, repo string, events []string) (bool, error) {
+	want, err := s.q.RoutinesWantEvents(ctx, db.RoutinesWantEventsParams{
+		Kind: RoutineKindGitHub, Events: events, Scopes: githubScopes(repo),
+	})
+	if err != nil {
+		return false, fmt.Errorf("routines on %v for %s: %w", events, repo, err)
+	}
+	return want, nil
+}
+
+// githubScopes is what a routine's repositories are matched against for a delivery on repo:
+// the repository, and its owner, since a routine limited to an owner sees every repository
+// of theirs.
+func githubScopes(repo string) []string {
+	scopes := []string{}
+	if repo = strings.ToLower(strings.TrimSpace(repo)); repo != "" {
+		scopes = append(scopes, repo)
+		if owner, _, ok := strings.Cut(repo, "/"); ok && owner != "" {
+			scopes = append(scopes, owner)
+		}
+	}
+	return scopes
 }
 
 // BoundRoutineEventPayload is a payload the store keeps: the payload itself when it is JSON

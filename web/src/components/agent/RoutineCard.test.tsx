@@ -698,7 +698,7 @@ describe("RoutineDialog for an admin", () => {
     );
   });
 
-  it("starts a system routine on GitHub events from the template that waits for failed workflow runs", async () => {
+  it("starts a system routine on GitHub events from the template that waits for a commit's checks to finish with a failure", async () => {
     const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
     mount(
       <RoutineDialog open title="Routine" canChooseScope canChooseTrigger initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
@@ -708,9 +708,11 @@ describe("RoutineDialog for an admin", () => {
     await userEvent.click(screen.getByTestId("routine-template-ci"));
     expect(screen.getByTestId("routine-name")).toHaveValue("Fix failing CI");
     expect((screen.getByTestId("routine-instruction") as HTMLTextAreaElement).value).toContain(
-      "Each event in this run is a GitHub Actions workflow run that failed.",
+      "a commit whose checks have all finished, at least one of them failed",
     );
-    expect(screen.getByTestId("routine-event-workflow_run.failed")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-event-checks.completed")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-event-checks.failed")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-event-workflow_run.failed")).toHaveAttribute("data-state", "unchecked");
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
@@ -718,12 +720,51 @@ describe("RoutineDialog for an admin", () => {
           name: "Fix failing CI",
           trigger: "github",
           schedule: "",
-          events: ["workflow_run.failed"],
+          events: ["checks.failed"],
           notes: "- Never fix CI by disabling a lint rule or skipping a test.",
         }),
         "system",
       ),
     );
+  });
+
+  it("runs on all checks finished, or with its sub-toggle only when at least one failed", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="Routine"
+        canChooseScope
+        canChooseTrigger
+        initial={{ timezone: "UTC", name: "Fix", instruction: "Fix it" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("routine-scope-system"));
+    await userEvent.click(screen.getByTestId("routine-trigger-github"));
+    const all = screen.getByTestId("routine-event-checks.completed");
+    const failedOnly = screen.getByTestId("routine-event-checks.failed");
+    expect(failedOnly).toBeDisabled();
+
+    await userEvent.click(all);
+    expect(failedOnly).toBeEnabled();
+    expect(failedOnly).toHaveAttribute("data-state", "unchecked");
+    await userEvent.click(failedOnly);
+    await userEvent.click(screen.getByTestId("routine-event-pull_request.opened"));
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ events: ["checks.failed", "pull_request.opened"] }),
+        "system",
+      ),
+    );
+
+    await userEvent.click(failedOnly);
+    expect(all).toHaveAttribute("data-state", "checked");
+    await userEvent.click(all);
+    expect(failedOnly).toHaveAttribute("data-state", "unchecked");
+    expect(failedOnly).toBeDisabled();
   });
 
   it("offers no choice of who it runs as to a member, nor when editing", () => {

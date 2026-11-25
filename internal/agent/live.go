@@ -97,7 +97,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 	var gh *ghreview.Source
 	if cfg.GitHubSourceEnabled() {
 		var err error
-		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger, l.githubRoutineEvents)
+		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger, l.githubRoutineEvents, l.githubRoutinesWant)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -589,6 +589,15 @@ func (l *liveConnections) githubRoutineEvents(ctx context.Context, d store.GitHu
 	return l.store.StoreGitHubRoutineEvents(ctx, d)
 }
 
+// githubRoutinesWant is whether a routine here asks for one of events on repo, before a
+// commit's checks are read from GitHub for it.
+func (l *liveConnections) githubRoutinesWant(ctx context.Context, repo string, events []string) (bool, error) {
+	if l.store == nil || !l.routinesRun {
+		return false, nil
+	}
+	return l.store.GitHubRoutinesWant(ctx, repo, events)
+}
+
 // linearRevoked records on the saved app that Linear revoked it, so Settings → Connections
 // says so until it is saved again.
 func (l *liveConnections) linearRevoked(clientID string) func(context.Context) {
@@ -624,7 +633,7 @@ func (l *liveConnections) githubSource() *ghreview.Source {
 // Slack bound to a review.
 func newGitHubSource(
 	cfg config.Config, st *store.Store, slack *agentslack.Source, hooks *webhooks.Server, logger *slog.Logger,
-	routines ghreview.RoutineSink,
+	routines ghreview.RoutineSink, routinesWant ghreview.RoutineWants,
 ) (*ghreview.Source, error) {
 	pem, err := cfg.GitHubAppPrivateKey()
 	if err != nil {
@@ -651,6 +660,7 @@ func newGitHubSource(
 		Serve:         serve,
 		Slack:         bridge,
 		Routines:      routines,
+		RoutinesWant:  routinesWant,
 		Logger:        logger,
 		TaskURL: func(taskID string) string {
 			if taskID == "" {

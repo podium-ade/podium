@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { GITHUB_EVENTS, GITHUB_GROUPS, isGitHub, isLinear, onEvents, perTicket, repoNames, teamKeys } from "./routines";
+import {
+  GITHUB_EVENTS,
+  GITHUB_GROUPS,
+  isGitHub,
+  isLinear,
+  onEvents,
+  perTicket,
+  repoNames,
+  teamKeys,
+  withAllChecks,
+} from "./routines";
 
 describe("repoNames", () => {
   it("reads repositories and owners separated by commas or spaces, lower case, each once", () => {
@@ -35,5 +45,21 @@ describe("GITHUB_EVENTS", () => {
     const events = GITHUB_EVENTS.map((e) => e.event);
     expect(new Set(events).size).toBe(events.length);
     for (const e of GITHUB_EVENTS) expect(GITHUB_GROUPS).toContain(e.group);
+  });
+
+  it("name a parent only that is one of them", () => {
+    const events = GITHUB_EVENTS.map((e) => e.event);
+    for (const e of GITHUB_EVENTS) if (e.parent) expect(events).toContain(e.parent);
+  });
+});
+
+describe("withAllChecks", () => {
+  it("asks for all checks finished, or only with a failure, never both, and keeps the rest", () => {
+    expect(withAllChecks(["pull_request.opened"], "all")).toEqual(["checks.completed", "pull_request.opened"]);
+    expect(withAllChecks(["checks.completed", "pull_request.opened"], "failed")).toEqual([
+      "checks.failed",
+      "pull_request.opened",
+    ]);
+    expect(withAllChecks(["checks.failed", "checks.completed", "issues.opened"], "off")).toEqual(["issues.opened"]);
   });
 });

@@ -118,6 +118,9 @@ type SourceOptions struct {
 	// Routines keeps each verified delivery for the routines that run on GitHub events
 	// (routine_events.go). Nil keeps nothing: this conductor runs no routines.
 	Routines RoutineSink
+	// RoutinesWant is asked before a commit's checks are read from GitHub for routines on
+	// "all checks finished" (commit_checks.go). Nil reads every commit that finishes.
+	RoutinesWant RoutineWants
 	// Serve, when set, serves the webhook handler on a listener the caller owns: the
 	// conductor's, which puts another app's webhooks on the same address when the two are
 	// configured alike. It blocks until ctx ends, like Run. Nil binds Listen here.
@@ -151,7 +154,14 @@ type Source struct {
 
 	filters FilterLookup
 	// routines keeps deliveries for the routines on GitHub events; nil keeps none.
-	routines RoutineSink
+	routines     RoutineSink
+	routinesWant RoutineWants
+	// checking is the commits whose checks are being read for routines, keyed repo@sha, and
+	// whether another finish on one came in meanwhile. checksWG is those reads, and
+	// checksSettle how long each waits first (commit_checks.go).
+	checking     map[string]bool
+	checksWG     sync.WaitGroup
+	checksSettle time.Duration
 
 	slug      string
 	mentionRE *regexp.Regexp
@@ -238,6 +248,8 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		now:           now,
 		filters:       opts.Filters,
 		routines:      opts.Routines,
+		routinesWant:  opts.RoutinesWant,
+		checksSettle:  checksSettle,
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
 		reviewIDs:     map[string]int64{},

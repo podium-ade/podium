@@ -227,7 +227,7 @@ func isGitHubEvent(e store.RoutineEvent) bool {
 }
 
 // githubEventSubject names a GitHub event for the run's divider: "workflow “CI” failed on
-// acme/api#42", "acme/api#42 opened", "issue acme/api#7 opened". It falls back to the event in
+// acme/api#42", "all checks finished, 2 of 5 failed on acme/api#42", "acme/api#42 opened", "issue acme/api#7 opened". It falls back to the event in
 // words, on the repository when it is known.
 func githubEventSubject(e store.RoutineEvent) string {
 	var p struct {
@@ -237,6 +237,8 @@ func githubEventSubject(e store.RoutineEvent) string {
 			Workflow     string `json:"workflow"`
 			App          string `json:"app"`
 			HeadBranch   string `json:"head_branch"`
+			ChecksFailed int    `json:"checks_failed"`
+			Checks       int    `json:"checks"`
 			PullRequests []struct {
 				Number int `json:"number"`
 			} `json:"pull_requests"`
@@ -249,6 +251,18 @@ func githubEventSubject(e store.RoutineEvent) string {
 	typ, _, _ := strings.Cut(e.Event, ".")
 	ref := func(n int) string { return fmt.Sprintf("%s#%d", d.Repo, n) }
 	switch typ {
+	case "checks":
+		what := "all checks finished"
+		if d.ChecksFailed > 0 {
+			what = fmt.Sprintf("all checks finished, %d of %d failed", d.ChecksFailed, d.Checks)
+		}
+		switch {
+		case len(d.PullRequests) > 0 && d.Repo != "":
+			return what + " on " + ref(d.PullRequests[0].Number)
+		case d.HeadBranch != "" && d.Repo != "":
+			return what + " on " + d.Repo + "@" + d.HeadBranch
+		}
+		return what
 	case "workflow_run", "check_suite":
 		what := "workflow"
 		name := d.Workflow
