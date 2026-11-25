@@ -49,14 +49,29 @@ func TestDeletingAMirroredChatTombstonesIt(t *testing.T) {
 	assert.Equal(t, "", roleOf(t, s, c.ID, carol))
 	assert.NotContains(t, listed(t, s, carol, ""), c.ID)
 
-	// The record is still there for the mirror, and the dev token still sees it.
+	// The record is still there for the mirror and opens by id, but it is out of the dev
+	// token's list too: the operator who deleted it must not still see it in the rail.
 	again, err := s.ChatBySourceKey(ctx, key)
 	require.NoError(t, err)
 	assert.Equal(t, c.ID, again.ID)
 	require.NotNil(t, again.DeletedAt)
+	byID, err := s.GetChat(ctx, c.ID)
+	require.NoError(t, err)
+	assert.Equal(t, c.ID, byID.ID)
 	all, _, err := s.ListChats(ctx, "", true, 100, "")
 	require.NoError(t, err)
-	assert.Contains(t, chatIDs(all), c.ID)
+	assert.NotContains(t, chatIDs(all), c.ID)
+
+	// The dev token deleting a mirrored chat nobody owns tombstones it out of its own list.
+	orphan, err := s.CreateMirrorChat(ctx, "slack:C1:500.2", OriginSlack, "dave", "nobody spoke")
+	require.NoError(t, err)
+	all, _, err = s.ListChats(ctx, "", true, 100, "")
+	require.NoError(t, err)
+	require.Contains(t, chatIDs(all), orphan.ID)
+	require.NoError(t, s.DeleteChat(ctx, orphan.ID, "local", true))
+	all, _, err = s.ListChats(ctx, "", true, 100, "")
+	require.NoError(t, err)
+	assert.NotContains(t, chatIDs(all), orphan.ID)
 
 	// Somebody else cannot delete it, tombstone or not.
 	assert.ErrorIs(t, s.DeleteChat(ctx, c.ID, bob, false), ErrNotFound)
