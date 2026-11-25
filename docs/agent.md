@@ -3904,7 +3904,7 @@ is the issue's, not the routine's.
 | Who makes it | anyone signed in, for themselves (ten by default, set by admins) | admins and owners, with **Runs as → Podium (system)** in the same dialog |
 | Who it runs as | its owner: their model key or sign-in, MCP sign-ins, personal secrets, and optionally one of their personal assistants | nobody: the company's model key, the global MCP servers, global secrets only, no assistant |
 | Linear | the owner's own Linear MCP server, as them | the Linear MCP server signed in as the **Podium Linear app**: what it writes in Linear is the app's |
-| GitHub | read with the owner's connected account | read as the **GitHub App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App |
+| GitHub | read with the owner's connected account | read as the **GitHub App**, in any repository it is installed on, with a token minted **read-only** for the one repository each call names; it may also comment on pull requests as the App, and a task it delegates pushes and opens pull requests as the App |
 | Its chat | the owner's; they write in it | nobody's; admins read it and nobody writes in it — they steer it by editing the instruction and notes |
 | Who sees it | its owner (admins see only its metadata, in Settings → Routines) | every admin and owner, on the Routines page next to their own, marked **System** and "as Podium" |
 | Floor | every 15 minutes | every minute |
@@ -3928,6 +3928,14 @@ without Linear and is told why; a playbook that names it does not fail for that.
 reaches all of Linear the app can (`access: all`), with every tool the server has: what that
 means is in [security.md](security.md#5-the-conductor-and-the-bot). Every run a person is behind —
 theirs, their routine's — keeps their own Linear MCP server, as before.
+
+**A run as Podium is always the system, never somebody.** It ignores the identity policy and
+borrows nobody's credentials. A playbook it delegates to that names the connected GitHub account
+in `user_secrets` (`github.token`, "push as the person who asked") pushes and opens pull requests
+as the GitHub App instead, as it would for anybody the App writes for. Any other personal secret
+has no system counterpart, so a delegation to a playbook that needs one is refused before a task
+exists, naming the secret: give the playbook a company secret of that name under `secrets:`, or
+make the routine a person's.
 
 ### Making one
 

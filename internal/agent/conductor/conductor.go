@@ -1349,9 +1349,10 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	persona, err := c.githubPersona(ctx, login, j.playbook, c.runsAsPodium(ctx, login, ev.Routine))
+	asPodium := c.runsAsPodium(ctx, login, ev.Routine)
+	persona, err := c.githubPersona(ctx, login, j.playbook, asPodium)
 	if err == nil {
-		_, err = userSecretRefs(login, j.playbook.UserSecrets)
+		err = c.personalSecretsOK(ctx, login, j.playbook, persona, asPodium)
 	}
 	if err != nil {
 		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
@@ -2237,6 +2238,39 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 		out[i].Owner = login
 	}
 	return out, nil
+}
+
+// personalSecretsOK reports whether a turn for login can have the personal secrets playbook
+// names. persona is githubPersona's answer for the same turn: nil is the App writing to
+// GitHub, which stands in for the connected GitHub account a playbook names as
+// profiles.GitHubTokenSecret — that one never reaches a task (userSecretRefsOrEmpty), and the
+// App's push needs nobody's. Any other personal secret needs the person the turn is for.
+//
+// A run as Podium (a system routine's, asPodium) always acts as the system: it has no person
+// and never borrows one, so a playbook that needs one of somebody's own secrets is refused
+// with what to change. The error is written for the routine's admins.
+func (c *Conductor) personalSecretsOK(
+	ctx context.Context, login string, playbook profiles.Playbook, persona *BriefGit, asPodium bool,
+) error {
+	refs := playbook.UserSecrets
+	if persona == nil {
+		refs = slices.DeleteFunc(slices.Clone(refs), func(ref spec.SecretRef) bool {
+			return ref.Name == profiles.GitHubTokenSecret
+		})
+	}
+	_, err := userSecretRefs(login, refs)
+	if err == nil || !asPodium {
+		return err
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, fmt.Sprintf("%q", ref.Name))
+	}
+	name := displayNameFor("", c.branding(ctx))
+	return fmt.Errorf("this is a system routine's run, which acts as %s and has nobody's personal secrets, "+
+		"and the playbook %q needs %s of the person who asked (user_secrets). Give the playbook a company "+
+		"secret of that name under secrets: instead, or run the routine as a person",
+		name, playbook.Name, strings.Join(names, ", "))
 }
 
 // userSecretRefsOrEmpty is what a task spec attaches. A connected GitHub account is not

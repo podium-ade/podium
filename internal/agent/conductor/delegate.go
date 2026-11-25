@@ -781,11 +781,12 @@ func (c *Conductor) startDelegatedTask(
 	if login == "" && !c.isRoutineTurn(g.turnID) {
 		login = c.asker(ctx, g.src, sess)
 	}
-	persona, err := c.githubPersona(ctx, login, playbook, c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID)))
+	asPodium := c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID))
+	persona, err := c.githubPersona(ctx, login, playbook, asPodium)
 	if err != nil {
 		return nil, Byline{}, err
 	}
-	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
+	if err := c.personalSecretsOK(ctx, login, playbook, persona, asPodium); err != nil {
 		return nil, Byline{}, err
 	}
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
