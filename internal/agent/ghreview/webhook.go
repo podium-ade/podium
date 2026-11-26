@@ -120,92 +120,29 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "recorded", c.change)
 		return
 	}
-	f, err := s.currentFilters(ctx)
-	if err != nil {
-		// Without the filters an allowlist could not be honoured, so nothing starts.
-		s.logger.WarnContext(ctx, "github: reading the webhook filters failed", "error", err)
-		s.logWebhook(ctx, slog.LevelWarn, event, delivery, c, "ignored", "filters unavailable")
-		return
-	}
-	if ok, why := f.actorAllowed(firstNonEmpty(c.author, c.senderLogin), c.senderType); !ok {
-		// The filters decide what starts a turn, not what was said (phase 2): what a filtered
-		// actor wrote on a pull request Podium holds is still part of its record.
-		s.recordOnly(ctx, c)
-		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", why)
-		return
-	}
-	if c.ready && f.NoAutoReview {
-		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "auto review off")
-		return
-	}
 
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	phrases := f.phraseRE()
 	// A review command is its own trigger: `/review` names no mention, and it is the one
 	// request somebody outside Podium may make, so it must reach the conductor's gate.
 	isCommand := IsReviewCommand(c.body, s.mentionRE)
-	if c.ready {
-		isCommand = false
-	}
-	triggered := c.ready || c.mentioned || isCommand || (phrases != nil && phrases.MatchString(c.body))
-	if !triggered && c.inReply {
-		triggered = s.replyTriggers(ctx, f, c, known)
-	}
-	if !triggered && known && f.ConversationReplies && c.kind == KindIssueComment {
-		triggered = s.answersTheApp(ctx, c)
-	}
+	// A reply in an inline review thread the App started, or has replied in, is said to it.
+	triggered := c.mentioned || isCommand || (c.inReply && s.botThread(ctx, c))
 	if !triggered {
 		s.recordOnly(ctx, c)
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
 		return
 	}
 
-	if len(f.ExcludedBranches) > 0 {
-		if c.base == "" && c.installID != 0 {
-			// An issue_comment does not carry the base branch.
-			info, err := s.client.Pull(ctx, c.installID, c.owner, c.repo, c.number)
-			if err != nil {
-				s.logger.WarnContext(ctx, "github: reading the pull request base branch failed",
-					"pr", PRURL(c.owner, c.repo, c.number), "error", err)
-			}
-			c.base = info.Base
-		}
-		if c.base == "" {
-			// Without the base an exclusion could not be honoured, so nothing starts.
-			s.recordOnly(ctx, c)
-			s.logWebhook(ctx, slog.LevelWarn, event, delivery, c, "ignored", "base branch unavailable")
-			return
-		}
-		if f.branchExcluded(c.base) {
-			s.recordOnly(ctx, c)
-			s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "excluded branch")
-			return
-		}
-	}
-
 	text := s.stripMention(c.body)
-	if phrases != nil {
-		text = strings.TrimSpace(phrases.ReplaceAllString(text, "$1$2"))
-	}
-	// A pull request opened or marked ready is the review playbook's, and nobody asked
-	// anything: the conductor runs it directly. Anything a person wrote is the assistant's,
-	// told who wrote it where, and where the last review stopped.
+	// Anything a person wrote is the assistant's, told who wrote it where, and where the last
+	// review stopped.
 	commit, head := "", ""
 	if known {
 		commit, head = s.reviewBaseline(ctx, c)
 	}
-	if !c.ready {
-		c.role, c.locked = s.speakerRole(ctx, c)
-	}
-	if c.ready {
-		text = pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action)
-		if known {
-			text = followUpInstruction(text, commit, head)
-		}
-	} else {
-		text = commentInstruction(c, text, commit, head)
-	}
+	c.role, c.locked = s.speakerRole(ctx, c)
+	text = commentInstruction(c, text, commit, head)
 	request := ""
 	if isCommand {
 		request = reviewRequestInstruction(c.author, PRURL(c.owner, c.repo, c.number), commit, head)
@@ -213,12 +150,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	ev := s.inbound(c, text)
 	ev.Mentioned = c.mentioned || isCommand
 	ev.ReviewRequest = request
-	ev.Automatic = c.ready
 	ev.Role = c.role
-	if c.ready {
-		// Nobody said anything: the record keeps the instruction, which says what happened.
-		ev.RecordText = ""
-	}
 	s.emit(ctx, ev)
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
@@ -263,7 +195,7 @@ func (s *Source) inbound(c classified, text string) conductor.InboundEvent {
 // recordOnly offers what a person wrote on a pull request, which starts nothing, as part of
 // its record. The conductor keeps it only when Podium already holds that pull request.
 func (s *Source) recordOnly(ctx context.Context, c classified) {
-	if c.ready || c.commentID == 0 || strings.TrimSpace(c.body) == "" {
+	if c.commentID == 0 || strings.TrimSpace(c.body) == "" {
 		return
 	}
 	ev := s.inbound(c, strings.TrimSpace(c.body))
@@ -317,11 +249,7 @@ type classified struct {
 	// threadID is the first comment of the review thread a reply is in.
 	threadID  int64
 	mentioned bool
-	// ready is a pull request opened already ready, or a draft marked ready.
-	// GitHub cannot request this App as a reviewer, so those actions start the
-	// review instead. A draft's own open stays quiet.
-	ready  bool
-	action string
+	action    string
 	// base is the branch the pull request merges into. An issue_comment leaves it empty.
 	base string
 	// title is the pull request's own title, as the payload carried it. It names the chat.
@@ -586,11 +514,15 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return base, true
 
 	case "pull_request":
-		// An open that is already ready, or a draft marked ready, starts the
-		// review. review_requested is not one: GitHub does not let you assign
-		// this App as a reviewer. A draft's own open waits for that mark. New
-		// commits are handlePush's to decide.
-		if env.Action != "ready_for_review" && env.Action != "opened" && env.Action != "synchronize" {
+		// A pull request opened, or marked ready, starts nothing here: the review it once
+		// started is a routine's ("Review pull requests"), kept for it by keepForRoutines with
+		// the routine's own conditions. New commits the App pushed are handlePush's: a review
+		// already on the pull request goes on from where it stopped.
+		if env.Action == "ready_for_review" || env.Action == "opened" {
+			base.reason = "a routine's to review"
+			return base, false
+		}
+		if env.Action != "synchronize" {
 			base.reason = "unsupported action"
 			return base, false
 		}
@@ -606,19 +538,13 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		if err := json.Unmarshal(body, &p); err != nil {
 			return base, false
 		}
-		if env.Action == "opened" && p.PullRequest.Draft {
-			base.reason = "draft"
-			base.number = p.PullRequest.Number
-			return base, false
-		}
 		base.number = p.PullRequest.Number
 		base.title = p.PullRequest.Title
 		base.base = p.PullRequest.Base.Ref
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
 		base.ts = p.PullRequest.UpdatedAt
-		base.ready = env.Action != "synchronize"
-		base.pushed = env.Action == "synchronize"
+		base.pushed = true
 		if base.number == 0 {
 			base.reason = "unhandled"
 			return base, false
@@ -632,25 +558,6 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 
 type branchJSON struct {
 	Ref string `json:"ref"`
-}
-
-func (s *Source) currentFilters(ctx context.Context) (Filters, error) {
-	if s.filters == nil {
-		return Filters{}, nil
-	}
-	return s.filters(ctx)
-}
-
-// replyTriggers decides a reply in an inline review thread that carries no trigger.
-func (s *Source) replyTriggers(ctx context.Context, f Filters, c classified, known bool) bool {
-	switch f.replyMode() {
-	case ReplyAlways:
-		return false
-	case ReplyAnyThread:
-		return known
-	default:
-		return s.botThread(ctx, c)
-	}
 }
 
 // roleTTL is how long a person's role on a repository is remembered. A role taken away is
@@ -766,41 +673,6 @@ func (s *Source) joinedThread(ctx context.Context, c classified) bool {
 	return false
 }
 
-// conversationReplyWindow is how soon after the App's own comment a conversation-tab
-// comment counts as the answer to it.
-const conversationReplyWindow = 30 * time.Minute
-
-// answersTheApp reports whether the conversation-tab comment c follows the App's own comment
-// directly, within conversationReplyWindow of it being written or last edited. The tab has no
-// threads, so "right after the App spoke" is the nearest thing to a reply.
-func (s *Source) answersTheApp(ctx context.Context, c classified) bool {
-	if c.installID == 0 {
-		return false
-	}
-	comments, err := s.client.ListIssueComments(ctx, c.installID, c.owner, c.repo, c.number)
-	if err != nil {
-		s.logger.WarnContext(ctx, "github: reading the conversation before a comment failed",
-			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
-		return false
-	}
-	var prev *Comment
-	for i := range comments {
-		cm := &comments[i]
-		if cm.ID == c.commentID || !cm.CreatedAt.Before(c.ts) {
-			break
-		}
-		prev = cm
-	}
-	if prev == nil || !s.isAppUser(prev.User.Login, prev.User.Type) {
-		return false
-	}
-	at := prev.CreatedAt
-	if prev.UpdatedAt.After(at) {
-		at = prev.UpdatedAt
-	}
-	return c.ts.Sub(at) <= conversationReplyWindow
-}
-
 func (s *Source) mentioned(body string) bool {
 	return s.mentionRE != nil && s.mentionRE.MatchString(body)
 }
@@ -868,14 +740,6 @@ func (s *Source) handlePush(ctx context.Context, event, delivery string, c class
 		Automatic: true,
 	})
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
-}
-
-func pullInstruction(author, prURL, action string) string {
-	who := firstNonEmpty(author, "someone")
-	if action == "opened" {
-		return who + " opened " + prURL + " for review"
-	}
-	return who + " marked " + prURL + " ready for review"
 }
 
 // followUpInstruction tells a later turn to review the delta since the last
@@ -1018,4 +882,24 @@ func firstQuote(hunk string) string {
 		}
 	}
 	return ""
+}
+
+// ReviewFollowUp is what a review a routine starts on the pull request sourceKey names is told
+// first when the pull request was reviewed before: review only what changed since, from the
+// commit that review covered. "" for a pull request with no review yet, or one GitHub would
+// not say the commits of.
+func (s *Source) ReviewFollowUp(ctx context.Context, sourceKey string) string {
+	owner, repo, number, ok := ParseSourceKey(sourceKey)
+	if !ok {
+		return ""
+	}
+	install, err := s.client.RepoInstallation(ctx, owner, repo)
+	if err != nil {
+		return ""
+	}
+	commit, head := s.reviewBaseline(ctx, classified{owner: owner, repo: repo, number: number, installID: install})
+	if commit == "" {
+		return ""
+	}
+	return followUpInstruction("", commit, head)
 }

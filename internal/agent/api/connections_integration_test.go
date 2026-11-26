@@ -320,48 +320,6 @@ func TestAConnectionThatCannotBeAppliedStillSaves(t *testing.T) {
 	assert.Contains(t, f.log.String(), "could not switch to it")
 }
 
-// The filters are their own row, saved without the App and without a restart.
-func TestGitHubWebhookFiltersRoundTrip(t *testing.T) {
-	f := newSettingsFixture(t, "https://example.invalid", nil)
-	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
-	ctx := loginCtx("ada")
-
-	got, err := f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
-	require.NoError(t, err)
-	def := got.Msg.GetGithub().GetFilters()
-	assert.Equal(t, connections.ReplyBotThreads, def.GetReplyMode())
-	assert.True(t, def.GetAutoReview())
-	assert.False(t, def.GetConversationReplies(), "a conversation-tab reply needs the mention unless turned on")
-
-	saved, err := f.svc.SetGitHubWebhookFilters(ctx, connect.NewRequest(&agentv1.SetGitHubWebhookFiltersRequest{
-		Filters: &agentv1.GitHubWebhookFilters{
-			AllowedActors:  []string{"@alice", "alice", "bob"},
-			TriggerPhrases: []string{" /review "},
-			ReplyMode:      connections.ReplyAlways,
-
-			ConversationReplies: true,
-		},
-	}))
-	require.NoError(t, err)
-	out := saved.Msg.GetGithub().GetFilters()
-	assert.Equal(t, []string{"alice", "bob"}, out.GetAllowedActors())
-	assert.Equal(t, []string{"/review"}, out.GetTriggerPhrases())
-	assert.Equal(t, connections.ReplyAlways, out.GetReplyMode())
-	assert.False(t, out.GetAutoReview())
-	assert.True(t, out.GetConversationReplies())
-	assert.Equal(t, "ada", out.GetSetBy())
-	assert.False(t, saved.Msg.GetGithub().GetRestartRequired())
-
-	got, err = f.svc.GetConnections(ctx, connect.NewRequest(&agentv1.GetConnectionsRequest{}))
-	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, got.Msg.GetGithub().GetFilters().GetAllowedActors())
-
-	_, err = f.svc.SetGitHubWebhookFilters(ctx, connect.NewRequest(&agentv1.SetGitHubWebhookFiltersRequest{
-		Filters: &agentv1.GitHubWebhookFilters{AllowedActors: []string{"not a login"}},
-	}))
-	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-}
-
 const (
 	fakeLinearClientSecret  = "lsec-not-a-real-secret-4321"
 	fakeLinearWebhookSecret = "lin_wh_not-a-real-secret-8765"

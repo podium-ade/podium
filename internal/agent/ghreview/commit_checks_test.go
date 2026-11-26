@@ -96,7 +96,7 @@ func fiveJobs(api *checksAPI, running string, failing ...string) {
 	api.set(base+"/status", map[string]any{"state": "success", "statuses": []any{}})
 	api.set(base+"/pulls", []any{
 		map[string]any{"number": 7, "title": "Old one", "state": "closed", "head": map[string]any{"ref": "x", "sha": "zzz"}},
-		map[string]any{"number": 42, "title": "Fix login", "state": "open",
+		map[string]any{"number": 42, "title": "Fix login", "state": "open", "user": map[string]any{"login": "pat", "type": "User"},
 			"head": map[string]any{"ref": "fix-login", "sha": checksSHA}, "base": map[string]any{"ref": "main"}},
 	})
 }
@@ -178,6 +178,8 @@ func TestACommitIsKeptOnceItsLastCheckFinishesWithOneFailed(t *testing.T) {
 		"url": "https://github.com/acme/api/runs/web", "job_id": float64(101),
 	}}, data["failed"], "with the job whose log a run reads")
 	assert.Equal(t, "fix-login", data["head_branch"])
+	assert.Equal(t, store.GitHubEventFacts{Actor: "pat", Pull: true, Base: "main"}, d.Facts,
+		"nobody set the finish off: a routine's conditions on people ask about the pull request's author")
 }
 
 func TestACommitWhoseChecksAllPassedIsOnlyCompleted(t *testing.T) {

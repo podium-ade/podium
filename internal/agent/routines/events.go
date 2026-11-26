@@ -165,7 +165,11 @@ func (s *Scheduler) startEventRun(ctx context.Context, r store.Routine, now time
 		cr.Conversation = true
 		cr.Instruction = preambleFor(subjectKey(sub)) + cr.Instruction
 	}
-	if err := s.runner.RunRoutine(ctx, cr); err != nil {
+	title := ""
+	if sub != nil {
+		title = sub.Title
+	}
+	if err := s.run(ctx, r, cr, subjectKey(sub), title); err != nil {
 		s.releaseEvents(ctx, run.ID)
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
 		if errors.Is(err, chat.ErrChatBusy) {

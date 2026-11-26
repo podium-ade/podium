@@ -283,3 +283,66 @@ func TestWhetherARoutineWantsACommitsFinishedChecksIsAskedBeforeReadingThem(t *t
 	require.NoError(t, err)
 	assert.False(t, want, "a paused routine")
 }
+
+// A routine's conditions decide which deliveries it is kept: the review's triggers, made each
+// routine's own. Another routine on the same events without them is kept the same delivery.
+func TestARoutinesConditionsDecideWhichDeliveriesItIsKept(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	review := githubDraft()
+	review.Name, review.Events, review.Playbook = "Review pull requests", []string{"pull_request.opened"}, RoutineReviewPlaybook
+	review.GitHubFilters = RoutineGitHubFilters{
+		IgnoredPeople: []string{"mallory"}, IgnoreBots: true, SkipDrafts: true, ExcludedBranches: []string{"release/*"},
+	}
+	reviewer, err := s.CreateSystemRoutine(ctx, "admin@acme.com", review)
+	require.NoError(t, err)
+	assert.Equal(t, RoutineReviewPlaybook, reviewer.Playbook)
+	assert.Equal(t, review.GitHubFilters, reviewer.GitHubFilters, "kept as saved")
+	plain := githubDraft()
+	plain.Events = []string{"pull_request.opened"}
+	everyone, err := s.CreateSystemRoutine(ctx, "admin@acme.com", plain)
+	require.NoError(t, err)
+
+	keep := func(id string, facts GitHubEventFacts) int {
+		t.Helper()
+		n, err := s.StoreGitHubRoutineEvents(ctx, GitHubDelivery{
+			DeliveryID: id, Events: []string{"pull_request.opened"}, Repo: "acme/api",
+			Payload: []byte(`{"source":"github"}`), ReceivedAt: time.Now(), Facts: facts,
+		})
+		require.NoError(t, err)
+		return n
+	}
+	assert.Equal(t, 2, keep("d-1", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main"}))
+	assert.Equal(t, 1, keep("d-2", GitHubEventFacts{Actor: "mallory", Pull: true, Base: "main"}), "an ignored person")
+	assert.Equal(t, 1, keep("d-3", GitHubEventFacts{Actor: "renovate[bot]", ActorBot: true, Pull: true, Base: "main"}), "a bot")
+	assert.Equal(t, 1, keep("d-4", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main", Draft: true}), "a draft")
+	assert.Equal(t, 1, keep("d-5", GitHubEventFacts{Actor: "alice", Pull: true, Base: "release/2"}), "an excluded base")
+	assert.Equal(t, 0, keep("d-1", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main"}), "kept once")
+	pending, err := s.PendingRoutineEvents(ctx, []string{reviewer.ID, everyone.ID})
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending[reviewer.ID])
+	assert.Equal(t, 5, pending[everyone.ID])
+
+	// Edited, the conditions are what was saved last.
+	review.GitHubFilters = RoutineGitHubFilters{}
+	review.Playbook = ""
+	edited, err := s.UpdateRoutine(ctx, reviewer.ID, "admin@acme.com", review)
+	require.NoError(t, err)
+	assert.True(t, edited.GitHubFilters.IsZero())
+	assert.Empty(t, edited.Playbook)
+	assert.Equal(t, 2, keep("d-6", GitHubEventFacts{Actor: "mallory", Pull: true, Base: "release/2", Draft: true}))
+}
+
+func TestASettingIsClaimedOnce(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	first, err := s.ClaimSetting(ctx, "once", map[string]bool{"made": true})
+	require.NoError(t, err)
+	assert.True(t, first)
+	again, err := s.ClaimSetting(ctx, "once", map[string]bool{"made": false})
+	require.NoError(t, err)
+	assert.False(t, again)
+	var got map[string]bool
+	require.NoError(t, s.GetSetting(ctx, "once", &got))
+	assert.True(t, got["made"], "the first claim's value stays")
+}

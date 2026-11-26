@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -50,6 +51,7 @@ type Store interface {
 	NotifyRoutine(ctx context.Context, login, chatID, actor, detail string) error
 	GetChat(ctx context.Context, id string) (store.Chat, error)
 	EnsureRoutineChat(ctx context.Context, r store.Routine) (string, bool, error)
+	DelegationsForTurn(ctx context.Context, turnID string) ([]store.Delegation, error)
 }
 
 // EventStore is what the scheduler needs of the database to run routines on Linear events
@@ -81,15 +83,23 @@ type Runner interface {
 	RunRoutine(ctx context.Context, run chat.RoutineRun) error
 }
 
+// PlaybookRunner starts a run of a routine that starts its playbook right away, with no
+// assistant's turn before it. The conductor implements it.
+type PlaybookRunner interface {
+	RunRoutinePlaybook(ctx context.Context, run conductor.RoutinePlaybookRun) error
+}
+
 // Scheduler fires routines and settles their runs.
 type Scheduler struct {
 	store    Store
 	events   EventStore
 	subjects SubjectStore
 	runner   Runner
-	logger   *slog.Logger
-	tick     time.Duration
-	now      func() time.Time
+	// playbooks starts a routine's playbook; nil fails a run of a routine that names one.
+	playbooks PlaybookRunner
+	logger    *slog.Logger
+	tick      time.Duration
+	now       func() time.Time
 }
 
 // Options configures a Scheduler.
@@ -102,7 +112,9 @@ type Options struct {
 	// ticket's conversation in its own chat, as every other.
 	Subjects SubjectStore
 	Runner   Runner
-	Logger   *slog.Logger
+	// Playbooks starts the runs of a routine that starts a playbook right away.
+	Playbooks PlaybookRunner
+	Logger    *slog.Logger
 	// Tick is how often to look; zero is DefaultTick.
 	Tick time.Duration
 	// Now is the clock; nil is time.Now.
@@ -116,7 +128,7 @@ func New(opts Options) (*Scheduler, error) {
 	}
 	s := &Scheduler{
 		store: opts.Store, events: opts.Events, subjects: opts.Subjects, runner: opts.Runner,
-		logger: opts.Logger, tick: opts.Tick, now: opts.Now,
+		playbooks: opts.Playbooks, logger: opts.Logger, tick: opts.Tick, now: opts.Now,
 	}
 	if s.logger == nil {
 		s.logger = slog.Default()
@@ -330,7 +342,7 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 	if !ok {
 		return store.RoutineRun{}, errClaimed
 	}
-	err = s.runner.RunRoutine(ctx, chatRun(r, run))
+	err = s.run(ctx, r, chatRun(r, run), "", "")
 	if err != nil {
 		status, summary := store.RoutineRunFailed, "The run could not start: "+err.Error()
 		if errors.Is(err, chat.ErrChatBusy) {
@@ -343,6 +355,22 @@ func (s *Scheduler) start(ctx context.Context, r store.Routine, scheduledFor tim
 	}
 	s.logger.InfoContext(ctx, "a routine run started", "routine_id", r.ID, "run_id", run.ID, "trigger", trigger)
 	return run, nil
+}
+
+// run hands a claimed run over: to the chat, for the assistant's turn, or to the conductor for
+// a routine that starts its playbook right away. conversation is the conversation the run is a
+// turn of, "" for the routine's own chat, and title names it.
+func (s *Scheduler) run(ctx context.Context, r store.Routine, cr chat.RoutineRun, conversation, title string) error {
+	if r.Playbook == "" {
+		return s.runner.RunRoutine(ctx, cr)
+	}
+	if s.playbooks == nil {
+		return errors.New("this conductor cannot start a routine's playbook")
+	}
+	return s.playbooks.RunRoutinePlaybook(ctx, conductor.RoutinePlaybookRun{
+		RoutineID: r.ID, RunID: cr.RunID, Playbook: r.Playbook, Login: r.OwnerLogin,
+		ChatID: cr.ChatID, ConversationKey: conversation, Title: title,
+	})
 }
 
 // chatRun is the run as the chat is handed it.
@@ -462,6 +490,11 @@ func (s *Scheduler) outcome(ctx context.Context, run store.RoutineRun, now time.
 	if err != nil || turn.Status == store.TurnRunning {
 		return "", "", nil, false
 	}
+	if turn.Status == store.TurnSucceeded {
+		if status, summary, spent, ok := s.playbookOutcome(ctx, run, turn); status != "" || !ok {
+			return status, summary, spent, ok
+		}
+	}
 	switch turn.Status {
 	case store.TurnSucceeded:
 		if run.Reported == store.RoutineRunIdle {
@@ -473,6 +506,44 @@ func (s *Scheduler) outcome(ctx context.Context, run store.RoutineRun, now time.
 	default:
 		return store.RoutineRunFailed, "The run's turn ended " + turn.Status + ".", turn.CostUSD, true
 	}
+}
+
+// playbookOutcome is how a run of a routine that starts its playbook right away went, whose
+// turn has ended: that turn only started the task, so the run is the task's. ok is false while
+// the task works; status "" is a run that is not one, or whose task left nothing to read.
+//
+// Its cost is the turn's and its tasks'.
+func (s *Scheduler) playbookOutcome(ctx context.Context, run store.RoutineRun, turn store.Turn) (status, summary string, cost *float64, ok bool) {
+	r, err := s.store.GetRoutine(ctx, run.RoutineID)
+	if err != nil || r.Playbook == "" {
+		return "", "", nil, true
+	}
+	dlgs, err := s.store.DelegationsForTurn(ctx, turn.ID)
+	if err != nil {
+		return "", "", nil, false
+	}
+	total := 0.0
+	if turn.CostUSD != nil {
+		total = *turn.CostUSD
+	}
+	status = store.RoutineRunDone
+	for _, d := range dlgs {
+		if d.CostUSD != nil {
+			total += *d.CostUSD
+		}
+		switch d.Status {
+		case store.TurnRunning:
+			return "", "", nil, false
+		case store.TurnSucceeded:
+		case store.TurnCancelled:
+			if summary == "" {
+				summary = "Stopped before it finished."
+			}
+		default:
+			status, summary = store.RoutineRunFailed, fmt.Sprintf("The `%s` task ended %s.", d.Playbook, d.Status)
+		}
+	}
+	return status, summary, &total, true
 }
 
 // checkFailures pauses a routine with MaxFailures failed runs inside FailureWindow.

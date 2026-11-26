@@ -22,13 +22,9 @@ func (s *AgentService) GetConnections(
 	if err != nil {
 		return nil, err
 	}
-	filters, err := connections.LoadGitHubFilters(ctx, s.store)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
 	return connect.NewResponse(&agentv1.GetConnectionsResponse{
 		Slack:  slackView(s.env, s.runningConfig(), slack),
-		Github: githubView(s.runningConfig(), gh, filters),
+		Github: githubView(s.runningConfig(), gh),
 		Linear: linearView(s.env, s.runningConfig(), lin),
 	}), nil
 }
@@ -138,12 +134,8 @@ func (s *AgentService) SetGitHubConnection(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.applyConnections(ctx)
-	filters, err := connections.LoadGitHubFilters(ctx, s.store)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
 	return connect.NewResponse(&agentv1.SetGitHubConnectionResponse{
-		Github: githubView(s.runningConfig(), &row, filters),
+		Github: githubView(s.runningConfig(), &row),
 	}), nil
 }
 
@@ -161,12 +153,8 @@ func (s *AgentService) ClearGitHubConnection(
 	}
 	s.logger.InfoContext(ctx, "cleared the saved github connection", "login", Login(ctx))
 	s.applyConnections(ctx)
-	filters, err := connections.LoadGitHubFilters(ctx, s.store)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
 	return connect.NewResponse(&agentv1.ClearGitHubConnectionResponse{
-		Github: githubView(s.runningConfig(), nil, filters),
+		Github: githubView(s.runningConfig(), nil),
 	}), nil
 }
 
@@ -242,51 +230,6 @@ func (s *AgentService) ClearLinearConnection(
 	}), nil
 }
 
-// SetGitHubWebhookFilters stores the webhook filters. The source reads them on every
-// delivery, so they apply without a restart.
-func (s *AgentService) SetGitHubWebhookFilters(
-	ctx context.Context, req *connect.Request[agentv1.SetGitHubWebhookFiltersRequest],
-) (*connect.Response[agentv1.SetGitHubWebhookFiltersResponse], error) {
-	if err := s.requireConnectionStore(); err != nil {
-		return nil, err
-	}
-	in := req.Msg.GetFilters()
-	row, err := connections.NormalizeGitHubFilters(connections.GitHubFilters{
-		AllowedActors:    in.GetAllowedActors(),
-		IgnoredActors:    in.GetIgnoredActors(),
-		IgnoreBots:       in.GetIgnoreBots(),
-		TriggerPhrases:   in.GetTriggerPhrases(),
-		ReplyMode:        in.GetReplyMode(),
-		NoAutoReview:     !in.GetAutoReview(),
-		ExcludedBranches: in.GetExcludedBranches(),
-
-		ConversationReplies: in.GetConversationReplies(),
-	})
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	gh, err := connections.LoadGitHub(ctx, s.store, s.secrets)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	row.SetBy = Login(ctx)
-	row.SetAt = time.Now().UTC()
-	s.logger.InfoContext(ctx, "saving the github webhook filters", "login", row.SetBy,
-		"allowed_actors", len(row.AllowedActors), "ignored_actors", len(row.IgnoredActors),
-		"ignore_bots", row.IgnoreBots, "trigger_phrases", len(row.TriggerPhrases),
-		"reply_mode", row.ReplyMode, "auto_review", !row.NoAutoReview,
-		"conversation_replies", row.ConversationReplies,
-		"excluded_branches", len(row.ExcludedBranches))
-	if err := connections.SaveGitHubFilters(ctx, s.store, row); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&agentv1.SetGitHubWebhookFiltersResponse{
-		Github: githubView(s.runningConfig(), gh, row),
-	}), nil
-}
-
 // checkConnections refuses a Slack pair, GitHub App or Linear app that Slack, GitHub or
 // Linear does not accept, before it is stored. Without it a bad token would be saved,
 // applied and then fail to connect, and the next start would fail the same way.
@@ -355,7 +298,7 @@ func slackView(env, running config.Config, saved *connections.Slack) *agentv1.Sl
 	return out
 }
 
-func githubView(running config.Config, saved *connections.GitHub, filters connections.GitHubFilters) *agentv1.GitHubConnection {
+func githubView(running config.Config, saved *connections.GitHub) *agentv1.GitHubConnection {
 	// The GitHub App is not read from the environment. An empty saved row is off,
 	// whatever PODIUM_AGENT_GITHUB_* still says.
 	out := &agentv1.GitHubConnection{}
@@ -383,7 +326,6 @@ func githubView(running config.Config, saved *connections.GitHub, filters connec
 		out.ClientSecretSet = saved.ClientSecret != ""
 	}
 	out.RestartRequired = connections.GitHubDiffers(config.Config{}, running, saved)
-	out.Filters = filtersView(filters)
 	return out
 }
 
@@ -416,29 +358,6 @@ func linearView(env, running config.Config, saved *connections.Linear) *agentv1.
 		out.Configured = saved.ClientID != "" && saved.ClientSecret != ""
 	}
 	out.RestartRequired = connections.LinearDiffers(config.Config{}, running, saved)
-	return out
-}
-
-func filtersView(f connections.GitHubFilters) *agentv1.GitHubWebhookFilters {
-	mode := f.ReplyMode
-	if mode == "" {
-		mode = connections.ReplyBotThreads
-	}
-	out := &agentv1.GitHubWebhookFilters{
-		AllowedActors:    f.AllowedActors,
-		IgnoredActors:    f.IgnoredActors,
-		IgnoreBots:       f.IgnoreBots,
-		TriggerPhrases:   f.TriggerPhrases,
-		ReplyMode:        mode,
-		AutoReview:       !f.NoAutoReview,
-		ExcludedBranches: f.ExcludedBranches,
-		SetBy:            f.SetBy,
-
-		ConversationReplies: f.ConversationReplies,
-	}
-	if !f.SetAt.IsZero() {
-		out.SetAt = timestamppb.New(f.SetAt)
-	}
 	return out
 }
 

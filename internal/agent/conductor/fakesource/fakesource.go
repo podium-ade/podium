@@ -71,6 +71,8 @@ type Source struct {
 	// mirrorKey, when set, is the mirror's key for a ref instead of the Slack-shaped default:
 	// a Linear agent session's ref names its session fourth, not second.
 	mirrorKey func(ref string) (string, bool)
+	// refForKey names a conversation from its key (NamesByKey); nil names none.
+	refForKey func(key string) (string, bool)
 	// threads, when set, names the thread of the conversation a ref answers into, as the
 	// Linear app names an issue's agent sessions (conductor.ThreadKeyer).
 	threads func(ref string) string
@@ -373,4 +375,23 @@ func (s *Source) MirrorKey(ref string) (string, bool) {
 	// channel and the thread, never the triggering message.
 	channel, thread, _ := strings.Cut(ref, "/")
 	return s.kind + ":" + channel + ":" + thread, true
+}
+
+// NamesByKey makes the source name a conversation from its session key alone, as the GitHub
+// source names a pull request (RefForKey): ref is what it answers for a key.
+func (s *Source) NamesByKey(ref func(key string) (string, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refForKey = ref
+}
+
+// RefForKey implements the conductor's key-naming half: false until NamesByKey is called.
+func (s *Source) RefForKey(key string) (string, bool) {
+	s.mu.Lock()
+	ref := s.refForKey
+	s.mu.Unlock()
+	if ref == nil {
+		return "", false
+	}
+	return ref(key)
 }

@@ -919,6 +919,10 @@ func (c *Conductor) acceptConversation(
 //
 // A delegation hangs off a turn, so the event gets one. It records that the event was handled
 // here, ran no model and cost nothing, and it is finished once the task has started.
+//
+// A routine that starts its playbook right away runs here too (RunRoutinePlaybook): its turn is
+// linked to the run, so the scheduler settles it, and the task runs as the routine runs — its
+// owner, or nobody for a system routine.
 func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *profiles.Profile, ev InboundEvent) {
 	_, sess, ok := c.acceptConversation(ctx, src, profile, &ev)
 	if !ok {
@@ -938,6 +942,12 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
 	}
+	login := ""
+	if ev.Routine != nil {
+		c.noteRoutineTurn(ctx, turn.ID, ev)
+		defer c.forgetRoutineTurn(turn.ID)
+		login = c.turnLogin(ctx, src, sess, ev)
+	}
 	status := store.TurnSucceeded
 	_, err = c.delegate(ctx, turnGrant{
 		turnID:    turn.ID,
@@ -945,6 +955,7 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		ref:       ev.Ref,
 		src:       src,
 		playbooks: []string{ev.Playbook},
+		login:     login,
 	}, ev.Playbook, ev.Text, DelegateOptions{Wait: true})
 	if err != nil {
 		status = store.TurnFailed

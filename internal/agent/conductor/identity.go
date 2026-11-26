@@ -420,8 +420,9 @@ func (c *Conductor) turnLogin(ctx context.Context, src Source, sess store.Sessio
 	if ev.Routine != nil {
 		// A routine's run is its owner's, or nobody's for a system routine — never the chat's
 		// owner's. A run in a Linear issue's conversation is in a chat whose owner is whoever
-		// spoke in it first, and must not run with their secrets.
-		return ""
+		// spoke in it first, and must not run with their secrets. A run that starts its
+		// playbook right away is automatic, and names its owner here.
+		return strings.TrimSpace(ev.Login)
 	}
 	return c.asker(ctx, src, sess)
 }
@@ -433,17 +434,17 @@ func (c *Conductor) turnStartedBy(ctx context.Context, src Source, sess store.Se
 	if l := turnOwner(c.turnLogin(ctx, src, sess, ev)); l != "" {
 		return l
 	}
+	if ev.Routine != nil && ev.Routine.RoutineID != "" {
+		// A system routine's run: nobody is behind it but the routine itself, which Usage
+		// shows as its own line — on a pull request too, where the review it starts runs.
+		return store.TurnStartedByRoutine(ev.Routine.RoutineID)
+	}
 	kind := sess.SourceKind
 	if src != nil {
 		kind = src.Kind()
 	}
 	if kind == SourceGitHub {
 		return store.TurnStartedByApp
-	}
-	if ev.Routine != nil && ev.Routine.RoutineID != "" {
-		// A system routine's run: nobody is behind it but the routine itself, which Usage
-		// shows as its own line.
-		return store.TurnStartedByRoutine(ev.Routine.RoutineID)
 	}
 	return ""
 }

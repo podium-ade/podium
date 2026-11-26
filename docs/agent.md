@@ -2675,10 +2675,14 @@ Two consequences of using a personal API key, both worth knowing:
 A pull request is a **conversation**, one session per pull request (`github:owner/repo#N`).
 
 - **Opening a pull request** that is not a draft, or marking a draft ready for review, runs
-  the review. Nobody asked anything, so there is no assistant turn: the conductor delegates
-  the playbook marked `github: true` itself. A draft stays quiet until it is marked ready.
-  GitHub does not let you request the App as a reviewer, so `review_requested` does not
-  start one.
+  the review through the **Review pull requests** routine (Routines, [On a GitHub
+  event](#on-a-github-event)). It starts the repository's review playbook right away, with no
+  assistant turn: nobody asked anything. The routine has its own conditions: whose pull
+  requests, into which branches, and drafts left until they are marked ready. It is a
+  template in the new-routine dialog. A deployment that was reviewing pull requests before
+  the review became a routine gets one made for it, once, from the Triggers it had saved ([Who the App answers](#who-the-app-answers)). Delete or
+  pause it and pull requests are reviewed only when somebody asks. GitHub does not let you
+  request the App as a reviewer, so `review_requested` does not start one.
 - **Anything a person writes** — `@slug` on the pull request (the App's slug from its
   settings, or `@slug[bot]`), a reply in a thread the App started, or a Slack mention with
   that PR's URL — is answered by the **assistant**, on the host, as a Slack thread is. It
@@ -2692,7 +2696,7 @@ A pull request is a **conversation**, one session per pull request (`github:owne
   it delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
   `pull-request` is a reserved MCP server name.
 
-**The menu on a pull request depends on who is asking.** Anybody the triggers allow can comment,
+**The menu on a pull request depends on who is asking.** Anybody can mention the App,
 so the menu is the review playbook, plus each playbook whose `github_requires` the commenter's
 role on the repository meets — a playbook that pushes asks for `write`. The role is read from
 GitHub (`role_name`, or the base permission for an organisation's custom role) and remembered
@@ -2706,7 +2710,8 @@ line and quoted diff, or Slack — and, once there is a review, the commit it co
 now. The App posts on GitHub; bound Slack threads get every answer.
 
 With no host runtime (`PODIUM_AGENT_HOST_RUNTIME` empty) there is no assistant, and every
-GitHub event runs the `github: true` playbook as a task, as it did before.
+mention of the App runs the `github: true` playbook as a task, as it did before. There are no
+routines either, so a pull request being opened starts nothing.
 
 **Each deployment creates its own GitHub App.** Podium ships
 [`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
@@ -2828,59 +2833,37 @@ mention. A playbook that pushes as the asker's own GitHub account is a person's 
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | an assistant turn |
-| `pull_request` / `opened` | the review, delegated directly, when the pull request is not a draft. A draft's open is dropped |
-| `pull_request` / `ready_for_review` | the review, delegated directly. This is a draft marked ready |
+| `pull_request` / `opened` | no turn here: kept for the routines on it, the Review pull requests routine among them, under each one's conditions |
+| `pull_request` / `ready_for_review` | the same. This is a draft marked ready |
 | `pull_request` / `synchronize` pushed by this App | the review again, of what changed, delegated directly — when the pull request has a review. This is a playbook's fix landing |
 | `pull_request` / `synchronize` pushed by anybody else, `review_requested`, and other pull request actions | dropped |
-| a trigger phrase in a top-level comment or review body | as `@app` |
-| a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed (the default reply mode) |
-| a conversation-tab comment right after the App's own, within 30 minutes | an assistant turn, no mention needed, when **Answer a reply on the conversation tab** is on |
-| a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |
-| `lgtm` / other conversation-tab comments without a mention | dropped, unless they follow the App as above |
-| anything from a login the triggers do not allow | dropped, `@app` or not |
+| `/review` in a top-level comment | a review request, as `@app review` |
+| a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed |
+| a reply in an inline review thread a person started | dropped unless it mentions the App |
+| `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | an assistant turn on that PR's session; the Slack thread is bound to it |
 | a second mention in a bound Slack thread, URL or not | an assistant turn on the same session |
 | two PR URLs in one Slack mention, or a different PR in a bound thread | refused in Slack; not a second session |
 
 Unrelated webhook deliveries still return 200 so GitHub does not retry.
 
-### Triggers
+### Who the App answers
 
-GitHub cannot filter a webhook by who sent it, so the conductor does. **Triggers**, in the GitHub
-dialog under Access → Connections, are read on every delivery and apply to the next one without a
-restart. They live in the settings row `connection.github.filters`.
+There is nothing to set. The App answers anyone who mentions it, or writes `/review`, on a pull
+request, and a reply in an inline review thread it started or has replied in. Who started a
+thread is read once from GitHub and remembered; whether the App has replied in a person's thread
+is read until it has, and then remembered. A thread that cannot be read needs the mention. The
+conversation tab has no threads, so a comment there always needs the mention.
 
-- **Allowed people**: the only logins that may start or continue a review, the automatic review
-  on open included. Empty is anyone.
-- **Ignored people** and **Ignore bot accounts**: never trigger, even with a mention. An
-  ignored login wins over an allowed one.
-- **Trigger phrases**: plain text that starts a turn from a top-level comment or a review body,
-  next to the `@app` mention, which always works. Matched as whole words, ignoring case and
-  extra whitespace. The phrase is taken out of the text the turn sees, as the mention is.
-- **Replies without a mention**: an inline review reply follows the mode:
-  `bot_threads` (the default) lets a reply through when the App wrote the thread's first
-  comment or has replied in the thread since, `any_thread` lets any reply through once the pull
-  request has a session (the old rule), and `always` asks for the trigger every time. Who started
-  a thread is read once from GitHub and remembered; whether the App has replied in a person's
-  thread is read until it has, and then remembered. A thread that cannot be read needs the
-  trigger.
-- **Answer a reply on the conversation tab**: the tab has no threads, so a comment there needs
-  the mention or a phrase — unless this is on and the comment directly follows the App's own,
-  within 30 minutes of it being written or last edited. Off by default: two people talking right
-  after the App answered would wake it.
-- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still
-  reaches the assistant, which can delegate a review.
-- **Excluded branches**: pull requests into these base branches start nothing, mentions
-  included. One pattern per line, case sensitive. A plain name matches only itself; a glob
-  follows GitHub Actions, so `feature/*` matches `feature/login` but not `feature/login/ui`,
-  and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is a regular
-  expression that may match any part of the name unless anchored. `issue_comment` does not carry
-  the base, so with any branch excluded the conductor reads the pull request for it.
+What a person may then ask for is the conductor's gate, by their role on the repository
+(**The menu on a pull request depends on who is asking**, under [GitHub App reviews](#github-app-reviews)), not a list of logins. Whose pull requests are reviewed when they
+open, and which bots and branches are left alone, is the **Review pull requests** routine's
+conditions ([On a GitHub event](#on-a-github-event)). The GitHub dialog under Access →
+Connections had a **Triggers** group for all of this; it was taken out, and its row,
+`connection.github.filters`, is read only once, to make that routine.
 
-The log line for a dropped delivery names why: `actor not allowed`, `ignored actor`,
-`bot sender`, `auto review off`, `not mentioned`, `excluded branch`. If the filters cannot be
-read, the delivery is dropped with `filters unavailable` rather than let an allowlist lapse; the
-same holds for `base branch unavailable` when branches are excluded and GitHub does not answer.
+The log line for a dropped delivery names why: `not mentioned`, `own delivery`. A pull request
+opened or marked ready is logged `a routine's to review`.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.
@@ -3897,6 +3880,22 @@ what runs as them. Share, general access and links are refused for it. A routine
 may instead run **in each ticket's conversation** ([below](#in-each-tickets-conversation)), which
 is the issue's, not the routine's.
 
+**Who does the work.** By default a run is an assistant's turn: it reads the instruction and what
+started the run, and decides what to delegate, if anything. **Who does the work** in the dialog
+(`playbook`) can instead name a playbook the run **starts right away**, with no turn before it: the
+conductor delegates it itself, with the instruction, the standing notes and the events as the
+task's brief, as it delegates a pull request's review. The run is still the routine's: it runs as
+its owner or as nobody, its turn is linked to the run, and it settles when the task ends, as the
+task ended, costing what the task cost. Such a run has no `routine_finish` and keeps no state. On a
+pull request ([In the pull request's chat](#on-a-github-event)) the task's answer is posted there,
+as any delegation on a pull request is: a review playbook submits its review under its status
+comment, and any other answers in one comment. A routine on GitHub events may name **the
+repository's review playbook** (`@review`): the playbook naming the pull request's repository
+under **Reviews pull requests in** (`github_repos`), else the one marked **Reviews pull
+requests** (`github: true`). The dialog says which playbook that is for each repository, and lists
+the profile's playbooks as a group of their own below it. A playbook the profile no longer has fails the run,
+saying so.
+
 **Two scopes.** A routine runs as a person or as nobody:
 
 | | personal routine | system routine |
@@ -4229,6 +4228,26 @@ fed by the GitHub App's webhook instead of the Linear app's.
   GitHub: workflow “CI” failed on acme/api#42"). The brief fences the events as data from GitHub
   written by other people: titles, bodies, branch names and commit messages are whatever anybody
   who can push or comment typed.
+- **Conditions.** Whose events count and about which pull requests, as the App's Triggers once
+  decided for its review, now each routine's own (`github_filters`): **Only these people** and
+  **Never these people** (GitHub logins, each added as a chip; never wins), **Ignore bot
+  accounts**, **Skip draft pull requests** (marking one ready is its own event), and **Ignore
+  these base branches** (patterns, each added with Enter, case sensitive: a plain name matches
+  only itself; a glob follows GitHub Actions, so `feature/*` matches `feature/login` but not
+  `feature/login/ui`, and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is
+  a regular expression that may match any part of the name unless anchored). Who set an event off is
+  whoever opened, pushed, reviewed or ran it; for **All checks finished**, the pull request's
+  author. An event whose person is not known does not count while any are allowed, and one about
+  a pull request whose base is not known does not count while any branch is skipped. An event
+  they turn away is never kept for the routine.
+- **Review pull requests.** The review a pull request got when it was opened was the GitHub App's
+  own; it is this routine now, a template in the new-routine dialog: on **Opened** and **Ready for
+  review**, drafts skipped, in the pull request's chat, starting the repository's review playbook
+  right away. A deployment that was reviewing pull requests when they opened (the App's webhook set up,
+  and **Review new pull requests** not turned off) gets it made once, as a system routine, with
+  the old Triggers' allowed and ignored people, bots and excluded branches as its conditions. Deleted,
+  it is not made again. A push the App makes to a pull request it reviewed is still reviewed again
+  from where the last review stopped, routine or not.
 - **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
   chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,
   opened on its first run. Changing it affects later runs only, and history records the change.

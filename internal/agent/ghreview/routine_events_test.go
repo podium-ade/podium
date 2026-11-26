@@ -229,3 +229,23 @@ func TestAVerifiedDeliveryIsOfferedToRoutines(t *testing.T) {
 	s.routines = nil
 	s.keepForRoutines(context.Background(), "workflow_run", "del-3", ghBody(t, workflowRun("failure")))
 }
+
+// A kept delivery says who set it off and which pull request it is about, which a routine's
+// conditions are asked about: whose events count, drafts, and base branches.
+func TestAKeptDeliverySaysWhoSetItOffAndIntoWhichBranch(t *testing.T) {
+	opened := pullRequest("opened", false)
+	opened["pull_request"].(map[string]any)["draft"] = true
+	opened["sender"] = map[string]any{"login": "dependabot[bot]", "type": "Bot"}
+	d, ok := RoutineDelivery("pull_request", "del-f1", ghBody(t, opened), appIs("podium"), routineNow)
+	require.True(t, ok)
+	assert.Equal(t, store.GitHubEventFacts{Actor: "dependabot[bot]", ActorBot: true, Pull: true, Base: "main", Draft: true}, d.Facts)
+
+	d, ok = RoutineDelivery("workflow_run", "del-f2", ghBody(t, workflowRun("failure")), appIs("podium"), routineNow)
+	require.True(t, ok)
+	assert.Equal(t, store.GitHubEventFacts{Actor: "robin", Pull: true, Base: "main"}, d.Facts)
+
+	issue := map[string]any{"action": "opened", "issue": map[string]any{"number": 3, "title": "x"}}
+	d, ok = RoutineDelivery("issues", "del-f3", ghBody(t, issue), appIs("podium"), routineNow)
+	require.True(t, ok)
+	assert.Equal(t, store.GitHubEventFacts{Actor: "robin"}, d.Facts, "an issue has no branch")
+}

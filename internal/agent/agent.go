@@ -503,7 +503,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// Routines run in their chats, so they need the web chat and a host runtime to answer it.
 	conductor.DescribeSchedule = routines.Describe
 	if a.chat != nil && host != nil {
-		a.routines, err = routines.New(routines.Options{Store: st, Events: st, Subjects: st, Runner: a.chat, Logger: logger})
+		// The review on a pull request being opened is a routine now: a deployment that was
+		// reviewing them gets that routine, once, so nothing stops being reviewed.
+		if err := connections.EnsureReviewRoutine(ctx, st, logger); err != nil {
+			logger.Warn("making the review routine failed; pull requests are not reviewed when opened until it is made",
+				"error", err)
+		}
+		a.routines, err = routines.New(routines.Options{
+			Store: st, Events: st, Subjects: st, Runner: a.chat, Playbooks: a.conductor, Logger: logger,
+		})
 		if err != nil {
 			st.Close()
 			return nil, err

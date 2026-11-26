@@ -77,6 +77,7 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 	repo := head.Repository.FullName
 	ev := routineEvent{
 		Source: "github", Type: event, Action: head.Action, Actor: &routineActor{Name: head.Sender.Login},
+		facts: store.GitHubEventFacts{Actor: head.Sender.Login, ActorBot: isBot(head.Sender)},
 	}
 	var names []string
 	var err error
@@ -110,6 +111,7 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 	}
 	out := store.GitHubDelivery{
 		DeliveryID: delivery, Events: names, Repo: repo, Payload: payload, ReceivedAt: now.UTC(),
+		Facts: ev.facts,
 	}
 	if ev.pull > 0 {
 		// The pull request's conversation is keyed by the repository as GitHub names it, so
@@ -135,6 +137,8 @@ type routineEvent struct {
 	// GitHub lists for its commit.
 	pull      int
 	pullTitle string
+	// facts are what a routine's conditions are asked about the event.
+	facts store.GitHubEventFacts
 }
 
 type routineActor struct {
@@ -249,6 +253,7 @@ func (e *routineEvent) workflowRun(repo string, body []byte) ([]string, error) {
 	e.URL, e.CreatedAt = w.HTMLURL, w.UpdatedAt
 	if len(w.PullRequests) > 0 {
 		e.pull = w.PullRequests[0].Number
+		e.facts.Pull, e.facts.Base = true, w.PullRequests[0].Base.Ref
 		if w.Event == "pull_request" || w.Event == "pull_request_target" {
 			// A run a pull request set off is titled with the pull request's title.
 			e.pullTitle = w.DisplayTitle
@@ -300,6 +305,7 @@ func (e *routineEvent) checkSuite(repo string, body []byte) ([]string, error) {
 	e.CreatedAt = c.UpdatedAt
 	if len(c.PullRequests) > 0 {
 		e.pull = c.PullRequests[0].Number
+		e.facts.Pull, e.facts.Base = true, c.PullRequests[0].Base.Ref
 	}
 	e.Data = map[string]any{
 		"repo": repo, "app": c.App.Name, "app_slug": c.App.Slug, "check_suite_id": c.ID,
@@ -360,6 +366,7 @@ func (e *routineEvent) pullRequest(repo string, body []byte) ([]string, error) {
 	}
 	e.URL, e.CreatedAt = pr.HTMLURL, pr.UpdatedAt
 	e.pull, e.pullTitle = pr.Number, pr.Title
+	e.facts.Pull, e.facts.Base, e.facts.Draft = true, pr.Base.Ref, pr.Draft
 	e.Data = map[string]any{
 		"repo": repo, "number": pr.Number, "title": clip(pr.Title, 300), "body": clip(pr.Body, maxRoutineBodyRunes),
 		"author": pr.User.Login, "state": pr.State, "draft": pr.Draft, "merged": pr.Merged,
@@ -386,6 +393,7 @@ func (e *routineEvent) review(repo string, body []byte) ([]string, error) {
 		PullRequest struct {
 			Number int    `json:"number"`
 			Title  string `json:"title"`
+			Draft  bool   `json:"draft"`
 			User   User   `json:"user"`
 			Head   struct {
 				Ref string `json:"ref"`
@@ -404,6 +412,7 @@ func (e *routineEvent) review(repo string, body []byte) ([]string, error) {
 	r, pr := p.Review, p.PullRequest
 	e.URL, e.CreatedAt = r.HTMLURL, r.SubmittedAt
 	e.pull, e.pullTitle = pr.Number, pr.Title
+	e.facts.Pull, e.facts.Base, e.facts.Draft = true, pr.Base.Ref, pr.Draft
 	e.Data = map[string]any{
 		"repo": repo, "number": pr.Number, "title": clip(pr.Title, 300), "author": pr.User.Login,
 		"reviewer": r.User.Login, "state": strings.ToLower(r.State), "body": clip(r.Body, maxRoutineBodyRunes),

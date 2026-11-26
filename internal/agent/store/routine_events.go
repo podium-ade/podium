@@ -435,11 +435,14 @@ type GitHubDelivery struct {
 	// branch, an issue. SubjectTitle names it ("#42: Fix login").
 	SubjectKey   string
 	SubjectTitle string
+	// Facts are who set it off and the pull request it is about, which a routine's conditions
+	// (RoutineGitHubFilters) are asked about.
+	Facts GitHubEventFacts
 }
 
 // StoreGitHubRoutineEvents keeps d for every enabled github routine that asks for one of its
-// events, in its repositories when the routine names some, and reports how many it was kept
-// for. A delivery kept before is not kept again. It is one statement.
+// events, in its repositories when the routine names some, and whose conditions it meets, and
+// reports how many it was kept for. A delivery kept before is not kept again.
 func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) (int, error) {
 	events := make([]string, 0, len(d.Events))
 	for _, e := range d.Events {
@@ -462,6 +465,22 @@ func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) 
 		_, title := subjectOf("PullRequest", strings.TrimPrefix(key, "PullRequest:"), d.SubjectTitle)
 		params.SubjectKey, params.SubjectTitle = &key, &title
 	}
+	candidates, err := s.q.RoutineEventCandidates(ctx, db.RoutineEventCandidatesParams{
+		Kind: RoutineKindGitHub, Events: events, Scopes: params.Scopes,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("routines for GitHub delivery %s: %w", d.DeliveryID, err)
+	}
+	ids := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		if ok, _ := githubFiltersFrom(c.GithubFilters).Admits(d.Facts); ok {
+			ids = append(ids, c.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	params.OnlyIds = ids
 	n, err := s.q.InsertRoutineEvents(ctx, params)
 	if err != nil {
 		return 0, fmt.Errorf("store GitHub delivery %s for routines: %w", d.DeliveryID, err)

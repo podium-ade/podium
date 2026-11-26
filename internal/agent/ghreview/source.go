@@ -113,8 +113,6 @@ type SourceOptions struct {
 	// Reviews remembers the pull-request review this session submitted. Nil keeps it in
 	// memory for the life of the process, which is what the tests do.
 	Reviews ReviewMemory
-	// Filters is read on every delivery. Nil is the default Filters.
-	Filters FilterLookup
 	// Routines keeps each verified delivery for the routines that run on GitHub events
 	// (routine_events.go). Nil keeps nothing: this conductor runs no routines.
 	Routines RoutineSink
@@ -152,7 +150,6 @@ type Source struct {
 	taskURL   func(string) string
 	now       func() time.Time
 
-	filters FilterLookup
 	// routines keeps deliveries for the routines on GitHub events; nil keeps none.
 	routines     RoutineSink
 	routinesWant RoutineWants
@@ -246,7 +243,6 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		slack:         opts.Slack,
 		taskURL:       taskURL,
 		now:           now,
-		filters:       opts.Filters,
 		routines:      opts.Routines,
 		routinesWant:  opts.RoutinesWant,
 		checksSettle:  checksSettle,

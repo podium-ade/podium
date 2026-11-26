@@ -243,53 +243,21 @@ func TestChatTitleNamesThePullRequest(t *testing.T) {
 	assert.Equal(t, "", ChatTitle(0, "anything"))
 }
 
-func TestReadyForReviewStartsAReview(t *testing.T) {
-	h := newHarness(t)
-	rec := postWebhook(t, h, "pull_request", "d-ready", readyForReview())
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Equal(t, "alice", evs[0].Author)
-	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
-	assert.Contains(t, evs[0].Text, "marked")
-	assert.Contains(t, evs[0].Text, "ready for review")
-	assert.True(t, evs[0].Automatic, "nobody asked anything: the review playbook runs directly")
-	p, err := ParseRef(evs[0].Ref)
-	require.NoError(t, err)
-	assert.Equal(t, KindPullRequest, p.Kind)
-	assert.Equal(t, int64(0), p.CommentID)
-}
-
-func TestAnOpenPullRequestStartsAReview(t *testing.T) {
-	h := newHarness(t)
-	opened := readyForReview()
-	opened["action"] = "opened"
-	rec := postWebhook(t, h, "pull_request", "d-opened", opened)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Equal(t, "alice", evs[0].Author)
-	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
-	assert.Contains(t, evs[0].Text, "opened")
-	assert.Contains(t, evs[0].Text, "for review")
-	assert.Equal(t, "#12: Retry the flaky upload", evs[0].Title, "the chat is named for the pull request, not its first line")
-	assert.NotContains(t, evs[0].Text, "ready for review")
-	assert.True(t, evs[0].Automatic)
-	p, err := ParseRef(evs[0].Ref)
-	require.NoError(t, err)
-	assert.Equal(t, KindPullRequest, p.Kind)
-	assert.Equal(t, int64(0), p.CommentID)
-}
-
-func TestADraftOpenWaitsUntilItIsReady(t *testing.T) {
-	h := newHarness(t)
-	opened := readyForReview()
-	opened["action"] = "opened"
-	opened["pull_request"].(map[string]any)["draft"] = true
-	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-draft", opened).Code)
-	assert.Empty(t, h.drain())
+// A pull request opened, or marked ready, starts no turn here: reviewing it is the "Review
+// pull requests" routine's, which is kept the delivery with its own conditions.
+func TestAPullRequestOpenedOrMarkedReadyIsARoutinesToReview(t *testing.T) {
+	for _, action := range []string{"opened", "ready_for_review"} {
+		t.Run(action, func(t *testing.T) {
+			h := newHarness(t)
+			var buf bytes.Buffer
+			h.src.logger = slog.New(slog.NewTextHandler(&buf, nil))
+			pr := readyForReview()
+			pr["action"] = action
+			assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-"+action, pr).Code)
+			assert.Empty(t, h.drain())
+			assert.Contains(t, buf.String(), `reason="a routine's to review"`)
+		})
+	}
 }
 
 func TestOtherPullRequestActionsAreDropped(t *testing.T) {
@@ -304,48 +272,31 @@ func TestOtherPullRequestActionsAreDropped(t *testing.T) {
 	assert.Empty(t, h.drain())
 }
 
-func TestReadyForReviewAgainContinuesTheSession(t *testing.T) {
+// A review a routine starts on a pull request reviewed before goes on from where that review
+// stopped: only what changed, or the same verdict again when nothing did.
+func TestAReviewARoutineStartsGoesOnFromTheLastOne(t *testing.T) {
 	h := newHarness(t)
-	h.session("github:acme/repo#12")
-	rec := postWebhook(t, h, "pull_request", "d-ready2", readyForReview())
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Contains(t, evs[0].Text, "ready for review")
-	assert.Contains(t, evs[0].Text, "already reviewed")
-}
+	ctx := context.Background()
+	assert.Empty(t, h.src.ReviewFollowUp(ctx, "github:acme/repo#12"), "never reviewed: a whole review")
 
-func TestReadyAgainReviewsOnlyTheDelta(t *testing.T) {
-	h := newHarness(t)
 	h.session("github:acme/repo#12")
 	h.src.replaceReview("github:acme/repo#12", 77)
 	h.stub.listedReviews = []Review{{ID: 77, State: "CHANGES_REQUESTED", CommitID: "abc1234deadbeef"}}
-	rec := postWebhook(t, h, "pull_request", "d-again", readyForReview())
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.True(t, evs[0].Automatic)
-	assert.Contains(t, evs[0].Text, "already reviewed")
-	assert.Contains(t, evs[0].Text, "abc1234deadbeef")
-	assert.Contains(t, evs[0].Text, "**Approve**")
-	assert.Contains(t, evs[0].Text, "0123456789abcdef")
-	assert.Contains(t, evs[0].Text, ".podium/review.json")
-	assert.NotContains(t, evs[0].Text, "no new diff")
-}
+	note := h.src.ReviewFollowUp(ctx, "github:acme/repo#12")
+	assert.Contains(t, note, "already reviewed")
+	assert.Contains(t, note, "abc1234deadbeef")
+	assert.Contains(t, note, "**Approve**")
+	assert.Contains(t, note, "0123456789abcdef")
+	assert.Contains(t, note, ".podium/review.json")
+	assert.NotContains(t, note, "no new diff")
 
-func TestReadyAgainOnAnUnchangedHeadRepeatsTheVerdict(t *testing.T) {
-	h := newHarness(t)
-	h.session("github:acme/repo#12")
-	h.src.replaceReview("github:acme/repo#12", 77)
 	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED", CommitID: "0123456789abcdef"}}
-	rec := postWebhook(t, h, "pull_request", "d-same", readyForReview())
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Contains(t, evs[0].Text, "no new diff")
-	assert.Contains(t, evs[0].Text, "Do not add inline comments.")
-	assert.NotContains(t, evs[0].Text, "**Approve**")
+	note = h.src.ReviewFollowUp(ctx, "github:acme/repo#12")
+	assert.Contains(t, note, "no new diff")
+	assert.Contains(t, note, "Do not add inline comments.")
+	assert.NotContains(t, note, "**Approve**")
+
+	assert.Empty(t, h.src.ReviewFollowUp(ctx, "chat:abc"), "not a pull request")
 }
 
 // A comment is the assistant's, told where the last review stopped so a re-review it
@@ -1140,11 +1091,6 @@ func TestTheCommentersRoleRidesOnTheEvent(t *testing.T) {
 	evs = h.drain()
 	require.Len(t, evs, 1)
 	assert.Empty(t, evs[0].Role, "no role on the repository is no role")
-
-	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-r6", readyForReview()).Code)
-	evs = h.drain()
-	require.Len(t, evs, 1)
-	assert.Empty(t, evs[0].Role, "nobody spoke, so nobody's role is asked for")
 }
 
 // What the App pushes to a pull request it reviewed — a playbook fixing the review — is
@@ -1318,33 +1264,4 @@ func TestABotsCommentIsOfferedForTheRecordFlaggedAsABot(t *testing.T) {
 			assert.Equal(t, tc.want, evs[0].AuthorBot)
 		})
 	}
-}
-
-// IgnoreBots keeps a bot from starting a turn, not from being recorded: the dropped comment
-// still reaches the record, still flagged, so it is kept without being counted as a person.
-func TestACommentDroppedByIgnoreBotsIsStillRecordedAsABots(t *testing.T) {
-	h := newHarness(t)
-	h.src.filters = func(context.Context) (Filters, error) { return Filters{IgnoreBots: true}, nil }
-	h.session("github:acme/repo#12")
-	payload := prComment("@podium please review")
-	payload["sender"] = map[string]any{"login": "renovate[bot]", "type": "Bot"}
-	payload["comment"].(map[string]any)["user"] = map[string]any{"login": "renovate[bot]", "type": "Bot"}
-	postWebhook(t, h, "issue_comment", "d-ignored", payload)
-
-	evs := h.drainAll()
-	require.Len(t, evs, 1)
-	assert.True(t, evs[0].RecordOnly, "a bot sender starts nothing")
-	assert.True(t, evs[0].AuthorBot)
-	assert.Equal(t, "renovate[bot]", evs[0].Author)
-}
-
-// A pull request a bot opened is recorded as the bot's, and a person's is not flagged.
-func TestAPullRequestOpenedByABotIsFlagged(t *testing.T) {
-	h := newHarness(t)
-	payload := readyForReview()
-	payload["sender"] = map[string]any{"login": "dependabot[bot]", "type": "Bot"}
-	postWebhook(t, h, "pull_request", "d-pr", payload)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.True(t, evs[0].AuthorBot)
 }

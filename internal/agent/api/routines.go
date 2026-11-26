@@ -636,7 +636,8 @@ func (s *AgentService) routineDraft(
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
 		Model: in.GetModel(), Effort: in.GetEffort(),
 		Kind: strings.TrimSpace(in.GetTrigger()), Events: in.GetEvents(), Teams: in.GetTeams(),
-		ChatMode: in.GetChatMode(),
+		ChatMode: in.GetChatMode(), Playbook: strings.TrimSpace(in.GetPlaybook()),
+		GitHubFilters: filtersFromProto(in.GetGithubFilters()),
 	}
 	if c := in.GetDailyCapUsd(); c != 0 {
 		d.DailyCapUSD = &c
@@ -697,10 +698,46 @@ func (s *AgentService) routineDraft(
 		}
 		display = voice.DisplayName
 	}
+	if err := s.checkRoutinePlaybook(d.Playbook); err != nil {
+		return store.RoutineDraft{}, "", err
+	}
 	if _, err := store.PrepareRoutine(d); err != nil {
 		return store.RoutineDraft{}, "", routineError(err)
 	}
 	return d, display, nil
+}
+
+// checkRoutinePlaybook refuses a playbook the profile does not have. A playbook removed after
+// the routine was saved fails its runs, each saying so.
+func (s *AgentService) checkRoutinePlaybook(name string) error {
+	if name == "" || name == store.RoutineReviewPlaybook {
+		return nil
+	}
+	p := s.profiles.Current()
+	if p == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("no profile is loaded, so no playbook can be named"))
+	}
+	if _, ok := p.Playbooks[name]; !ok {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("there is no playbook named %q", name))
+	}
+	return nil
+}
+
+func filtersFromProto(in *agentv1.RoutineGitHubFilters) store.RoutineGitHubFilters {
+	if in == nil {
+		return store.RoutineGitHubFilters{}
+	}
+	return store.RoutineGitHubFilters{
+		AllowedPeople: in.GetAllowedPeople(), IgnoredPeople: in.GetIgnoredPeople(), IgnoreBots: in.GetIgnoreBots(),
+		ExcludedBranches: in.GetExcludedBranches(), SkipDrafts: in.GetSkipDrafts(),
+	}
+}
+
+func filtersToProto(f store.RoutineGitHubFilters) *agentv1.RoutineGitHubFilters {
+	return &agentv1.RoutineGitHubFilters{
+		AllowedPeople: f.AllowedPeople, IgnoredPeople: f.IgnoredPeople, IgnoreBots: f.IgnoreBots,
+		ExcludedBranches: f.ExcludedBranches, SkipDrafts: f.SkipDrafts,
+	}
 }
 
 // scheduleText is what starts a routine's runs, in words.
@@ -713,9 +750,15 @@ func scheduleText(r store.Routine) string {
 
 // triggerDetails adds what starts a routine's runs to an audit entry's details.
 func triggerDetails(r store.Routine, details map[string]any) map[string]any {
+	if r.Playbook != "" {
+		details["playbook"] = r.Playbook
+	}
 	if r.OnEvents() {
 		details["trigger"], details["events"], details["teams"] = r.Kind, r.Events, r.Teams
 		details["chat_mode"] = r.ChatMode
+		if !r.GitHubFilters.IsZero() {
+			details["github_filters"] = r.GitHubFilters
+		}
 		return details
 	}
 	details["schedule"] = r.Schedule
@@ -772,6 +815,10 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		Scope:         r.Scope,
 		Repos:         r.Repos,
 		CreatedBy:     r.CreatedBy,
+		Playbook:      r.Playbook,
+	}
+	if r.OnGitHub() {
+		out.GithubFilters = filtersToProto(r.GitHubFilters)
 	}
 	if r.OnEvents() {
 		// Its runs come when its events do; there is no next one to name.

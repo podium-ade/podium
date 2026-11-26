@@ -54,10 +54,6 @@ service AgentService {
   // conductor uses this the next time it starts. The GitHub App environment variables
   // are ignored.
   rpc SetGitHubConnection(SetGitHubConnectionRequest) returns (SetGitHubConnectionResponse);
-  // SetGitHubWebhookFilters stores which webhook deliveries start a turn: who may trigger
-  // one, the phrases a top-level comment needs beside the @mention, and when a thread
-  // reply needs none. It applies to the next delivery, without a restart.
-  rpc SetGitHubWebhookFilters(SetGitHubWebhookFiltersRequest) returns (SetGitHubWebhookFiltersResponse);
   // ClearGitHubConnection removes the saved App. Calling it twice is not an error.
   // The App is off on the next start.
   rpc ClearGitHubConnection(ClearGitHubConnectionRequest) returns (ClearGitHubConnectionResponse);
@@ -410,6 +406,32 @@ message Routine {
   // the one conversation that issue or project has, beside its agent sessions; a cycle's or a
   // label's in chat_id). A routine on a schedule is always "routine".
   string chat_mode = 33;
+  // playbook is the playbook a run starts right away, with the instruction and the events as
+  // its task's brief, in place of the assistant's turn. "" is the assistant, which follows the
+  // instruction and delegates what it decides to. "@review", on a github routine, is the pull request's
+  // repository's reviewer: the playbook naming it in github_repos, else the github: true one.
+  string playbook = 34;
+  // github_filters are a github routine's conditions on whose events count, and on which pull
+  // requests. Unset on any other routine.
+  RoutineGitHubFilters github_filters = 35;
+}
+
+// RoutineGitHubFilters decide which of the GitHub events a routine asks for it is given. An
+// event they turn away is never kept for it.
+message RoutineGitHubFilters {
+  // allowed_people are the only GitHub logins whose events count; empty is anyone. An event
+  // whose actor is not known does not count while the list has anyone in it.
+  repeated string allowed_people = 1;
+  // ignored_people never count, whatever else matches.
+  repeated string ignored_people = 2;
+  // ignore_bots drops events a bot account set off.
+  bool ignore_bots = 3;
+  // excluded_branches are patterns for base branches whose pull requests' events do not count:
+  // a plain name, a glob as GitHub Actions reads one, or /a regular expression/. An event about
+  // a pull request whose base is not known does not count while there are any.
+  repeated string excluded_branches = 4;
+  // skip_drafts drops events about a draft pull request; marking it ready is its own event.
+  bool skip_drafts = 5;
 }
 
 // RoutineRun is one firing of a routine.
@@ -454,6 +476,10 @@ message RoutineDraft {
   repeated string teams = 13;
   // chat_mode: see Routine. Empty is "routine"; "subject" is refused on a schedule.
   string chat_mode = 14;
+  // playbook: see Routine. A playbook that does not exist is refused.
+  string playbook = 15;
+  // github_filters: see Routine. Refused on a routine that is not on GitHub events.
+  RoutineGitHubFilters github_filters = 16;
 }
 
 message ListRoutinesRequest {}
@@ -1047,37 +1073,11 @@ message GitHubConnection {
   // their own GitHub accounts. It applies without a restart.
   string client_id = 12;
   bool client_secret_set = 13;
-  // filters decide which webhook deliveries start a turn. They apply without a restart.
-  GitHubWebhookFilters filters = 14;
-}
-
-// GitHubWebhookFilters decide which webhook deliveries start a turn. The App's own
-// deliveries never do.
-message GitHubWebhookFilters {
-  // allowed_actors are the only logins that may trigger a turn. Empty is anyone.
-  repeated string allowed_actors = 1;
-  // ignored_actors never trigger a turn.
-  repeated string ignored_actors = 2;
-  // ignore_bots drops every delivery a bot account sent.
-  bool ignore_bots = 3;
-  // trigger_phrases start a turn from a top-level comment, beside the @mention. Plain
-  // text, matched without case as whole words.
-  repeated string trigger_phrases = 4;
-  // reply_mode is when a reply in an inline review thread needs no trigger:
-  // "bot_threads" (the default) when the App started the thread or has replied in it,
-  // "any_thread" in any thread on a pull request with a session, "always" never.
-  string reply_mode = 5;
-  // auto_review starts a review when a pull request opens ready or is marked ready.
-  bool auto_review = 6;
-  string set_by = 7;
-  google.protobuf.Timestamp set_at = 8;
-  // excluded_branches are base branches whose pull requests start nothing. Each is a glob
-  // ("dev", "feature/*", "release/**") or a regular expression between slashes
-  // ("/^hotfix-\d+$/").
-  repeated string excluded_branches = 9;
-  // conversation_replies lets a conversation-tab comment through without the trigger when
-  // the comment right before it is the App's, posted within the last 30 minutes.
-  bool conversation_replies = 10;
+  // 14 was the webhook's triggers (GitHubWebhookFilters). Whose comments start a turn is no
+  // longer a setting: a mention or /review does, from anyone the conductor's gate admits, and a
+  // routine on GitHub events has conditions of its own.
+  reserved 14;
+  reserved "filters";
 }
 
 // LinearConnection is the Linear agent app as the UI may see it. The client secret and
@@ -1152,14 +1152,6 @@ message SetGitHubConnectionRequest {
 }
 
 message SetGitHubConnectionResponse {
-  GitHubConnection github = 1;
-}
-
-message SetGitHubWebhookFiltersRequest {
-  GitHubWebhookFilters filters = 1;
-}
-
-message SetGitHubWebhookFiltersResponse {
   GitHubConnection github = 1;
 }
 

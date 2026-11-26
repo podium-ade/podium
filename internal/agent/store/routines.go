@@ -123,9 +123,22 @@ type Routine struct {
 	PausedUntil *time.Time
 	// CreatedBy is who set it up.
 	CreatedBy string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// Playbook is the playbook a run starts right away, "" for the assistant's turn.
+	// RoutineReviewPlaybook is a pull request's repository's reviewer.
+	Playbook string
+	// GitHubFilters are a routine on GitHub events' conditions on whose events it is given.
+	GitHubFilters RoutineGitHubFilters
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
+
+// RoutineReviewPlaybook is the Playbook naming the reviewer of the repository a routine's pull
+// request is in: the playbook naming it in github_repos, else the github: true one. Only a
+// routine on GitHub events may name it.
+const RoutineReviewPlaybook = "@review"
+
+// MaxRoutinePlaybookRunes caps a routine's playbook name.
+const MaxRoutinePlaybookRunes = 200
 
 // System reports whether the routine runs as nobody, configured by admins.
 func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
@@ -187,6 +200,10 @@ type RoutineDraft struct {
 	Repos       []string
 	DailyCapUSD *float64
 	NextRunAt   time.Time
+	// Playbook and GitHubFilters: see Routine. Whether the playbook exists is the caller's to
+	// check, which holds the profile.
+	Playbook      string
+	GitHubFilters RoutineGitHubFilters
 }
 
 // RoutineRun is one firing of a routine.
@@ -218,6 +235,7 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	out.PersonalityID = strings.TrimSpace(in.PersonalityID)
 	out.Model = strings.TrimSpace(in.Model)
 	out.Effort = strings.TrimSpace(in.Effort)
+	out.Playbook = strings.TrimSpace(in.Playbook)
 	repos, err := cleanRepos(in.Repos)
 	if err != nil {
 		return RoutineDraft{}, err
@@ -225,6 +243,20 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	out.Repos = repos
 	if err := prepareTrigger(&out); err != nil {
 		return RoutineDraft{}, err
+	}
+	if out.Kind != RoutineKindGitHub {
+		if !in.GitHubFilters.IsZero() {
+			return RoutineDraft{}, fmt.Errorf("%w: only a routine on GitHub events has conditions on whose events it is given", ErrInvalidRoutine)
+		}
+		if out.Playbook == RoutineReviewPlaybook {
+			return RoutineDraft{}, fmt.Errorf("%w: the repository's reviewer is for a routine on GitHub events, which knows the repository", ErrInvalidRoutine)
+		}
+	}
+	if out.GitHubFilters, err = NormalizeGitHubFilters(in.GitHubFilters); err != nil {
+		return RoutineDraft{}, err
+	}
+	if utf8.RuneCountInString(out.Playbook) > MaxRoutinePlaybookRunes {
+		return RoutineDraft{}, fmt.Errorf("%w: the playbook name is longer than %d characters", ErrInvalidRoutine, MaxRoutinePlaybookRunes)
 	}
 	if in.DailyCapUSD != nil {
 		if *in.DailyCapUSD < 0 {
@@ -350,6 +382,8 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		Events:        d.Events,
 		Teams:         d.Teams,
 		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 	})
 	if err == nil && chatID != nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: *chatID, RoutineID: &row.ID})
@@ -391,25 +425,27 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 		repos = []string{}
 	}
 	row, err := s.q.InsertRoutine(ctx, db.InsertRoutineParams{
-		ID:          ids.New("rtn"),
-		Scope:       RoutineScopeSystem,
-		Name:        d.Name,
-		Schedule:    d.Schedule,
-		Timezone:    d.Timezone,
-		Instruction: d.Instruction,
-		CreatedAt:   now,
-		Notes:       d.Notes,
-		Model:       d.Model,
-		Effort:      d.Effort,
-		ChatID:      chatID,
-		NextRunAt:   d.NextRunAt.UTC(),
-		Repos:       repos,
-		DailyCapUsd: d.DailyCapUSD,
-		CreatedBy:   actor,
-		TriggerKind: d.Kind,
-		Events:      d.Events,
-		Teams:       d.Teams,
-		ChatMode:    d.ChatMode,
+		ID:            ids.New("rtn"),
+		Scope:         RoutineScopeSystem,
+		Name:          d.Name,
+		Schedule:      d.Schedule,
+		Timezone:      d.Timezone,
+		Instruction:   d.Instruction,
+		CreatedAt:     now,
+		Notes:         d.Notes,
+		Model:         d.Model,
+		Effort:        d.Effort,
+		ChatID:        chatID,
+		NextRunAt:     d.NextRunAt.UTC(),
+		Repos:         repos,
+		DailyCapUsd:   d.DailyCapUSD,
+		CreatedBy:     actor,
+		TriggerKind:   d.Kind,
+		Events:        d.Events,
+		Teams:         d.Teams,
+		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 	})
 	if err == nil && chatID != nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: *chatID, RoutineID: &row.ID})
@@ -667,6 +703,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 		Events:        d.Events,
 		Teams:         d.Teams,
 		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 		NextRunAt:     d.NextRunAt.UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
@@ -1061,6 +1099,8 @@ func routineFromRow(r db.Routine) Routine {
 		DailyCapUSD:          r.DailyCapUsd,
 		PausedUntil:          utcPtr(r.PausedUntil),
 		CreatedBy:            r.CreatedBy,
+		Playbook:             r.Playbook,
+		GitHubFilters:        githubFiltersFrom(r.GithubFilters),
 		CreatedAt:            r.CreatedAt.UTC(),
 		UpdatedAt:            r.UpdatedAt.UTC(),
 	}

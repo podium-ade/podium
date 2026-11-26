@@ -337,7 +337,7 @@ func commitPull(ctx context.Context, get getJSON, f commitFinish) *commitPullRef
 		slices.SortStableFunc(prs, func(a, b commitPullJSON) int { return a.rank(f.sha) - b.rank(f.sha) })
 		for _, p := range prs {
 			if p.State == "open" && p.Number > 0 {
-				return &commitPullRef{ref: p.ghPullRef, title: p.Title}
+				return &commitPullRef{ref: p.ghPullRef, title: p.Title, draft: p.Draft, author: p.User}
 			}
 		}
 	}
@@ -352,6 +352,8 @@ type commitPullJSON struct {
 	ghPullRef
 	Title string `json:"title"`
 	State string `json:"state"`
+	Draft bool   `json:"draft"`
+	User  User   `json:"user"`
 }
 
 // rank orders a commit's pull requests: open before closed, and whose head the commit is
@@ -370,6 +372,10 @@ func (p commitPullJSON) rank(sha string) int {
 type commitPullRef struct {
 	ref   ghPullRef
 	title string
+	// draft and author are known when the pull request was read, not when a workflow run or
+	// check suite only named it.
+	draft  bool
+	author User
 }
 
 // delivery is the commit kept for routines. Its id is the commit and the outcome, so a
@@ -397,6 +403,12 @@ func (c commitChecks) delivery(repo, sha string, pull *commitPullRef, now time.T
 	}
 	if pull != nil {
 		ev.pull, ev.pullTitle = pull.ref.Number, pull.title
+		// Nobody in particular set a commit's checks finishing: a routine's conditions on
+		// people are asked about the pull request's author.
+		ev.facts = store.GitHubEventFacts{
+			Actor: pull.author.Login, ActorBot: isBot(pull.author),
+			Pull: true, Base: pull.ref.Base.Ref, Draft: pull.draft,
+		}
 		ev.URL = PRURL(owner, name, pull.ref.Number) + "/checks"
 		ev.Data["pull_requests"] = pullRefs(repo, []ghPullRef{pull.ref})
 		if pull.ref.Head.Ref != "" {
@@ -409,7 +421,7 @@ func (c commitChecks) delivery(repo, sha string, pull *commitPullRef, now time.T
 	payload, _ := json.Marshal(ev)
 	d := store.GitHubDelivery{
 		DeliveryID: "checks:" + strings.ToLower(repo) + "@" + sha + ":" + outcome,
-		Events:     names, Repo: repo, Payload: payload, ReceivedAt: now.UTC(),
+		Events:     names, Repo: repo, Payload: payload, ReceivedAt: now.UTC(), Facts: ev.facts,
 	}
 	if ev.pull > 0 {
 		d.SubjectKey = store.GitHubPullSubject(repo, ev.pull)

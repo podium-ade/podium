@@ -14,6 +14,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
 	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // routineFixture is a conductor with the web chat behind it and one of testSpeaker's
@@ -623,4 +624,128 @@ func TestASystemRoutinesRunInAPullRequestsConversationReadsAsTheApp(t *testing.T
 	require.NoError(t, err)
 	_, err = r.cond.SystemRoutineForTest(ctx, other)
 	assert.Error(t, err)
+}
+
+// A routine that starts a playbook right away on a pull request runs as that pull request's own
+// GitHub turn: the repository's reviewer is delegated with no assistant's turn first, briefed
+// with the instruction and the events, and its answer is the review. The turn is the run's,
+// counted as the system routine's.
+func TestARoutineStartsTheRepositorysReviewerOnThePullRequest(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "**Approve**\n\nfine")}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+	src.NamesByKey(func(key string) (string, bool) { return "acme/repo/12/0/pull_request/0", key == "github:acme/repo#12" })
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	require.NoError(t, err)
+	review := withReviewHost(reviewProfile(t))
+	r := startWith(t, st, fake, src, func(o *conductor.Options) {
+		review(o)
+		o.Mirror = web
+		o.Sources = append(o.Sources, web)
+	})
+
+	routine, err := st.CreateSystemRoutine(ctx, "admin@acme.com", store.RoutineDraft{
+		Name: "Review pull requests", Kind: store.RoutineKindGitHub, Timezone: "UTC",
+		Events:   []string{"pull_request.opened", "pull_request.ready_for_review"},
+		ChatMode: store.RoutineChatModeSubject, Instruction: "Review this pull request.",
+		Playbook: store.RoutineReviewPlaybook,
+	})
+	require.NoError(t, err)
+	_, err = st.StoreGitHubRoutineEvents(ctx, store.GitHubDelivery{
+		DeliveryID: "gh-open", Events: []string{"pull_request.opened"}, Repo: "acme/repo",
+		SubjectKey: store.GitHubPullSubject("acme/repo", 12), SubjectTitle: "#12: Retry", ReceivedAt: time.Now(),
+		Payload: []byte(`{"source":"github","type":"pull_request","action":"opened","data":{"repo":"acme/repo","number":12}}`),
+	})
+	require.NoError(t, err)
+	key := "github:acme/repo#12"
+	conv, _, err := st.EnsureConversation(ctx, key, "#12: Retry")
+	require.NoError(t, err)
+	run, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now(), store.RoutineTriggerEvent, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = st.AttachRoutineSubjectEvents(ctx, run.ID, routine.ID, store.GitHubPullSubject("acme/repo", 12), 20)
+	require.NoError(t, err)
+
+	require.NoError(t, r.cond.RunRoutinePlaybook(ctx, conductor.RoutinePlaybookRun{
+		RoutineID: routine.ID, RunID: run.ID, Playbook: routine.Playbook, ChatID: conv.ID,
+		ConversationKey: key, Title: "#12: Retry",
+	}))
+	waitFor(t, 30*time.Second, "the review", func() bool { return len(posts(src.Records(), conductor.OutFinal)) >= 1 })
+	require.Len(t, fake.Specs(), 1, "the review is the only task: no assistant's turn decided first")
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "coder", brief.Playbook.Name, "the playbook marked github: true reviews this repository")
+	assert.Contains(t, brief.Instruction, "Review this pull request.")
+	assert.Contains(t, brief.Instruction, `"event": "pull_request.opened"`)
+	final := posts(src.Records(), conductor.OutFinal)[0]
+	assert.True(t, final.SourcePlaybook, "posted as the review, on the pull request")
+	assert.Equal(t, "acme/repo/12/0/pull_request/0", final.Ref)
+
+	turn, err := st.TurnForRoutineRun(ctx, run.ID)
+	require.NoError(t, err, "the run is linked to the turn its task hangs off")
+	assert.Equal(t, store.TurnStartedByRoutine(routine.ID), turn.StartedBy, "Usage counts it as the routine's")
+	waitFor(t, 30*time.Second, "the review task to finish", func() bool {
+		dlgs, err := st.DelegationsForTurn(ctx, turn.ID)
+		return err == nil && len(dlgs) == 1 && dlgs[0].Status == store.TurnSucceeded
+	})
+}
+
+// A personal routine that starts a playbook in its own chat runs that playbook as its owner,
+// and a playbook the profile does not have is a run that did not start.
+func TestARoutineStartsItsPlaybookInItsOwnChatAsItsOwner(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "Two pull requests failed.")}
+	}
+	web, err := chat.New(chat.Options{Store: st, DisplayName: "Podium", UIURL: "https://podium.example/"})
+	require.NoError(t, err)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+	review := withReviewHost(reviewProfile(t))
+	r := startWith(t, st, fake, src, func(o *conductor.Options) {
+		review(o)
+		o.Mirror = web
+		o.Sources = append(o.Sources, web)
+	})
+	routine, err := st.CreateRoutine(ctx, testSpeaker, store.RoutineDraft{
+		Name: "PR digest", Schedule: "0 9 * * 1-5", Timezone: "UTC", NextRunAt: time.Now().Add(time.Hour),
+		Instruction: "Report pull requests whose CI failed.", Notes: "- skip drafts", Playbook: "general",
+	}, "")
+	require.NoError(t, err)
+	run, ok, err := st.ClaimRoutineRun(ctx, routine.ID, time.Now().Truncate(time.Second), store.RoutineTriggerSchedule, store.RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	missing := conductor.RoutinePlaybookRun{RoutineID: routine.ID, RunID: run.ID, Playbook: "gone", Login: testSpeaker, ChatID: routine.ChatID}
+	require.ErrorIs(t, r.cond.RunRoutinePlaybook(ctx, missing), conductor.ErrNoRoutinePlaybook)
+
+	require.NoError(t, r.cond.RunRoutinePlaybook(ctx, conductor.RoutinePlaybookRun{
+		RoutineID: routine.ID, RunID: run.ID, Playbook: routine.Playbook, Login: testSpeaker, ChatID: routine.ChatID,
+	}))
+	waitFor(t, 30*time.Second, "the task", func() bool { return len(fake.Specs()) == 1 })
+	brief := decodeBrief(t, fake.Specs()[0])
+	assert.Equal(t, "general", brief.Playbook.Name)
+	assert.Contains(t, brief.Instruction, "Report pull requests whose CI failed.")
+	assert.Contains(t, brief.Instruction, "- skip drafts", "with the routine's standing notes")
+	turn, err := st.TurnForRoutineRun(ctx, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, testSpeaker, turn.StartedBy, "its owner's run")
+	waitFor(t, 30*time.Second, "the answer in the routine's chat", func() bool {
+		msgs, err := st.ListChatMessages(ctx, routine.ChatID, 0)
+		if err != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if m.Text == "Two pull requests failed." {
+				return true
+			}
+		}
+		return false
+	})
 }

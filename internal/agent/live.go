@@ -668,23 +668,6 @@ func newGitHubSource(
 			}
 			return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
 		},
-		Filters: func(ctx context.Context) (ghreview.Filters, error) {
-			f, err := connections.LoadGitHubFilters(ctx, st)
-			if err != nil {
-				return ghreview.Filters{}, err
-			}
-			return ghreview.Filters{
-				AllowedActors:    f.AllowedActors,
-				IgnoredActors:    f.IgnoredActors,
-				IgnoreBots:       f.IgnoreBots,
-				TriggerPhrases:   f.TriggerPhrases,
-				ReplyMode:        f.ReplyMode,
-				NoAutoReview:     f.NoAutoReview,
-				ExcludedBranches: f.ExcludedBranches,
-
-				ConversationReplies: f.ConversationReplies,
-			}, nil
-		},
 		Reviews: ghreview.ReviewMemory{
 			Get: func(ctx context.Context, sourceKey string) (int64, error) {
 				sess, err := st.GetSessionByKey(ctx, sourceKey)

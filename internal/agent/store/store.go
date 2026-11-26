@@ -449,6 +449,20 @@ func (s *Store) PutSetting(ctx context.Context, key string, value any) error {
 	return nil
 }
 
+// ClaimSetting writes value under key only when nothing ever was, and reports whether this
+// call wrote it: of several conductors doing a one-off thing, the one that claims it does it.
+func (s *Store) ClaimSetting(ctx context.Context, key string, value any) (bool, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false, fmt.Errorf("encode setting %s: %w", key, err)
+	}
+	n, err := s.q.ClaimSetting(ctx, db.ClaimSettingParams{Key: key, Value: raw, UpdatedAt: time.Now().UTC()})
+	if err != nil {
+		return false, fmt.Errorf("claim setting %s: %w", key, err)
+	}
+	return n > 0, nil
+}
+
 // GetSetting decodes one stored value into out. ErrNotFound means the key was never set.
 func (s *Store) GetSetting(ctx context.Context, key string, out any) error {
 	raw, err := s.q.GetSetting(ctx, key)

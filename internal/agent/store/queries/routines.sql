@@ -8,11 +8,12 @@
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
   notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
-  repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode
+  repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 ) values (
   @id, @scope, sqlc.narg('owner_login'), @name, @schedule, @timezone, @instruction, @created_at,
   @notes, sqlc.narg('personality_id'), @model, @effort, true, sqlc.narg('chat_id'), @next_run_at, @created_at, @created_at,
-  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[], @chat_mode
+  @repos::text[], sqlc.narg('daily_cap_usd'), @created_by, @trigger_kind, @events::text[], @teams::text[], @chat_mode,
+  @playbook, @github_filters::jsonb
 )
 returning *;
 
@@ -73,6 +74,8 @@ set name = @name,
     events = @events::text[],
     teams = @teams::text[],
     chat_mode = @chat_mode,
+    playbook = @playbook,
+    github_filters = @github_filters::jsonb,
     next_run_at = @next_run_at,
     updated_at = @updated_at
 where id = @id
@@ -261,7 +264,17 @@ select r.id, @delivery_id::text,
   from routines r
  where r.enabled and r.trigger_kind = @kind::text and r.events && @events::text[]
    and (cardinality(r.teams) = 0 or r.teams && @scopes::text[])
+   and (sqlc.narg('only_ids')::text[] is null or r.id = any(sqlc.narg('only_ids')::text[]))
 on conflict (routine_id, delivery_id) do nothing;
+
+-- RoutineEventCandidates is every enabled routine of @kind that asks for one of @events in one
+-- of @scopes, with the conditions a GitHub routine puts on whose events it is given: the
+-- routines InsertRoutineEvents would keep a delivery for before those are asked.
+-- name: RoutineEventCandidates :many
+select r.id, r.github_filters from routines r
+ where r.enabled and r.trigger_kind = @kind::text and r.events && @events::text[]
+   and (cardinality(r.teams) = 0 or r.teams && @scopes::text[])
+ order by r.id;
 
 -- RoutinesWantEvents is whether any enabled routine of @kind asks for one of @events in one of
 -- @scopes, so a delivery that costs GitHub API calls to read is read only when one would.
