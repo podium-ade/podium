@@ -20,3 +20,15 @@ lint:
 breaking:
   use:
     - FILE
+  ignore_only:
+    # PR #354 removed the Connections "Triggers" section: the review on open is now the "Review
+    # pull requests" routine, whose conditions replace GitHubConnection.filters (field 14 and
+    # its name stay reserved). The removals are deliberate, and buf can only scope an ignore to
+    # a file, not a symbol, so this covers agent.proto for these three rules only. Drop it once main
+    # carries #354, since `make proto-breaking` compares against origin/main.
+    FIELD_NO_DELETE:
+      - proto/podium/agent/v1/agent.proto
+    MESSAGE_NO_DELETE:
+      - proto/podium/agent/v1/agent.proto
+    RPC_NO_DELETE:
+      - proto/podium/agent/v1/agent.proto
