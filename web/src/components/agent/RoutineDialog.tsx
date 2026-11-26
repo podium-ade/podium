@@ -1,12 +1,11 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
-  GitBranch,
+  GitPullRequest,
   MessageSquare,
   MessagesSquare,
   Repeat,
   ShieldCheck,
   User,
-  Webhook,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -17,6 +16,9 @@ import {
   browserZone,
   CI_FIXER,
   CI_FIXER_ON_GITHUB,
+  REVIEW_ON_GITHUB,
+  REVIEW_PLAYBOOK,
+  REVIEW_PLAYBOOK_LABEL,
   GITHUB_CI,
   GITHUB_EVENTS,
   ciOutcome,
@@ -35,13 +37,24 @@ import { agent, errorMessage } from "../../lib/client";
 import { cn } from "../../lib/utils";
 import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
 import { useBrand } from "../../lib/brand";
+import { TagInput } from "../ui/tag-input";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
+import { GitHubGlyph, LinearGlyph } from "./BrandIcon";
 import { ScheduleField } from "./ScheduleField";
 import { TimezonePicker } from "./TimezonePicker";
 
@@ -64,6 +77,219 @@ export function SystemBadge({ className }: { className?: string }) {
 
 /** DEFAULT_ASSISTANT stands for "no personal assistant" in the picker, which cannot hold "". */
 const DEFAULT_ASSISTANT = "podium";
+// The "Who does the work" choice that is no playbook: the assistant's turn. A select item needs a
+// value, and no playbook can be named this.
+const ASSISTANT_WORK = "@assistant";
+
+/**
+ * reviewPlaybooks says which playbook the review choice starts: the one naming the pull
+ * request's repository under "Reviews pull requests in", else the one marked "Reviews pull
+ * requests". short sits beside the choice in the list; hint says it in full.
+ */
+function reviewPlaybooks(playbooks: { name: string; github: boolean; githubRepos: string[] }[]): {
+  short: string;
+  hint: string;
+} {
+  const fallback = playbooks.find((p) => p.github)?.name ?? "";
+  const named = playbooks.filter((p) => p.githubRepos.length > 0);
+  const tail = " It posts its review on the pull request. Which playbook reviews what is set on the Playbooks page.";
+  if (!fallback && named.length === 0) {
+    return {
+      short: "none set",
+      hint: "No playbook reviews pull requests yet, so a run would fail: mark one “Reviews pull requests”, or name repositories under “Reviews pull requests in”, on the Playbooks page.",
+    };
+  }
+  const parts = named.map((p) => `${p.name} for ${p.githubRepos.join(", ")}`);
+  if (fallback) parts.push(named.length > 0 ? `${fallback} for every other repository` : `${fallback} for every repository`);
+  const short = named.length === 0 ? fallback : fallback ? `${fallback} +${named.length}` : `${named.length} by repo`;
+  return {
+    short,
+    hint: `Each run starts the playbook that reviews the pull request’s repository right away: ${parts.join("; ")}.${
+      !fallback ? " A repository none names is not reviewed." : ""
+    }${tail}`,
+  };
+}
+
+/** cleanLogin is a GitHub login as typed, without the @ a mention puts before it. */
+function cleanLogin(v: string): string {
+  return v.trim().replace(/^@/, "");
+}
+
+// A GitHub login, with the [bot] an App's account carries: what the server accepts.
+const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$/;
+
+function checkLogin(v: string): string | undefined {
+  return LOGIN_RE.test(v) ? undefined : `“${v}” is not a GitHub username.`;
+}
+
+function CheckRow({
+  id,
+  checked,
+  onChange,
+  label,
+  detail,
+  testId,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+  detail: string;
+  testId?: string;
+}) {
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3">
+      <Checkbox
+        id={id}
+        data-testid={testId}
+        checked={checked}
+        onCheckedChange={(v) => onChange(v === true)}
+        className="mt-0.5"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm text-fg">{label}</span>
+        <span className="block text-xs leading-relaxed text-muted">{detail}</span>
+      </span>
+    </label>
+  );
+}
+
+/** TemplateButton is a routine to start from, on a blank new one. */
+function TemplateButton({
+  testId,
+  icon: Icon,
+  title,
+  detail,
+  onClick,
+}: {
+  testId: string;
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <Icon className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
+      <span className="grid gap-0.5">
+        <span className="font-medium text-fg">{title}</span>
+        <span className="text-xs text-muted">{detail}</span>
+      </span>
+    </button>
+  );
+}
+
+/** GitHubConditions are a routine on GitHub events' conditions, as the dialog edits them. */
+type GitHubConditions = {
+  allowedPeople: string[];
+  ignoredPeople: string[];
+  ignoreBots: boolean;
+  skipDrafts: boolean;
+  branches: string[];
+};
+
+/**
+ * GitHubConditionsField is whose events a routine on GitHub events is given, and about which pull
+ * requests: the GitHub App's triggers for its review, made each routine's own.
+ */
+function GitHubConditionsField({
+  value,
+  onChange,
+}: {
+  value: GitHubConditions;
+  onChange: (next: GitHubConditions) => void;
+}) {
+  const ids = { allowed: useId(), ignored: useId(), bots: useId(), drafts: useId(), branches: useId() };
+  const set = (patch: Partial<GitHubConditions>) => onChange({ ...value, ...patch });
+  return (
+    <fieldset data-testid="routine-github-conditions" className="m-0 grid gap-4 rounded-lg border border-border p-4">
+      <legend className="px-1 text-sm font-medium">
+        Conditions <span className="font-normal text-muted">(optional)</span>
+      </legend>
+      <p className="-mt-1 text-xs leading-relaxed text-muted">
+        An event these turn away is never given to the routine. Who set it off is whoever opened, pushed or
+        reviewed; for CI, the pull request’s author.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid content-start gap-1.5">
+          <label htmlFor={ids.allowed} className="text-sm font-medium">
+            Only these people
+          </label>
+          <TagInput
+            id={ids.allowed}
+            testId="routine-allowed-people"
+            values={value.allowedPeople}
+            onChange={(allowedPeople) => set({ allowedPeople })}
+            clean={cleanLogin}
+            validate={checkLogin}
+            noun="username"
+            mono
+            placeholder="GitHub username"
+          />
+        </div>
+        <div className="grid content-start gap-1.5">
+          <label htmlFor={ids.ignored} className="text-sm font-medium">
+            Never these people
+          </label>
+          <TagInput
+            id={ids.ignored}
+            testId="routine-ignored-people"
+            values={value.ignoredPeople}
+            onChange={(ignoredPeople) => set({ ignoredPeople })}
+            clean={cleanLogin}
+            validate={checkLogin}
+            noun="username"
+            mono
+            placeholder="GitHub username"
+          />
+        </div>
+      </div>
+      <div className="grid gap-3">
+        <CheckRow
+          id={ids.bots}
+          testId="routine-ignore-bots"
+          checked={value.ignoreBots}
+          onChange={(on) => set({ ignoreBots: on })}
+          label="Ignore bot accounts"
+          detail="Events Dependabot, Renovate or another App set off do not count."
+        />
+        <CheckRow
+          id={ids.drafts}
+          testId="routine-skip-drafts"
+          checked={value.skipDrafts}
+          onChange={(on) => set({ skipDrafts: on })}
+          label="Skip draft pull requests"
+          detail="A draft counts once it is marked ready for review, which is an event of its own."
+        />
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.branches} className="text-sm font-medium">
+          Ignore these base branches
+        </label>
+        <TagInput
+          id={ids.branches}
+          testId="routine-excluded-branches"
+          values={value.branches}
+          onChange={(branches) => set({ branches })}
+          commaSeparates={false}
+          noun="branch"
+          mono
+          placeholder="Branch name"
+          describedBy={`${ids.branches}-hint`}
+        />
+        <p id={`${ids.branches}-hint`} className="text-xs text-muted">
+          Pull requests into these branches don’t count. A name, a glob such as <code>release/*</code>, or a regular
+          expression between slashes; Enter adds it.
+        </p>
+      </div>
+    </fieldset>
+  );
+}
 
 const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   {
@@ -79,10 +305,10 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
 ];
 
 /** TRIGGERS are the sources that can start a run. One more source is one more entry, and its fields under the picker. */
-const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: LucideIcon }[] = [
+const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: ComponentType<{ className?: string }> }[] = [
   { trigger: "schedule", label: "On a schedule", hint: "At set times, in a timezone.", icon: Repeat },
-  { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: Webhook },
-  { trigger: "github", label: "On a GitHub event", hint: "When CI finishes, or a pull request or issue changes.", icon: GitBranch },
+  { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: LinearGlyph },
+  { trigger: "github", label: "On a GitHub event", hint: "When CI finishes, or a pull request or issue changes.", icon: GitHubGlyph },
 ];
 
 /**
@@ -530,6 +756,16 @@ export function RoutineDialog({
     initial.trigger === "github" && initial.chatMode === "routine" ? "routine" : "subject",
   );
   const [timezone, setTimezone] = useState(initial.timezone || browserZone());
+  // The playbook a run starts right away; "" is the assistant's turn.
+  const [playbook, setPlaybook] = useState(initial.playbook ?? "");
+  const savedFilters = initial.trigger === "github" ? initial.githubFilters : undefined;
+  const [conditions, setConditions] = useState<GitHubConditions>({
+    allowedPeople: savedFilters?.allowedPeople ?? [],
+    ignoredPeople: savedFilters?.ignoredPeople ?? [],
+    ignoreBots: savedFilters?.ignoreBots ?? false,
+    skipDrafts: savedFilters?.skipDrafts ?? false,
+    branches: savedFilters?.excludedBranches ?? [],
+  });
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
   );
@@ -538,7 +774,15 @@ export function RoutineDialog({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId(), trigger: useId(), form: useId() };
+  const ids = {
+    assistant: useId(),
+    zone: useId(),
+    cap: useId(),
+    scope: useId(),
+    trigger: useId(),
+    form: useId(),
+    playbook: useId(),
+  };
   // The assistant is chosen when the routine is made: its chat is labelled with it for good.
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -547,6 +791,26 @@ export function RoutineDialog({
     enabled: open && !lockAssistant && !system,
   });
   const assistants = voices.data?.personalities ?? [];
+  const playbookList = useQuery({
+    queryKey: ["agent", "playbooks"],
+    queryFn: () => agent.listPlaybooks({}),
+    staleTime: 30_000,
+    enabled: open,
+  });
+  // A playbook the routine names that the profile no longer has is still shown, so saving
+  // unchanged does not drop it silently; the server says it is gone.
+  const playbookNames = (playbookList.data?.playbooks ?? []).map((p) => p.name);
+  if (playbook && playbook !== REVIEW_PLAYBOOK && !playbookNames.includes(playbook)) playbookNames.push(playbook);
+  // Which playbook reviews which repository, so the review choice can say what it will start.
+  const profile = useQuery({
+    queryKey: ["agent", "profile"],
+    queryFn: () => agent.getProfile({}),
+    staleTime: 30_000,
+    enabled: open && github,
+  });
+  const reviewers = reviewPlaybooks(profile.data?.playbooks ?? []);
+  // The review playbook is a pull request's: only a routine on GitHub events knows one.
+  const work = playbook === REVIEW_PLAYBOOK && !github ? "" : playbook;
   const capValue = cap.trim() === "" ? 0 : Number(cap);
   const capProblem =
     cap.trim() !== "" && (!Number.isFinite(capValue) || capValue < 0)
@@ -568,6 +832,19 @@ export function RoutineDialog({
     setNotes(CI_FIXER.notes);
     setSchedule(CI_FIXER.schedule);
     setScheduleKey((k) => k + 1);
+  };
+
+  // What the GitHub App once did on its own when a pull request opened: start the repository's
+  // reviewer, in the pull request's conversation, leaving drafts until they are marked ready.
+  const useReviewTemplate = () => {
+    setTrigger("github");
+    setName(REVIEW_ON_GITHUB.name);
+    setInstruction(REVIEW_ON_GITHUB.instruction);
+    setNotes("");
+    setGitHubEvents(REVIEW_ON_GITHUB.events);
+    setGitHubChatMode("subject");
+    setPlaybook(REVIEW_ON_GITHUB.playbook);
+    setConditions((c) => ({ ...c, skipDrafts: REVIEW_ON_GITHUB.skipDrafts }));
   };
 
   const save = async () => {
@@ -598,6 +875,17 @@ export function RoutineDialog({
           effort: initial.effort ?? "",
           repos: [],
           dailyCapUsd: capValue,
+          playbook: work,
+          githubFilters: github
+            ? {
+                $typeName: "podium.agent.v1.RoutineGitHubFilters",
+                allowedPeople: conditions.allowedPeople,
+                ignoredPeople: conditions.ignoredPeople,
+                ignoreBots: conditions.ignoreBots,
+                skipDrafts: conditions.skipDrafts,
+                excludedBranches: conditions.branches,
+              }
+            : undefined,
         },
         scope,
       );
@@ -764,22 +1052,28 @@ export function RoutineDialog({
             description="What one run is told. A run that finds nothing to do stays quiet; one that does answers in the routine’s chat."
           >
             {system && !fixedScope && blank ? (
-              <button
-                type="button"
-                data-testid="routine-template-ci"
-                onClick={useTemplate}
-                className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
-                <span className="grid gap-0.5">
-                  <span className="font-medium text-fg">Start from “Fix failing CI”</span>
-                  <span className="text-xs text-muted">
-                    {github
-                      ? "Runs on each failed workflow run and proposes a fix on its pull request, once per commit, giving up after 3 tries. It only proposes until you edit it to push."
-                      : "Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after 3 tries. It only proposes until you edit it to push."}
-                  </span>
-                </span>
-              </button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <TemplateButton
+                  testId="routine-template-ci"
+                  icon={Wrench}
+                  title="Start from “Fix failing CI”"
+                  onClick={useTemplate}
+                  detail={
+                    github
+                      ? "Runs when a commit’s checks all finish with one failed, and proposes a fix on its pull request, giving up after 3 tries. It only proposes until you edit it to push."
+                      : "Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after 3 tries. It only proposes until you edit it to push."
+                  }
+                />
+                {canChooseTrigger ? (
+                  <TemplateButton
+                    testId="routine-template-review"
+                    icon={GitPullRequest}
+                    title="Start from “Review pull requests”"
+                    onClick={useReviewTemplate}
+                    detail="Starts the review playbook when a pull request opens or is marked ready, and posts its review on the pull request."
+                  />
+                ) : null}
+              </div>
             ) : null}
             <label className="grid gap-1.5 text-sm font-medium">
               Name
@@ -806,6 +1100,46 @@ export function RoutineDialog({
                 className="min-h-40"
               />
             </label>
+            <div className="grid gap-1.5">
+              <label htmlFor={ids.playbook} className="text-sm font-medium">
+                Who does the work
+              </label>
+              <Select value={work || ASSISTANT_WORK} onValueChange={(v) => setPlaybook(v === ASSISTANT_WORK ? "" : v)}>
+                <SelectTrigger id={ids.playbook} data-testid="routine-playbook">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ASSISTANT_WORK}>The assistant decides</SelectItem>
+                  {github ? (
+                    <SelectItem value={REVIEW_PLAYBOOK} aside={reviewers.short}>
+                      {REVIEW_PLAYBOOK_LABEL}
+                    </SelectItem>
+                  ) : null}
+                  {playbookNames.length > 0 ? (
+                    <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Playbooks</SelectLabel>
+                        {playbookNames.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </>
+                  ) : null}
+                </SelectContent>
+              </Select>
+              <p data-testid="routine-playbook-hint" className="text-xs leading-relaxed text-muted">
+                {work === ""
+                  ? "Each run is an assistant’s turn: it reads the instruction and what started the run, then decides what to delegate, if anything."
+                  : work === REVIEW_PLAYBOOK
+                    ? reviewers.hint
+                    : `Each run starts ${work} right away, with the instruction and what started the run as its brief. No assistant’s turn decides first.${
+                        github ? " On a pull request, its answer is posted there." : ""
+                      }`}
+              </p>
+            </div>
             <label className="grid gap-1.5 text-sm font-medium">
               <span>
                 Standing notes <span className="font-normal text-muted">(optional)</span>
@@ -847,7 +1181,7 @@ export function RoutineDialog({
                     className="h-auto flex-col items-start justify-start gap-0.5 rounded-lg border border-border bg-panel px-3 py-2.5 text-left whitespace-normal data-[state=on]:border-accent data-[state=on]:bg-raised"
                   >
                     <span className="flex items-center gap-2 text-sm font-semibold text-fg">
-                      <t.icon aria-hidden />
+                      <t.icon />
                       {t.label}
                     </span>
                     <span className="text-xs font-normal text-muted">{t.hint}</span>
@@ -865,14 +1199,17 @@ export function RoutineDialog({
                 onChatMode={setChatMode}
               />
             ) : github ? (
-              <GitHubEventsField
-                events={githubEvents}
-                onEvents={setGitHubEvents}
-                repos={repos}
-                onRepos={setRepos}
-                chatMode={githubChatMode}
-                onChatMode={setGitHubChatMode}
-              />
+              <>
+                <GitHubEventsField
+                  events={githubEvents}
+                  onEvents={setGitHubEvents}
+                  repos={repos}
+                  onRepos={setRepos}
+                  chatMode={githubChatMode}
+                  onChatMode={setGitHubChatMode}
+                />
+                <GitHubConditionsField value={conditions} onChange={setConditions} />
+              </>
             ) : (
               <>
                 <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />

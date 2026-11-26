@@ -160,7 +160,7 @@ describe("PlaybookEditor", () => {
     expect(screen.getByTestId("playbook-linear-rule")).toHaveTextContent(
       "Runs when an issue in OPS or SRE labelled incident is delegated",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Remove SRE" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove team SRE" }));
     await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ linearTeams: ["OPS"], linearLabels: ["incident"] });
   });

@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import type { AgentBackend, PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import type { SandboxProvider } from "../../gen/podium/v1/sandbox_pb";
@@ -38,6 +38,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { TagInput } from "../ui/tag-input";
 import { Switch } from "../ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
@@ -978,7 +979,8 @@ export function PlaybookEditor({
             label="Linear teams"
             hint="Team keys. Leave empty for every team."
           >
-            <TagPicker
+            <TagInput
+              noun="team"
               id={`${uid}-linear-teams`}
               testId="playbook-linear-teams"
               values={linearTeams}
@@ -991,7 +993,8 @@ export function PlaybookEditor({
           </Field>
 
           <Field id={`${uid}-linear-labels`} label="Linear labels" hint="Label names, compared without case. Leave empty for any label.">
-            <TagPicker
+            <TagInput
+              noun="label"
               id={`${uid}-linear-labels`}
               testId="playbook-linear-labels"
               values={linearLabels}
@@ -1398,106 +1401,6 @@ function labelOptions(catalog: { name: string; teamKey: string }[], teams: strin
     out.push({ value: l.name, label: l.teamKey ? `${l.name} · ${l.teamKey}` : l.name });
   }
   return out;
-}
-
-/**
- * TagPicker is a list of short values: chips for what is chosen, and an input that adds one on
- * Enter, a comma or leaving it. options fill its suggestions; with offer, the ones not yet
- * chosen are also shown as buttons, which suits a short list such as a workspace's teams.
- */
-function TagPicker({
-  id,
-  testId,
-  values,
-  onChange,
-  options,
-  offer,
-  mono,
-  placeholder,
-}: {
-  id: string;
-  testId: string;
-  values: string[];
-  onChange: (values: string[]) => void;
-  options: { value: string; label: string }[];
-  offer?: boolean;
-  mono?: boolean;
-  placeholder?: string;
-}) {
-  const [text, setText] = useState("");
-  const has = (v: string) => values.some((x) => x.toLowerCase() === v.toLowerCase());
-  const add = (raw: string) => {
-    const v = raw.replace(/,+$/, "").trim();
-    setText("");
-    if (v === "" || has(v)) return;
-    onChange([...values, v]);
-  };
-  const remaining = options.filter((o) => !has(o.value));
-  return (
-    <div data-testid={testId} className="space-y-2">
-      {values.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {values.map((v) => (
-            <span
-              key={v}
-              className="inline-flex items-center gap-1 rounded-md border border-hairline bg-panel py-0.5 pl-2 pr-1 text-xs text-fg"
-            >
-              <span className={mono ? "font-mono" : undefined}>{v}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${v}`}
-                onClick={() => onChange(values.filter((x) => x !== v))}
-                className="rounded p-0.5 text-faint hover:text-fg"
-              >
-                <X className="size-3" aria-hidden />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <Input
-        id={id}
-        list={`${id}-options`}
-        value={text}
-        placeholder={placeholder}
-        className={cn("text-xs", mono && "font-mono")}
-        onChange={(e) => {
-          const v = e.target.value;
-          if (v.includes(",")) add(v);
-          else setText(v);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            add(text);
-          }
-        }}
-        onBlur={() => add(text)}
-      />
-      <datalist id={`${id}-options`}>
-        {remaining.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </datalist>
-      {offer && remaining.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {remaining.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => onChange([...values, o.value])}
-              className="inline-flex items-center gap-1 rounded-md border border-dashed border-hairline px-2 py-0.5 text-xs text-muted hover:border-fg/40 hover:text-fg"
-            >
-              <Plus className="size-3" aria-hidden />
-              {o.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function Field({

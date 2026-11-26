@@ -34,6 +34,13 @@ vi.mock("../../lib/client", async () => {
       listRoutineRuns: (...a: unknown[]) => listRoutineRuns(...a),
       getConnections: (...a: unknown[]) => getConnections(...a),
       listPersonalities: async () => ({ personalities: [] }),
+      listPlaybooks: async () => ({ playbooks: [{ name: "podium-dev" }, { name: "triage" }] }),
+      getProfile: async () => ({
+        playbooks: [
+          { name: "podium-dev", github: true, githubRepos: [] },
+          { name: "triage", github: false, githubRepos: ["acme/web"] },
+        ],
+      }),
     },
   };
 });
@@ -726,6 +733,120 @@ describe("RoutineDialog for an admin", () => {
         }),
         "system",
       ),
+    );
+  });
+
+  it("starts the review from its template: the repository's reviewer, right away, when a pull request is ready", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog open title="Routine" canChooseScope canChooseTrigger initial={{ timezone: "UTC" }} onClose={() => {}} onSave={onSave} />,
+    );
+    await userEvent.click(screen.getByTestId("routine-scope-system"));
+    await userEvent.click(screen.getByTestId("routine-template-review"));
+    expect(screen.getByTestId("routine-trigger-github")).toHaveAttribute("data-state", "on");
+    expect(screen.getByTestId("routine-name")).toHaveValue("Review pull requests");
+    expect(screen.getByTestId("routine-event-pull_request.opened")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-event-pull_request.ready_for_review")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-playbook")).toHaveTextContent("The repository’s review playbook");
+    // It says which playbook that is, per repository, as the Playbooks page sets it.
+    expect(await screen.findByTestId("routine-playbook-hint")).toHaveTextContent(
+      "triage for acme/web; podium-dev for every other repository.",
+    );
+    expect(screen.getByTestId("routine-playbook-hint")).toHaveTextContent("posts its review on the pull request");
+    expect(screen.getByTestId("routine-skip-drafts")).toHaveAttribute("data-state", "checked");
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Review pull requests",
+          trigger: "github",
+          events: ["pull_request.opened", "pull_request.ready_for_review"],
+          chatMode: "subject",
+          playbook: "@review",
+          githubFilters: expect.objectContaining({ skipDrafts: true, allowedPeople: [], excludedBranches: [] }),
+        }),
+        "system",
+      ),
+    );
+  });
+
+  it("starts a playbook right away, and gives a routine on GitHub events the review's conditions", async () => {
+    getConnections.mockResolvedValue({ github: { configured: true, reviews: true } });
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Fix CI", instruction: "Fix it.", trigger: "github", events: ["checks.failed"] }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-playbook")).toHaveTextContent("The assistant decides");
+    await userEvent.click(screen.getByTestId("routine-playbook"));
+    // The playbooks are a group of their own, below the assistant and the review playbook.
+    const group = await screen.findByRole("group", { name: "Playbooks" });
+    expect(within(group).getByText("Playbooks")).toBeInTheDocument();
+    expect(within(group).getAllByRole("option").map((o) => o.textContent)).toEqual(["podium-dev", "triage"]);
+    expect(screen.getByRole("option", { name: /The repository’s review playbook/ })).not.toBe(null);
+    await userEvent.click(within(group).getByRole("option", { name: "podium-dev" }));
+    expect(screen.getByTestId("routine-playbook-hint")).toHaveTextContent("Each run starts podium-dev right away");
+    expect(screen.getByTestId("routine-playbook-hint")).toHaveTextContent("On a pull request, its answer is posted there.");
+
+    const allowed = screen.getByLabelText("Only these people");
+    await userEvent.type(allowed, "@alice,bob{enter}carol{enter}");
+    await userEvent.type(allowed, "{backspace}{backspace}"); // the first selects the last tag, the second removes it
+    await userEvent.type(allowed, "carol{enter}@Alice{enter}"); // a login already there is not added again
+    expect(within(screen.getByTestId("routine-allowed-people")).getAllByRole("button", { name: /^Remove / })).toHaveLength(3);
+    await userEvent.type(screen.getByLabelText("Never these people"), "not a login{enter}");
+    expect(screen.getByText("“not a login” is not a GitHub username.")).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("Never these people"));
+    await userEvent.type(screen.getByLabelText("Never these people"), "renovate[[bot]");
+    await userEvent.click(screen.getByTestId("routine-ignore-bots"));
+    // Leaving the field adds what was typed; a comma does not split a branch pattern.
+    await userEvent.type(screen.getByLabelText("Ignore these base branches"), "release/*{enter}/^v{{1,2}$/");
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          playbook: "podium-dev",
+          githubFilters: expect.objectContaining({
+            allowedPeople: ["alice", "bob", "carol"],
+            ignoredPeople: ["renovate[bot]"],
+            ignoreBots: true,
+            skipDrafts: false,
+            excludedBranches: ["release/*", "/^v{1,2}$/"],
+          }),
+        }),
+        "personal",
+      ),
+    );
+  });
+
+  it("offers the repository's reviewer only on GitHub events, and no conditions elsewhere", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Digest", instruction: "Sum up.", playbook: "@review", timezone: "UTC" }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByTestId("routine-playbook")).toHaveTextContent("The assistant decides");
+    expect(screen.queryByTestId("routine-github-conditions")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-playbook"));
+    expect(screen.queryByRole("option", { name: /review playbook/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "triage" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ playbook: "", githubFilters: undefined }), "personal"),
     );
   });
 

@@ -23,6 +23,8 @@ export function draftOf(r: Routine): Partial<RoutineDraft> {
     events: r.events,
     teams: r.teams,
     chatMode: r.chatMode,
+    playbook: r.playbook,
+    githubFilters: r.githubFilters,
   };
 }
 
@@ -279,6 +281,40 @@ export const CI_FIXER_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "no
   ].join("\n"),
   notes: CI_FIXER.notes,
 };
+
+/**
+ * REVIEW_PLAYBOOK, as a routine's playbook, is the reviewer of the pull request's repository: the
+ * playbook naming it in github_repos, else the github: true one.
+ */
+export const REVIEW_PLAYBOOK = "@review";
+
+/**
+ * REVIEW_ON_GITHUB is the "Review pull requests" template: the review the GitHub App started on its
+ * own when a pull request opened, as a routine. It starts the repository's review playbook right away, with
+ * no assistant's turn before it, and leaves drafts alone until they are marked ready. Its
+ * instruction is the one a deployment that was reviewing before was given its routine with
+ * (connections.ReviewRoutineInstruction).
+ */
+export const REVIEW_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "events" | "playbook"> & {
+  skipDrafts: boolean;
+} = {
+  name: "Review pull requests",
+  instruction:
+    "Review this pull request: what it changes, whether it does what it says, and what should be fixed before it merges.",
+  events: ["pull_request.opened", "pull_request.ready_for_review"],
+  playbook: REVIEW_PLAYBOOK,
+  skipDrafts: true,
+};
+
+/** REVIEW_PLAYBOOK_LABEL names REVIEW_PLAYBOOK: the playbook set to review the pull request's repository. */
+export const REVIEW_PLAYBOOK_LABEL = "The repository’s review playbook";
+
+/** playbookLabel names a routine's playbook the way the dialog offers it. */
+export function playbookLabel(playbook: string): string {
+  if (!playbook) return "The assistant";
+  if (playbook === REVIEW_PLAYBOOK) return REVIEW_PLAYBOOK_LABEL;
+  return playbook;
+}
 
 /** routineChatPath is the address of a routine's chat, under its assistant when it has one. */
 export function routineChatPath(r: Pick<Routine, "personalityId" | "chatId">): string {
