@@ -1,4 +1,4 @@
-# A review playbook that posts its own review
+# Review and fix playbooks that post on the pull request themselves
 
 Podium no longer posts reviews. It used to take the review playbook's final message and turn it
 into a GitHub review on its own: a **Review in progress** comment, a verdict read from the first
@@ -13,6 +13,8 @@ you can copy it as it is or change any of it.
 |---|---|
 | [`playbooks/review.yaml`](playbooks/review.yaml) | The playbook: `github: true`, the repository, read-only tools plus `bash` for `git` and `gh` |
 | [`prompts/review.md`](prompts/review.md) | The review, step by step: the status comment, where the last review stopped, the verdict, one review per round with inline notes, and the status comment's final title |
+| [`playbooks/fix.yaml`](playbooks/fix.yaml) | The fixer: offered to commenters with write access, in the review's workspace, with tools that change code |
+| [`prompts/fix.md`](prompts/fix.md) | The fix, step by step: find the review's findings, fix and push, reply under each finding and resolve the ones fixed, and say what was pushed |
 
 ## What the prompt does
 
@@ -40,8 +42,8 @@ Copy the playbook and its prompt into your profile, or create the same playbook 
 screen and paste the prompt. Then set `repos` to your repository:
 
 ```sh
-cp examples/review/playbooks/review.yaml "$PODIUM_AGENT_PROFILE_DIR/playbooks/"
-cp examples/review/prompts/review.md     "$PODIUM_AGENT_PROFILE_DIR/prompts/"
+cp examples/review/playbooks/review.yaml examples/review/playbooks/fix.yaml "$PODIUM_AGENT_PROFILE_DIR/playbooks/"
+cp examples/review/prompts/review.md examples/review/prompts/fix.md           "$PODIUM_AGENT_PROFILE_DIR/prompts/"
 ```
 
 Then decide what starts a review, under **Routines** in the web UI:
@@ -56,3 +58,21 @@ Then decide what starts a review, under **Routines** in the web UI:
 - **When someone asks:** `@podium review` or `/review` on a pull request. The template has it
   already: **Asked with a command**, with the command `/review`, and **Who counts** set to
   **Everyone**. Set it to **People in Podium** to leave strangers' requests unanswered.
+
+## The fixer
+
+Podium also used to answer the review's findings for a fix task: it read fenced `resolved` and
+`reply` blocks out of the task's final message, posted each one in the thread at the
+`path:line` it named, and resolved the thread for `resolved`. It reads no format out of an
+answer now. [`prompts/fix.md`](prompts/fix.md) does the same with `gh`:
+
+1. **Finds the findings**: the review's inline comments that start a thread, by the App (or the
+   latest bot reviewer when the task's token is a person's).
+2. **Fixes them**, runs the tests, and pushes to the pull request's own branch.
+3. **Answers each finding in its thread**, naming the commit, and **resolves** the thread of each
+   one it fixed. A finding it left as it is gets a reply saying why, and stays open.
+4. **Says what it pushed** in its final message, which is the one comment Podium posts, with any
+   finding it could not answer in its thread.
+
+Ask for it on a pull request with `@podium fix the review's findings`, or from a routine.
+

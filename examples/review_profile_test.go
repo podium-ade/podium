@@ -25,7 +25,7 @@ func TestReviewSampleLoads(t *testing.T) {
 	}
 	p, err := profiles.Load(dir)
 	require.NoError(t, err, "examples/review does not load; docs/agent.md and this directory disagree")
-	require.Equal(t, []string{"review"}, p.PlaybookNames())
+	require.Equal(t, []string{"fix", "review"}, p.PlaybookNames())
 
 	review := p.Playbooks["review"]
 	require.True(t, review.Reviews(), "it is what \"The repository's review playbook\" resolves to")
@@ -44,4 +44,15 @@ func TestReviewSampleLoads(t *testing.T) {
 	// gitcred.ts); a clone's user.name is a persona, or podium-agent, and matches nothing.
 	require.Contains(t, review.SystemPrompt, "ME=${PODIUM_GITHUB_APP_LOGIN:?}")
 	require.NotContains(t, review.SystemPrompt, "config user.name")
+
+	// The fixer answers under each finding itself: the reply and the resolve are in its prompt,
+	// and nothing in its final message is a format the conductor reads.
+	fix := p.Playbooks["fix"]
+	require.False(t, fix.Reviews())
+	require.Equal(t, "write", fix.GitHubRequires, "it is offered to a commenter who could push the fix themselves")
+	require.Equal(t, review.Repos[0].URL, fix.Repos[0].URL, "it runs in the review's workspace")
+	for _, step := range []string{"/replies", "resolveReviewThread", "PODIUM_GITHUB_APP_LOGIN", "Never open another pull request"} {
+		require.True(t, strings.Contains(fix.SystemPrompt, step), "the fix prompt has lost %q", step)
+	}
+	require.NotContains(t, fix.SystemPrompt, "```resolved")
 }
