@@ -6,25 +6,36 @@ import {
   isLinear,
   onEvents,
   perTicket,
-  repoNames,
-  teamKeys,
+  checkRepo,
+  checkRepoOrOwner,
+  checkTeamKey,
+  cleanRepo,
+  cleanTeamKey,
   GITHUB_CI,
   ciOutcome,
   withOutcome,
 } from "./routines";
 
-describe("repoNames", () => {
-  it("reads repositories and owners separated by commas or spaces, lower case, each once", () => {
-    expect(repoNames(" Acme/API, acme\nacme/api  Other/web,,")).toEqual(["acme/api", "acme", "other/web"]);
+describe("repositories and team keys, one at a time", () => {
+  it("keeps a repository lower case, and reads one from a pasted link", () => {
+    expect(cleanRepo(" Acme/API ")).toBe("acme/api");
+    expect(cleanRepo("https://github.com/Acme/API.git")).toBe("acme/api");
+    expect(cleanRepo("github.com/acme/web/")).toBe("acme/web");
   });
 
-  it("is nothing for an empty field", () => {
-    expect(repoNames("  , ")).toEqual([]);
+  it("takes owner/name, and an owner alone only where a whole owner is meant", () => {
+    expect(checkRepo("acme/api")).toBeUndefined();
+    expect(checkRepo("acme")).toMatch(/owner\/name/);
+    expect(checkRepo("acme/api/x")).toBeDefined();
+    expect(checkRepoOrOwner("acme")).toBeUndefined();
+    expect(checkRepoOrOwner("acme/api")).toBeUndefined();
+    expect(checkRepoOrOwner("acme api")).toBeDefined();
   });
 
-  it("reads as teamKeys does, but keeps GitHub's lower case", () => {
-    expect(teamKeys("eng, web eng")).toEqual(["ENG", "WEB"]);
-    expect(repoNames("eng, web eng")).toEqual(["eng", "web"]);
+  it("keeps a team key upper case, one word", () => {
+    expect(cleanTeamKey(" eng ")).toBe("ENG");
+    expect(checkTeamKey("ENG")).toBeUndefined();
+    expect(checkTeamKey("ENG WEB")).toBeDefined();
   });
 });
 

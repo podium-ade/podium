@@ -31,8 +31,10 @@ import {
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
   LINEAR_TYPES,
-  repoNames,
-  teamKeys,
+  checkRepoOrOwner,
+  checkTeamKey,
+  cleanRepo,
+  cleanTeamKey,
   type ChatMode,
   type Scope,
   type Trigger,
@@ -403,8 +405,8 @@ function LinearEventsField({
 }: {
   events: string[];
   onEvents: (events: string[]) => void;
-  teams: string;
-  onTeams: (teams: string) => void;
+  teams: string[];
+  onTeams: (teams: string[]) => void;
   chatMode: ChatMode;
   onChatMode: (mode: ChatMode) => void;
 }) {
@@ -416,6 +418,14 @@ function LinearEventsField({
   });
   const lin = connections.data?.linear;
   const connected = Boolean(lin?.configured) && !lin?.revokedAt;
+  // Only fills the picker: without it the field takes typed keys.
+  const catalog = useQuery({
+    queryKey: ["agent", "linearCatalog"],
+    queryFn: () => agent.listLinearCatalog({}),
+    retry: false,
+    enabled: connected,
+  });
+  const teamOptions = (catalog.data?.teams ?? []).map((t) => ({ value: t.key, label: `${t.key} · ${t.name}` }));
   const toggle = (event: string, on: boolean) =>
     onEvents(LINEAR_EVENTS.map((e) => e.event).filter((e) => (e === event ? on : events.includes(e))));
   return (
@@ -473,16 +483,22 @@ function LinearEventsField({
           Teams{" "}
           <span className="font-normal text-muted">(optional)</span>
         </label>
-        <Input
+        <TagInput
           id={ids.teams}
-          data-testid="routine-teams"
-          value={teams}
-          onChange={(e) => onTeams(e.target.value)}
-          placeholder="ENG, WEB"
-          aria-describedby={`${ids.teams}-hint`}
+          testId="routine-teams"
+          values={teams}
+          onChange={onTeams}
+          clean={cleanTeamKey}
+          validate={checkTeamKey}
+          options={teamOptions}
+          offer
+          noun="team"
+          mono
+          placeholder={teamOptions.length ? "Pick a team or type its key" : "ENG"}
+          describedBy={`${ids.teams}-hint`}
         />
         <p id={`${ids.teams}-hint`} className="text-xs text-muted">
-          Team keys, separated by commas. Leave empty for every team.
+          Team keys. Leave empty for every team.
         </p>
       </div>
       <ChatModeField modes={CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
@@ -555,8 +571,8 @@ function GitHubEventsField({
   onEvents: (events: string[]) => void;
   commands: string[];
   onCommands: (commands: string[]) => void;
-  repos: string;
-  onRepos: (repos: string) => void;
+  repos: string[];
+  onRepos: (repos: string[]) => void;
   chatMode: ChatMode;
   onChatMode: (mode: ChatMode) => void;
 }) {
@@ -701,17 +717,21 @@ function GitHubEventsField({
           Repositories{" "}
           <span className="font-normal text-muted">(optional)</span>
         </label>
-        <Input
+        <TagInput
           id={ids.repos}
-          data-testid="routine-repos"
-          value={repos}
-          onChange={(e) => onRepos(e.target.value)}
-          placeholder="acme/api, acme"
-          aria-describedby={`${ids.repos}-hint`}
+          testId="routine-repos"
+          values={repos}
+          onChange={onRepos}
+          clean={cleanRepo}
+          validate={checkRepoOrOwner}
+          noun="repository"
+          mono
+          placeholder="owner/name"
+          describedBy={`${ids.repos}-hint`}
         />
         <p id={`${ids.repos}-hint`} className="text-xs text-muted">
-          owner/name, or an owner for all of its repositories, separated by commas. Leave empty for every repository
-          the App is installed on.
+          owner/name, or an owner for all of its repositories. Leave empty for every repository the App is installed
+          on.
         </p>
       </div>
       <ChatModeField modes={GITHUB_CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
@@ -808,9 +828,9 @@ export function RoutineDialog({
   // Each source keeps its own events and filter, so switching between them never carries one
   // source's events to the other, and switching back finds what was chosen.
   const [linearEvents, setLinearEvents] = useState<string[]>(initial.trigger === "linear" ? (initial.events ?? []) : []);
-  const [teams, setTeams] = useState(initial.trigger === "linear" ? (initial.teams ?? []).join(", ") : "");
+  const [teams, setTeams] = useState<string[]>(initial.trigger === "linear" ? [...(initial.teams ?? [])] : []);
   const [githubEvents, setGitHubEvents] = useState<string[]>(initial.trigger === "github" ? (initial.events ?? []) : []);
-  const [repos, setRepos] = useState(initial.trigger === "github" ? (initial.teams ?? []).join(", ") : "");
+  const [repos, setRepos] = useState<string[]>(initial.trigger === "github" ? [...(initial.teams ?? [])] : []);
   const events = linear ? linearEvents : github ? githubEvents : [];
   const [chatMode, setChatMode] = useState<ChatMode>(
     initial.trigger === "linear" && initial.chatMode === "subject" ? "subject" : "routine",
@@ -933,7 +953,7 @@ export function RoutineDialog({
           trigger,
           events,
           // teams is the filter of whichever source it is: Linear team keys, or GitHub repositories.
-          teams: linear ? teamKeys(teams) : github ? repoNames(repos) : [],
+          teams: linear ? teams : github ? repos : [],
           // Only a Linear run is about a ticket: the server refuses a ticket's conversation elsewhere.
           chatMode: linear ? chatMode : github ? githubChatMode : "routine",
           timezone: timezone.trim() || "UTC",
