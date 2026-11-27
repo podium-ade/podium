@@ -195,10 +195,13 @@ func CompileBranchPattern(p string) (*regexp.Regexp, error) {
 	}
 	var b strings.Builder
 	b.WriteString("^")
-	for i := 0; i < len(p); i++ {
-		switch c := p[i]; c {
+	// By rune, not by byte: a byte of a multi-byte character quoted on its own is another
+	// character, and feat/café would never match itself.
+	runes := []rune(p)
+	for i := 0; i < len(runes); i++ {
+		switch c := runes[i]; c {
 		case '*':
-			if i+1 < len(p) && p[i+1] == '*' {
+			if i+1 < len(runes) && runes[i+1] == '*' {
 				b.WriteString(".*")
 				i++
 			} else {

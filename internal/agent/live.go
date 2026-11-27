@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -582,11 +583,27 @@ func (l *liveConnections) LinearDataChange(ctx context.Context, d agentlinear.Da
 
 // githubRoutineEvents keeps a GitHub App delivery for the routines that run on it. Like a Linear
 // data change, it is kept only where routines run, which is asked when it arrives.
+//
+// Reviewing a pull request when it opens is a routine's, so a conductor that runs none reviews
+// nothing on its own. A pull request opened or marked ready there says so, every time, rather
+// than being dropped as quietly as any other event no routine runs on.
 func (l *liveConnections) githubRoutineEvents(ctx context.Context, d store.GitHubDelivery) (int, error) {
 	if l.store == nil || !l.routinesRun {
+		if readyForReview(d.Events) {
+			l.logger.WarnContext(ctx, "github: a pull request is ready for review, but this conductor runs no "+
+				"routines (they need the web chat and a host runtime), so nothing reviews it; "+
+				"an @mention or /review on it still does",
+				"repo", d.Repo, "subject", d.SubjectKey, "delivery", d.DeliveryID, "events", d.Events)
+		}
 		return 0, nil
 	}
 	return l.store.StoreGitHubRoutineEvents(ctx, d)
+}
+
+// readyForReview reports whether a delivery's events are a pull request opened or marked ready:
+// what the "Review pull requests" routine runs on.
+func readyForReview(events []string) bool {
+	return slices.Contains(events, "pull_request.opened") || slices.Contains(events, "pull_request.ready_for_review")
 }
 
 // githubRoutinesWant is whether a routine here asks for one of events on repo, before a

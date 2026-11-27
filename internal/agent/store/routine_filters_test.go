@@ -111,6 +111,12 @@ func TestBranchPatterns(t *testing.T) {
 		{"/^release-\\d+$/", "release-42", true},
 		{"/^release-\\d+$/", "release-x", false},
 		{"/hotfix/", "team/hotfix-1", true},
+		// A character of more than one byte is one character, in a name and to ?.
+		{"feat/café", "feat/café", true},
+		{"feat/caf?", "feat/café", true},
+		{"feat/caf?", "feat/cafx", true},
+		{"rel/日本*", "rel/日本-2", true},
+		{"rel/日本*", "rel/日本/2", false},
 	}
 	for _, tc := range cases {
 		re, err := CompileBranchPattern(tc.pattern)

@@ -25,6 +25,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/connections"
 	"github.com/podium-ade/podium/internal/agent/ghreview"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
+	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/agent/webhooks"
 )
 
@@ -449,4 +450,27 @@ func TestARevokedLinearAppIsStartedAgainBySavingIt(t *testing.T) {
 	require.NotSame(t, revokedApp, l.linearApp)
 	assert.False(t, l.linearApp.Revoked())
 	require.Eventually(t, func() bool { return l.webhooks.Holds(addr) }, 5*time.Second, 5*time.Millisecond)
+}
+
+func TestAPullRequestReadyForReviewWhereNoRoutineRunsSaysNothingReviewsIt(t *testing.T) {
+	var logs bytes.Buffer
+	l := newLive(config.Config{})
+	l.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	ctx := context.Background()
+
+	n, err := l.githubRoutineEvents(ctx, store.GitHubDelivery{
+		DeliveryID: "d-1", Repo: "acme/api", Events: []string{"pull_request.opened"}, SubjectKey: "PullRequest:acme/api#7",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, n, "kept for nothing: no routine runs here")
+	assert.Contains(t, logs.String(), "level=WARN")
+	assert.Contains(t, logs.String(), "nothing reviews it")
+	assert.Contains(t, logs.String(), "PullRequest:acme/api#7")
+
+	logs.Reset()
+	_, err = l.githubRoutineEvents(ctx, store.GitHubDelivery{
+		DeliveryID: "d-2", Repo: "acme/api", Events: []string{"workflow_run.failed", "workflow_run.completed"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, logs.String(), "any other event no routine runs on is dropped as before")
 }

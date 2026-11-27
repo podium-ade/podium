@@ -4247,7 +4247,10 @@ fed by the GitHub App's webhook instead of the Linear app's.
   and **Review new pull requests** not turned off) gets it made once, as a system routine, with
   the old Triggers' allowed and ignored people, bots and excluded branches as its conditions. Deleted,
   it is not made again. A push the App makes to a pull request it reviewed is still reviewed again
-  from where the last review stopped, routine or not.
+  from where the last review stopped, routine or not. Routines need the web chat and a host
+  runtime; a conductor without them reviews nothing when a pull request opens, and logs a warning
+  for each one opened or marked ready, naming it, rather than dropping it quietly. An @mention or
+  `/review` on it is still answered.
 - **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
   chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,
   opened on its first run. Changing it affects later runs only, and history records the change.
@@ -4267,7 +4270,10 @@ fed by the GitHub App's webhook instead of the Linear app's.
   `comment_on_pull_request` is for. Events about no pull request — a push to a branch, an issue —
   run in the routine's own chat, opened the first time one does.
 - **Who reads it.** A personal routine's owner is given a viewer's row on each pull request's
-  chat their routine ran in, which also lists it among their chats. A system routine's runs are
+  chat their routine ran in, which also lists it among their chats. The pull request's author,
+  when they are a Podium person (their GitHub account connected, matched by its numeric id), is
+  made an editor of it, whoever owns the routine: it is in their chats, marked "Your pull
+  request", and they can answer the run there. A viewer's row they had is raised. A system routine's runs are
   read by admins and owners: they read, and only read, any pull request's chat a routine has run
   in, without being joined to it. A routine's task in a pull request's chat sends nobody an
   away notice: whoever last wrote there did not ask for it.
