@@ -446,7 +446,7 @@ describe("buildSystemPrompt", () => {
     expect(slack).not.toContain("# This pull request");
   });
 
-  it("tells a task fixing a pull request to answer under each finding, and not the review", () => {
+  it("tells a task fixing a pull request where its answer goes, and leaves the findings to its playbook", () => {
     const base = golden();
     const fix = buildSystemPrompt({
       ...base,
@@ -454,7 +454,9 @@ describe("buildSystemPrompt", () => {
     });
     const flat = fix.replace(/\s+/g, " ");
     expect(flat).toContain("Never open another pull request");
-    expect(fix).toContain("```resolved\ninternal/api/handler.go:42");
+    expect(flat).toContain("Your last message is posted on the pull request as one comment");
+    expect(flat).toContain("Nothing is taken out of your last message");
+    expect(fix).not.toContain("```resolved");
     expect(flat).not.toContain("reviewed again by itself");
     expect(flat).not.toContain(".podium/review.json");
 
@@ -463,7 +465,7 @@ describe("buildSystemPrompt", () => {
       playbook: { ...base.playbook, github: true },
       source: { kind: "github" as const, ref: "acme/api/12/42/issue_comment/7" },
     });
-    expect(review).not.toContain("```resolved");
+    expect(review).not.toContain("Never open another pull request");
     expect(buildSystemPrompt(base)).not.toContain("Never open another pull request");
   });
 

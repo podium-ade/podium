@@ -1,0 +1,27 @@
+# A playbook that fixes what a review found, and answers each finding where it was made, the way
+# Podium once did for it.
+#
+# Podium used to read ```resolved and ```reply fences out of a fix task's final message, post
+# each one in the review thread at that path:line, and resolve the thread for `resolved`. It
+# does none of that now: the final message is one comment on the pull request, and a reply under
+# a finding is the playbook's to post, with the GitHub token its task is given. The prompt beside
+# this file does that step by step, where you can read and change it.
+#
+# Copy this file and ../prompts/fix.md into your profile next to review.yaml, and change `repos`
+# to yours: the first repository must be the review playbook's, so the fix runs in the review's
+# workspace. See ../README.md.
+system_prompt: file:../prompts/fix.md
+
+# Offered on a pull request to a commenter with write access: "@podium fix the review's
+# findings". A playbook with this and no `github: true` is a pull request's fixer.
+github_requires: write
+
+repos:
+  - name: api
+    url: https://github.com/acme/api
+    default_branch: main
+
+# It changes the code, runs the tests and pushes; bash is also how it talks to GitHub.
+allowed_tools: [read, edit, write, bash, grep, glob]
+max_turns: 300
+timeout: 2h

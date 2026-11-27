@@ -2818,14 +2818,18 @@ repos:
 ```
 
 It runs on the pull request's workspace, so it starts where the review left off: the head
-checked out. Its task is told it is on a pull request that
-is not its review: push to the head branch, open no other pull request, comment on nothing
-itself, and answer each finding under that finding. A fenced `resolved` or `reply` block
-naming the finding's `path:line` — the same location the review's own `inline` note named — is
-posted as a reply in that finding's thread, and `resolved` also resolves it (GraphQL
-`resolveReviewThread`). A thread is the App's own inline comment at that path and line, where
-it was made or where that line is now. A block whose thread is not found stays in the answer,
-under its location. The rest of the answer is one comment on the pull request.
+checked out. Its task is told it is on a pull request that is not its review: push to the head
+branch, open no other pull request, and that its last message is posted on the pull request as
+one comment. Nothing is taken out of that message and posted elsewhere.
+
+**Answering the findings is the playbook's.** A reply under a finding, and resolving its thread,
+are posted by the playbook itself with the GitHub token its task is given (`gh api
+repos/{owner}/{repo}/pulls/{number}/comments/{id}/replies`, and GraphQL `resolveReviewThread`),
+when its prompt asks for them. The conductor once read fenced `resolved` and `reply` blocks out
+of a fix task's answer and posted them in the threads they named; it reads no format out of an
+answer now. [`examples/review`](../examples/review) has a fix playbook whose prompt does what
+the conductor did: find the review's findings, fix them, reply under each and resolve the ones
+it fixed, and keep a finding it could not answer in its comment.
 
 Nothing reviews a push by itself. A routine on **Pull request got new commits** does: the App's
 own pushes reach routines, as its CI runs do, so a routine with that event and the App's bot

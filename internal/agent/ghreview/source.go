@@ -523,9 +523,11 @@ func mergeTranscripts(a, b []conductor.BriefEntry) []conductor.BriefEntry {
 // conversation tab, or only the Slack thread when Slack is where the question was. Progress
 // is not posted. Bound Slack threads still hear every answer.
 //
-// Nobody's answer is a review. A playbook that reviews posts its review itself, with the
-// GitHub token its task is given (gh pr review, or the reviews API), and a status comment too
-// if its prompt asks for one: what a review is and how it reads is the playbook's to say.
+// An answer is posted as it was written: nothing in it is read as a format. A playbook that
+// reviews posts its review itself, with the GitHub token its task is given (gh pr review, or
+// the reviews API), and one that fixes what a review found replies under each finding and
+// resolves its thread itself, if its prompt asks it to: what goes on the pull request beyond
+// the answer is the playbook's to say.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	p, err := ParseRef(ref)
 	if err != nil {
@@ -537,20 +539,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound) (string, error) {
 	body := out.Text
 	switch out.Type {
-	case conductor.OutFinal:
-		// Replies to the review's own threads go into those threads. What is left is the
-		// answer, which is posted where the question was asked.
-		if asked(p) == "github" {
-			rest, notes := splitThreadNotes(body)
-			if len(notes) > 0 {
-				body = withThreadNotes(rest, s.replyInThreads(ctx, p, notes))
-				if body == "" {
-					s.postSlack(ctx, p, out)
-					return "", nil
-				}
-			}
-		}
-	case conductor.OutQuestion:
+	case conductor.OutFinal, conductor.OutQuestion:
 	case conductor.OutFailure:
 		// The failure's own words can carry a task id. A pull request is often public, so
 		// it hears that the answer did not come, and the operator has the log.
@@ -586,59 +575,6 @@ func asked(p Parsed) string {
 	default:
 		return "github"
 	}
-}
-
-// replyInThreads posts each note in the thread of the review's inline comment at its
-// path:line, and resolves the thread when the note says so. It returns the notes whose thread
-// it could not find or reply in, for the caller to keep in its answer.
-func (s *Source) replyInThreads(ctx context.Context, p Parsed, notes []threadNote) []threadNote {
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return notes
-	}
-	comments, err := s.client.ListReviewComments(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		s.logger.WarnContext(ctx, "github: reading the review threads failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		return notes
-	}
-	var missed []threadNote
-	for _, n := range notes {
-		root := s.threadAt(comments, n.Path, n.Line)
-		if root == 0 {
-			missed = append(missed, n)
-			continue
-		}
-		if _, err := s.client.CreateReviewReply(ctx, install, p.Owner, p.Repo, p.Number, root, n.Body); err != nil {
-			s.logger.WarnContext(ctx, "github: replying in a review thread failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "comment", root, "error", err)
-			missed = append(missed, n)
-			continue
-		}
-		if !n.Resolve {
-			continue
-		}
-		if err := s.client.ResolveThread(ctx, install, p.Owner, p.Repo, p.Number, root); err != nil {
-			s.logger.WarnContext(ctx, "github: resolving a review thread failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "comment", root, "error", err)
-		}
-	}
-	return missed
-}
-
-// threadAt is the first comment of the latest thread this App started at path:line, where it
-// was made or where that line is now. Zero when there is none.
-func (s *Source) threadAt(comments []Comment, path string, line int) int64 {
-	var root int64
-	for _, c := range comments {
-		if c.InReplyTo != 0 || c.Path != path || !s.isAppUser(c.User.Login, c.User.Type) {
-			continue
-		}
-		if c.Line == line || c.OriginalLine == line {
-			root = c.ID
-		}
-	}
-	return root
 }
 
 func (s *Source) postGitHub(ctx context.Context, p Parsed, body string) (string, error) {

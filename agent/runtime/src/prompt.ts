@@ -606,28 +606,22 @@ ${reviewLine}
 
 /**
  * pullRequestTaskBlock is a task on a pull request that is not its review: fixing what the
- * review found, usually. Its answer is a reply, and it answers each finding in its own thread.
+ * review found, usually. It says where the work is and what of its answer goes where; how to
+ * answer the review's findings, under each one or not at all, is the playbook's to say.
  */
 function pullRequestTaskBlock(): string {
   return `# This pull request
 
 You are working on a GitHub pull request that has a review. The review and its findings are in
 the conversation below, and on the pull request itself (\`gh pr view --comments\`, and the
-review threads through \`gh api\`).
+review threads through \`gh api\`). \`gh\` is signed in with the token this task was given.
 
 - Change the pull request's own head branch: commit there and push it. Never open another pull
-  request, and never comment on GitHub yourself — your last message is posted for you.
-- Answer each finding you dealt with under that finding, with a fenced block naming the path
-  and line the finding named. \`resolved\` replies and resolves the thread; \`reply\` only
-  replies, for a finding you left as it is and why:
-
-\`\`\`resolved
-internal/api/handler.go:42
-Fixed in abc1234: the error is returned instead of dropped.
-\`\`\`
-
-  Everything outside those blocks is posted on the pull request as one comment: say what you
-  pushed, in a sentence or two.`;
+  request.
+- Your last message is posted on the pull request as one comment. Anything else on GitHub — a
+  reply under one of the review's findings, a thread resolved — is yours to post with \`gh\`,
+  when your instructions ask for it. Nothing is taken out of your last message and posted
+  anywhere else.`;
 }
 
 function memoryBlock(): string {

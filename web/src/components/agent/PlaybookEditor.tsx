@@ -1125,7 +1125,7 @@ export function PlaybookEditor({
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
                 At most one playbook may set it. It reviews every repository no playbook names
-                below. Only a review playbook&rsquo;s answer becomes the review, and it is always
+                below. Its prompt posts the review itself, with <code>gh</code>, and it is always
                 offered on the pull requests it reviews.
               </p>
             </div>
