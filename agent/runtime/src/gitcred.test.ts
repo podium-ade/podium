@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AppLoginEnv,
   HelperName,
   MintError,
   Resource,
   expiresInMs,
+  exportAppLogin,
   helperScript,
   installHelper,
   mint,
@@ -73,6 +75,26 @@ describe("mint", () => {
   it("refuses a success that carries no token rather than returning an empty one", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
     await expect(mint("http://conductor:8090", "turn_01.scope.mac", fetchImpl)).rejects.toThrow(MintError);
+  });
+});
+
+describe("exportAppLogin", () => {
+  it("names the App's bot login for what the turn runs, so gh can find the App's own posts", () => {
+    const env: NodeJS.ProcessEnv = {};
+    exportAppLogin(minted, env);
+    expect(env[AppLoginEnv]).toBe("podium-agent[bot]");
+  });
+
+  it("leaves it unset when the conductor named no identity, rather than set to nobody", () => {
+    const env: NodeJS.ProcessEnv = {};
+    exportAppLogin({ ...minted, authorName: "" }, env);
+    expect(env).not.toHaveProperty(AppLoginEnv);
+  });
+
+  it("leaves it unset for a person's token, whose author name is not a login", () => {
+    const env: NodeJS.ProcessEnv = {};
+    exportAppLogin({ ...minted, authorName: "Ada Lovelace", authorEmail: "1+ada@users.noreply.github.com" }, env);
+    expect(env).not.toHaveProperty(AppLoginEnv);
   });
 });
 

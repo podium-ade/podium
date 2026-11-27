@@ -28,7 +28,7 @@ import {
   readInbox,
 } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
-import { installHelper, mint, refreshGhToken } from "./gitcred.js";
+import { installHelper, mint, refreshGhToken, exportAppLogin } from "./gitcred.js";
 import { startHeartbeat } from "./heartbeat.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -208,6 +208,7 @@ async function main(): Promise<number> {
       const capability = process.env[capabilityEnv] ?? "";
       const minted = await mint(url, capability);
       process.env.GH_TOKEN = minted.token;
+      exportAppLogin(minted);
       // The App's own bot account. It is the identity GitHub links a commit to, and it is
       // a fact about the App rather than anything an operator configured, so it wins over
       // a persona the brief carried.

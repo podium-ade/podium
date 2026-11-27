@@ -11,10 +11,13 @@ Post one status comment on the conversation tab and keep its id. A later round e
 comment instead of adding another, so look for yours first: it is the App's comment that
 contains `<!-- podium-review-status -->`.
 
-Your login is the App's bot account, which the clone commits as:
+Your login is the App's bot account, `<app slug>[bot]`, which Podium puts in
+`$PODIUM_GITHUB_APP_LOGIN` whenever the turn's GitHub token is the App's. If it is empty, stop
+and say so in your final message: without it you cannot tell your own comments and reviews from
+anybody else's, and every check below depends on that.
 
 ```sh
-ME=$(git -C /workspace/<repository> config user.name)     # e.g. podium[bot]
+ME=${PODIUM_GITHUB_APP_LOGIN:?}                                # e.g. podium[bot]
 STATUS=$(gh api "repos/$R/issues/$N/comments" --paginate \
   --jq "[.[] | select(.user.login == \"$ME\" and (.body | contains(\"<!-- podium-review-status -->\")))] | last | .id // empty")
 gh pr view $N --repo $R --json title,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,commits,author

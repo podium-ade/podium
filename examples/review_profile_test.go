@@ -39,4 +39,9 @@ func TestReviewSampleLoads(t *testing.T) {
 		"REQUEST_CHANGES", "Review did not finish", "commit_id"} {
 		require.True(t, strings.Contains(review.SystemPrompt, step), "the prompt has lost %q", step)
 	}
+	// Every lookup of its own comments and reviews matches on the App's login. That is the
+	// variable the runtime sets from a minted App token (AppLoginEnv in agent/runtime/src/
+	// gitcred.ts); a clone's user.name is a persona, or podium-agent, and matches nothing.
+	require.Contains(t, review.SystemPrompt, "ME=${PODIUM_GITHUB_APP_LOGIN:?}")
+	require.NotContains(t, review.SystemPrompt, "config user.name")
 }

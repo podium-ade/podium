@@ -350,9 +350,12 @@ SAML is not implemented.
   fences it as data from GitHub exactly as it does Linear's. A "fix failing CI" routine whose fix
   playbook can push is the sharpest case: a contributor's pull request decides what the failing
   test says. Keep such a routine to repositories whose contributors you trust, start it proposing
-  rather than pushing, and let its state cap the attempts. A pull request, review or issue the App
-  made itself never reaches a routine; a workflow run its own push started does, deliberately, and
-  the 60-runs-an-hour pause bounds a fix that keeps failing. By default a run is a turn of the pull
+  rather than pushing, and let its state cap the attempts. A pull request, review, comment or issue
+  the App made itself never reaches a routine. Two things the App did do, deliberately: a workflow
+  run its own push started, and the push itself (**Got new commits**), which is how a review
+  routine looks again at what a fix pushed. So a routine on **Got new commits** whose playbook
+  pushes starts itself again with every push it makes: give that event to a playbook that does
+  not push, as a review does, and the 60-runs-an-hour pause bounds one that loops anyway. By default a run is a turn of the pull
   request's own chat, which holds its reviews and whatever anybody wrote there: that is more of
   the same untrusted text in the run's context, not less. Its owner is given a viewer's row on
   each such chat, and admins read the ones a routine ran in — read access to a conversation about

@@ -73,6 +73,24 @@ export interface Minted {
   authorEmail: string;
 }
 
+/**
+ * AppLoginEnv names the GitHub App's bot login (`<slug>[bot]`) for everything a turn runs, so
+ * a playbook that posts with `gh` can tell the App's own comments and reviews from everybody
+ * else's. It is set only when the token is the App's: a token minted for a person carries
+ * their name as a commit author, which is not a login, so it is left unset then.
+ */
+export const AppLoginEnv = "PODIUM_GITHUB_APP_LOGIN";
+
+/**
+ * exportAppLogin puts the App's login in env when the token is the App's. The conductor names
+ * the App's bot account `<slug>[bot]`, which no person's account can be called.
+ */
+export function exportAppLogin(minted: Minted, env: NodeJS.ProcessEnv = process.env): void {
+  if (minted.authorName.endsWith("[bot]")) {
+    env[AppLoginEnv] = minted.authorName;
+  }
+}
+
 /** MintError is a refusal from the conductor, with the Connect code it came with. */
 export class MintError extends Error {
   readonly code: string;

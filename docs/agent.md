@@ -3061,7 +3061,10 @@ Two things to know before you turn it on:
 - **Commits are authored by the App's bot account** — `<slug>[bot]`, with the address GitHub
   links commits by. That is a change in who your history says wrote the work, and if a deployment
   gate checks the commit author's access to a team (Vercel does), you should confirm it accepts a
-  bot author before relying on it.
+  bot author before relying on it. The turn is told that login in `PODIUM_GITHUB_APP_LOGIN`, so a
+  playbook that posts with `gh` can find its own comments and reviews among everybody else's
+  (`examples/review` does). A clone's `user.name` is not the way to know it: a turn whose token
+  is a person's commits as that person, and the variable is unset then.
 - **All of a playbook's repos must belong to one account.** One installation token covers one
   installation and the container has one credential helper, so a playbook spanning two accounts is
   refused at the start of the turn rather than half-working.
