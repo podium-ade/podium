@@ -203,26 +203,6 @@ func (c *restClient) EditIssueComment(ctx context.Context, installID int64, owne
 		map[string]string{"body": body}, nil)
 }
 
-// CreateReview submits one pull-request review. event is APPROVE or COMMENT.
-// comments are the inline notes on that same review; GitHub requires the head
-// commit when any are set, and rejects the whole review if one line is not in
-// the diff. A body-only review sends no commit id.
-func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, repo string, number int, event, body, commit string, comments []pullComment) (Review, error) {
-	if event == "" {
-		event = eventComment
-	}
-	payload := map[string]any{"body": body, "event": event}
-	if len(comments) > 0 {
-		payload["commit_id"] = commit
-		payload["comments"] = comments
-	}
-	var out Review
-	err := c.do(ctx, installID, http.MethodPost,
-		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number),
-		payload, &out)
-	return out, err
-}
-
 // pullInfo is the pull request as the status comment and the inline notes need it.
 type pullInfo struct {
 	OK        bool

@@ -300,7 +300,7 @@ export const REVIEW_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "even
 } = {
   name: "Review pull requests",
   instruction:
-    "Review this pull request: what it changes, whether it does what it says, and what should be fixed before it merges.",
+    "Review this pull request: what it changes, whether it does what it says, and what should be fixed before it merges. Post the review on the pull request yourself with `gh pr review` (--approve, --request-changes or --comment), and put a finding about one place in the diff on that line (`gh api repos/{owner}/{repo}/pulls/{number}/reviews` with comments). If you were asked to review it before, look only at what changed since your last review.",
   events: ["pull_request.opened", "pull_request.ready_for_review"],
   playbook: REVIEW_PLAYBOOK,
   skipDrafts: true,

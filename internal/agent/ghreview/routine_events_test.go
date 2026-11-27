@@ -167,6 +167,13 @@ func TestTheAppsOwnPullRequestsAndIssuesReachNoRoutineButItsCIDoes(t *testing.T)
 	d, ok := RoutineDelivery("workflow_run", "del-9", ghBody(t, run), appIs("podium"), routineNow)
 	require.True(t, ok, "a fix the App pushed that failed again is what a CI routine needs to see")
 	assert.Equal(t, "workflow_run.failed", d.Events[0])
+
+	push := pullRequest("synchronize", false)
+	push["sender"] = bot
+	d, ok = RoutineDelivery("pull_request", "del-12", ghBody(t, push), appIs("podium"), routineNow)
+	require.True(t, ok, "a fix the App pushed to a pull request is what a routine reviewing it again runs on")
+	assert.Equal(t, []string{"pull_request.synchronize"}, d.Events)
+	assert.True(t, d.Facts.ActorBot, "a routine's Ignore bots still turns it away")
 }
 
 func TestAReviewAndAnIssueAreKept(t *testing.T) {

@@ -2778,20 +2778,27 @@ its work is done and was said. The new task starts once it has gone. The node st
 reports it exited, so the new task restores what the released one left. Until then the new
 delegation is running with no task, and `podium_delegate` returns at once without one. A task
 that never lets go within ten minutes fails the waiting delegation. Read-only tasks hold nothing:
-they start at once beside the writer. A review the conductor starts itself — a pull request
-marked ready, or new commits it pushed — does not get refused: it queues behind the task still
+they start at once beside the writer. A review a routine starts itself — a pull request
+opened, marked ready, or pushed to — does not get refused: it queues behind the task still
 working, for up to four hours, and starts once that task has answered and been released.
 
-After a review exits, the next review is a new task restored from the snapshot, and it submits
-a new review beside the ones already on the pull request. A killed task's files are in that snapshot. The
-restored checkout is kept when it is not on the default branch, so a review that left the
-pull-request head checked out starts there again. A pull request marked ready again reviews only
-the commits and files changed since the last review: the task is told the commit that review was
-submitted against and the head now, and the snapshot keeps `.podium/review.json` with that commit
-and the verdict. When the head has not moved, it is told to repeat the previous verdict and add
-no comments. When that delta fixes the earlier findings and adds nothing that should block a
-merge, the verdict is an approval. A re-review the assistant delegates passes on the same two
-commits.
+After a review exits, the next review is a new task restored from the snapshot. A killed task's
+files are in that snapshot. The restored checkout is kept when it is not on the default branch,
+so a review that left the pull-request head checked out starts there again. A review of a pull
+request the App has reviewed before is told two facts: the commit the App's latest review on
+GitHub covered — whoever posted it as the App — and the head now, or that the head has not
+moved. What to make of them is the playbook's: review only what changed, repeat a verdict,
+approve. A re-review the assistant delegates passes on the same two commits.
+
+**The review is the playbook's.** The conductor posts no review, no status comment and no
+verdict, and reads no format out of a playbook's answer. A review playbook posts its review on
+the pull request itself, with the GitHub token its task is given (`gh pr review`, or `gh api
+repos/{owner}/{repo}/pulls/{number}/reviews` with inline comments), and a progress comment too
+if its prompt asks for one. GitHub refuses an approval from a pull request's own author, so the
+App never approves a pull request it opened. The **Review pull requests** template's
+instruction says how to post; [`examples/review`](../examples/review)
+is a review playbook that posts the way Podium once did on its own: the status comment, the
+verdict, the inline notes and the rounds.
 
 ### Fixing what the review found
 
@@ -2802,9 +2809,9 @@ push to the pull request's branch:
 ```yaml
 # playbooks/fixer.yaml
 system_prompt: |
-  Fix what the review on this pull request found. Read .podium/review.json and the
-  review in the conversation, change the code, run the tests, and push to the pull
-  request's head branch.
+  Fix what the review on this pull request found. Read the review in the
+  conversation and on the pull request, change the code, run the tests, and push to
+  the pull request's head branch.
 allowed_tools: [read, edit, write, bash, grep, glob]
 github_requires: write
 repos:
@@ -2812,7 +2819,7 @@ repos:
 ```
 
 It runs on the pull request's workspace, so it starts where the review left off: the head
-checked out and `.podium/review.json` beside it. Its task is told it is on a pull request that
+checked out. Its task is told it is on a pull request that
 is not its review: push to the head branch, open no other pull request, comment on nothing
 itself, and answer each finding under that finding. A fenced `resolved` or `reply` block
 naming the finding's `path:line` — the same location the review's own `inline` note named — is
@@ -2821,10 +2828,10 @@ posted as a reply in that finding's thread, and `resolved` also resolves it (Gra
 it was made or where that line is now. A block whose thread is not found stays in the answer,
 under its location. The rest of the answer is one comment on the pull request.
 
-A push the App makes to a pull request it has reviewed is reviewed again by itself, from where
-the last review stopped: the `synchronize` delivery is the App's own, so no trigger filter is
-asked. A push by a person is not — that would be a review per commit — and a person asks with a
-mention. A playbook that pushes as the asker's own GitHub account is a person's push.
+Nothing reviews a push by itself. A routine on **Pull request got new commits** does: the App's
+own pushes reach routines, as its CI runs do, so a routine with that event and the App's bot
+login under **Only these people** reviews again what a fix pushed, and leaves people's pushes
+to a mention. A playbook that pushes as the asker's own GitHub account is a person's push.
 
 ### What starts a turn, and what does not
 
@@ -2835,8 +2842,8 @@ mention. A playbook that pushes as the asker's own GitHub account is a person's 
 | `@app` on a PR (conversation comment, review comment, or review body) | an assistant turn |
 | `pull_request` / `opened` | no turn here: kept for the routines on it, the Review pull requests routine among them, under each one's conditions |
 | `pull_request` / `ready_for_review` | the same. This is a draft marked ready |
-| `pull_request` / `synchronize` pushed by this App | the review again, of what changed, delegated directly — when the pull request has a review. This is a playbook's fix landing |
-| `pull_request` / `synchronize` pushed by anybody else, `review_requested`, and other pull request actions | dropped |
+| `pull_request` / `synchronize`, `closed` | no turn here: kept for the routines on it. The App's own push is kept too |
+| `review_requested` and other pull request actions | dropped |
 | `/review` in a top-level comment | a review request, as `@app review` |
 | a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed |
 | a reply in an inline review thread a person started | dropped unless it mentions the App |
@@ -2863,44 +2870,20 @@ Connections had a **Triggers** group for all of this; it was taken out, and its 
 `connection.github.filters`, is read only once, to make that routine.
 
 The log line for a dropped delivery names why: `not mentioned`, `own delivery`. A pull request
-opened or marked ready is logged `a routine's to review`.
+opened, marked ready, pushed to or closed is logged `a routine's to run on`.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.
 
-**The App posts; the playbook token reads.** `podium.agent.github_token` is still how a
-container clones. A playbook must not `gh pr comment`. That would be a second identity on
-the PR.
-
-**Who speaks decides where it goes.** The review playbook's work is the review, below. Anybody
-else — the assistant, the conductor itself — is replying, and the reply goes where the question
-was asked: in the review thread a reply came from, on the conversation tab, or only in Slack when
-Slack is where it was asked. The comment a turn answers gets a 👀 reaction when the turn starts;
+**Where an answer goes.** Everybody — the assistant, any playbook, the review playbook too, the
+conductor itself — is replying, and the reply goes where the question was asked: in the review
+thread a reply came from, on the conversation tab, or only in Slack when Slack is where it was
+asked. A turn nobody on GitHub started — a routine's run, or a message in the pull request's chat
+in Podium — is answered in Podium, and the pull request gets only what a playbook posts there
+itself. The comment a turn answers gets a 👀 reaction when the turn starts;
 a review body has no comment to react on. Nothing else about a reply's progress is posted. A
 reply that fails says `❌ I could not answer that.` and nothing more: the failure text and the
 task id stay in the operator's log.
-
-A review gets two GitHub posts. When the review starts, the App posts one
-conversation comment: a status callout titled **Review in progress**, then the
-pull request title, linked head and base branches, the head commit, and a table
-of files, additions, deletions, and commits. Later progress leaves that comment
-alone. When the answer arrives, the
-same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
-and the summary under it stays. An approval uses the same Note callout. The
-review under the comment is the approval. The answer is one submitted review under that
-comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
-an approval when the first line is `Approve` or `Nits`. Any other verdict is a
-comment review. A pull request this App opened is reviewed but never approved, and never has
-changes requested: its verdict stays in the review's words and the review is a comment, and
-GitHub refuses both from a pull request's own author anyway. A pull request whose author
-cannot be read is treated the same way, so nothing is approved by accident. Every answer submits a review of its own, so each round stays on the
-pull request beside the ones before it. The latest review's id is stored on the
-session, and its commit is where the next round starts. A follow-up that withdraws an
-approval requests changes, because a comment on top of the approval would leave the
-pull request approved and this App cannot dismiss a review. A review asked for from an inline
-thread is still the review, not a reply in that thread. A review that fails
-changes the status comment's title to **Review did not finish** when that comment
-already exists. The failure text and the task id are not written on the pull request.
 
 ---
 
@@ -4246,8 +4229,9 @@ fed by the GitHub App's webhook instead of the Linear app's.
   right away. A deployment that was reviewing pull requests when they opened (the App's webhook set up,
   and **Review new pull requests** not turned off) gets it made once, as a system routine, with
   the old Triggers' allowed and ignored people, bots and excluded branches as its conditions. Deleted,
-  it is not made again. A push the App makes to a pull request it reviewed is still reviewed again
-  from where the last review stopped, routine or not. Routines need the web chat and a host
+  it is not made again. Its instruction tells the playbook to post the review itself with `gh`:
+  nothing else posts one. Reviewing again what the App pushed is a second routine's, on **Got
+  new commits** with the App's bot login under **Only these people**. Routines need the web chat and a host
   runtime; a conductor without them reviews nothing when a pull request opens, and logs a warning
   for each one opened or marked ready, naming it, rather than dropping it quietly. An @mention or
   `/review` on it is still answered.
@@ -4266,8 +4250,9 @@ fed by the GitHub App's webhook instead of the Linear app's.
   routine's and runs as its owner or as nobody, briefed with its routine and events and offered
   `routine_finish`, preceded by a line saying it is a turn of the pull request's conversation and
   not to redo work done there or start work already running; one turn at a time per pull request
-  and one run of the routine at a time; its answer stays in Podium, and posting on GitHub is what
-  `comment_on_pull_request` is for. Events about no pull request — a push to a branch, an issue —
+  and one run of the routine at a time; its answer stays in Podium, a playbook's started right
+  away included, and posting on GitHub is what `comment_on_pull_request` and a playbook's own
+  `gh` are for. Events about no pull request — a push to a branch, an issue —
   run in the routine's own chat, opened the first time one does.
 - **Who reads it.** A personal routine's owner is given a viewer's row on each pull request's
   chat their routine ran in, which also lists it among their chats. The pull request's author,

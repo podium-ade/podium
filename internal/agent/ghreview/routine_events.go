@@ -58,8 +58,10 @@ func (s *Source) keepForRoutines(ctx context.Context, event, delivery string, bo
 // store.RoutineGitHubEvents it answers to, most specific first, and the part of it a run is
 // briefed with. ok is false for a delivery no routine can run on — another event or action,
 // or a change the App made itself to a pull request or an issue, which would otherwise let a
-// routine that acts on pull requests start itself again. A workflow run or check suite the
-// App's own push set off is kept: a fix that failed again is what a CI routine needs to see.
+// routine that acts on pull requests start itself again. A push the App made to a pull request,
+// and a workflow run or check suite it set off, are kept: a fix landing, or failing again, is
+// what a routine that reviews or repairs it needs to see. The runs-an-hour guard bounds a
+// routine that pushes on its own pushes.
 func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ string) bool, now time.Time) (store.GitHubDelivery, bool) {
 	if strings.TrimSpace(delivery) == "" {
 		return store.GitHubDelivery{}, false
@@ -87,7 +89,11 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 	case "check_suite":
 		names, err = ev.checkSuite(repo, body)
 	case "pull_request", "pull_request_review", "issues":
-		if isApp != nil && isApp(head.Sender.Login, head.Sender.Type) {
+		// New commits the App pushed are kept, as its CI is: a playbook's fix landing on a pull
+		// request is what a routine that reviews it again runs on. Anything else the App did to
+		// a pull request or an issue is not, so a routine acting on them cannot start itself.
+		pushed := event == "pull_request" && head.Action == "synchronize"
+		if !pushed && isApp != nil && isApp(head.Sender.Login, head.Sender.Type) {
 			return store.GitHubDelivery{}, false
 		}
 		switch event {

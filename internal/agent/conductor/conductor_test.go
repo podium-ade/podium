@@ -131,11 +131,6 @@ func TestAPullRequestOffersPlaybooksByTheSpeakersRole(t *testing.T) {
 
 	assert.Len(t, c.menuFor(kindSource{SourceSlack}, "", ""), 3)
 
-	assert.Equal(t, Speaker{Playbook: "coder", SourcePlaybook: true}, c.speakerFor(kindSource{SourceGitHub}, "coder"))
-	assert.Equal(t, Speaker{Playbook: "deploy"}, c.speakerFor(kindSource{SourceGitHub}, "deploy"))
-	assert.Equal(t, Speaker{Playbook: "coder"}, c.speakerFor(kindSource{SourceSlack}, "coder"),
-		"only a pull request has a playbook of its own")
-	assert.Equal(t, Speaker{}, c.speakerFor(kindSource{SourceGitHub}, ""), "the assistant runs no playbook")
 }
 
 // A playbook naming a repository in github_repos reviews that repository's pull requests in
@@ -161,7 +156,4 @@ func TestAPullRequestIsReviewedByItsRepositorysPlaybook(t *testing.T) {
 	assert.Equal(t, []string{"general"},
 		playbookNames(c.menuFor(kindSource{SourceGitHub}, "github:other/thing#1", "read")))
 
-	assert.Equal(t, Speaker{Playbook: "api-review", SourcePlaybook: true},
-		c.speakerFor(kindSource{SourceGitHub}, "api-review"))
-	assert.Equal(t, Speaker{Playbook: "api-fixer"}, c.speakerFor(kindSource{SourceGitHub}, "api-fixer"))
 }

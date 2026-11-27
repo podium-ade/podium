@@ -455,7 +455,8 @@ describe("buildSystemPrompt", () => {
     const flat = fix.replace(/\s+/g, " ");
     expect(flat).toContain("Never open another pull request");
     expect(fix).toContain("```resolved\ninternal/api/handler.go:42");
-    expect(flat).toContain("A push of yours is reviewed again by itself");
+    expect(flat).not.toContain("reviewed again by itself");
+    expect(flat).not.toContain(".podium/review.json");
 
     const review = buildSystemPrompt({
       ...base,

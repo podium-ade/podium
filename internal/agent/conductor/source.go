@@ -94,10 +94,6 @@ type Outbound struct {
 type Speaker struct {
 	// Playbook is the playbook whose task said this.
 	Playbook string
-	// SourcePlaybook is true when Playbook is the one this source runs on its own: the
-	// github: true playbook on a pull request. A source posts that playbook's answer as the
-	// work it exists for — a review — and anybody else's as a reply.
-	SourcePlaybook bool
 }
 
 // InboundEvent is one thing a human said, normalised. A source produces these and nothing

@@ -937,7 +937,7 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	}
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: ev.Playbook},
 			Text: "Something went wrong on my side before I could start. Nothing ran."})
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
@@ -961,7 +961,7 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		status = store.TurnFailed
 		c.logger.WarnContext(ctx, "starting the source's own playbook failed",
 			"session_id", sess.ID, "playbook", ev.Playbook, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: ev.Playbook},
 			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)})
 	}
 	none, free := 0, 0.0
@@ -1024,7 +1024,7 @@ func (c *Conductor) runDirect(ctx context.Context, src Source, sess store.Sessio
 			text = fmt.Sprintf("A `%s` task is still working on this. Wait for its answer, "+
 				"or ask without /%s and I will pass it on.", name, name)
 		}
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, name), Text: text})
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: name}, Text: text})
 	}
 	none, free := 0, 0.0
 	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
@@ -1245,7 +1245,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// acknowledgement a human is actually waiting for and a source's write path is rate
 	// limited: every call ahead of it is a second of silence after somebody spoke.
 	placeholder := c.post(ctx, src, ev.Ref, Outbound{
-		Type: OutProgress, Text: Placeholder, Speaker: c.speakerFor(src, j.playbook.Name),
+		Type: OutProgress, Text: Placeholder, Speaker: Speaker{Playbook: j.playbook.Name},
 	})
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
 		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
@@ -1399,7 +1399,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	run := &turnRun{
-		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder, speaker: c.speakerFor(src, j.playbook.Name)},
+		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder, speaker: Speaker{Playbook: j.playbook.Name}},
 		sess:        sess,
 		job:         j,
 		turn:        turn,
@@ -1547,22 +1547,6 @@ func playbookNames(menu []DelegablePlaybook) []string {
 // a conversation, a delegated issue is a piece of work. conversational decides it per event.
 func aConversation(kind string) bool {
 	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
-}
-
-// speakerFor is who a run's output is from: the playbook, and whether it is the one src
-// runs on its own. The assistant passes "" and is the zero Speaker.
-func (c *Conductor) speakerFor(src Source, playbook string) Speaker {
-	if playbook == "" {
-		return Speaker{}
-	}
-	// A pull request's menu offers only the review playbook for its own repository, so any
-	// review playbook speaking on one is that one.
-	own := false
-	if src != nil && src.Kind() == SourceGitHub {
-		p, ok := c.profiles.Current().Playbooks[playbook]
-		own = ok && p.Reviews()
-	}
-	return Speaker{Playbook: playbook, SourcePlaybook: own}
 }
 
 // rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
@@ -2715,7 +2699,7 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 		j := playbookJob(c.profiles.Current().Playbooks[sess.Playbook])
 		run := &turnRun{
 			sink: &sink{
-				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook),
+				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: Speaker{Playbook: sess.Playbook},
 				// The row records the model and not whose credential the turn started on.
 				byline: bylineOfBackend(turn.Backend),
 			},

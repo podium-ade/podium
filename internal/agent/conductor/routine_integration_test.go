@@ -682,7 +682,7 @@ func TestARoutineStartsTheRepositorysReviewerOnThePullRequest(t *testing.T) {
 	assert.Contains(t, brief.Instruction, "Review this pull request.")
 	assert.Contains(t, brief.Instruction, `"event": "pull_request.opened"`)
 	final := posts(src.Records(), conductor.OutFinal)[0]
-	assert.True(t, final.SourcePlaybook, "posted as the review, on the pull request")
+	assert.Equal(t, "coder", final.Playbook, "its answer is the playbook's, on the pull request")
 	assert.Equal(t, "acme/repo/12/0/pull_request/0", final.Ref)
 
 	turn, err := st.TurnForRoutineRun(ctx, run.ID)

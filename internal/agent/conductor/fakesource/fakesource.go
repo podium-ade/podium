@@ -30,9 +30,8 @@ type Record struct {
 	ContentType string `json:"content_type,omitempty"`
 	Size        int64  `json:"size,omitempty"`
 	Reaction    string `json:"reaction,omitempty"`
-	// Playbook and SourcePlaybook are the Outbound's speaker.
-	Playbook       string `json:"playbook,omitempty"`
-	SourcePlaybook bool   `json:"source_playbook,omitempty"`
+	// Playbook is the Outbound's speaker.
+	Playbook string `json:"playbook,omitempty"`
 	// CancelReason is the Outbound's: why the control plane says a cancelled task was.
 	CancelReason string `json:"cancel_reason,omitempty"`
 }
@@ -202,7 +201,7 @@ func (s *Source) Post(_ context.Context, ref string, out conductor.Outbound) (st
 	id := "msg-" + strconv.FormatInt(s.nextMsg, 10)
 	s.record(Record{
 		Action: ActionPost, Ref: ref, Type: out.Type, Text: out.Text, MessageID: id,
-		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook, CancelReason: out.CancelReason,
+		Playbook: out.Playbook, CancelReason: out.CancelReason,
 	})
 	if out.Type == conductor.OutFinal {
 		s.transcript[ref] = append(s.transcript[ref], conductor.BriefEntry{

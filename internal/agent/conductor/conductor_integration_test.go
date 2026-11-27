@@ -1015,7 +1015,6 @@ func TestWithNoHostRuntimeAPullRequestRunsItsReviewPlaybook(t *testing.T) {
 	require.Len(t, fake.Specs(), 1)
 	final := posts(src.Records(), conductor.OutFinal)[0]
 	assert.Equal(t, "coder", final.Playbook)
-	assert.True(t, final.SourcePlaybook, "the review playbook's answer is the review")
 	sess, err := st.GetSessionByKey(ctx, "github:acme/repo#12")
 	require.NoError(t, err)
 	assert.Equal(t, "coder", sess.Playbook)
@@ -1070,10 +1069,7 @@ func TestAnOpenedPullRequestIsReviewedWithNoAssistantTurn(t *testing.T) {
 	assert.Equal(t, ev.Text, brief.Instruction)
 
 	final := posts(src.Records(), conductor.OutFinal)[0]
-	assert.True(t, final.SourcePlaybook)
-	progress := posts(src.Records(), conductor.OutProgress)
-	require.NotEmpty(t, progress, "the review is announced, which is what opens the status comment")
-	assert.True(t, progress[0].SourcePlaybook)
+	assert.Equal(t, "coder", final.Playbook, "the review playbook's answer is handed to the source as its words")
 
 	waitFor(t, 30*time.Second, "the delegation to finish", func() bool {
 		dlgs := delegationsOf(t, st, ev.SourceKey)
@@ -1960,9 +1956,8 @@ func TestAReviewIsFixedAndReviewedAgainOnOneWorkspace(t *testing.T) {
 	waitFor(t, 30*time.Second, "the review of the fix to start", func() bool { return len(fake.Specs()) == 3 })
 
 	finals := posts(src.Records(), conductor.OutFinal)
-	assert.True(t, finals[0].SourcePlaybook, "the review is the review")
+	assert.Equal(t, "coder", finals[0].Playbook)
 	assert.Equal(t, "fixer", finals[1].Playbook)
-	assert.False(t, finals[1].SourcePlaybook, "the fix is a reply")
 	assert.Len(t, endWaits(fake.Injects()), 2, "each task was released once the next needed the workspace")
 	assert.Empty(t, fake.Cancels(), "and none was cancelled")
 	for _, spec := range fake.Specs() {

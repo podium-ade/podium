@@ -105,10 +105,6 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", reason)
 		return
 	}
-	if c.pushed {
-		s.handlePush(ctx, event, delivery, c)
-		return
-	}
 	if s.isAppUser(c.senderLogin, c.senderType) {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
@@ -254,8 +250,6 @@ type classified struct {
 	base string
 	// title is the pull request's own title, as the payload carried it. It names the chat.
 	title string
-	// pushed is new commits on the pull request's head branch (synchronize).
-	pushed bool
 	// reason is why classify rejected the delivery. Empty when it accepted it.
 	reason string
 	// role is the author's role on the repository, which decides the playbooks the turn is
@@ -514,42 +508,16 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return base, true
 
 	case "pull_request":
-		// A pull request opened, or marked ready, starts nothing here: the review it once
-		// started is a routine's ("Review pull requests"), kept for it by keepForRoutines with
-		// the routine's own conditions. New commits the App pushed are handlePush's: a review
-		// already on the pull request goes on from where it stopped.
-		if env.Action == "ready_for_review" || env.Action == "opened" {
-			base.reason = "a routine's to review"
-			return base, false
-		}
-		if env.Action != "synchronize" {
+		// A pull request opened, marked ready or pushed to starts nothing here. Reviewing it is
+		// a routine's ("Review pull requests"), kept for it by keepForRoutines with the
+		// routine's own conditions, and so is reviewing again what was pushed.
+		switch env.Action {
+		case "opened", "ready_for_review", "synchronize", "closed":
+			base.reason = "a routine's to run on"
+		default:
 			base.reason = "unsupported action"
-			return base, false
 		}
-		var p struct {
-			PullRequest struct {
-				Number    int        `json:"number"`
-				Title     string     `json:"title"`
-				Draft     bool       `json:"draft"`
-				UpdatedAt time.Time  `json:"updated_at"`
-				Base      branchJSON `json:"base"`
-			} `json:"pull_request"`
-		}
-		if err := json.Unmarshal(body, &p); err != nil {
-			return base, false
-		}
-		base.number = p.PullRequest.Number
-		base.title = p.PullRequest.Title
-		base.base = p.PullRequest.Base.Ref
-		base.kind = KindPullRequest
-		base.author = env.Sender.Login
-		base.ts = p.PullRequest.UpdatedAt
-		base.pushed = true
-		if base.number == 0 {
-			base.reason = "unhandled"
-			return base, false
-		}
-		return base, true
+		return base, false
 	default:
 		base.reason = "unsupported event"
 		return base, false
@@ -704,83 +672,40 @@ func compileMention(slug string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(slug) + `(?:\[bot\])?([^A-Za-z0-9_-]|$)`)
 }
 
-// handlePush reviews again what this App pushed to a pull request it has already reviewed:
-// the commits a playbook made to fix the review. Anybody else's push is left alone, as it
-// always was — reviewing every push would be a review per commit. The trigger filters are not
-// asked: the push is this App's own, made for a request they already let through.
-func (s *Source) handlePush(ctx context.Context, event, delivery string, c classified) {
-	if !s.isAppUser(c.senderLogin, c.senderType) {
-		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "unsupported action")
-		return
-	}
-	key := SourceKey(c.owner, c.repo, c.number)
-	if _, known := s.session(ctx, key); !known {
-		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
-		return
-	}
-	commit, head := s.reviewBaseline(ctx, c)
-	if commit == "" {
-		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not reviewed")
-		return
-	}
-	prURL := PRURL(c.owner, c.repo, c.number)
-	s.emit(ctx, conductor.InboundEvent{
-		SourceKind: Kind,
-		SourceKey:  key,
-		Ref: Ref(Parsed{
-			Owner: c.owner, Repo: c.repo, Number: c.number, InstallID: c.installID, Kind: KindPullRequest,
-		}),
-		Author:    c.author,
-		AuthorBot: c.authorBot,
-		Text:      followUpInstruction("Podium pushed new commits to "+prURL+" to address the review.", commit, head),
-		TS:        c.ts,
-		URL:       prURL,
-		Title:     ChatTitle(c.number, c.title),
-		BriefKind: conductor.SourceGitHub,
-		Automatic: true,
-	})
-	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
-}
-
-// followUpInstruction tells a later turn to review the delta since the last
-// review. commit is the head that review was submitted against. head is the
-// pull request head now. The workspace snapshot is already restored by the
-// time the turn starts.
+// followUpInstruction is what a later turn is told about the pull request's last review: the
+// commit it covered and the head now, as facts. What to do with them — review only what
+// changed, repeat a verdict, approve — is the playbook's to decide, in its own prompt.
 func followUpInstruction(note, commit, head string) string {
 	var b strings.Builder
-	unchanged := commit != "" && commit == head
-	if unchanged {
-		b.WriteString("This pull request was already reviewed, and its head is still ")
+	if commit != "" {
+		b.WriteString("This pull request was reviewed before, on commit ")
 		b.WriteString(commit)
-		b.WriteString(". There is no new diff. Repeat the previous verdict in one line and stop. Do not add inline comments.")
-	} else {
-		b.WriteString("This pull request was already reviewed. Review only the commits and files changed since that review. Do not review the rest of the pull request again. If that delta fixes the earlier findings and adds nothing that should block a merge, the verdict is **Approve**.")
-		if commit != "" {
-			b.WriteString("\nThe last review was on commit ")
-			b.WriteString(commit)
+		b.WriteString(".")
+		switch {
+		case head == commit:
+			b.WriteString(" The head has not moved since.")
+		case head != "":
+			b.WriteString(" The head is now ")
+			b.WriteString(head)
 			b.WriteString(".")
-			if head != "" {
-				b.WriteString(" The head is now ")
-				b.WriteString(head)
-				b.WriteString(".")
-			}
 		}
 	}
-	b.WriteString("\nThe workspace snapshot from the last turn is restored. Use it, including .podium/review.json when it is there.")
 	note = strings.TrimSpace(note)
 	if note != "" {
-		b.WriteString("\n\n")
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
 		b.WriteString(note)
 	}
 	return b.String()
 }
 
-// reviewBaseline is the commit the stored review covered and the pull request
-// head now. Either is empty when GitHub did not return it. Both empty means
-// this session has no review yet.
+// reviewBaseline is the commit this App's latest review of the pull request covered, read
+// from GitHub, and the pull request's head now. Whoever posted that review — a playbook with
+// gh, or anything else acting as the App — it is the one the next round starts from. Either is
+// empty when GitHub did not return it; both empty means the App has not reviewed it.
 func (s *Source) reviewBaseline(ctx context.Context, c classified) (commit, head string) {
-	id, err := s.reviewID(ctx, SourceKey(c.owner, c.repo, c.number))
-	if err != nil || id == 0 || c.installID == 0 {
+	if c.installID == 0 {
 		return "", ""
 	}
 	reviews, err := s.client.ListReviews(ctx, c.installID, c.owner, c.repo, c.number)
@@ -790,9 +715,8 @@ func (s *Source) reviewBaseline(ctx context.Context, c classified) (commit, head
 		return "", ""
 	}
 	for _, rev := range reviews {
-		if rev.ID == id {
-			commit = rev.CommitID
-			break
+		if rev.CommitID != "" && s.isAppUser(rev.User.Login, rev.User.Type) {
+			commit = rev.CommitID // GitHub lists them oldest first: the last one wins
 		}
 	}
 	if commit == "" {

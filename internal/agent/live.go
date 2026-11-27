@@ -685,21 +685,6 @@ func newGitHubSource(
 			}
 			return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
 		},
-		Reviews: ghreview.ReviewMemory{
-			Get: func(ctx context.Context, sourceKey string) (int64, error) {
-				sess, err := st.GetSessionByKey(ctx, sourceKey)
-				if errors.Is(err, store.ErrNotFound) {
-					return 0, nil
-				}
-				if err != nil {
-					return 0, err
-				}
-				return sess.GitHubReviewID, nil
-			},
-			Set: func(ctx context.Context, sourceKey string, reviewID int64) error {
-				return st.SetGitHubReviewID(ctx, sourceKey, reviewID)
-			},
-		},
 		Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
 			sess, err := st.GetSessionByKey(ctx, sourceKey)
 			if err != nil {

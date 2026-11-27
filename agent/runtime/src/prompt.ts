@@ -612,11 +612,11 @@ function pullRequestTaskBlock(): string {
   return `# This pull request
 
 You are working on a GitHub pull request that has a review. The review and its findings are in
-the conversation below, and \`.podium/review.json\` in the workspace has the commit it covered.
+the conversation below, and on the pull request itself (\`gh pr view --comments\`, and the
+review threads through \`gh api\`).
 
 - Change the pull request's own head branch: commit there and push it. Never open another pull
   request, and never comment on GitHub yourself — your last message is posted for you.
-- A push of yours is reviewed again by itself. Do not ask for a review.
 - Answer each finding you dealt with under that finding, with a fenced block naming the path
   and line the finding named. \`resolved\` replies and resolves the thread; \`reply\` only
   replies, for a finding you left as it is and why:

@@ -8,9 +8,10 @@ package conductor
 // scheduler settles it, and its spend is counted, as any run's.
 //
 // A run in a pull request's conversation is that conversation's GitHub turn, not the web
-// chat's: what its task answers is posted on the pull request the way a delegation there is.
-// A review playbook submits its review, under its status comment; any other answers in one
-// comment. That is what lets the review on a pull request being opened be a routine.
+// chat's, so its task works on the pull request's workspace and is briefed as one on a pull
+// request. Nobody on GitHub asked for it, so its answer stays in Podium: a review playbook
+// posts its review on the pull request itself. That is what lets the review on a pull request
+// being opened be a routine.
 
 import (
 	"context"

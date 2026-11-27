@@ -37,9 +37,14 @@ func ReviewRoutineDraft(filters store.RoutineGitHubFilters) store.RoutineDraft {
 	}
 }
 
-// ReviewRoutineInstruction is what the review routine asks its reviewer.
+// ReviewRoutineInstruction is what the review routine asks its reviewer. Posting the review is
+// in it because nothing else posts one: the playbook does, with the GitHub token its task has,
+// and the instruction is where anybody reads and changes how.
 const ReviewRoutineInstruction = "Review this pull request: what it changes, whether it does what it says, " +
-	"and what should be fixed before it merges."
+	"and what should be fixed before it merges. Post the review on the pull request yourself with `gh pr review` " +
+	"(--approve, --request-changes or --comment), and put a finding about one place in the diff on that line " +
+	"(`gh api repos/{owner}/{repo}/pulls/{number}/reviews` with comments). If you were asked to review it before, " +
+	"look only at what changed since your last review."
 
 // EnsureReviewRoutine makes the review routine for a deployment that reviewed pull requests
 // when they were opened before that was a routine: one with the GitHub App's webhook set up and
