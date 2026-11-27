@@ -9,7 +9,7 @@ import (
 )
 
 // A reply in an inline review thread needs no mention in a thread the App started or has
-// replied in, and does in any other. A top-level comment always needs the mention or /review.
+// replied in, and does in any other. A top-level comment always needs the mention.
 
 func TestAReplyInAPersonsThreadNeedsTheTrigger(t *testing.T) {
 	h := newHarness(t)

@@ -730,6 +730,7 @@ func filtersFromProto(in *agentv1.RoutineGitHubFilters) store.RoutineGitHubFilte
 	return store.RoutineGitHubFilters{
 		AllowedPeople: in.GetAllowedPeople(), IgnoredPeople: in.GetIgnoredPeople(), IgnoreBots: in.GetIgnoreBots(),
 		ExcludedBranches: in.GetExcludedBranches(), SkipDrafts: in.GetSkipDrafts(),
+		Commands: in.GetCommands(), PodiumPeopleOnly: in.GetPodiumPeopleOnly(),
 	}
 }
 
@@ -737,6 +738,7 @@ func filtersToProto(f store.RoutineGitHubFilters) *agentv1.RoutineGitHubFilters 
 	return &agentv1.RoutineGitHubFilters{
 		AllowedPeople: f.AllowedPeople, IgnoredPeople: f.IgnoredPeople, IgnoreBots: f.IgnoreBots,
 		ExcludedBranches: f.ExcludedBranches, SkipDrafts: f.SkipDrafts,
+		Commands: f.Commands, PodiumPeopleOnly: f.PodiumPeopleOnly,
 	}
 }
 

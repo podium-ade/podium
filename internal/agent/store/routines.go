@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -254,6 +255,9 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	}
 	if out.GitHubFilters, err = NormalizeGitHubFilters(in.GitHubFilters); err != nil {
 		return RoutineDraft{}, err
+	}
+	if slices.Contains(out.Events, GitHubCommandEvent) && len(out.GitHubFilters.Commands) == 0 {
+		return RoutineDraft{}, fmt.Errorf("%w: a routine on a command names the command it answers to, such as /review", ErrInvalidRoutine)
 	}
 	if utf8.RuneCountInString(out.Playbook) > MaxRoutinePlaybookRunes {
 		return RoutineDraft{}, fmt.Errorf("%w: the playbook name is longer than %d characters", ErrInvalidRoutine, MaxRoutinePlaybookRunes)

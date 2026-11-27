@@ -20,8 +20,7 @@ func TestAnIdentityPolicyOffersEachCapabilityOnlyItsChoices(t *testing.T) {
 		"model key person":  {ModelKey: IdentityPersonOnly},
 		"shared key theirs": {SharedModelKey: IdentityPersonThenApp},
 		"slack fixed":       {SlackOutsiders: OutsidersFixed},
-		"linear review":     {LinearOutsiders: OutsidersReview},
-		"github answer":     {GitHubOutsiders: OutsidersAnswer},
+		"linear review":     {LinearOutsiders: "review"},
 	} {
 		err := p.Validate()
 		require.ErrorIs(t, err, ErrInvalidIdentityPolicy, name)
@@ -29,6 +28,5 @@ func TestAnIdentityPolicyOffersEachCapabilityOnlyItsChoices(t *testing.T) {
 	require.NoError(t, IdentityPolicy{
 		Linear: IdentityApp, GitHubWrite: IdentityPersonOnly, GitHubRead: IdentityPersonThenApp,
 		ModelKey: IdentityApp, SharedModelKey: IdentityPlanThenApp, SlackOutsiders: OutsidersAnswer, LinearOutsiders: OutsidersFixed,
-		GitHubOutsiders: OutsidersRefuse,
 	}.Validate())
 }

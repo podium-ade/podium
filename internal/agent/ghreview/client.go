@@ -221,6 +221,8 @@ type pullInfo struct {
 	// Author is who opened the pull request: its login and account type ("User", "Bot").
 	Author     string
 	AuthorType string
+	// Draft is a pull request not yet marked ready for review.
+	Draft bool
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
@@ -233,6 +235,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Deletions           int    `json:"deletions"`
 		ChangedFiles        int    `json:"changed_files"`
 		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		Draft               bool   `json:"draft"`
 		User                User   `json:"user"`
 		Head                struct {
 			Ref  string `json:"ref"`
@@ -269,6 +272,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Locked:     fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
 		Author:     out.User.Login,
 		AuthorType: out.User.Type,
+		Draft:      out.Draft,
 	}, nil
 }
 

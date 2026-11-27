@@ -74,9 +74,9 @@ func (s *Source) serveWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// Routines on GitHub events are offered every delivery, whatever the review source makes
 	// of it: a failed workflow run is nothing to review and all a CI routine needs.
-	s.keepForRoutines(r.Context(), event, delivery, body)
+	routed := s.keepForRoutines(r.Context(), event, delivery, body) > 0
 	s.watchCommitChecks(r.Context(), event, body)
-	s.handleDelivery(r.Context(), event, delivery, body)
+	s.handleDelivery(r.Context(), event, delivery, body, routed)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -94,7 +94,10 @@ func validSignature(secret string, body []byte, header string) bool {
 	return hmac.Equal(mac.Sum(nil), want)
 }
 
-func (s *Source) handleDelivery(ctx context.Context, event, delivery string, body []byte) {
+// handleDelivery is what the pull request's conversation makes of a delivery. routed is a
+// comment a routine was given as a command: the routine answers it, so it is recorded and
+// starts nothing here, even when it mentions the App.
+func (s *Source) handleDelivery(ctx context.Context, event, delivery string, body []byte, routed bool) {
 	c, ok := s.classify(event, body)
 	c.delivery = delivery
 	if !ok {
@@ -117,13 +120,16 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		return
 	}
 
+	if routed {
+		s.recordOnly(ctx, c)
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "a routine's command")
+		return
+	}
+
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	// A review command is its own trigger: `/review` names no mention, and it is the one
-	// request somebody outside Podium may make, so it must reach the conductor's gate.
-	isCommand := IsReviewCommand(c.body, s.mentionRE)
 	// A reply in an inline review thread the App started, or has replied in, is said to it.
-	triggered := c.mentioned || isCommand || (c.inReply && s.botThread(ctx, c))
+	triggered := c.mentioned || (c.inReply && s.botThread(ctx, c))
 	if !triggered {
 		s.recordOnly(ctx, c)
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
@@ -139,13 +145,8 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	}
 	c.role, c.locked = s.speakerRole(ctx, c)
 	text = commentInstruction(c, text, commit, head)
-	request := ""
-	if isCommand {
-		request = reviewRequestInstruction(c.author, PRURL(c.owner, c.repo, c.number), commit, head)
-	}
 	ev := s.inbound(c, text)
-	ev.Mentioned = c.mentioned || isCommand
-	ev.ReviewRequest = request
+	ev.Mentioned = c.mentioned
 	ev.Role = c.role
 	s.emit(ctx, ev)
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")

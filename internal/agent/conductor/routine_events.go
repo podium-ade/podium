@@ -227,18 +227,21 @@ func isGitHubEvent(e store.RoutineEvent) bool {
 }
 
 // githubEventSubject names a GitHub event for the run's divider: "workflow “CI” failed on
-// acme/api#42", "all checks finished, 2 of 5 failed on acme/api#42", "acme/api#42 opened", "issue acme/api#7 opened". It falls back to the event in
+// acme/api#42", "all checks finished, 2 of 5 failed on acme/api#42", "acme/api#42 opened",
+// "/review on acme/api#42 by mona", "issue acme/api#7 opened". It falls back to the event in
 // words, on the repository when it is known.
 func githubEventSubject(e store.RoutineEvent) string {
 	var p struct {
 		Data struct {
-			Repo         string `json:"repo"`
-			Number       int    `json:"number"`
-			Workflow     string `json:"workflow"`
-			App          string `json:"app"`
-			HeadBranch   string `json:"head_branch"`
-			ChecksFailed int    `json:"checks_failed"`
-			Checks       int    `json:"checks"`
+			Repo         string   `json:"repo"`
+			Number       int      `json:"number"`
+			Commands     []string `json:"commands"`
+			AskedBy      string   `json:"asked_by"`
+			Workflow     string   `json:"workflow"`
+			App          string   `json:"app"`
+			HeadBranch   string   `json:"head_branch"`
+			ChecksFailed int      `json:"checks_failed"`
+			Checks       int      `json:"checks"`
 			PullRequests []struct {
 				Number int `json:"number"`
 			} `json:"pull_requests"`
@@ -281,6 +284,13 @@ func githubEventSubject(e store.RoutineEvent) string {
 		return what + " " + verb
 	case "pull_request", "pull_request_review":
 		if d.Repo != "" && d.Number > 0 {
+			if e.Event == store.GitHubCommandEvent && len(d.Commands) > 0 {
+				out := "/" + d.Commands[0] + " on " + ref(d.Number)
+				if d.AskedBy != "" {
+					out += " by " + d.AskedBy
+				}
+				return out
+			}
 			if typ == "pull_request_review" {
 				return "review submitted on " + ref(d.Number)
 			}

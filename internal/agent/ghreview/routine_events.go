@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -31,26 +32,70 @@ type RoutineSink func(ctx context.Context, d store.GitHubDelivery) (int, error)
 // brief trims an event to a few kilobytes anyway, and the run can read the rest from GitHub.
 const maxRoutineBodyRunes = 2000
 
-// keepForRoutines offers one verified delivery to the routines that run on GitHub events. A
-// delivery no routine could ask for costs no database round trip.
-func (s *Source) keepForRoutines(ctx context.Context, event, delivery string, body []byte) {
+// keepForRoutines offers one verified delivery to the routines that run on GitHub events, and
+// reports how many it was kept for. A delivery no routine could ask for costs no database round
+// trip.
+func (s *Source) keepForRoutines(ctx context.Context, event, delivery string, body []byte) int {
 	if s.routines == nil {
-		return
+		return 0
 	}
-	d, ok := RoutineDelivery(event, delivery, body, s.isAppUser, s.now())
+	d, ok := RoutineDelivery(event, delivery, body, s.isAppUser, s.mentionRE, s.now())
 	if !ok {
-		return
+		return 0
+	}
+	if d.Facts.Command && d.Facts.Base == "" {
+		s.completeCommand(ctx, body, &d)
 	}
 	n, err := s.routines(ctx, d)
 	if err != nil {
 		// GitHub was answered already and does not retry a delivery it was given a 200 for.
 		s.logger.ErrorContext(ctx, "github: keeping a delivery for routines failed; it is lost to them",
 			"event", event, "delivery", delivery, "repo", d.Repo, "events", d.Events, "error", err)
-		return
+		return 0
 	}
 	if n > 0 {
 		s.logger.InfoContext(ctx, "github: kept a delivery for routines",
 			"event", event, "delivery", delivery, "repo", d.Repo, "events", d.Events, "routines", n)
+	}
+	return n
+}
+
+// completeCommand reads the pull request a command on its conversation tab is about, which
+// that delivery does not describe: its base branch, which a routine's excluded branches are
+// matched against, whether it is a draft, and its head. Only when a routine asks for commands
+// in the repository, so a comment costs no API call otherwise. A read that fails leaves the
+// base unknown, which a routine with excluded branches turns away.
+func (s *Source) completeCommand(ctx context.Context, body []byte, d *store.GitHubDelivery) {
+	if s.client == nil {
+		return
+	}
+	if s.routinesWant != nil {
+		if want, err := s.routinesWant(ctx, d.Repo, d.Events); err != nil || !want {
+			return
+		}
+	}
+	var p struct {
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	_ = json.Unmarshal(body, &p)
+	owner, repo, _ := strings.Cut(d.Repo, "/")
+	var ev routineEvent
+	if json.Unmarshal(d.Payload, &ev) != nil {
+		return
+	}
+	number, _ := ev.Data["number"].(float64)
+	info, err := s.client.Pull(ctx, p.Installation.ID, owner, repo, int(number))
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the pull request a command is on failed; its base branch is unknown",
+			"repo", d.Repo, "pr", int(number), "error", err)
+		return
+	}
+	d.Facts.Base, d.Facts.Draft = info.Base, info.Draft
+	ev.Data["base_branch"], ev.Data["head_branch"], ev.Data["head_sha"] = info.Base, info.Head, info.SHA
+	if payload, err := json.Marshal(ev); err == nil {
+		d.Payload = payload
 	}
 }
 
@@ -62,7 +107,10 @@ func (s *Source) keepForRoutines(ctx context.Context, event, delivery string, bo
 // and a workflow run or check suite it set off, are kept: a fix landing, or failing again, is
 // what a routine that reviews or repairs it needs to see. The runs-an-hour guard bounds a
 // routine that pushes on its own pushes.
-func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ string) bool, now time.Time) (store.GitHubDelivery, bool) {
+//
+// A comment is kept only when it is a command (Commands), as "pull_request.command"; mention is
+// the App's mention pattern, nil when its slug is unknown.
+func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ string) bool, mention *regexp.Regexp, now time.Time) (store.GitHubDelivery, bool) {
 	if strings.TrimSpace(delivery) == "" {
 		return store.GitHubDelivery{}, false
 	}
@@ -81,6 +129,9 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 		Source: "github", Type: event, Action: head.Action, Actor: &routineActor{Name: head.Sender.Login},
 		facts: store.GitHubEventFacts{Actor: head.Sender.Login, ActorBot: isBot(head.Sender)},
 	}
+	if head.Sender.ID != 0 {
+		ev.facts.ActorID = fmt.Sprint(head.Sender.ID)
+	}
 	var names []string
 	var err error
 	switch event {
@@ -88,7 +139,7 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 		names, err = ev.workflowRun(repo, body)
 	case "check_suite":
 		names, err = ev.checkSuite(repo, body)
-	case "pull_request", "pull_request_review", "issues":
+	case "pull_request", "pull_request_review", "issues", "issue_comment", "pull_request_review_comment":
 		// New commits the App pushed are kept, as its CI is: a playbook's fix landing on a pull
 		// request is what a routine that reviews it again runs on. Anything else the App did to
 		// a pull request or an issue is not, so a routine acting on them cannot start itself.
@@ -101,6 +152,8 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 			names, err = ev.pullRequest(repo, body)
 		case "pull_request_review":
 			names, err = ev.review(repo, body)
+		case "issue_comment", "pull_request_review_comment":
+			names, err = ev.command(repo, body, mention)
 		default:
 			names, err = ev.issue(repo, body)
 		}
@@ -126,6 +179,86 @@ func RoutineDelivery(event, delivery string, body []byte, isApp func(login, typ 
 		out.SubjectTitle = ChatTitle(ev.pull, ev.pullTitle)
 	}
 	return out, true
+}
+
+// command is a comment on a pull request that asks with a command, from either tab: the
+// conversation (issue_comment) or the diff (pull_request_review_comment). A new comment only;
+// an edit that adds a command is not a request, as an edit is never a turn.
+func (e *routineEvent) command(repo string, body []byte, mention *regexp.Regexp) ([]string, error) {
+	var p struct {
+		Comment struct {
+			Body      string `json:"body"`
+			HTMLURL   string `json:"html_url"`
+			User      User   `json:"user"`
+			CreatedAt string `json:"created_at"`
+			Path      string `json:"path"`
+			Line      int    `json:"line"`
+		} `json:"comment"`
+		// The conversation tab's comment names its pull request as an issue.
+		Issue struct {
+			Number      int             `json:"number"`
+			Title       string          `json:"title"`
+			Draft       bool            `json:"draft"`
+			User        User            `json:"user"`
+			PullRequest json.RawMessage `json:"pull_request"`
+		} `json:"issue"`
+		PullRequest struct {
+			Number int    `json:"number"`
+			Title  string `json:"title"`
+			Draft  bool   `json:"draft"`
+			User   User   `json:"user"`
+			Head   struct {
+				Ref string `json:"ref"`
+				SHA string `json:"sha"`
+			} `json:"head"`
+			Base struct {
+				Ref string `json:"ref"`
+			} `json:"base"`
+		} `json:"pull_request"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, err
+	}
+	if e.Action != "created" {
+		return nil, nil
+	}
+	c := p.Comment
+	commands := Commands(c.Body, mention)
+	if len(commands) == 0 {
+		return nil, nil
+	}
+	number, title, draft, author := p.PullRequest.Number, p.PullRequest.Title, p.PullRequest.Draft, p.PullRequest.User
+	data := map[string]any{}
+	if e.Type == "issue_comment" {
+		if len(p.Issue.PullRequest) == 0 || string(p.Issue.PullRequest) == "null" {
+			return nil, nil
+		}
+		number, title, draft, author = p.Issue.Number, p.Issue.Title, p.Issue.Draft, p.Issue.User
+	} else {
+		data["base_branch"], data["head_branch"], data["head_sha"] = p.PullRequest.Base.Ref, p.PullRequest.Head.Ref, p.PullRequest.Head.SHA
+		data["path"], data["line"] = c.Path, c.Line
+		e.facts.Base = p.PullRequest.Base.Ref
+	}
+	if number <= 0 {
+		return nil, nil
+	}
+	e.URL, e.CreatedAt = c.HTMLURL, c.CreatedAt
+	e.pull, e.pullTitle = number, title
+	if c.User.Login != "" {
+		// Who asked is the comment's author; the sender is the same account.
+		e.Actor = &routineActor{Name: c.User.Login}
+		e.facts.Actor, e.facts.ActorBot = c.User.Login, isBot(c.User)
+	}
+	if c.User.ID != 0 {
+		e.facts.ActorID = fmt.Sprint(c.User.ID)
+	}
+	e.facts.Pull, e.facts.Draft = true, draft
+	e.facts.Command, e.facts.Commands = true, commands
+	data["repo"], data["number"], data["title"] = repo, number, clip(title, 300)
+	data["commands"], data["comment"] = commands, clip(c.Body, maxRoutineBodyRunes)
+	data["asked_by"], data["author"], data["author_id"] = c.User.Login, author.Login, author.ID
+	e.Data = data
+	return []string{store.GitHubCommandEvent}, nil
 }
 
 // routineEvent is a kept delivery, in the shape conductor.BriefEvents reads.

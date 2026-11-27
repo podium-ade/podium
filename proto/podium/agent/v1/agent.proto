@@ -432,6 +432,12 @@ message RoutineGitHubFilters {
   repeated string excluded_branches = 4;
   // skip_drafts drops events about a draft pull request; marking it ready is its own event.
   bool skip_drafts = 5;
+  // commands are the words the "pull_request.command" event answers to, lowercase and without
+  // the slash: "review" is a comment line starting `/review` or `@<app> review`.
+  repeated string commands = 6;
+  // podium_people_only counts an event only when whoever set it off has connected that GitHub
+  // account to Podium.
+  bool podium_people_only = 7;
 }
 
 // RoutineRun is one firing of a routine.
@@ -610,9 +616,10 @@ message IdentityPolicy {
   // (default), "fixed" (an issue delegated to Podium is worked on, and nothing they wrote is
   // a prompt) or "answer".
   string linear_outsiders = 6;
-  // github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
-  // "review" (default: the review command) or "refuse".
-  string github_outsiders = 7;
+  // 7 was github_outsiders, whether somebody outside Podium could use the review command.
+  // Commands are routines now, and who may ask is each routine's condition.
+  reserved 7;
+  reserved "github_outsiders";
   // shared_model_key is whose model credential a turn of a shared conversation (a multiplayer
   // chat, a Slack thread, a Linear issue, a pull request) spends: "app" (default: the
   // company's, whoever asks) or "plan_then_app" (the asker's own Claude, ChatGPT or Grok

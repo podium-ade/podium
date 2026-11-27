@@ -391,12 +391,12 @@ function GitHubDialog({
             </SecretSlot>
           </Group>
           <p data-testid="github-review-routine-note" className="text-xs leading-relaxed text-muted">
-            The App answers an @mention or <code>/review</code> on a pull request, and a reply in a review thread it is in.
-            Reviewing a pull request when it opens is a routine:{" "}
+            The App answers an @mention on a pull request, and a reply in a review thread it is in. Reviewing a pull
+            request when it opens, or when somebody writes <code>/review</code>, is a routine:{" "}
             <Link to="/agent/routines" className="underline underline-offset-2 hover:text-fg">
               Review pull requests
             </Link>
-            , which decides whose pull requests count.
+            , which decides whose pull requests count and who may ask.
           </p>
           <Group
             title="Advanced"

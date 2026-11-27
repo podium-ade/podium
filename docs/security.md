@@ -345,8 +345,9 @@ SAML is not implemented.
   repository the App is installed on, and a member's routine would read repositories the member
   cannot; the API refuses anybody else. Limiting it to repositories narrows what it is given and
   is not an access control. What a GitHub event carries — a pull request's title and body, a
-  review, an issue, a branch name, a commit message — was written by **anybody who can push to or
-  comment on those repositories**, which on a public repository is anybody at all, and the brief
+  review, a comment that asked with a command, an issue, a branch name, a commit message — was
+  written by **anybody who can push to or comment on those repositories**, which on a public
+  repository is anybody at all, and the brief
   fences it as data from GitHub exactly as it does Linear's. A "fix failing CI" routine whose fix
   playbook can push is the sharpest case: a contributor's pull request decides what the failing
   test says. Keep such a routine to repositories whose contributors you trust, start it proposing
@@ -355,14 +356,22 @@ SAML is not implemented.
   run its own push started, and the push itself (**Got new commits**), which is how a review
   routine looks again at what a fix pushed. So a routine on **Got new commits** whose playbook
   pushes starts itself again with every push it makes: give that event to a playbook that does
-  not push, as a review does, and the 60-runs-an-hour pause bounds one that loops anyway. By default a run is a turn of the pull
-  request's own chat, which holds its reviews and whatever anybody wrote there: that is more of
+  not push, as a review does, and the 60-runs-an-hour pause bounds one that loops anyway. By
+  default a run is a turn of the pull request's own chat, which holds its reviews and whatever anybody wrote there: that is more of
   the same untrusted text in the run's context, not less. Its owner is given a viewer's row on
   each such chat, and admins read the ones a routine ran in — read access to a conversation about
   a repository the App already reads, never write. **All checks finished** has the conductor read
   a commit's checks from GitHub as the App when a workflow on it ends — only for a repository an
   enabled routine asks it for — and keeps check names and links, which a workflow file's author
   chose: the same untrusted text, fenced the same way.
+  **Asked with a command** is the one event anybody who can comment sets off on purpose, by
+  writing `/review`. What it runs is the routine's playbook, with its instruction; the comment
+  is kept as event data, fenced like a pull request's body, never as the instruction. Turn on
+  **Only people in Podium** for a routine whose playbook should not run for strangers, and give
+  a command anybody may use only a playbook that is safe on untrusted text: the review is
+  read-only. Podium once ran `/review` from anybody itself, with a fixed instruction and the
+  comment dropped; that is now the **Review pull requests** routine, and nothing about it is
+  hidden.
 - **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium

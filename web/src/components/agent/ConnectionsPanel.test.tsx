@@ -252,7 +252,7 @@ describe("ConnectionsPanel", () => {
     mount();
     await userEvent.click(await screen.findByRole("button", { name: "Edit GitHub" }));
     expect(screen.queryByRole("button", { name: /Triggers/ })).not.toBeInTheDocument();
-    expect(screen.getByTestId("github-review-routine-note")).toHaveTextContent("an @mention or /review");
+    expect(screen.getByTestId("github-review-routine-note")).toHaveTextContent("when somebody writes /review, is a routine");
     expect(screen.getByRole("link", { name: "Review pull requests" })).toHaveAttribute("href", "/agent/routines");
   });
 

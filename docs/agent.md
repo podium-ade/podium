@@ -596,8 +596,7 @@ link, which the assistant puts in its reply.
 
 - **It is the asker's chat.** The owner is the person who started the turn, on whatever
   surface they spoke — exactly as if they had opened it themselves. A turn nobody in Podium
-  started (an automatic review, a ticket the Linear poller saw, an anonymous review command)
-  cannot open one.
+  started (a system routine's run, a ticket the Linear poller saw) cannot open one.
 - **It starts from the opening and links home.** The first message is the assistant's,
   ending "_Opened for Dana from [another conversation](…)_". The backlink is the plain chat
   link, never the origin's link token, and leaves the origin's title out: the new chat may
@@ -2844,7 +2843,7 @@ to a mention. A playbook that pushes as the asker's own GitHub account is a pers
 | `pull_request` / `ready_for_review` | the same. This is a draft marked ready |
 | `pull_request` / `synchronize`, `closed` | no turn here: kept for the routines on it. The App's own push is kept too |
 | `review_requested` and other pull request actions | dropped |
-| `/review` in a top-level comment | a review request, as `@app review` |
+| a command: `/<word>`, or `@app <word>`, at the start of a line of a new comment | kept for the routines on **Asked with a command** that name the word, and recorded; no turn here, even when it mentions the App. One no routine answers is an ordinary comment: an assistant turn if it mentions the App, dropped otherwise |
 | a reply in an inline review thread the App started or has replied in | an assistant turn, no mention needed |
 | a reply in an inline review thread a person started | dropped unless it mentions the App |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
@@ -2856,8 +2855,9 @@ Unrelated webhook deliveries still return 200 so GitHub does not retry.
 
 ### Who the App answers
 
-There is nothing to set. The App answers anyone who mentions it, or writes `/review`, on a pull
-request, and a reply in an inline review thread it started or has replied in. Who started a
+There is nothing to set. The App answers anyone who mentions it on a pull request, and a reply in
+an inline review thread it started or has replied in. A command (`/review`) is a routine's to
+answer, with that routine's conditions on who may ask ([On a GitHub event](#on-a-github-event)). Who started a
 thread is read once from GitHub and remembered; whether the App has replied in a person's thread
 is read until it has, and then remembered. A thread that cannot be read needs the mention. The
 conversation tab has no threads, so a comment there always needs the mention.
@@ -2870,7 +2870,8 @@ Connections had a **Triggers** group for all of this; it was taken out, and its 
 `connection.github.filters`, is read only once, to make that routine.
 
 The log line for a dropped delivery names why: `not mentioned`, `own delivery`. A pull request
-opened, marked ready, pushed to or closed is logged `a routine's to run on`.
+opened, marked ready, pushed to or closed is logged `a routine's to run on`, and a comment a
+routine took as a command `a routine's command`.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.
@@ -3137,9 +3138,8 @@ The turn fails, and says why, when:
   accepts their connection: the refresh token went six months unused, or they revoked the
   App. **Your account** then says the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
-- The turn has no Podium person: a ticket the Linear poller saw, an automatic review, or a
-  review command from somebody outside Podium. Ask from the web chat, Slack or a Linear agent
-  session instead.
+- The turn has no Podium person: a ticket the Linear poller saw, or a system routine's run, a
+  review included. Ask from the web chat, Slack or a Linear agent session instead.
 
 **Disconnect** under **Your account** deletes the token. To revoke the grant on GitHub too, use
 **Settings → Applications → Authorized GitHub Apps** on GitHub.
@@ -3579,13 +3579,11 @@ What that decides:
   answer people outside it). A Slack mention from anybody else is recorded and gets
   🚫; nothing runs. A Linear agent session from anybody else is told so in the session, which
   ends; nothing runs. The Linear poller is the exception: it cannot tell who asked. On GitHub,
-  a commenter who has not connected GitHub may ask for exactly one thing — a review, with
-  `@podium review` or `/review` at the start of a line.
-  Whatever follows the command is ignored: nothing the requester wrote is put to the model as
-  a request. It runs the review playbook on the App's credentials, read-only, with a fixed
-  instruction. One per person per pull request every ten minutes. Anything else from them
-  gets a confused reaction. (The pull request's own title, description, diff and comments are
-  still what the review reads; the containment, not a filter, is what makes that safe.)
+  a commenter who has not connected GitHub gets a confused reaction. What anybody may ask for
+  with a command, `/review` or `@podium review`, is a routine's: one on **Asked with a
+  command**, whose conditions say who may ask (**Only people in Podium**, **Only these
+  people**), and whose playbook and instruction say what it does ([On a GitHub
+  event](#on-a-github-event)).
 - **A login is spelled as podium-server spells it.** That is who the proxy says is calling,
   and what chats, access rows and personal secrets are keyed on. A login somebody types — a
   share target, an @-mention — and a Slack email (which Slack lowercases) are resolved to
@@ -3638,20 +3636,25 @@ under it ([What answered](#what-answered)). A person who switched their own `lin
 switched the shared one off, is not overruled. A turn that came from Linear has Linear in its
 assistant whether or not the assistant ticks `linear`; a playbook has it only if it names it.
 
-**People outside Podium** — somebody whose Slack or Linear email is not a signed-in login, or a
-GitHub commenter who has not connected GitHub here — get what the same page says, per surface:
+**People outside Podium** — somebody whose Slack or Linear email is not a signed-in login — get
+what the same page says, per surface:
 
 | Surface | Default | Choices |
 |---|---|---|
 | Slack | refuse (🚫) | answer as Podium |
 | Linear | refuse (the session says so) | delegated issues only · answer as Podium |
-| GitHub | the review command only | refuse |
+
+A GitHub commenter who has not connected GitHub here is refused. A command they write is a
+routine's, under its conditions: a routine on **Asked with a command** with **Only people in
+Podium** turns them away, and one without it answers anybody who can comment. The page had a
+**GitHub users** setting for the review command when that was built in; the migration that made
+the command a routine carried a refusal there into its routine as **Only people in Podium**.
 
 Answered, they run as nobody: the global model key, the global MCP servers and secrets, the
 Linear app and the GitHub App as the access table says, and nobody's personal anything. "Delegated
 issues only" admits the opening of a delegation and nothing else from them: its instruction is the
 issue as Podium words it, never something they typed, and their mentions and replies are refused.
-The issue's own text is still what the turn reads, as a pull request's is for the review command.
+The issue's own text is still what the turn reads.
 They are never recorded as anybody (`identities`), and their turns count as nobody's in Usage.
 
 **On behalf of.** A turn that writes as the organization for somebody — through the Linear app or
@@ -4174,6 +4177,7 @@ fed by the GitHub App's webhook instead of the Linear app's.
   | `pull_request.opened`, `.ready_for_review`, `.synchronize` (new commits), `.closed` | as GitHub sends them |
   | `pull_request.merged` | a pull request closed by merging it |
   | `pull_request_review.submitted` | a review submitted on a pull request |
+  | `pull_request.command` | **Asked with a command**: a new comment on a pull request with a command the routine names (below) |
   | `issues.opened` | an issue opened |
 
   A delivery answers to its own name and to Podium's, so a routine on `workflow_run.completed`
@@ -4182,6 +4186,24 @@ fed by the GitHub App's webhook instead of the Linear app's.
   `check_suite` events runs twice for each; choose one. **Repositories** are `owner/name`, or an
   owner for all of theirs, comma-separated, read without regard to case; empty is every
   repository the App is installed on.
+- **Asked with a command.** A command is a line of a new comment on a pull request, on either
+  tab, that starts `/<word>` or the App's mention and a word — `/review`, `@podium review` — in
+  any case; a line in a fenced code block is not one. A routine on this event names the words it
+  answers to under **Commands** (at least one; one word each, letters, digits, `-` and `_`,
+  written with or without the slash), and is given only the comments that ask with one of them.
+  Nothing in Podium knows what a word means: `/review` is the **Review pull requests** template's
+  word, and `/deploy` or `/changelog` are whatever a routine's playbook and instruction make of
+  them. A comment a routine took is recorded in the pull request's chat and starts nothing else,
+  so a mention of the App that is also a command (`@podium review`) is answered once, by the
+  routine; one no routine answers is an ordinary comment. An edit that adds a command asks for
+  nothing, as an edit is never a turn, and the App's own comments are never commands. The event
+  keeps the command words, the comment (cut to 2,000 characters), who asked, the pull request's
+  title, author and branches: a comment on the conversation tab does not carry its pull
+  request's base branch, so the conductor reads the pull request from GitHub for one, only when a
+  routine asks for commands in that repository. Anybody who can comment can ask unless the
+  conditions say otherwise. Asking is not rate limited per person: the routine's events on one
+  pull request wait while a run is going there and are then given to one run together, one run
+  of a routine goes at a time, and 60 event runs an hour pause it.
 - **All checks finished.** GitHub has no delivery that says a commit's CI is done: a repository
   with five workflows sends five `workflow_run` deliveries per push, each when its own workflow
   ends, so a routine on `workflow_run.failed` can start before the rest have finished, and more
@@ -4217,27 +4239,36 @@ fed by the GitHub App's webhook instead of the Linear app's.
 - **Conditions.** Whose events count and about which pull requests, as the App's Triggers once
   decided for its review, now each routine's own (`github_filters`): **Only these people** and
   **Never these people** (GitHub logins, each added as a chip; never wins), **Ignore bot
-  accounts**, **Skip draft pull requests** (marking one ready is its own event), and **Ignore
-  these base branches** (patterns, each added with Enter, case sensitive: a plain name matches
+  accounts**, **Only people in Podium** (the GitHub account that set the event off is one a
+  Podium person connected, matched by its numeric id; an account nobody connected, or one not
+  known, does not count), **Skip draft pull requests** (marking one ready is its own event; a
+  command on a draft still counts, since somebody asked), and **Ignore these base branches** (patterns, each added with Enter, case sensitive: a plain name matches
   only itself; a glob follows GitHub Actions, so `feature/*` matches `feature/login` but not
   `feature/login/ui`, and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is
   a regular expression that may match any part of the name unless anchored). Who set an event off is
-  whoever opened, pushed, reviewed or ran it; for **All checks finished**, the pull request's
-  author. An event whose person is not known does not count while any are allowed, and one about
+  whoever opened, pushed, reviewed, ran it or wrote the command; for **All checks finished**, the
+  pull request's author. An event whose person is not known does not count while any are allowed, and one about
   a pull request whose base is not known does not count while any branch is skipped. An event
   they turn away is never kept for the routine.
 - **Review pull requests.** The review a pull request got when it was opened was the GitHub App's
-  own; it is this routine now, a template in the new-routine dialog: on **Opened** and **Ready for
-  review**, drafts skipped, in the pull request's chat, starting the repository's review playbook
-  right away. A deployment that was reviewing pull requests when they opened (the App's webhook set up,
+  own, and so was the review `/review` asked for; both are this routine now, a template in the
+  new-routine dialog: on **Opened**, **Ready for review** and **Asked with a command** with the
+  command `/review`, drafts skipped unless somebody asks, in the pull request's chat, starting
+  the repository's review playbook right away. A deployment that was reviewing pull requests when they opened (the App's webhook set up,
   and **Review new pull requests** not turned off) gets it made once, as a system routine, with
   the old Triggers' allowed and ignored people, bots and excluded branches as its conditions. Deleted,
   it is not made again. Its instruction tells the playbook to post the review itself with `gh`:
   nothing else posts one. Reviewing again what the App pushed is a second routine's, on **Got
   new commits** with the App's bot login under **Only these people**. Routines need the web chat and a host
   runtime; a conductor without them reviews nothing when a pull request opens, and logs a warning
-  for each one opened or marked ready, naming it, rather than dropping it quietly. An @mention or
-  `/review` on it is still answered.
+  for each one opened or marked ready, naming it, rather than dropping it quietly. An @mention on
+  it is still answered.
+- **Review when asked.** A deployment whose App answered `/review` when that was built in (the
+  App's webhook set up) and has no routine on a command gets one made once, as a system routine:
+  on **Asked with a command**, `/review`, starting the repository's review playbook. It has
+  **Only people in Podium** when the identity policy's **GitHub users** setting refused
+  outsiders the review command, and answers anybody otherwise, as the App did. Deleted, it is not
+  made again.
 - **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
   chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,
   opened on its first run. Changing it affects later runs only, and history records the change.
@@ -4265,14 +4296,15 @@ fed by the GitHub App's webhook instead of the Linear app's.
   read by admins and owners: they read, and only read, any pull request's chat a routine has run
   in, without being joined to it. A routine's task in a pull request's chat sends nobody an
   away notice: whoever last wrote there did not ask for it.
-- **The App's own changes.** A pull request, review or issue the App made itself never reaches a
-  routine, so one that acts on pull requests cannot start itself again. A workflow run or check
+- **The App's own changes.** A pull request, review, comment or issue the App made itself never
+  reaches a routine, so one that acts on pull requests cannot start itself again. A workflow run or check
   suite is kept whoever pushed the commit: a fix the App pushed that failed again is exactly what
   a CI routine needs to see. Its state bounds the attempts ([Fix failing CI](#fix-failing-ci)), and
   the 60-runs-an-hour guard bounds the rest.
 
 **Setting it up on GitHub.** Subscribe the App to the events the routines need — *Workflow runs*,
-*Check suites*, *Pull requests*, *Pull request reviews*, *Issues*, and *Statuses* for **All checks
+*Check suites*, *Pull requests*, *Pull request reviews*, *Issue comments* and *Pull request
+review comments* for **Asked with a command**, *Issues*, and *Statuses* for **All checks
 finished** on CI that reports commit statuses — with *Actions*, *Checks* and *Commit statuses*
 read-only ([Setting it up](#setting-it-up)). **All checks finished** is read on *Workflow runs* or
 *Check suites* (either is enough for GitHub Actions; *Check suites* for any other CI app). The webhook is the one reviews use, so it needs the

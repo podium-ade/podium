@@ -101,6 +101,33 @@ export function teamKeys(text: string): string[] {
 }
 
 /**
+ * COMMAND_EVENT is a comment on a pull request that asks the App for something by a command: a
+ * line that starts `/<word>`, or a mention of the App and the word. The routine names the words.
+ */
+export const COMMAND_EVENT = "pull_request.command";
+
+/** COMMAND_RE is one command word, without its slash: what the server accepts. */
+const COMMAND_RE = /^[a-z0-9][a-z0-9_-]{0,38}$/;
+
+/** cleanCommand is a command as the editor shows it, with its slash: "/review". "" drops it. */
+export function cleanCommand(v: string): string {
+  const word = v.trim().replace(/^\//, "").toLowerCase();
+  return word ? `/${word}` : "";
+}
+
+/** checkCommand is why a command cannot be added, or nothing. */
+export function checkCommand(v: string): string | undefined {
+  return COMMAND_RE.test(v.replace(/^\//, ""))
+    ? undefined
+    : `“${v}” is not a command: one word of letters, digits, - and _.`;
+}
+
+/** commandWord is a command as the server keeps it: lowercase, without the slash. */
+export function commandWord(v: string): string {
+  return cleanCommand(v).slice(1);
+}
+
+/**
  * GitHubGroup is a kind of GitHub event, as the editor lists them: CI results, pull requests, and
  * issues.
  */
@@ -144,6 +171,13 @@ export const GITHUB_EVENTS: { event: string; label: string; short?: string; grou
     label: "Review submitted",
     short: "A review submitted",
     group: "Pull requests",
+  },
+  {
+    event: COMMAND_EVENT,
+    label: "Asked with a command",
+    short: "Asked with a command",
+    group: "Pull requests",
+    hint: "A comment with a line that starts /review, or @ the App and review.",
   },
   { event: "issues.opened", label: "Issue opened", short: "Opened", group: "Issues" },
 ];
@@ -290,20 +324,23 @@ export const REVIEW_PLAYBOOK = "@review";
 
 /**
  * REVIEW_ON_GITHUB is the "Review pull requests" template: the review the GitHub App started on its
- * own when a pull request opened, as a routine. It starts the repository's review playbook right away, with
- * no assistant's turn before it, and leaves drafts alone until they are marked ready. Its
+ * own when a pull request opened, or when somebody wrote /review, as a routine. It starts the
+ * repository's review playbook right away, with no assistant's turn before it, and leaves drafts
+ * alone until they are marked ready or somebody asks. Its
  * instruction is the one a deployment that was reviewing before was given its routine with
  * (connections.ReviewRoutineInstruction).
  */
 export const REVIEW_ON_GITHUB: Pick<RoutineDraft, "name" | "instruction" | "events" | "playbook"> & {
   skipDrafts: boolean;
+  commands: string[];
 } = {
   name: "Review pull requests",
   instruction:
     "Review this pull request: what it changes, whether it does what it says, and what should be fixed before it merges. Post the review on the pull request yourself with `gh pr review` (--approve, --request-changes or --comment), and put a finding about one place in the diff on that line (`gh api repos/{owner}/{repo}/pulls/{number}/reviews` with comments). If you were asked to review it before, look only at what changed since your last review.",
-  events: ["pull_request.opened", "pull_request.ready_for_review"],
+  events: ["pull_request.opened", "pull_request.ready_for_review", COMMAND_EVENT],
   playbook: REVIEW_PLAYBOOK,
   skipDrafts: true,
+  commands: ["review"],
 };
 
 /** REVIEW_PLAYBOOK_LABEL names REVIEW_PLAYBOOK: the playbook set to review the pull request's repository. */

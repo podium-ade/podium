@@ -66,7 +66,7 @@ var RoutineGitHubEvents = []string{
 	"check_suite.failed", "check_suite.completed",
 	"pull_request.opened", "pull_request.ready_for_review", "pull_request.synchronize",
 	"pull_request.merged", "pull_request.closed",
-	"pull_request_review.submitted",
+	"pull_request_review.submitted", GitHubCommandEvent,
 	"issues.opened",
 }
 
@@ -82,6 +82,7 @@ var githubEventWords = map[string]string{
 	"pull_request.synchronize": "pull request got new commits", "pull_request.merged": "pull request merged",
 	"pull_request.closed":           "pull request closed",
 	"pull_request_review.submitted": "review submitted",
+	GitHubCommandEvent:              "asked with a command",
 	"issues.opened":                 "issue opened",
 }
 
@@ -472,8 +473,16 @@ func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) 
 		return 0, fmt.Errorf("routines for GitHub delivery %s: %w", d.DeliveryID, err)
 	}
 	ids := make([]string, 0, len(candidates))
+	asked := false
 	for _, c := range candidates {
-		if ok, _ := githubFiltersFrom(c.GithubFilters).Admits(d.Facts); ok {
+		f := githubFiltersFrom(c.GithubFilters)
+		if f.PodiumPeopleOnly && !asked {
+			// Whether the actor is somebody in Podium is one read, made only when a routine
+			// asks. A store error reads as not: a condition that cannot be checked turns away.
+			asked = true
+			d.Facts.ActorInPodium = s.githubAccountInPodium(ctx, d.Facts.ActorID)
+		}
+		if ok, _ := f.Admits(d.Facts); ok {
 			ids = append(ids, c.ID)
 		}
 	}
@@ -486,6 +495,15 @@ func (s *Store) StoreGitHubRoutineEvents(ctx context.Context, d GitHubDelivery) 
 		return 0, fmt.Errorf("store GitHub delivery %s for routines: %w", d.DeliveryID, err)
 	}
 	return int(n), nil
+}
+
+// githubAccountInPodium reports whether the GitHub account id is somebody's in Podium.
+func (s *Store) githubAccountInPodium(ctx context.Context, id string) bool {
+	if strings.TrimSpace(id) == "" || id == "0" {
+		return false
+	}
+	_, err := s.IdentityLogin(ctx, ProviderGitHub, id)
+	return err == nil
 }
 
 // GitHubRoutinesWant reports whether an enabled routine on GitHub events asks for one of

@@ -18,6 +18,10 @@ import {
   CI_FIXER_ON_GITHUB,
   REVIEW_ON_GITHUB,
   REVIEW_PLAYBOOK,
+  COMMAND_EVENT,
+  checkCommand,
+  cleanCommand,
+  commandWord,
   REVIEW_PLAYBOOK_LABEL,
   GITHUB_CI,
   GITHUB_EVENTS,
@@ -191,6 +195,9 @@ type GitHubConditions = {
   ignoreBots: boolean;
   skipDrafts: boolean;
   branches: string[];
+  podiumPeopleOnly: boolean;
+  /** The words the command event answers to, as the editor shows them: "/review". */
+  commands: string[];
 };
 
 /**
@@ -204,16 +211,24 @@ function GitHubConditionsField({
   value: GitHubConditions;
   onChange: (next: GitHubConditions) => void;
 }) {
-  const ids = { allowed: useId(), ignored: useId(), bots: useId(), drafts: useId(), branches: useId() };
+  const ids = {
+    allowed: useId(),
+    ignored: useId(),
+    podium: useId(),
+    bots: useId(),
+    drafts: useId(),
+    branches: useId(),
+  };
   const set = (patch: Partial<GitHubConditions>) => onChange({ ...value, ...patch });
+  const brand = useBrand();
   return (
     <fieldset data-testid="routine-github-conditions" className="m-0 grid gap-4 rounded-lg border border-border p-4">
       <legend className="px-1 text-sm font-medium">
         Conditions <span className="font-normal text-muted">(optional)</span>
       </legend>
       <p className="-mt-1 text-xs leading-relaxed text-muted">
-        An event these turn away is never given to the routine. Who set it off is whoever opened, pushed or
-        reviewed; for CI, the pull request’s author.
+        An event these turn away is never given to the routine. Who set it off is whoever opened, pushed, reviewed
+        or wrote the command; for CI, the pull request’s author.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid content-start gap-1.5">
@@ -251,6 +266,14 @@ function GitHubConditionsField({
       </div>
       <div className="grid gap-3">
         <CheckRow
+          id={ids.podium}
+          testId="routine-podium-people-only"
+          checked={value.podiumPeopleOnly}
+          onChange={(on) => set({ podiumPeopleOnly: on })}
+          label={`Only people in ${brand}`}
+          detail={`Only GitHub accounts someone connected to ${brand} count. Left off, anyone who can comment can ask with a command.`}
+        />
+        <CheckRow
           id={ids.bots}
           testId="routine-ignore-bots"
           checked={value.ignoreBots}
@@ -264,7 +287,7 @@ function GitHubConditionsField({
           checked={value.skipDrafts}
           onChange={(on) => set({ skipDrafts: on })}
           label="Skip draft pull requests"
-          detail="A draft counts once it is marked ready for review, which is an event of its own."
+          detail="A draft counts once it is marked ready for review, which is an event of its own. A command on a draft still counts: somebody asked."
         />
       </div>
       <div className="grid gap-1.5">
@@ -507,6 +530,8 @@ function ChatModeField({
 function GitHubEventsField({
   events,
   onEvents,
+  commands,
+  onCommands,
   repos,
   onRepos,
   chatMode,
@@ -514,12 +539,14 @@ function GitHubEventsField({
 }: {
   events: string[];
   onEvents: (events: string[]) => void;
+  commands: string[];
+  onCommands: (commands: string[]) => void;
   repos: string;
   onRepos: (repos: string) => void;
   chatMode: ChatMode;
   onChatMode: (mode: ChatMode) => void;
 }) {
-  const ids = { events: useId(), repos: useId() };
+  const ids = { events: useId(), repos: useId(), commands: useId() };
   const connections = useQuery({
     queryKey: ["agent", "connections"],
     queryFn: () => agent.getConnections({}),
@@ -627,10 +654,34 @@ function GitHubEventsField({
               .
             </>
           ) : (
-            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews or Issues. All checks finished needs Workflow runs or Check suites, and Statuses for CI that reports commit statuses. Each run is given the events that arrived since the last one."
+            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews, Issue comments, Pull request review comments or Issues. All checks finished needs Workflow runs or Check suites, and Statuses for CI that reports commit statuses. Each run is given the events that arrived since the last one."
           )}
         </p>
       </div>
+      {events.includes(COMMAND_EVENT) ? (
+        <div className="grid gap-1.5">
+          <label htmlFor={ids.commands} className="text-sm font-medium">
+            Commands
+          </label>
+          <TagInput
+            id={ids.commands}
+            testId="routine-commands"
+            values={commands}
+            onChange={onCommands}
+            clean={cleanCommand}
+            validate={checkCommand}
+            noun="command"
+            mono
+            placeholder="/review"
+            describedBy={`${ids.commands}-hint`}
+          />
+          <p id={`${ids.commands}-hint`} className="text-xs text-muted">
+            A comment on a pull request asks with one when a line starts with it, <code>/review</code>, or with the
+            App’s @mention and the word. Enter adds it. A comment the routine answers is not also answered as a
+            mention.
+          </p>
+        </div>
+      ) : null}
       <div className="grid gap-1.5">
         <label htmlFor={ids.repos} className="text-sm font-medium">
           Repositories{" "}
@@ -765,6 +816,8 @@ export function RoutineDialog({
     ignoreBots: savedFilters?.ignoreBots ?? false,
     skipDrafts: savedFilters?.skipDrafts ?? false,
     branches: savedFilters?.excludedBranches ?? [],
+    podiumPeopleOnly: savedFilters?.podiumPeopleOnly ?? false,
+    commands: (savedFilters?.commands ?? []).map(cleanCommand),
   });
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
@@ -844,7 +897,11 @@ export function RoutineDialog({
     setGitHubEvents(REVIEW_ON_GITHUB.events);
     setGitHubChatMode("subject");
     setPlaybook(REVIEW_ON_GITHUB.playbook);
-    setConditions((c) => ({ ...c, skipDrafts: REVIEW_ON_GITHUB.skipDrafts }));
+    setConditions((c) => ({
+      ...c,
+      skipDrafts: REVIEW_ON_GITHUB.skipDrafts,
+      commands: REVIEW_ON_GITHUB.commands.map(cleanCommand),
+    }));
   };
 
   const save = async () => {
@@ -884,6 +941,9 @@ export function RoutineDialog({
                 ignoreBots: conditions.ignoreBots,
                 skipDrafts: conditions.skipDrafts,
                 excludedBranches: conditions.branches,
+                podiumPeopleOnly: conditions.podiumPeopleOnly,
+                // Only a routine on the command event answers commands.
+                commands: events.includes(COMMAND_EVENT) ? conditions.commands.map(commandWord) : [],
               }
             : undefined,
         },
@@ -970,13 +1030,16 @@ export function RoutineDialog({
         ? "Choose at least one Linear event to save."
         : github && events.length === 0
           ? "Choose at least one GitHub event to save."
-          : capProblem
+          : github && events.includes(COMMAND_EVENT) && conditions.commands.length === 0
+            ? "Name the command it answers to save, such as /review."
+            : capProblem
           ? "Fix the spend cap to save."
           : "";
   // The menu marks a section whose choice is unfinished, not one nobody has reached yet: an
   // empty name on a new routine is said beside Save, and is not a mark on the menu.
   const troubled = new Set<SectionKey>();
   if ((linear || github) && events.length === 0) troubled.add("trigger");
+  if (github && events.includes(COMMAND_EVENT) && conditions.commands.length === 0) troubled.add("trigger");
   if (capProblem) troubled.add("limits");
 
   const timezoneField = (hint: string) => (
@@ -1203,6 +1266,8 @@ export function RoutineDialog({
                 <GitHubEventsField
                   events={githubEvents}
                   onEvents={setGitHubEvents}
+                  commands={conditions.commands}
+                  onCommands={(commands) => setConditions((c) => ({ ...c, commands }))}
                   repos={repos}
                   onRepos={setRepos}
                   chatMode={githubChatMode}

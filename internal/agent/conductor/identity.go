@@ -12,7 +12,7 @@ import (
 
 // Who may start a turn, and as whom (multiplayer sessions, docs/agent.md). The rules below for
 // somebody who did not resolve are the defaults; the identity policy (store.IdentityPolicy)
-// may answer them on Slack or Linear, and may refuse GitHub's review command.
+// may answer them on Slack or Linear.
 //
 // Every surface is one identity: a Slack, Linear or GitHub account counts as a person only
 // once it has been PROVEN to be a Podium login — a Slack workspace email or a Linear email
@@ -32,8 +32,9 @@ import (
 //     always has. It is the unauthenticated mode, and docs/security.md says so.
 //   - GitHub: what nobody said (a pull request opened, marked ready, pushed to by this App)
 //     runs as it always has. A resolved speaker is answered with their own credentials. A
-//     speaker who did not resolve may ask for exactly one thing — a review — and only
-//     through the review command's narrow grammar; anything else gets a confused reaction.
+//     speaker who did not resolve is refused, with a confused reaction. A command anybody
+//     writes (`/review`) is a routine's, under that routine's conditions on who may ask, and
+//     never comes here.
 //   - the dev source has no accounts and is unchanged.
 
 // Slack and Linear identity resolution is cached: the candidate check is a database read per
@@ -51,11 +52,6 @@ const (
 	identityMissTTL = time.Minute
 )
 
-// reviewCommandEvery is how often one person outside Podium may ask for a review of one
-// pull request. A review is the most expensive thing an unauthenticated stranger can make
-// this App do, so it is rate limited per person per pull request.
-const reviewCommandEvery = 10 * time.Minute
-
 type identityEntry struct {
 	login string
 	at    time.Time
@@ -65,8 +61,6 @@ type identityEntry struct {
 type identityCache struct {
 	mu      sync.Mutex
 	entries map[string]identityEntry
-	// reviews is when each (pull request, account) last asked for a review.
-	reviews map[string]time.Time
 }
 
 func (ic *identityCache) get(key string, now time.Time) (string, bool) {
@@ -106,25 +100,6 @@ func (ic *identityCache) forget(provider, externalID string) {
 			delete(ic.entries, k)
 		}
 	}
-}
-
-// allowReview records one review command and reports whether it is within the rate limit.
-func (ic *identityCache) allowReview(key string, now time.Time) bool {
-	ic.mu.Lock()
-	defer ic.mu.Unlock()
-	if ic.reviews == nil {
-		ic.reviews = map[string]time.Time{}
-	}
-	for k, at := range ic.reviews {
-		if now.Sub(at) >= reviewCommandEvery {
-			delete(ic.reviews, k)
-		}
-	}
-	if _, ok := ic.reviews[key]; ok {
-		return false
-	}
-	ic.reviews[key] = now
-	return true
 }
 
 // resolveSpeaker makes ev.Login a Podium person or empty. See InboundEvent.Login for what
@@ -243,10 +218,9 @@ func (c *Conductor) domainAllowed(email string) bool {
 // thread, not only the parts Podium acted on — and a refused speaker who addressed the bot
 // is told, by a reaction, that it will not.
 //
-// A review command from somebody outside Podium is rewritten here into the review it is
-// allowed to be: ev.Text becomes ev.ReviewRequest and the event becomes Automatic, which runs
-// the github: true playbook directly, as the App, with no assistant turn and no person's
-// credentials.
+// Somebody outside Podium starts nothing on GitHub by a comment. A command they write is a
+// routine's to answer, with the routine's own conditions on who may ask (ghreview's
+// Commands); it never reaches here.
 func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) bool {
 	kind := src.Kind()
 	switch kind {
@@ -300,29 +274,6 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 			// A Slack mention that named a pull request follows Slack's rule.
 			c.refuse(ctx, src, *ev, "not in podium")
 			return false
-		case ev.ReviewRequest != "" && c.identityPolicy(ctx).GitHubOutsiders == store.OutsidersRefuse:
-			c.refuse(ctx, src, *ev, "not linked")
-			return false
-		case ev.ReviewRequest != "":
-			// Joining the review already running first: it starts nothing, so it must not
-			// spend the person's one review in reviewCommandEvery either.
-			if c.reviewRunning(ctx, ev.SourceKey) {
-				c.logger.InfoContext(ctx, "a review command from outside podium joined the review already running",
-					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
-				c.gateDecision(kind, "review_collapsed")
-				return false
-			}
-			if !c.idents.allowReview(ev.SourceKey+"|"+ev.SpeakerID, c.now()) {
-				c.logger.InfoContext(ctx, "a review command from outside podium was rate limited",
-					"source_key", ev.SourceKey, "github_id", ev.SpeakerID)
-				c.gateDecision(kind, "review_rate_limited")
-				return false
-			}
-			ev.Text = ev.ReviewRequest
-			ev.Automatic = true
-			ev.Role = ""
-			c.gateDecision(kind, "review_command")
-			return true
 		default:
 			c.refuse(ctx, src, *ev, "not linked")
 			return false
@@ -330,31 +281,6 @@ func (c *Conductor) admit(ctx context.Context, src Source, ev *InboundEvent) boo
 	default:
 		return true
 	}
-}
-
-// reviewRunning reports whether this pull request's review playbook is already working.
-func (c *Conductor) reviewRunning(ctx context.Context, sourceKey string) bool {
-	if c.store == nil {
-		return false
-	}
-	sess, err := c.store.GetSessionByKey(ctx, sourceKey)
-	if err != nil {
-		return false
-	}
-	running, err := c.store.RunningDelegationsForSession(ctx, sess.ID)
-	if err != nil {
-		return false
-	}
-	name := ""
-	if p := c.profiles.Current(); p != nil {
-		name = p.GitHubPlaybookFor(pullRequestRepo(sourceKey))
-	}
-	for _, d := range running {
-		if name == "" || d.Playbook == name {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *Conductor) refuse(ctx context.Context, src Source, ev InboundEvent, reason string) {
@@ -428,8 +354,8 @@ func (c *Conductor) turnLogin(ctx context.Context, src Source, sess store.Sessio
 }
 
 // turnStartedBy is what a turn records as whose it was (turns.started_by): turnLogin, or
-// store.TurnStartedByApp for a GitHub turn nobody in Podium is behind — an automatic review,
-// or a review command from somebody who has not linked GitHub. Usage is broken down by it.
+// store.TurnStartedByApp for a GitHub turn nobody in Podium is behind. Usage is broken down
+// by it.
 func (c *Conductor) turnStartedBy(ctx context.Context, src Source, sess store.Session, ev InboundEvent) string {
 	if l := turnOwner(c.turnLogin(ctx, src, sess, ev)); l != "" {
 		return l

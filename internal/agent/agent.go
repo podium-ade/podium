@@ -509,6 +509,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			logger.Warn("making the review routine failed; pull requests are not reviewed when opened until it is made",
 				"error", err)
 		}
+		// So is the review command, after the review routine: one made from the template
+		// answers /review already.
+		if err := connections.EnsureCommandRoutine(ctx, st, logger); err != nil {
+			logger.Warn("making the review command's routine failed; /review is not answered until it is made",
+				"error", err)
+		}
 		a.routines, err = routines.New(routines.Options{
 			Store: st, Events: st, Subjects: st, Runner: a.chat, Playbooks: a.conductor, Logger: logger,
 		})

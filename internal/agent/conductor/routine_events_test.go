@@ -117,6 +117,10 @@ func TestARunsDividerSaysWhichGitHubEventStartedIt(t *testing.T) {
 	assert.Equal(t, "GitHub: acme/api#7 merged", eventDivider([]store.RoutineEvent{merged}))
 	assert.Equal(t, "GitHub: review submitted on acme/api#7", eventDivider([]store.RoutineEvent{review}))
 	assert.Equal(t, "GitHub: issue acme/web#3 opened", eventDivider([]store.RoutineEvent{issue}))
+	asked := storedEvent(t, store.GitHubCommandEvent, map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "number": 7, "commands": []any{"review"}, "asked_by": "mona",
+	}})
+	assert.Equal(t, "GitHub: /review on acme/api#7 by mona", eventDivider([]store.RoutineEvent{asked}))
 
 	checksFailed := storedEvent(t, "checks.failed", map[string]any{"source": "github", "data": map[string]any{
 		"repo": "acme/api", "checks": 5, "checks_failed": 2, "pull_requests": []any{map[string]any{"number": 42}},

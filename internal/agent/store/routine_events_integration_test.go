@@ -252,6 +252,42 @@ func TestAGitHubDeliveryIsKeptForEachRoutineThatAsksForItUnderTheNameItAskedFor(
 	assert.Len(t, waiting, 2, "the routine on failures and the Linear one still have events waiting")
 }
 
+// "Only people in Podium" asks whether the account that set an event off is somebody's here,
+// and only a routine with that condition makes the store ask.
+func TestOnlyPeopleInPodiumIsTheAccountSomebodyConnected(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	open := githubDraft()
+	open.Events, open.Teams = []string{GitHubCommandEvent}, nil
+	open.GitHubFilters = RoutineGitHubFilters{Commands: []string{"review"}}
+	anyone, err := s.CreateSystemRoutine(ctx, "admin@acme.com", open)
+	require.NoError(t, err)
+	closed := open
+	closed.GitHubFilters.PodiumPeopleOnly = true
+	members, err := s.CreateSystemRoutine(ctx, "admin@acme.com", closed)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "alice@acme.com", Provider: ProviderGitHub, ExternalID: "42", Handle: "alice"}))
+
+	asked := func(id, actorID string) GitHubDelivery {
+		d := githubDelivery(id, "acme/api", GitHubCommandEvent)
+		d.Facts = GitHubEventFacts{Actor: "someone", ActorID: actorID, Pull: true, Base: "main", Command: true, Commands: []string{"review"}}
+		return d
+	}
+	n, err := s.StoreGitHubRoutineEvents(ctx, asked("c-1", "42"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "alice connected that account")
+	n, err = s.StoreGitHubRoutineEvents(ctx, asked("c-2", "77"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "nobody connected this one: only the routine that asks anyone")
+	n, err = s.StoreGitHubRoutineEvents(ctx, asked("c-3", ""))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "an unknown account is nobody's")
+
+	pending, err := s.PendingRoutineEvents(ctx, []string{anyone.ID, members.ID})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{anyone.ID: 3, members.ID: 1}, pending)
+}
+
 func TestWhetherARoutineWantsACommitsFinishedChecksIsAskedBeforeReadingThem(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

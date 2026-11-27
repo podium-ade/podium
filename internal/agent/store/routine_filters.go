@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -19,7 +20,14 @@ const (
 	MaxFilterPeople  = 200
 	MaxFilterBranch  = 50
 	maxBranchPattern = 200
+	// MaxFilterCommands is how many words one routine's command event may answer to.
+	MaxFilterCommands = 20
 )
+
+// GitHubCommandEvent is a comment on a pull request that asks the App for something by a
+// command: a line that starts `/<word>` or `@<app> <word>`. A routine on it names the words
+// it answers to in its Commands.
+const GitHubCommandEvent = "pull_request.command"
 
 // RoutineGitHubFilters are a routine's conditions on GitHub events. The zero value turns
 // nothing away.
@@ -36,13 +44,20 @@ type RoutineGitHubFilters struct {
 	// does not count while there are any.
 	ExcludedBranches []string `json:"excluded_branches,omitempty"`
 	// SkipDrafts drops an event about a draft pull request. Marking it ready is its own event.
+	// A command on a draft is not dropped: somebody asked.
 	SkipDrafts bool `json:"skip_drafts,omitempty"`
+	// Commands are the words a GitHubCommandEvent answers to, lowercase and without the slash:
+	// "review" is `/review` and `@<app> review`. They say nothing about any other event.
+	Commands []string `json:"commands,omitempty"`
+	// PodiumPeopleOnly counts an event only when whoever set it off has connected that GitHub
+	// account to Podium. An event whose actor is not known does not count.
+	PodiumPeopleOnly bool `json:"podium_people_only,omitempty"`
 }
 
 // IsZero reports whether f turns nothing away.
 func (f RoutineGitHubFilters) IsZero() bool {
 	return len(f.AllowedPeople) == 0 && len(f.IgnoredPeople) == 0 && !f.IgnoreBots &&
-		len(f.ExcludedBranches) == 0 && !f.SkipDrafts
+		len(f.ExcludedBranches) == 0 && !f.SkipDrafts && len(f.Commands) == 0 && !f.PodiumPeopleOnly
 }
 
 // GitHubEventFacts are what a delivery says about who set it off and which pull request it
@@ -53,6 +68,15 @@ type GitHubEventFacts struct {
 	Actor string
 	// ActorBot is whether Actor is a bot account.
 	ActorBot bool
+	// ActorID is Actor's numeric GitHub id, "" when not known, and ActorInPodium whether it is
+	// an account somebody connected to Podium. The store answers ActorInPodium, and only for a
+	// delivery a routine with PodiumPeopleOnly is asked about.
+	ActorID       string
+	ActorInPodium bool
+	// Command is whether the event is a GitHubCommandEvent, and Commands the words it asked
+	// with, lowercase.
+	Command  bool
+	Commands []string
 	// Pull is whether the event is about a pull request; Base is its base branch, "" when not
 	// known, and Draft whether it is a draft.
 	Pull  bool
@@ -73,10 +97,18 @@ func (f RoutineGitHubFilters) Admits(e GitHubEventFacts) (bool, string) {
 	if len(f.AllowedPeople) > 0 && (actor == "" || !containsLogin(f.AllowedPeople, actor)) {
 		return false, "person not allowed"
 	}
+	if f.PodiumPeopleOnly && !e.ActorInPodium {
+		return false, "not in podium"
+	}
+	if e.Command && !slices.ContainsFunc(e.Commands, func(c string) bool { return slices.Contains(f.Commands, c) }) {
+		return false, "another command"
+	}
 	if !e.Pull {
 		return true, ""
 	}
-	if f.SkipDrafts && e.Draft {
+	// A command is asked for on purpose, on a draft too: skipping drafts is for what happens
+	// to a pull request by itself.
+	if f.SkipDrafts && e.Draft && !e.Command {
 		return false, "draft"
 	}
 	if len(f.ExcludedBranches) > 0 {
@@ -105,7 +137,33 @@ func NormalizeGitHubFilters(f RoutineGitHubFilters) (RoutineGitHubFilters, error
 	if f.ExcludedBranches, err = NormalizeBranchPatterns(f.ExcludedBranches); err != nil {
 		return RoutineGitHubFilters{}, fmt.Errorf("%w: %v", ErrInvalidRoutine, err)
 	}
+	if f.Commands, err = NormalizeCommands(f.Commands); err != nil {
+		return RoutineGitHubFilters{}, fmt.Errorf("%w: %v", ErrInvalidRoutine, err)
+	}
 	return f, nil
+}
+
+// commandRe is a command's word: what follows the slash, or the App's mention and a space.
+var commandRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,38}$`)
+
+// NormalizeCommands trims, lowercases, dedupes and checks a routine's command words. A
+// leading slash is the way a command is written, so it is accepted and dropped.
+func NormalizeCommands(in []string) ([]string, error) {
+	if len(in) > MaxFilterCommands {
+		return nil, fmt.Errorf("a routine answers to at most %d commands", MaxFilterCommands)
+	}
+	var out []string
+	for _, c := range in {
+		c = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(c), "/"))
+		if c == "" || slices.Contains(out, c) {
+			continue
+		}
+		if !commandRe.MatchString(c) {
+			return nil, fmt.Errorf("/%s is not a command: a command is one word of letters, digits, - and _", c)
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 // githubFiltersJSON is f as routines.github_filters holds it.

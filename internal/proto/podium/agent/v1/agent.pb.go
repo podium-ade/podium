@@ -393,9 +393,15 @@ type RoutineGitHubFilters struct {
 	// a pull request whose base is not known does not count while there are any.
 	ExcludedBranches []string `protobuf:"bytes,4,rep,name=excluded_branches,json=excludedBranches,proto3" json:"excluded_branches,omitempty"`
 	// skip_drafts drops events about a draft pull request; marking it ready is its own event.
-	SkipDrafts    bool `protobuf:"varint,5,opt,name=skip_drafts,json=skipDrafts,proto3" json:"skip_drafts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SkipDrafts bool `protobuf:"varint,5,opt,name=skip_drafts,json=skipDrafts,proto3" json:"skip_drafts,omitempty"`
+	// commands are the words the "pull_request.command" event answers to, lowercase and without
+	// the slash: "review" is a comment line starting `/review` or `@<app> review`.
+	Commands []string `protobuf:"bytes,6,rep,name=commands,proto3" json:"commands,omitempty"`
+	// podium_people_only counts an event only when whoever set it off has connected that GitHub
+	// account to Podium.
+	PodiumPeopleOnly bool `protobuf:"varint,7,opt,name=podium_people_only,json=podiumPeopleOnly,proto3" json:"podium_people_only,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RoutineGitHubFilters) Reset() {
@@ -459,6 +465,20 @@ func (x *RoutineGitHubFilters) GetExcludedBranches() []string {
 func (x *RoutineGitHubFilters) GetSkipDrafts() bool {
 	if x != nil {
 		return x.SkipDrafts
+	}
+	return false
+}
+
+func (x *RoutineGitHubFilters) GetCommands() []string {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
+func (x *RoutineGitHubFilters) GetPodiumPeopleOnly() bool {
+	if x != nil {
+		return x.PodiumPeopleOnly
 	}
 	return false
 }
@@ -2338,9 +2358,6 @@ type IdentityPolicy struct {
 	// (default), "fixed" (an issue delegated to Podium is worked on, and nothing they wrote is
 	// a prompt) or "answer".
 	LinearOutsiders string `protobuf:"bytes,6,opt,name=linear_outsiders,json=linearOutsiders,proto3" json:"linear_outsiders,omitempty"`
-	// github_outsiders is what a GitHub user who has not connected GitHub in Podium gets:
-	// "review" (default: the review command) or "refuse".
-	GithubOutsiders string `protobuf:"bytes,7,opt,name=github_outsiders,json=githubOutsiders,proto3" json:"github_outsiders,omitempty"`
 	// shared_model_key is whose model credential a turn of a shared conversation (a multiplayer
 	// chat, a Slack thread, a Linear issue, a pull request) spends: "app" (default: the
 	// company's, whoever asks) or "plan_then_app" (the asker's own Claude, ChatGPT or Grok
@@ -2418,13 +2435,6 @@ func (x *IdentityPolicy) GetSlackOutsiders() string {
 func (x *IdentityPolicy) GetLinearOutsiders() string {
 	if x != nil {
 		return x.LinearOutsiders
-	}
-	return ""
-}
-
-func (x *IdentityPolicy) GetGithubOutsiders() string {
-	if x != nil {
-		return x.GithubOutsiders
 	}
 	return ""
 }
@@ -18705,7 +18715,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0epending_events\x18  \x01(\x05R\rpendingEvents\x12\x1b\n" +
 	"\tchat_mode\x18! \x01(\tR\bchatMode\x12\x1a\n" +
 	"\bplaybook\x18\" \x01(\tR\bplaybook\x12L\n" +
-	"\x0egithub_filters\x18# \x01(\v2%.podium.agent.v1.RoutineGitHubFiltersR\rgithubFilters\"\xd3\x01\n" +
+	"\x0egithub_filters\x18# \x01(\v2%.podium.agent.v1.RoutineGitHubFiltersR\rgithubFilters\"\x9d\x02\n" +
 	"\x14RoutineGitHubFilters\x12%\n" +
 	"\x0eallowed_people\x18\x01 \x03(\tR\rallowedPeople\x12%\n" +
 	"\x0eignored_people\x18\x02 \x03(\tR\rignoredPeople\x12\x1f\n" +
@@ -18713,7 +18723,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"ignoreBots\x12+\n" +
 	"\x11excluded_branches\x18\x04 \x03(\tR\x10excludedBranches\x12\x1f\n" +
 	"\vskip_drafts\x18\x05 \x01(\bR\n" +
-	"skipDrafts\"\xee\x02\n" +
+	"skipDrafts\x12\x1a\n" +
+	"\bcommands\x18\x06 \x03(\tR\bcommands\x12,\n" +
+	"\x12podium_people_only\x18\a \x01(\bR\x10podiumPeopleOnly\"\xee\x02\n" +
 	"\n" +
 	"RoutineRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12?\n" +
@@ -18835,7 +18847,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\broutines\x18\x01 \x03(\v2\x1e.podium.agent.v1.MemberRoutineR\broutines\"f\n" +
 	"\rRoutineLimits\x12$\n" +
 	"\x0emax_per_person\x18\x01 \x01(\x05R\fmaxPerPerson\x12/\n" +
-	"\x14person_daily_cap_usd\x18\x02 \x01(\x01R\x11personDailyCapUsd\"\xb2\x02\n" +
+	"\x14person_daily_cap_usd\x18\x02 \x01(\x01R\x11personDailyCapUsd\"\x9f\x02\n" +
 	"\x0eIdentityPolicy\x12\x16\n" +
 	"\x06linear\x18\x01 \x01(\tR\x06linear\x12!\n" +
 	"\fgithub_write\x18\x02 \x01(\tR\vgithubWrite\x12\x1f\n" +
@@ -18843,9 +18855,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"githubRead\x12\x1b\n" +
 	"\tmodel_key\x18\x04 \x01(\tR\bmodelKey\x12'\n" +
 	"\x0fslack_outsiders\x18\x05 \x01(\tR\x0eslackOutsiders\x12)\n" +
-	"\x10linear_outsiders\x18\x06 \x01(\tR\x0flinearOutsiders\x12)\n" +
-	"\x10github_outsiders\x18\a \x01(\tR\x0fgithubOutsiders\x12(\n" +
-	"\x10shared_model_key\x18\b \x01(\tR\x0esharedModelKey\"\x1a\n" +
+	"\x10linear_outsiders\x18\x06 \x01(\tR\x0flinearOutsiders\x12(\n" +
+	"\x10shared_model_key\x18\b \x01(\tR\x0esharedModelKeyJ\x04\b\a\x10\bR\x10github_outsiders\"\x1a\n" +
 	"\x18GetIdentityPolicyRequest\"T\n" +
 	"\x19GetIdentityPolicyResponse\x127\n" +
 	"\x06policy\x18\x01 \x01(\v2\x1f.podium.agent.v1.IdentityPolicyR\x06policy\"S\n" +

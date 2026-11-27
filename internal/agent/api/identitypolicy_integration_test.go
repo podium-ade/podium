@@ -47,5 +47,5 @@ func TestTheIdentityPolicyIsSetByAdminsOneSettingAtATime(t *testing.T) {
 	assert.Equal(t, "app", got.Msg.GetPolicy().GetLinear(), "the second save did not put the first back")
 	assert.Equal(t, "answer", got.Msg.GetPolicy().GetSlackOutsiders())
 	assert.Equal(t, "plan_then_app", got.Msg.GetPolicy().GetSharedModelKey())
-	assert.Equal(t, "review", got.Msg.GetPolicy().GetGithubOutsiders(), "what nobody set is its default")
+	assert.Equal(t, "refuse", got.Msg.GetPolicy().GetLinearOutsiders(), "what nobody set is its default")
 }

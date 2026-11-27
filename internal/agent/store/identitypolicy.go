@@ -39,8 +39,10 @@ type IdentityPolicy struct {
 	SlackOutsiders string `json:"slack_outsiders"`
 	// LinearOutsiders is OutsidersRefuse, OutsidersFixed or OutsidersAnswer.
 	LinearOutsiders string `json:"linear_outsiders"`
-	// GitHubOutsiders is OutsidersReview or OutsidersRefuse.
-	GitHubOutsiders string `json:"github_outsiders"`
+	// GitHub has no setting for somebody outside Podium: a comment of theirs starts nothing
+	// but a routine on a command, whose own conditions say who may ask (PodiumPeopleOnly).
+	// A policy saved with github_outsiders still has it in its JSON, read once by the
+	// migration that made the review command a routine (connections.EnsureCommandRoutine).
 }
 
 // Whose credential a capability uses.
@@ -64,8 +66,6 @@ const (
 	// OutsidersFixed runs one fixed thing as Podium, and nothing they wrote is a prompt: on
 	// Linear, an issue delegated to Podium is worked on.
 	OutsidersFixed = "fixed"
-	// OutsidersReview is GitHub's fixed thing: a review, through the review command.
-	OutsidersReview = "review"
 	// OutsidersAnswer answers them as Podium, on the company's key, whatever they ask.
 	OutsidersAnswer = "answer"
 )
@@ -80,13 +80,13 @@ var DefaultIdentityPolicy = IdentityPolicy{
 	SharedModelKey:  IdentityApp,
 	SlackOutsiders:  OutsidersRefuse,
 	LinearOutsiders: OutsidersRefuse,
-	GitHubOutsiders: OutsidersReview,
 }
 
 // ErrInvalidIdentityPolicy is a policy with a choice its capability does not offer.
 var ErrInvalidIdentityPolicy = errors.New("invalid identity policy")
 
-const identityPolicyKey = "identity.policy"
+// IdentityPolicyKey is the setting the policy is saved under.
+const IdentityPolicyKey = "identity.policy"
 
 // identityChoices is what each field may be. The first is what an empty field means.
 var identityChoices = []struct {
@@ -108,8 +108,6 @@ var identityChoices = []struct {
 		[]string{OutsidersRefuse, OutsidersAnswer}},
 	{"linear_outsiders", func(p *IdentityPolicy) *string { return &p.LinearOutsiders },
 		[]string{OutsidersRefuse, OutsidersFixed, OutsidersAnswer}},
-	{"github_outsiders", func(p *IdentityPolicy) *string { return &p.GitHubOutsiders },
-		[]string{OutsidersReview, OutsidersRefuse}},
 }
 
 // withDefaults fills every empty field with its default, so a policy saved before a field
@@ -145,7 +143,7 @@ func (p IdentityPolicy) Validate() error {
 // every turn.
 func (s *Store) GetIdentityPolicy(ctx context.Context) (IdentityPolicy, error) {
 	var p IdentityPolicy
-	err := s.GetSetting(ctx, identityPolicyKey, &p)
+	err := s.GetSetting(ctx, IdentityPolicyKey, &p)
 	if errors.Is(err, ErrNotFound) {
 		return DefaultIdentityPolicy, nil
 	}
@@ -172,7 +170,7 @@ func (s *Store) UpdateIdentityPolicy(ctx context.Context, change IdentityPolicy)
 	var out IdentityPolicy
 	err := pgx.BeginFunc(ctx, s.pool, func(t pgx.Tx) error {
 		// Serialises updates: each reads what the one before it wrote.
-		if _, err := t.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", identityPolicyKey); err != nil {
+		if _, err := t.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", IdentityPolicyKey); err != nil {
 			return err
 		}
 		tx := &Store{pool: s.pool, q: s.q.WithTx(t)}
@@ -198,7 +196,7 @@ func (s *Store) PutIdentityPolicy(ctx context.Context, p IdentityPolicy) (Identi
 		return IdentityPolicy{}, err
 	}
 	p = p.withDefaults()
-	if err := s.PutSetting(ctx, identityPolicyKey, p); err != nil {
+	if err := s.PutSetting(ctx, IdentityPolicyKey, p); err != nil {
 		return IdentityPolicy{}, err
 	}
 	return p, nil

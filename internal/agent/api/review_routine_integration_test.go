@@ -38,13 +38,13 @@ func TestTheReviewOnOpenBecomesARoutineOnce(t *testing.T) {
 	assert.Equal(t, "Review pull requests", r.Name)
 	assert.True(t, r.System())
 	assert.Equal(t, store.RoutineKindGitHub, r.Kind)
-	assert.Equal(t, []string{"pull_request.opened", "pull_request.ready_for_review"}, r.Events)
+	assert.Equal(t, []string{"pull_request.opened", "pull_request.ready_for_review", store.GitHubCommandEvent}, r.Events)
 	assert.Equal(t, store.RoutineChatModeSubject, r.ChatMode)
 	assert.Equal(t, store.RoutineReviewPlaybook, r.Playbook)
 	assert.Equal(t, store.RoutineGitHubFilters{
 		AllowedPeople: []string{"alice"}, IgnoredPeople: []string{"mallory"}, IgnoreBots: true,
-		ExcludedBranches: []string{"release/*"}, SkipDrafts: true,
-	}, r.GitHubFilters, "the triggers the review was asked through, and drafts left until they are ready")
+		ExcludedBranches: []string{"release/*"}, SkipDrafts: true, Commands: []string{"review"},
+	}, r.GitHubFilters, "the triggers the review was asked through, drafts left until they are ready, and /review")
 
 	// Deleted, it stays deleted.
 	require.NoError(t, st.DeleteRoutine(ctx, r.ID))
@@ -72,4 +72,65 @@ func TestTheReviewOnOpenBecomesARoutineOnce(t *testing.T) {
 			assert.Empty(t, all)
 		})
 	}
+}
+
+// A deployment whose App answered /review before commands were routines gets "Review when
+// asked", once: on the command alone, and for people in Podium only when the identity policy
+// refused everybody else. One that already has a routine on a command gets nothing.
+func TestTheReviewCommandBecomesARoutineOnce(t *testing.T) {
+	ctx := context.Background()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := connections.GitHub{AppID: "1", WebhookListen: "127.0.0.1:9000"}
+
+	for name, tc := range map[string]struct {
+		policy      map[string]any
+		podiumsOnly bool
+	}{
+		"anybody could ask":          {nil, false},
+		"outsiders were refused":     {map[string]any{"github_outsiders": "refuse", "slack_outsiders": "answer"}, true},
+		"outsiders could ask, saved": {map[string]any{"github_outsiders": "review"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := newStore(t)
+			require.NoError(t, st.PutSetting(ctx, connections.GitHubKey, app))
+			if tc.policy != nil {
+				require.NoError(t, st.PutSetting(ctx, store.IdentityPolicyKey, tc.policy))
+			}
+			require.NoError(t, connections.EnsureCommandRoutine(ctx, st, quiet))
+			require.NoError(t, connections.EnsureCommandRoutine(ctx, st, quiet))
+			all, err := st.ListRoutines(ctx, "")
+			require.NoError(t, err)
+			require.Len(t, all, 1, "made once")
+			r := all[0]
+			assert.Equal(t, "Review when asked", r.Name)
+			assert.Equal(t, []string{store.GitHubCommandEvent}, r.Events)
+			assert.Equal(t, store.RoutineReviewPlaybook, r.Playbook)
+			assert.Equal(t, store.RoutineChatModeSubject, r.ChatMode)
+			assert.Equal(t, store.RoutineGitHubFilters{Commands: []string{"review"}, PodiumPeopleOnly: tc.podiumsOnly}, r.GitHubFilters)
+
+			// The policy still reads, without the field it no longer has.
+			_, err = st.GetIdentityPolicy(ctx)
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("a routine already answers a command", func(t *testing.T) {
+		st := newStore(t)
+		require.NoError(t, st.PutSetting(ctx, connections.GitHubKey, app))
+		require.NoError(t, connections.EnsureReviewRoutine(ctx, st, quiet))
+		require.NoError(t, connections.EnsureCommandRoutine(ctx, st, quiet))
+		all, err := st.ListRoutines(ctx, "")
+		require.NoError(t, err)
+		require.Len(t, all, 1)
+		assert.Equal(t, "Review pull requests", all[0].Name, "the template's routine answers /review already")
+	})
+
+	t.Run("no webhook", func(t *testing.T) {
+		st := newStore(t)
+		require.NoError(t, st.PutSetting(ctx, connections.GitHubKey, connections.GitHub{AppID: "1"}))
+		require.NoError(t, connections.EnsureCommandRoutine(ctx, st, quiet))
+		all, err := st.ListRoutines(ctx, "")
+		require.NoError(t, err)
+		assert.Empty(t, all)
+	})
 }

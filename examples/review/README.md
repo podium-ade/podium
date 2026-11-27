@@ -53,4 +53,6 @@ Then decide what starts a review, under **Routines** in the web UI:
   login (for example `podium[bot]`) under **Only these people**, so people's own pushes don't
   start a review each. The same playbook does the work, and step 2 makes it review only what
   the fix changed.
-- **When someone asks:** `@podium review` or `/review` on a pull request. That needs no routine.
+- **When someone asks:** `@podium review` or `/review` on a pull request. The template has it
+  already: **Asked with a command**, with the command `/review`. Turn on **Only people in
+  Podium** to leave strangers' requests unanswered.

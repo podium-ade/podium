@@ -8,6 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// command is a comment asking with words.
+func command(words ...string) GitHubEventFacts {
+	return GitHubEventFacts{Actor: "a", Pull: true, Base: "main", Command: true, Commands: words}
+}
+
 func TestARoutinesGitHubConditionsTurnEventsAway(t *testing.T) {
 	pr := func(actor, base string) GitHubEventFacts {
 		return GitHubEventFacts{Actor: actor, Pull: true, Base: base}
@@ -40,6 +45,21 @@ func TestARoutinesGitHubConditionsTurnEventsAway(t *testing.T) {
 		"no pull request, no branch to exclude": {
 			RoutineGitHubFilters{ExcludedBranches: []string{"main"}, SkipDrafts: true}, GitHubEventFacts{Actor: "a"}, "",
 		},
+		"a command it answers": {
+			RoutineGitHubFilters{Commands: []string{"review"}}, command("deploy", "review"), "",
+		},
+		"another command":                         {RoutineGitHubFilters{Commands: []string{"review"}}, command("deploy"), "another command"},
+		"a command, by a routine that names none": {RoutineGitHubFilters{}, command("review"), "another command"},
+		"commands say nothing about other events": {
+			RoutineGitHubFilters{Commands: []string{"review"}}, pr("a", "main"), "",
+		},
+		"a command on a draft is asked on purpose": {
+			RoutineGitHubFilters{Commands: []string{"review"}, SkipDrafts: true},
+			GitHubEventFacts{Pull: true, Draft: true, Command: true, Commands: []string{"review"}}, "",
+		},
+		"somebody in Podium":     {RoutineGitHubFilters{PodiumPeopleOnly: true}, GitHubEventFacts{Actor: "a", ActorInPodium: true}, ""},
+		"somebody outside it":    {RoutineGitHubFilters{PodiumPeopleOnly: true}, GitHubEventFacts{Actor: "a"}, "not in podium"},
+		"in Podium is not asked": {RoutineGitHubFilters{}, GitHubEventFacts{Actor: "a"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, why := tc.f.Admits(tc.e)
@@ -69,6 +89,19 @@ func TestARoutinesPlaybookAndConditionsAreChecked(t *testing.T) {
 	_, err = PrepareRoutine(bad)
 	require.ErrorIs(t, err, ErrInvalidRoutine)
 
+	asked := github
+	asked.Events = []string{"pull_request.opened", GitHubCommandEvent}
+	asked.GitHubFilters = RoutineGitHubFilters{}
+	_, err = PrepareRoutine(asked)
+	require.ErrorIs(t, err, ErrInvalidRoutine, "a routine on a command says which")
+	asked.GitHubFilters.Commands = []string{" /Review ", "review", "ship-it"}
+	d, err = PrepareRoutine(asked)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"review", "ship-it"}, d.GitHubFilters.Commands, "the slash is how it is written, not part of it")
+	asked.GitHubFilters.Commands = []string{"/review this"}
+	_, err = PrepareRoutine(asked)
+	require.ErrorIs(t, err, ErrInvalidRoutine, "a command is one word")
+
 	schedule := RoutineDraft{
 		Name: "Digest", Schedule: "0 9 * * *", Timezone: "UTC", Instruction: "Sum up.",
 		NextRunAt: time.Now().Add(time.Hour), Playbook: "triage",
@@ -86,7 +119,8 @@ func TestARoutinesPlaybookAndConditionsAreChecked(t *testing.T) {
 }
 
 func TestAStoredConditionReadsBack(t *testing.T) {
-	f := RoutineGitHubFilters{AllowedPeople: []string{"alice"}, IgnoreBots: true, SkipDrafts: true}
+	f := RoutineGitHubFilters{AllowedPeople: []string{"alice"}, IgnoreBots: true, SkipDrafts: true,
+		Commands: []string{"review"}, PodiumPeopleOnly: true}
 	assert.Equal(t, f, githubFiltersFrom(githubFiltersJSON(f)))
 	assert.Equal(t, `{}`, string(githubFiltersJSON(RoutineGitHubFilters{})))
 	assert.True(t, githubFiltersFrom(nil).IsZero())

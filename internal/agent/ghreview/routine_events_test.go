@@ -58,7 +58,7 @@ func workflowRun(conclusion string) map[string]any {
 }
 
 func TestAFailedWorkflowRunIsKeptAsFailedAndCompleted(t *testing.T) {
-	d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun("failure")), appIs("podium"), routineNow)
+	d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun("failure")), appIs("podium"), nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"workflow_run.failed", "workflow_run.completed"}, d.Events, "the most specific first")
 	assert.Equal(t, "acme/api", d.Repo)
@@ -81,19 +81,19 @@ func TestAFailedWorkflowRunIsKeptAsFailedAndCompleted(t *testing.T) {
 
 func TestAWorkflowRunThatDidNotFailIsOnlyCompleted(t *testing.T) {
 	for _, conclusion := range []string{"success", "cancelled", "skipped", "neutral"} {
-		d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun(conclusion)), nil, routineNow)
+		d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun(conclusion)), nil, nil, routineNow)
 		require.True(t, ok, conclusion)
 		assert.Equal(t, []string{"workflow_run.completed"}, d.Events, conclusion)
 	}
 	for _, conclusion := range []string{"timed_out", "startup_failure"} {
-		d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun(conclusion)), nil, routineNow)
+		d, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, workflowRun(conclusion)), nil, nil, routineNow)
 		require.True(t, ok, conclusion)
 		assert.Equal(t, "workflow_run.failed", d.Events[0], conclusion)
 	}
 
 	requested := workflowRun("")
 	requested["action"] = "requested"
-	_, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, requested), nil, routineNow)
+	_, ok := RoutineDelivery("workflow_run", "del-1", ghBody(t, requested), nil, nil, routineNow)
 	assert.False(t, ok, "a run that has not finished is nothing a routine runs on")
 }
 
@@ -106,7 +106,7 @@ func TestAFailedCheckSuiteLinksItsCommitsChecks(t *testing.T) {
 			"pull_requests": []any{},
 		},
 	})
-	d, ok := RoutineDelivery("check_suite", "del-2", body, nil, routineNow)
+	d, ok := RoutineDelivery("check_suite", "del-2", body, nil, nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"check_suite.failed", "check_suite.completed"}, d.Events)
 	top, data := keptData(t, d)
@@ -129,7 +129,7 @@ func pullRequest(action string, merged bool) map[string]any {
 }
 
 func TestAPullRequestClosedByMergingIsMergedAndClosed(t *testing.T) {
-	d, ok := RoutineDelivery("pull_request", "del-3", ghBody(t, pullRequest("closed", true)), appIs("podium"), routineNow)
+	d, ok := RoutineDelivery("pull_request", "del-3", ghBody(t, pullRequest("closed", true)), appIs("podium"), nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"pull_request.merged", "pull_request.closed"}, d.Events)
 	_, data := keptData(t, d)
@@ -138,15 +138,15 @@ func TestAPullRequestClosedByMergingIsMergedAndClosed(t *testing.T) {
 	assert.Equal(t, "#7: Add retries", d.SubjectTitle)
 	assert.Equal(t, []any{"backend"}, data["labels"])
 
-	d, ok = RoutineDelivery("pull_request", "del-4", ghBody(t, pullRequest("closed", false)), nil, routineNow)
+	d, ok = RoutineDelivery("pull_request", "del-4", ghBody(t, pullRequest("closed", false)), nil, nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"pull_request.closed"}, d.Events)
 
-	d, ok = RoutineDelivery("pull_request", "del-5", ghBody(t, pullRequest("synchronize", false)), nil, routineNow)
+	d, ok = RoutineDelivery("pull_request", "del-5", ghBody(t, pullRequest("synchronize", false)), nil, nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"pull_request.synchronize"}, d.Events)
 
-	_, ok = RoutineDelivery("pull_request", "del-6", ghBody(t, pullRequest("labeled", false)), nil, routineNow)
+	_, ok = RoutineDelivery("pull_request", "del-6", ghBody(t, pullRequest("labeled", false)), nil, nil, routineNow)
 	assert.False(t, ok, "an action no routine can name")
 }
 
@@ -155,22 +155,22 @@ func TestTheAppsOwnPullRequestsAndIssuesReachNoRoutineButItsCIDoes(t *testing.T)
 
 	pr := pullRequest("opened", false)
 	pr["sender"] = bot
-	_, ok := RoutineDelivery("pull_request", "del-7", ghBody(t, pr), appIs("podium"), routineNow)
+	_, ok := RoutineDelivery("pull_request", "del-7", ghBody(t, pr), appIs("podium"), nil, routineNow)
 	assert.False(t, ok, "a pull request the App opened would set a routine on pull requests off again")
 
 	issue := map[string]any{"action": "opened", "sender": bot, "issue": map[string]any{"number": 3, "title": "x"}}
-	_, ok = RoutineDelivery("issues", "del-8", ghBody(t, issue), appIs("podium"), routineNow)
+	_, ok = RoutineDelivery("issues", "del-8", ghBody(t, issue), appIs("podium"), nil, routineNow)
 	assert.False(t, ok)
 
 	run := workflowRun("failure")
 	run["sender"] = bot
-	d, ok := RoutineDelivery("workflow_run", "del-9", ghBody(t, run), appIs("podium"), routineNow)
+	d, ok := RoutineDelivery("workflow_run", "del-9", ghBody(t, run), appIs("podium"), nil, routineNow)
 	require.True(t, ok, "a fix the App pushed that failed again is what a CI routine needs to see")
 	assert.Equal(t, "workflow_run.failed", d.Events[0])
 
 	push := pullRequest("synchronize", false)
 	push["sender"] = bot
-	d, ok = RoutineDelivery("pull_request", "del-12", ghBody(t, push), appIs("podium"), routineNow)
+	d, ok = RoutineDelivery("pull_request", "del-12", ghBody(t, push), appIs("podium"), nil, routineNow)
 	require.True(t, ok, "a fix the App pushed to a pull request is what a routine reviewing it again runs on")
 	assert.Equal(t, []string{"pull_request.synchronize"}, d.Events)
 	assert.True(t, d.Facts.ActorBot, "a routine's Ignore bots still turns it away")
@@ -185,7 +185,7 @@ func TestAReviewAndAnIssueAreKept(t *testing.T) {
 		},
 		"pull_request": map[string]any{"number": 7, "title": "Add retries", "user": map[string]any{"login": "sam"}},
 	})
-	d, ok := RoutineDelivery("pull_request_review", "del-10", review, nil, routineNow)
+	d, ok := RoutineDelivery("pull_request_review", "del-10", review, nil, nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"pull_request_review.submitted"}, d.Events)
 	_, data := keptData(t, d)
@@ -195,7 +195,7 @@ func TestAReviewAndAnIssueAreKept(t *testing.T) {
 		"number": 3, "title": "Login broken", "body": "Steps…", "html_url": "https://github.com/acme/api/issues/3",
 		"user": map[string]any{"login": "sam"},
 	}})
-	d, ok = RoutineDelivery("issues", "del-11", issue, nil, routineNow)
+	d, ok = RoutineDelivery("issues", "del-11", issue, nil, nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, []string{"issues.opened"}, d.Events)
 	assert.Empty(t, d.SubjectKey, "an issue has no conversation of its own")
@@ -212,7 +212,7 @@ func TestWhatNoRoutineCanRunOnIsNotKept(t *testing.T) {
 		"no repository":  {"workflow_run", "del-1", []byte(`{"action":"completed","workflow_run":{"id":1}}`)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, ok := RoutineDelivery(tc.event, tc.delivery, tc.body, nil, routineNow)
+			_, ok := RoutineDelivery(tc.event, tc.delivery, tc.body, nil, nil, routineNow)
 			assert.False(t, ok)
 		})
 	}
@@ -243,16 +243,16 @@ func TestAKeptDeliverySaysWhoSetItOffAndIntoWhichBranch(t *testing.T) {
 	opened := pullRequest("opened", false)
 	opened["pull_request"].(map[string]any)["draft"] = true
 	opened["sender"] = map[string]any{"login": "dependabot[bot]", "type": "Bot"}
-	d, ok := RoutineDelivery("pull_request", "del-f1", ghBody(t, opened), appIs("podium"), routineNow)
+	d, ok := RoutineDelivery("pull_request", "del-f1", ghBody(t, opened), appIs("podium"), nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, store.GitHubEventFacts{Actor: "dependabot[bot]", ActorBot: true, Pull: true, Base: "main", Draft: true}, d.Facts)
 
-	d, ok = RoutineDelivery("workflow_run", "del-f2", ghBody(t, workflowRun("failure")), appIs("podium"), routineNow)
+	d, ok = RoutineDelivery("workflow_run", "del-f2", ghBody(t, workflowRun("failure")), appIs("podium"), nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, store.GitHubEventFacts{Actor: "robin", Pull: true, Base: "main"}, d.Facts)
 
 	issue := map[string]any{"action": "opened", "issue": map[string]any{"number": 3, "title": "x"}}
-	d, ok = RoutineDelivery("issues", "del-f3", ghBody(t, issue), appIs("podium"), routineNow)
+	d, ok = RoutineDelivery("issues", "del-f3", ghBody(t, issue), appIs("podium"), nil, routineNow)
 	require.True(t, ok)
 	assert.Equal(t, store.GitHubEventFacts{Actor: "robin"}, d.Facts, "an issue has no branch")
 }

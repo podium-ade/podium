@@ -754,18 +754,65 @@ describe("RoutineDialog for an admin", () => {
     );
     expect(screen.getByTestId("routine-playbook-hint")).toHaveTextContent("posts its review on the pull request");
     expect(screen.getByTestId("routine-skip-drafts")).toHaveAttribute("data-state", "checked");
+    // And when somebody asks: /review is the command it answers.
+    expect(screen.getByTestId("routine-event-pull_request.command")).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("routine-commands")).toHaveTextContent("/review");
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "Review pull requests",
           trigger: "github",
-          events: ["pull_request.opened", "pull_request.ready_for_review"],
+          events: ["pull_request.opened", "pull_request.ready_for_review", "pull_request.command"],
           chatMode: "subject",
           playbook: "@review",
-          githubFilters: expect.objectContaining({ skipDrafts: true, allowedPeople: [], excludedBranches: [] }),
+          githubFilters: expect.objectContaining({
+            skipDrafts: true,
+            allowedPeople: [],
+            excludedBranches: [],
+            commands: ["review"],
+            podiumPeopleOnly: false,
+          }),
         }),
         "system",
+      ),
+    );
+  });
+
+  it("asks which command a routine on commands answers, and who may ask", async () => {
+    const onSave = vi.fn<(d: RoutineDraft, scope: string) => Promise<void>>().mockResolvedValue();
+    mount(
+      <RoutineDialog
+        open
+        title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Deploy", instruction: "Deploy it.", trigger: "github", events: ["pull_request.opened"] }}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.queryByTestId("routine-commands")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("routine-event-pull_request.command"));
+    expect(screen.getByTestId("routine-save")).toBeDisabled();
+    expect(screen.getByText("Name the command it answers to save, such as /review.")).toBeInTheDocument();
+
+    const commands = screen.getByLabelText("Commands");
+    await userEvent.type(commands, "deploy this{Enter}");
+    expect(screen.getByText(/is not a command/)).toBeInTheDocument();
+    await userEvent.clear(commands);
+    await userEvent.type(commands, "/Deploy{Enter}");
+    expect(screen.getByTestId("routine-commands")).toHaveTextContent("/deploy");
+    await userEvent.click(screen.getByTestId("routine-podium-people-only"));
+
+    await userEvent.click(screen.getByTestId("routine-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          events: ["pull_request.opened", "pull_request.command"],
+          githubFilters: expect.objectContaining({ commands: ["deploy"], podiumPeopleOnly: true }),
+        }),
+        expect.anything(),
       ),
     );
   });
