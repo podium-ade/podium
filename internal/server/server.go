@@ -376,33 +376,42 @@ func (s *Server) mux() http.Handler {
 	opts := []connect.HandlerOption{connect.WithCompressMinBytes(compressMinBytes)}
 
 	rpc := http.NewServeMux()
+	// Every service registered here is also mounted on root below, from this list, behind
+	// the identity middleware. Two lists written by hand drifted once: AuditService was
+	// registered and never mounted, so the conductor's audit rows fell through to the UI
+	// handler and were refused with a 405.
+	var services []string
+	handle := func(path string, h http.Handler) {
+		rpc.Handle(path, h)
+		services = append(services, path)
+	}
 	tasks := api.NewTaskService(s.store, s.logs, s.nodes, s.secrets, s.logger)
 	tasks.SetMaxPreviewTTL(s.cfg.PreviewMaxTTL)
 	desktops := s.desktops()
 	if desktops != nil {
 		tasks.SetDesktops(desktops)
 	}
-	rpc.Handle(podiumv1connect.NewTaskServiceHandler(tasks, opts...))
-	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
-	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
+	handle(podiumv1connect.NewTaskServiceHandler(tasks, opts...))
+	handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
+	handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
+	handle(podiumv1connect.NewIdentityServiceHandler(
 		api.NewIdentityService(s.store, s.cfg.AgentEnabled(), s.cfg.GoogleEnabled()), opts...))
-	rpc.Handle(podiumv1connect.NewUserServiceHandler(
+	handle(podiumv1connect.NewUserServiceHandler(
 		api.NewUserService(s.store, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
+	handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewAuditServiceHandler(
+	handle(podiumv1connect.NewAuditServiceHandler(
 		api.NewAuditService(s.store, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
+	handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewSandboxProviderServiceHandler(
+	handle(podiumv1connect.NewSandboxProviderServiceHandler(
 		api.NewSandboxProviderService(s.secrets, sandboxPusher{s.nodes, s.sandboxes}, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
+	handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewSnapshotServiceHandler(
+	handle(podiumv1connect.NewSnapshotServiceHandler(
 		api.NewSnapshotService(s.snapshots, s.sandboxSnaps, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewOrganizationServiceHandler(
+	handle(podiumv1connect.NewOrganizationServiceHandler(
 		api.NewOrganizationService(s.store, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
@@ -428,7 +437,7 @@ func (s *Server) mux() http.Handler {
 	}, s.logger).Register(root)
 
 	// Every Connect procedure lives under /<fully-qualified service>/, so the identity
-	// middleware is mounted on those three prefixes rather than on "/". That leaves "/" for the
+	// middleware is mounted on each of those prefixes rather than on "/". That leaves "/" for the
 	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
 	// index.html, and the bundle asks the operator for one before it calls anything.
 	withAuth := func(h http.Handler) http.Handler {
@@ -436,20 +445,8 @@ func (s *Server) mux() http.Handler {
 			auth.RestrictRBAC(s.store, s.cfg.GoogleEnabled(), h)))
 	}
 	authenticated := withAuth(rpc)
-	for _, service := range []string{
-		podiumv1connect.TaskServiceName,
-		podiumv1connect.NodeServiceName,
-		podiumv1connect.NodeAdminServiceName,
-		podiumv1connect.IdentityServiceName,
-		podiumv1connect.UserServiceName,
-		podiumv1connect.SecretServiceName,
-		podiumv1connect.RegistryServiceName,
-		podiumv1connect.SandboxProviderServiceName,
-		podiumv1connect.ArtifactServiceName,
-		podiumv1connect.SnapshotServiceName,
-		podiumv1connect.OrganizationServiceName,
-	} {
-		root.Handle("/"+service+"/", authenticated)
+	for _, path := range services {
+		root.Handle(path, authenticated)
 	}
 	// The conductor's service is mounted only when there is a conductor. With the URL
 	// unset the prefix falls through to the SPA handler below, so a browser that asks for
