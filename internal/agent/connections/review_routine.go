@@ -86,11 +86,8 @@ func EnsureCommandRoutine(ctx context.Context, st *store.Store, logger *slog.Log
 			}
 		}
 	}
-	// The policy as it was saved, with the field the store no longer reads.
-	var legacy struct {
-		GitHubOutsiders string `json:"github_outsiders"`
-	}
-	if err := st.GetSetting(ctx, store.IdentityPolicyKey, &legacy); err != nil && !errors.Is(err, store.ErrNotFound) {
+	refused, err := outsidersWereRefused(ctx, st)
+	if err != nil {
 		return err
 	}
 	claimed, err := st.ClaimSetting(ctx, CommandRoutineMadeKey, map[string]any{"made": answering})
@@ -107,7 +104,7 @@ func EnsureCommandRoutine(ctx context.Context, st *store.Store, logger *slog.Log
 		Playbook:    store.RoutineReviewPlaybook,
 		GitHubFilters: store.RoutineGitHubFilters{
 			Commands:         []string{ReviewCommand},
-			PodiumPeopleOnly: legacy.GitHubOutsiders == store.OutsidersRefuse,
+			PodiumPeopleOnly: refused,
 		},
 	}
 	r, err := st.CreateSystemRoutine(ctx, "podium", draft)
@@ -119,6 +116,19 @@ func EnsureCommandRoutine(ctx context.Context, st *store.Store, logger *slog.Log
 	}
 	logger.InfoContext(ctx, "the review command is now a routine", "routine_id", r.ID, "name", r.Name)
 	return nil
+}
+
+// outsidersWereRefused reports whether the identity policy refused the review command to
+// somebody who had not connected GitHub, from the policy as it was saved: the store no longer
+// reads the field.
+func outsidersWereRefused(ctx context.Context, st *store.Store) (bool, error) {
+	var legacy struct {
+		GitHubOutsiders string `json:"github_outsiders"`
+	}
+	if err := st.GetSetting(ctx, store.IdentityPolicyKey, &legacy); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	return legacy.GitHubOutsiders == store.OutsidersRefuse, nil
 }
 
 // EnsureReviewRoutine makes the review routine for a deployment that reviewed pull requests
@@ -142,6 +152,10 @@ func EnsureReviewRoutine(ctx context.Context, st *store.Store, logger *slog.Logg
 		return err
 	}
 	reviewing := strings.TrimSpace(app.AppID) != "" && strings.TrimSpace(app.WebhookListen) != "" && !filters.NoAutoReview
+	refused, err := outsidersWereRefused(ctx, st)
+	if err != nil {
+		return err
+	}
 	claimed, err := st.ClaimSetting(ctx, ReviewRoutineMadeKey, map[string]any{"made": reviewing})
 	if err != nil || !claimed || !reviewing {
 		return err
@@ -150,6 +164,14 @@ func EnsureReviewRoutine(ctx context.Context, st *store.Store, logger *slog.Logg
 		AllowedPeople: filters.AllowedActors, IgnoredPeople: filters.IgnoredActors,
 		IgnoreBots: filters.IgnoreBots, ExcludedBranches: filters.ExcludedBranches,
 	})
+	if refused {
+		// Its conditions are about whose pull requests are reviewed when they open, which
+		// anybody's were. Who could ask with /review was narrower: only people in Podium. So the
+		// command is left out here, and EnsureCommandRoutine, which runs next, makes it a routine
+		// of its own with People in Podium, rather than this one answering anybody.
+		draft.Events = slices.DeleteFunc(draft.Events, func(e string) bool { return e == store.GitHubCommandEvent })
+		draft.GitHubFilters.Commands = nil
+	}
 	r, err := st.CreateSystemRoutine(ctx, "podium", draft)
 	if err != nil {
 		// The next start tries again.

@@ -125,6 +125,31 @@ func TestTheReviewCommandBecomesARoutineOnce(t *testing.T) {
 		assert.Equal(t, "Review pull requests", all[0].Name, "the template's routine answers /review already")
 	})
 
+	// The order the conductor runs them in, on a deployment that refused outsiders the command:
+	// the review on open keeps reviewing anybody's pull request, and /review is its own routine
+	// for people in Podium, so the refusal is not lost to the template's /review.
+	t.Run("outsiders were refused, and the review routine is made first", func(t *testing.T) {
+		st := newStore(t)
+		require.NoError(t, st.PutSetting(ctx, connections.GitHubKey, app))
+		require.NoError(t, st.PutSetting(ctx, store.IdentityPolicyKey, map[string]any{"github_outsiders": "refuse"}))
+		require.NoError(t, connections.EnsureReviewRoutine(ctx, st, quiet))
+		require.NoError(t, connections.EnsureCommandRoutine(ctx, st, quiet))
+		all, err := st.ListRoutines(ctx, "")
+		require.NoError(t, err)
+		byName := map[string]store.Routine{}
+		for _, r := range all {
+			byName[r.Name] = r
+		}
+		require.Len(t, byName, 2)
+		onOpen := byName["Review pull requests"]
+		assert.Equal(t, []string{"pull_request.opened", "pull_request.ready_for_review"}, onOpen.Events)
+		assert.Empty(t, onOpen.GitHubFilters.Commands)
+		assert.False(t, onOpen.GitHubFilters.PodiumPeopleOnly, "anybody's pull request is still reviewed when it opens")
+		asked := byName["Review when asked"]
+		assert.Equal(t, []string{store.GitHubCommandEvent}, asked.Events)
+		assert.Equal(t, store.RoutineGitHubFilters{Commands: []string{"review"}, PodiumPeopleOnly: true}, asked.GitHubFilters)
+	})
+
 	t.Run("no webhook", func(t *testing.T) {
 		st := newStore(t)
 		require.NoError(t, st.PutSetting(ctx, connections.GitHubKey, connections.GitHub{AppID: "1"}))

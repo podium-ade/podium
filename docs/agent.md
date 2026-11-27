@@ -4269,7 +4269,10 @@ fed by the GitHub App's webhook instead of the Linear app's.
   App's webhook set up) and has no routine on a command gets one made once, as a system routine:
   on **Asked with a command**, `/review`, starting the repository's review playbook. **Who
   counts** is **People in Podium** when the identity policy's **GitHub users** setting refused
-  outsiders the review command, and **Everyone** otherwise, as the App answered. Deleted, it is not
+  outsiders the review command, and **Everyone** otherwise, as the App answered. A deployment
+  that refused them and gets **Review pull requests** made in the same start gets it without
+  `/review`: its conditions are about whose pull requests are reviewed when they open, which
+  was anybody's, so asking stays with this routine and its narrower **Who counts**. Deleted, it is not
   made again.
 - **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
   chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,
