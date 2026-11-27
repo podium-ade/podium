@@ -41,6 +41,10 @@ var notConfiguration = map[string]string{
 	// jail that the next message of its conversation is written into. The node sets the same
 	// name inside a task container.
 	"PODIUM_INBOX_SOCK": "set by the conductor or the node on a turn's runtime",
+	// Set by the agent runtime on a turn whose GitHub token is a minted App token: the App's
+	// bot login, so a playbook that posts with gh can find its own reviews and comments. It is
+	// unset when the token is a person's, and an operator never sets it (docs/agent.md).
+	"PODIUM_GITHUB_APP_LOGIN": "set by the agent runtime on a turn that has a minted App token",
 	// Test-only: a Postgres to run the integration tests against without Docker, and a
 	// bubblewrap binary to run the real sandbox test with.
 	"PODIUM_TEST_POSTGRES_URL":      "test-only, read by integration tests",
