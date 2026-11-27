@@ -373,6 +373,15 @@ where id in (
   for update skip locked
 );
 
+-- RoutineRunPullAuthors is the GitHub account ids of the authors of the pull requests a run's
+-- events are about, as the events kept them (author_id). An id is a number GitHub never reuses,
+-- which is what an identity is proven by; a username is not.
+-- name: RoutineRunPullAuthors :many
+select distinct (payload->'data'->>'author_id')::text as author_id
+from routine_events
+where run_id = @run_id::text
+  and coalesce(payload->'data'->>'author_id', '') not in ('', '0');
+
 -- RoutineRanInChat reports whether any routine's run happened in a chat that is not its own:
 -- a pull request's conversation an admin may then read (docs/agent.md, "On a GitHub event").
 -- name: RoutineRanInChat :one

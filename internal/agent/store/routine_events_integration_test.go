@@ -346,3 +346,55 @@ func TestASettingIsClaimedOnce(t *testing.T) {
 	require.NoError(t, s.GetSetting(ctx, "once", &got))
 	assert.True(t, got["made"], "the first claim's value stays")
 }
+
+func TestAPullRequestsAuthorWhoIsAPodiumPersonIsMadeAnEditorOfItsConversation(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	r, err := s.CreateSystemRoutine(ctx, "admin@acme.com", githubDraft()) // pull_request.opened in acme/api
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "ana@acme.com", Provider: ProviderGitHub, ExternalID: "1001"}))
+	opened := func(id string, authorID int64) GitHubDelivery {
+		payload, _ := json.Marshal(map[string]any{
+			"source": "github", "type": "pull_request", "action": "opened",
+			"data": map[string]any{"repo": "acme/api", "number": 42, "author": "someone", "author_id": authorID},
+		})
+		return GitHubDelivery{
+			DeliveryID: id, Events: []string{"pull_request.opened"}, Repo: "acme/api", Payload: payload,
+			ReceivedAt: time.Now().UTC(), SubjectKey: "PullRequest:acme/api#42", SubjectTitle: "#42: Fix login",
+		}
+	}
+	for i, author := range []int64{1001, 2002, 0} { // ana; somebody Podium does not know; none read
+		n, err := s.StoreGitHubRoutineEvents(ctx, opened("pr-"+string(rune('a'+i)), author))
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+	}
+	run, ok, err := s.ClaimRoutineRun(ctx, r.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineSubjectEvents(ctx, run.ID, r.ID, "PullRequest:acme/api#42", 20)
+	require.NoError(t, err)
+	chat, _, err := s.EnsureConversation(ctx, "github:acme/api#42", "#42: Fix login")
+	require.NoError(t, err)
+
+	// A viewer's row from before — as a personal routine's owner gets — is raised.
+	_, err = s.JoinChat(ctx, chat.ID, "ana@acme.com", RoleViewer, GrantedByRoutine)
+	require.NoError(t, err)
+	require.NoError(t, s.NotePullRequestAuthors(ctx, run.ID, chat.ID))
+	role, err := s.ChatRole(ctx, chat.ID, "ana@acme.com")
+	require.NoError(t, err)
+	assert.Equal(t, RoleEditor, role, "the author may write in their pull request's conversation")
+
+	list, _, err := s.ListChats(ctx, "ana@acme.com", false, 50, "")
+	require.NoError(t, err)
+	var listed bool
+	for _, c := range list {
+		listed = listed || c.ID == chat.ID
+	}
+	assert.True(t, listed, "and it is among their chats")
+
+	require.NoError(t, s.NotePullRequestAuthors(ctx, run.ID, chat.ID), "noting again changes nothing")
+	role, err = s.ChatRole(ctx, chat.ID, "ana@acme.com")
+	require.NoError(t, err)
+	assert.Equal(t, RoleEditor, role)
+}

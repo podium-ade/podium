@@ -22,6 +22,15 @@ insert into chat_access (chat_id, login, role, granted_by, granted_at)
 values (@chat_id, @login, @role, @granted_by, @granted_at)
 on conflict (chat_id, login) do nothing;
 
+-- GrantChatEditor makes login an editor of a chat: a new row, or a viewer's raised. An
+-- editor's row is left as it is, granted_by included.
+-- name: GrantChatEditor :execrows
+insert into chat_access (chat_id, login, role, granted_by, granted_at)
+values (@chat_id, @login, 'editor', @granted_by, @granted_at)
+on conflict (chat_id, login) do update
+   set role = 'editor', granted_by = excluded.granted_by, granted_at = excluded.granted_at
+ where chat_access.role = 'viewer';
+
 -- name: RevokeChatAccess :execrows
 delete from chat_access where chat_id = @chat_id and login = @login;
 

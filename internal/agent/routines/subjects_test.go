@@ -20,11 +20,12 @@ import (
 // fakeStore's lock. about is what each event is about, by its id; an event missing from it is
 // about nothing in particular.
 type fakeSubjects struct {
-	ev       *fakeEvents
-	about    map[int]string
-	convs    map[string]string   // conversation key -> chat
-	readers  map[string][]string // conversation key -> owners recorded as reading it
-	runChats map[string]string   // run -> chat
+	ev         *fakeEvents
+	about      map[int]string
+	convs      map[string]string   // conversation key -> chat
+	readers    map[string][]string // conversation key -> owners recorded as reading it
+	runChats   map[string]string   // run -> chat
+	authorRuns []string            // run@chat a pull request's authors were recorded for
 }
 
 func newFakeSubjects(ev *fakeEvents) *fakeSubjects {
@@ -102,6 +103,13 @@ func (f *fakeSubjects) NoteRoutineReader(_ context.Context, key, _, login string
 	return nil
 }
 
+func (f *fakeSubjects) NotePullRequestAuthors(_ context.Context, run, chatID string) error {
+	f.ev.st.mu.Lock()
+	defer f.ev.st.mu.Unlock()
+	f.authorRuns = append(f.authorRuns, run+"@"+chatID)
+	return nil
+}
+
 func (f *fakeSubjects) SetRoutineRunChat(_ context.Context, run, chatID string) error {
 	f.ev.st.mu.Lock()
 	defer f.ev.st.mu.Unlock()
@@ -169,6 +177,7 @@ func TestEachTicketsEventsRunInItsConversationOneRunAtATime(t *testing.T) {
 	assert.Equal(t, 1, sub.ev.waiting("rtn_triage"))
 	assert.Empty(t, st.routines["rtn_triage"].ChatID, "the routine opened no chat of its own")
 	assert.Empty(t, sub.readers["linear:a"], "a system routine has no owner to record")
+	assert.Empty(t, sub.authorRuns, "a Linear ticket has no pull request author")
 
 	// While that run goes, the next ticket waits.
 	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())
@@ -306,6 +315,7 @@ func TestAPullRequestsEventsRunInItsConversation(t *testing.T) {
 	assert.True(t, got.Conversation)
 	assert.True(t, strings.HasPrefix(got.Instruction, PullRequestPreamble), "told it is a turn of the pull request's conversation")
 	assert.Equal(t, []string{"ana@acme.com"}, sub.readers["github:Acme/api#42"], "its owner may read it")
+	assert.Equal(t, []string{got.RunID + "@chat_github:Acme/api#42"}, sub.authorRuns, "and its author is made an editor")
 
 	finish(st, got.RunID)
 	newSubjectScheduler(t, sub, runner, now.Add(15*time.Second)).Tick(context.Background())

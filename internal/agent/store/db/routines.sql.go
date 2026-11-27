@@ -1313,6 +1313,36 @@ func (q *Queries) RoutineRanInChat(ctx context.Context, chatID string) (bool, er
 	return column_1, err
 }
 
+const routineRunPullAuthors = `-- name: RoutineRunPullAuthors :many
+select distinct (payload->'data'->>'author_id')::text as author_id
+from routine_events
+where run_id = $1::text
+  and coalesce(payload->'data'->>'author_id', '') not in ('', '0')
+`
+
+// RoutineRunPullAuthors is the GitHub account ids of the authors of the pull requests a run's
+// events are about, as the events kept them (author_id). An id is a number GitHub never reuses,
+// which is what an identity is proven by; a username is not.
+func (q *Queries) RoutineRunPullAuthors(ctx context.Context, runID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, routineRunPullAuthors, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var author_id string
+		if err := rows.Scan(&author_id); err != nil {
+			return nil, err
+		}
+		items = append(items, author_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const routineSpendSince = `-- name: RoutineSpendSince :one
 select (coalesce((select sum(t.cost_usd) from turns t
                     join routine_runs r on r.id = t.routine_run_id

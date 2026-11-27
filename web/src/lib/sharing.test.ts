@@ -23,6 +23,10 @@ describe("sharing helpers", () => {
 
   it("says how a shared chat got into the list", () => {
     expect(sharedByLabel({ accessReason: "shared", sharedBy: "alice", myRole: "editor" })).toBe("Shared by alice");
+    expect(sharedByLabel({ accessReason: "shared", sharedBy: "author", myRole: "editor" })).toBe("Your pull request");
+    expect(sharedByLabel({ accessReason: "shared", sharedBy: "routine", myRole: "viewer" })).toBe(
+      "From your routine · view only",
+    );
     expect(sharedByLabel({ accessReason: "shared", sharedBy: "link", myRole: "viewer" })).toBe(
       "Opened from a link · view only",
     );

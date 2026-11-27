@@ -104,7 +104,8 @@ func (s *Scheduler) fireSubjects(ctx context.Context, r store.Routine, now time.
 // subjectConversation is the chat of the conversation sub's run goes in — a Linear issue's or
 // project's, or a pull request's — opened now when it has none, and records it on the run. The
 // routine's owner is recorded as somebody who may read it (store.NoteRoutineReader): as having
-// touched the issue, or with a viewer's row on the pull request's chat.
+// touched the issue, or with a viewer's row on the pull request's chat. A pull request's author
+// who is a Podium person is made an editor of it (store.NotePullRequestAuthors).
 func (s *Scheduler) subjectConversation(ctx context.Context, r store.Routine, run store.RoutineRun, key, title string) (string, error) {
 	chat, created, err := s.subjects.EnsureConversation(ctx, key, title)
 	if err != nil {
@@ -121,6 +122,11 @@ func (s *Scheduler) subjectConversation(ctx context.Context, r store.Routine, ru
 	if r.OwnerLogin != "" {
 		if err := s.subjects.NoteRoutineReader(ctx, key, chat.ID, r.OwnerLogin); err != nil {
 			s.logger.WarnContext(ctx, "recording a routine's owner on its conversation failed", "run_id", run.ID, "error", err)
+		}
+	}
+	if store.IsGitHubConversation(key) {
+		if err := s.subjects.NotePullRequestAuthors(ctx, run.ID, chat.ID); err != nil {
+			s.logger.WarnContext(ctx, "recording a pull request's author on its conversation failed", "run_id", run.ID, "error", err)
 		}
 	}
 	return chat.ID, nil

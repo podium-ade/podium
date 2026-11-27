@@ -54,6 +54,9 @@ const (
 	// GrantedByRoutine is a routine's owner let read the pull request's conversation their
 	// routine ran in (NoteRoutineReader).
 	GrantedByRoutine = "routine"
+	// GrantedByAuthor is a pull request's author made an editor of its conversation when a
+	// routine ran in it (NotePullRequestAuthors).
+	GrantedByAuthor = "author"
 )
 
 // ErrNoSuchMember is sharing with a login that has never signed in to Podium. A share is
@@ -145,6 +148,19 @@ func (s *Store) JoinChat(ctx context.Context, chatID, login, role, via string) (
 	})
 	if err != nil {
 		return false, fmt.Errorf("join chat %s as %s: %w", chatID, login, err)
+	}
+	return n > 0, nil
+}
+
+// GrantChatEditor makes login an editor of chatID, raising a viewer's row, without notifying
+// anybody: it is what a pull request's author is given on its conversation. It reports whether
+// a row was written or raised.
+func (s *Store) GrantChatEditor(ctx context.Context, chatID, login, via string) (bool, error) {
+	n, err := s.q.GrantChatEditor(ctx, db.GrantChatEditorParams{
+		ChatID: chatID, Login: login, GrantedBy: via, GrantedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return false, fmt.Errorf("make %s an editor of chat %s: %w", login, chatID, err)
 	}
 	return n > 0, nil
 }

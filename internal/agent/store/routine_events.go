@@ -893,6 +893,32 @@ func (s *Store) NoteRoutineReader(ctx context.Context, key, chatID, login string
 	return s.RecordLinearPeople(ctx, key, []LinearPerson{{Login: login, Via: LinearViaRoutine}}, time.Now())
 }
 
+// NotePullRequestAuthors makes the author of each pull request runID's events are about an
+// editor of chatID, that pull request's conversation, which also lists it among their chats: a
+// routine reviewing or fixing somebody's pull request is work on their behalf, whoever owns the
+// routine, and they may answer it there. A viewer's row they had is raised. An author is
+// somebody only once their GitHub account is proven to be a Podium login (Connect GitHub, by its
+// numeric id); anybody else is nobody to tell.
+func (s *Store) NotePullRequestAuthors(ctx context.Context, runID, chatID string) error {
+	ids, err := s.q.RoutineRunPullAuthors(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("read the pull request authors of run %s: %w", runID, err)
+	}
+	for _, id := range ids {
+		login, err := s.IdentityLogin(ctx, ProviderGitHub, id)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := s.GrantChatEditor(ctx, chatID, login, GrantedByAuthor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LinearConversationKey is the conversation a subject is (0048): an issue's, linear:<issue id>,
 // which is the key every agent session on the issue is a turn of, or a project's,
 // linear:project:<project id>. "" is a subject that is no conversation — a cycle, a label, or

@@ -369,7 +369,7 @@ func (e *routineEvent) pullRequest(repo string, body []byte) ([]string, error) {
 	e.facts.Pull, e.facts.Base, e.facts.Draft = true, pr.Base.Ref, pr.Draft
 	e.Data = map[string]any{
 		"repo": repo, "number": pr.Number, "title": clip(pr.Title, 300), "body": clip(pr.Body, maxRoutineBodyRunes),
-		"author": pr.User.Login, "state": pr.State, "draft": pr.Draft, "merged": pr.Merged,
+		"author": pr.User.Login, "author_id": pr.User.ID, "state": pr.State, "draft": pr.Draft, "merged": pr.Merged,
 		"head_branch": pr.Head.Ref, "head_sha": pr.Head.SHA, "base_branch": pr.Base.Ref,
 		"additions": pr.Additions, "deletions": pr.Deletions, "changed_files": pr.ChangedFiles,
 		"labels": labelNames(pr.Labels),
@@ -415,7 +415,7 @@ func (e *routineEvent) review(repo string, body []byte) ([]string, error) {
 	e.facts.Pull, e.facts.Base, e.facts.Draft = true, pr.Base.Ref, pr.Draft
 	e.Data = map[string]any{
 		"repo": repo, "number": pr.Number, "title": clip(pr.Title, 300), "author": pr.User.Login,
-		"reviewer": r.User.Login, "state": strings.ToLower(r.State), "body": clip(r.Body, maxRoutineBodyRunes),
+		"author_id": pr.User.ID, "reviewer": r.User.Login, "state": strings.ToLower(r.State), "body": clip(r.Body, maxRoutineBodyRunes),
 		"commit_sha": r.CommitID, "head_branch": pr.Head.Ref, "base_branch": pr.Base.Ref,
 	}
 	return []string{"pull_request_review.submitted"}, nil

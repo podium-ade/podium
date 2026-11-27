@@ -74,6 +74,7 @@ type SubjectStore interface {
 	AttachRoutineSubjectEvents(ctx context.Context, runID, routineID, subjectKey string, limit int) (int, error)
 	EnsureConversation(ctx context.Context, sourceKey, title string) (store.Chat, bool, error)
 	NoteRoutineReader(ctx context.Context, sourceKey, chatID, login string) error
+	NotePullRequestAuthors(ctx context.Context, runID, chatID string) error
 	SetRoutineRunChat(ctx context.Context, runID, chatID string) error
 	RunningRoutineRun(ctx context.Context, routineID string) (store.RoutineRun, error)
 }

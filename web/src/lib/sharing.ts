@@ -60,6 +60,9 @@ export function sharedByLabel(chat: Pick<Chat, "accessReason" | "sharedBy" | "my
   if (chat.accessReason !== "shared") return "";
   if (chat.sharedBy === "link") return `Opened from a link${view}`;
   if (chat.sharedBy === "members") return `From Workspace${view}`;
+  // Written by the conductor, not a person: a routine ran in a pull request's conversation.
+  if (chat.sharedBy === "author") return `Your pull request${view}`;
+  if (chat.sharedBy === "routine") return `From your routine${view}`;
   return `Shared by ${chat.sharedBy || "its owner"}${view}`;
 }
 
