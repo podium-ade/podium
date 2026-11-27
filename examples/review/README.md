@@ -54,5 +54,5 @@ Then decide what starts a review, under **Routines** in the web UI:
   start a review each. The same playbook does the work, and step 2 makes it review only what
   the fix changed.
 - **When someone asks:** `@podium review` or `/review` on a pull request. The template has it
-  already: **Asked with a command**, with the command `/review`. Turn on **Only people in
-  Podium** to leave strangers' requests unanswered.
+  already: **Asked with a command**, with the command `/review`, and **Who counts** set to
+  **Everyone**. Set it to **People in Podium** to leave strangers' requests unanswered.

@@ -230,6 +230,28 @@ function GitHubConditionsField({
         An event these turn away is never given to the routine. Who set it off is whoever opened, pushed, reviewed
         or wrote the command; for CI, the pull request’s author.
       </p>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.podium} className="text-sm font-medium">
+          Who counts
+        </label>
+        <Select
+          value={value.podiumPeopleOnly ? "podium" : "everyone"}
+          onValueChange={(v) => set({ podiumPeopleOnly: v === "podium" })}
+        >
+          <SelectTrigger id={ids.podium} data-testid="routine-who" aria-describedby={`${ids.podium}-hint`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="everyone">Everyone</SelectItem>
+            <SelectItem value="podium">{`People in ${brand}`}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p id={`${ids.podium}-hint`} data-testid="routine-who-hint" className="text-xs leading-relaxed text-muted">
+          {value.podiumPeopleOnly
+            ? `Only GitHub accounts someone connected to ${brand}. Anybody else’s events are turned away, commands included.`
+            : "Anybody whose events reach the App. On a public repository, anyone who can comment can ask with a command."}
+        </p>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid content-start gap-1.5">
           <label htmlFor={ids.allowed} className="text-sm font-medium">
@@ -265,14 +287,6 @@ function GitHubConditionsField({
         </div>
       </div>
       <div className="grid gap-3">
-        <CheckRow
-          id={ids.podium}
-          testId="routine-podium-people-only"
-          checked={value.podiumPeopleOnly}
-          onChange={(on) => set({ podiumPeopleOnly: on })}
-          label={`Only people in ${brand}`}
-          detail={`Only GitHub accounts someone connected to ${brand} count. Left off, anyone who can comment can ask with a command.`}
-        />
         <CheckRow
           id={ids.bots}
           testId="routine-ignore-bots"

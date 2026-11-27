@@ -366,9 +366,9 @@ SAML is not implemented.
   chose: the same untrusted text, fenced the same way.
   **Asked with a command** is the one event anybody who can comment sets off on purpose, by
   writing `/review`. What it runs is the routine's playbook, with its instruction; the comment
-  is kept as event data, fenced like a pull request's body, never as the instruction. Turn on
-  **Only people in Podium** for a routine whose playbook should not run for strangers, and give
-  a command anybody may use only a playbook that is safe on untrusted text: the review is
+  is kept as event data, fenced like a pull request's body, never as the instruction. Set **Who
+  counts** to **People in Podium** for a routine whose playbook should not run for strangers,
+  and give a command **Everyone** may use only a playbook that is safe on untrusted text: the review is
   read-only. Podium once ran `/review` from anybody itself, with a fixed instruction and the
   comment dropped; that is now the **Review pull requests** routine, and nothing about it is
   hidden.

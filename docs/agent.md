@@ -3581,8 +3581,8 @@ What that decides:
   ends; nothing runs. The Linear poller is the exception: it cannot tell who asked. On GitHub,
   a commenter who has not connected GitHub gets a confused reaction. What anybody may ask for
   with a command, `/review` or `@podium review`, is a routine's: one on **Asked with a
-  command**, whose conditions say who may ask (**Only people in Podium**, **Only these
-  people**), and whose playbook and instruction say what it does ([On a GitHub
+  command**, whose conditions say who may ask (**Who counts**: **Everyone** or **People in
+  Podium**; **Only these people**), and whose playbook and instruction say what it does ([On a GitHub
   event](#on-a-github-event)).
 - **A login is spelled as podium-server spells it.** That is who the proxy says is calling,
   and what chats, access rows and personal secrets are keyed on. A login somebody types — a
@@ -3645,10 +3645,11 @@ what the same page says, per surface:
 | Linear | refuse (the session says so) | delegated issues only · answer as Podium |
 
 A GitHub commenter who has not connected GitHub here is refused. A command they write is a
-routine's, under its conditions: a routine on **Asked with a command** with **Only people in
-Podium** turns them away, and one without it answers anybody who can comment. The page had a
-**GitHub users** setting for the review command when that was built in; the migration that made
-the command a routine carried a refusal there into its routine as **Only people in Podium**.
+routine's, under its conditions: a routine on **Asked with a command** whose **Who counts** is
+**People in Podium** turns them away, and one on **Everyone** answers anybody who can comment.
+The page had a **GitHub users** setting for the review command when that was built in; the
+migration that made the command a routine carried a refusal there into its routine as **People
+in Podium**.
 
 Answered, they run as nobody: the global model key, the global MCP servers and secrets, the
 Linear app and the GitHub App as the access table says, and nobody's personal anything. "Delegated
@@ -4237,11 +4238,12 @@ fed by the GitHub App's webhook instead of the Linear app's.
   written by other people: titles, bodies, branch names and commit messages are whatever anybody
   who can push or comment typed.
 - **Conditions.** Whose events count and about which pull requests, as the App's Triggers once
-  decided for its review, now each routine's own (`github_filters`): **Only these people** and
-  **Never these people** (GitHub logins, each added as a chip; never wins), **Ignore bot
-  accounts**, **Only people in Podium** (the GitHub account that set the event off is one a
-  Podium person connected, matched by its numeric id; an account nobody connected, or one not
-  known, does not count), **Skip draft pull requests** (marking one ready is its own event; a
+  decided for its review, now each routine's own (`github_filters`): **Who counts**, a dropdown,
+  **Everyone** (the default) or **People in Podium** (the GitHub account that set the event off
+  is one a Podium person connected, matched by its numeric id; an account nobody connected, or
+  one not known, does not count; `podium_people_only`), **Only these people** and **Never these
+  people** (GitHub logins, each added as a chip; never wins), **Ignore bot accounts**, **Skip
+  draft pull requests** (marking one ready is its own event; a
   command on a draft still counts, since somebody asked), and **Ignore these base branches** (patterns, each added with Enter, case sensitive: a plain name matches
   only itself; a glob follows GitHub Actions, so `feature/*` matches `feature/login` but not
   `feature/login/ui`, and `feature/**` matches both; text between slashes, `/^release-\d+$/`, is
@@ -4265,9 +4267,9 @@ fed by the GitHub App's webhook instead of the Linear app's.
   it is still answered.
 - **Review when asked.** A deployment whose App answered `/review` when that was built in (the
   App's webhook set up) and has no routine on a command gets one made once, as a system routine:
-  on **Asked with a command**, `/review`, starting the repository's review playbook. It has
-  **Only people in Podium** when the identity policy's **GitHub users** setting refused
-  outsiders the review command, and answers anybody otherwise, as the App did. Deleted, it is not
+  on **Asked with a command**, `/review`, starting the repository's review playbook. **Who
+  counts** is **People in Podium** when the identity policy's **GitHub users** setting refused
+  outsiders the review command, and **Everyone** otherwise, as the App answered. Deleted, it is not
   made again.
 - **Where it runs.** Under the repositories, **Runs happen in** chooses: **The pull request's
   chat** (the default, `chat_mode` `subject`) or **A new chat** (`routine`), the routine's own,

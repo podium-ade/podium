@@ -803,7 +803,10 @@ describe("RoutineDialog for an admin", () => {
     await userEvent.clear(commands);
     await userEvent.type(commands, "/Deploy{Enter}");
     expect(screen.getByTestId("routine-commands")).toHaveTextContent("/deploy");
-    await userEvent.click(screen.getByTestId("routine-podium-people-only"));
+    expect(screen.getByTestId("routine-who")).toHaveTextContent("Everyone");
+    await userEvent.click(screen.getByTestId("routine-who"));
+    await userEvent.click(await screen.findByRole("option", { name: /^People in / }));
+    expect(screen.getByTestId("routine-who-hint")).toHaveTextContent("Anybody else’s events are turned away");
 
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>

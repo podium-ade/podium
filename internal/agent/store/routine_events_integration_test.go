@@ -252,7 +252,7 @@ func TestAGitHubDeliveryIsKeptForEachRoutineThatAsksForItUnderTheNameItAskedFor(
 	assert.Len(t, waiting, 2, "the routine on failures and the Linear one still have events waiting")
 }
 
-// "Only people in Podium" asks whether the account that set an event off is somebody's here,
+// "Who counts: People in Podium" asks whether the account that set an event off is somebody's here,
 // and only a routine with that condition makes the store ask.
 func TestOnlyPeopleInPodiumIsTheAccountSomebodyConnected(t *testing.T) {
 	s := newStore(t)

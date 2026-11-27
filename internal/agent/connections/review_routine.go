@@ -60,7 +60,7 @@ const CommandRoutineMadeKey = "routines.review_command_made"
 // App answered `/review` before commands were routines: "Review when asked", on that command
 // alone, so the routine that reviews pull requests when they open is left as its owner made
 // it. Somebody who had not connected GitHub could ask unless the identity policy refused them,
-// and that refusal becomes the routine's "Only people in Podium". Nothing is made where a
+// and that refusal becomes the routine's "Who counts: People in Podium". Nothing is made where a
 // routine already answers a command: a deployment that made its review routine from the
 // template since has /review in it.
 func EnsureCommandRoutine(ctx context.Context, st *store.Store, logger *slog.Logger) error {
