@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import type { IdentityPolicy } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { useBrand } from "../../lib/brand";
@@ -88,15 +89,6 @@ const OUTSIDERS: Field[] = [
       { value: "answer", label: `Answer as ${b}` },
     ],
   },
-  {
-    key: "githubOutsiders",
-    label: "GitHub users",
-    hint: "Anybody who has not connected GitHub here, members included. A review is rate limited and takes no instructions from them.",
-    options: () => [
-      { value: "review", label: "Review command only" },
-      { value: "refuse", label: "Refuse" },
-    ],
-  },
 ];
 
 type Values = Record<Field["key"], string>;
@@ -110,14 +102,14 @@ function valuesOf(p: IdentityPolicy): Values {
     sharedModelKey: p.sharedModelKey,
     slackOutsiders: p.slackOutsiders,
     linearOutsiders: p.linearOutsiders,
-    githubOutsiders: p.githubOutsiders,
   };
 }
 
 /**
  * IdentityPolicyPanel is Settings → Identity, for admins and owners: whose account each kind of
  * work uses when a person is behind a turn, and what somebody outside Podium gets when they ask
- * from Slack, Linear or GitHub.
+ * from Slack or Linear. On GitHub, what a command from anybody runs is a routine's, and its
+ * conditions say who may ask.
  */
 export function IdentityPolicyPanel() {
   const policy = useQuery({
@@ -192,7 +184,17 @@ function PolicyForm({ loaded }: { loaded: Values }) {
       <Group
         id="identity-outsiders"
         title={`People who are not in ${brand}`}
-        lead={`Somebody who asks from Slack, Linear or GitHub without being a person here. Answered, they run as ${brand}: the organization's key, its Linear app and GitHub App, and no one's personal secrets.`}
+        lead={
+          <>
+            Somebody who asks from Slack or Linear without being a person here. Answered, they run as {brand}: the
+            organization&apos;s key and Linear app, and no one&apos;s personal secrets. On GitHub, a command such as{" "}
+            <code>/review</code> is a routine&apos;s, whose conditions say who may ask; see{" "}
+            <Link to="/agent/routines" className="underline underline-offset-2 hover:text-fg">
+              Routines
+            </Link>
+            .
+          </>
+        }
         fields={OUTSIDERS}
         values={values}
         brand={brand}
@@ -223,7 +225,7 @@ function Group({
 }: {
   id: string;
   title: string;
-  lead: string;
+  lead: ReactNode;
   fields: Field[];
   values: Values;
   brand: string;

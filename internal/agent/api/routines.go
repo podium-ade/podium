@@ -10,7 +10,9 @@ package api
 //
 // A routine that runs on Linear events is for admins and owners too, in either scope: the
 // events carry issues from every team the Linear app can see, so a member's routine would read
-// teams the member is not in. Only an admin may set a draft's trigger to Linear.
+// teams the member is not in. Only an admin may set a draft's trigger to Linear. GitHub events
+// are the same: they carry every repository the GitHub App is installed on, whatever the
+// member can read.
 
 import (
 	"context"
@@ -292,10 +294,10 @@ func (s *AgentService) ResumeRoutine(
 	if err != nil {
 		return nil, err
 	}
-	// A routine on Linear events has no schedule; the events that waited while it was paused
-	// run on the next tick.
+	// A routine on events has no schedule; the events that waited while it was paused run on
+	// the next tick.
 	next := time.Now()
-	if !r.OnLinear() {
+	if !r.OnEvents() {
 		sched, err := routines.Parse(r.Schedule, r.Timezone)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
@@ -482,7 +484,7 @@ func (s *AgentService) ListMemberRoutines(
 			Id: r.ID, Name: r.Name, OwnerLogin: r.OwnerLogin, ScheduleText: scheduleText(r),
 			Timezone: r.Timezone, Enabled: r.Enabled, PausedReason: r.PausedReason,
 		}
-		if !r.OnLinear() {
+		if !r.OnEvents() {
 			m.NextRunAt = timestamppb.New(r.NextRunAt)
 		}
 		if spend, err := s.store.RoutineSpendSince(ctx, r.ID, since); err == nil {
@@ -634,7 +636,8 @@ func (s *AgentService) routineDraft(
 		Instruction: in.GetInstruction(), Notes: in.GetNotes(), PersonalityID: strings.TrimSpace(in.GetPersonalityId()),
 		Model: in.GetModel(), Effort: in.GetEffort(),
 		Kind: strings.TrimSpace(in.GetTrigger()), Events: in.GetEvents(), Teams: in.GetTeams(),
-		ChatMode: in.GetChatMode(),
+		ChatMode: in.GetChatMode(), Playbook: strings.TrimSpace(in.GetPlaybook()),
+		GitHubFilters: filtersFromProto(in.GetGithubFilters()),
 	}
 	if c := in.GetDailyCapUsd(); c != 0 {
 		d.DailyCapUSD = &c
@@ -650,14 +653,19 @@ func (s *AgentService) routineDraft(
 	if strings.TrimSpace(d.Timezone) == "" {
 		d.Timezone = "UTC"
 	}
-	if d.Kind == store.RoutineKindLinear {
-		// Linear events carry issues from every team the app can see, so a routine on them is
-		// an admin's to set, whoever it runs as. It has no schedule to parse or floor to hold:
-		// how often it runs is what Linear sends, bounded by the scheduler's guards.
+	if d.Kind == store.RoutineKindLinear || d.Kind == store.RoutineKindGitHub {
+		// Linear events carry issues from every team the app can see, and GitHub events every
+		// repository the App is installed on, so a routine on them is an admin's to set,
+		// whoever it runs as. It has no schedule to parse or floor to hold: how often it runs
+		// is what the events are, bounded by the scheduler's guards.
 		if !Infra(ctx) {
-			return store.RoutineDraft{}, "", connect.NewError(connect.CodePermissionDenied,
-				errors.New("only admins and owners can set a routine to run on Linear events: they carry issues "+
-					"from every team the Linear app can see"))
+			why := "only admins and owners can set a routine to run on Linear events: they carry issues " +
+				"from every team the Linear app can see"
+			if d.Kind == store.RoutineKindGitHub {
+				why = "only admins and owners can set a routine to run on GitHub events: they carry every " +
+					"repository the GitHub App is installed on"
+			}
+			return store.RoutineDraft{}, "", connect.NewError(connect.CodePermissionDenied, errors.New(why))
 		}
 		if _, err := time.LoadLocation(strings.TrimSpace(d.Timezone)); err != nil {
 			return store.RoutineDraft{}, "", connect.NewError(connect.CodeInvalidArgument,
@@ -690,25 +698,69 @@ func (s *AgentService) routineDraft(
 		}
 		display = voice.DisplayName
 	}
+	if err := s.checkRoutinePlaybook(d.Playbook); err != nil {
+		return store.RoutineDraft{}, "", err
+	}
 	if _, err := store.PrepareRoutine(d); err != nil {
 		return store.RoutineDraft{}, "", routineError(err)
 	}
 	return d, display, nil
 }
 
+// checkRoutinePlaybook refuses a playbook the profile does not have. A playbook removed after
+// the routine was saved fails its runs, each saying so.
+func (s *AgentService) checkRoutinePlaybook(name string) error {
+	if name == "" || name == store.RoutineReviewPlaybook {
+		return nil
+	}
+	p := s.profiles.Current()
+	if p == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("no profile is loaded, so no playbook can be named"))
+	}
+	if _, ok := p.Playbooks[name]; !ok {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("there is no playbook named %q", name))
+	}
+	return nil
+}
+
+func filtersFromProto(in *agentv1.RoutineGitHubFilters) store.RoutineGitHubFilters {
+	if in == nil {
+		return store.RoutineGitHubFilters{}
+	}
+	return store.RoutineGitHubFilters{
+		AllowedPeople: in.GetAllowedPeople(), IgnoredPeople: in.GetIgnoredPeople(), IgnoreBots: in.GetIgnoreBots(),
+		ExcludedBranches: in.GetExcludedBranches(), SkipDrafts: in.GetSkipDrafts(),
+		Commands: in.GetCommands(), PodiumPeopleOnly: in.GetPodiumPeopleOnly(),
+	}
+}
+
+func filtersToProto(f store.RoutineGitHubFilters) *agentv1.RoutineGitHubFilters {
+	return &agentv1.RoutineGitHubFilters{
+		AllowedPeople: f.AllowedPeople, IgnoredPeople: f.IgnoredPeople, IgnoreBots: f.IgnoreBots,
+		ExcludedBranches: f.ExcludedBranches, SkipDrafts: f.SkipDrafts,
+		Commands: f.Commands, PodiumPeopleOnly: f.PodiumPeopleOnly,
+	}
+}
+
 // scheduleText is what starts a routine's runs, in words.
 func scheduleText(r store.Routine) string {
-	if r.OnLinear() {
-		return store.DescribeLinearTrigger(r.Events, r.Teams)
+	if r.OnEvents() {
+		return store.DescribeEventTrigger(r.Kind, r.Events, r.Teams)
 	}
 	return routines.Describe(r.Schedule)
 }
 
 // triggerDetails adds what starts a routine's runs to an audit entry's details.
 func triggerDetails(r store.Routine, details map[string]any) map[string]any {
-	if r.OnLinear() {
+	if r.Playbook != "" {
+		details["playbook"] = r.Playbook
+	}
+	if r.OnEvents() {
 		details["trigger"], details["events"], details["teams"] = r.Kind, r.Events, r.Teams
 		details["chat_mode"] = r.ChatMode
+		if !r.GitHubFilters.IsZero() {
+			details["github_filters"] = r.GitHubFilters
+		}
 		return details
 	}
 	details["schedule"] = r.Schedule
@@ -765,9 +817,13 @@ func (s *AgentService) routineToProto(ctx context.Context, r store.Routine) *age
 		Scope:         r.Scope,
 		Repos:         r.Repos,
 		CreatedBy:     r.CreatedBy,
+		Playbook:      r.Playbook,
 	}
-	if r.OnLinear() {
-		// Its runs come when Linear's events do; there is no next one to name.
+	if r.OnGitHub() {
+		out.GithubFilters = filtersToProto(r.GitHubFilters)
+	}
+	if r.OnEvents() {
+		// Its runs come when its events do; there is no next one to name.
 		if pending, err := s.store.PendingRoutineEvents(ctx, []string{r.ID}); err == nil {
 			out.PendingEvents = int32(pending[r.ID])
 		}

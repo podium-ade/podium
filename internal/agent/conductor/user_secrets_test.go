@@ -235,3 +235,36 @@ func (kindSource) Post(context.Context, string, Outbound) (string, error) { retu
 func (kindSource) Edit(context.Context, string, string, Outbound) error   { return nil }
 func (kindSource) Attach(context.Context, string, Attachment) error       { return nil }
 func (kindSource) React(context.Context, string, Reaction) error          { return nil }
+
+// The App writing to GitHub stands in for the connected GitHub account a playbook names, for a
+// turn with nobody behind it as for anybody; every other personal secret needs the person. A
+// system routine's run is always the system: one that needs somebody's own secret is refused
+// with what to change.
+func TestTheAppStandsInForTheGitHubAccountButNoOtherPersonalSecret(t *testing.T) {
+	ctx := context.Background()
+	account := spec.SecretRef{Name: profiles.GitHubTokenSecret, Target: spec.SecretTargetEnv, Key: "GITHUB_TOKEN"}
+	linearKey := spec.SecretRef{Name: "linear_key", Target: spec.SecretTargetEnv, Key: "LINEAR_KEY"}
+	pushes := profiles.Playbook{Name: "podium-dev", UserSecrets: []spec.SecretRef{account}}
+	needsMore := profiles.Playbook{Name: "podium-dev", UserSecrets: []spec.SecretRef{account, linearKey}}
+	c := skillsConductor(t, "", pushes)
+	asPerson := &BriefGit{Name: "Ada", Email: "4242+ada@users.noreply.github.com"}
+
+	require.NoError(t, c.personalSecretsOK(ctx, "", pushes, nil, true), "a system routine pushes as the App")
+	require.NoError(t, c.personalSecretsOK(ctx, "", pushes, nil, false), "so does an automatic review the App writes for")
+	require.NoError(t, c.personalSecretsOK(ctx, "ada@acme.com", needsMore, asPerson, false))
+
+	err := c.personalSecretsOK(ctx, "", needsMore, nil, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "system routine")
+	assert.Contains(t, err.Error(), `"linear_key"`)
+	assert.NotContains(t, err.Error(), profiles.GitHubTokenSecret, "the App covers the account")
+	assert.Contains(t, err.Error(), "company secret")
+	assert.Contains(t, err.Error(), "run the routine as a person")
+
+	err = c.personalSecretsOK(ctx, "", needsMore, nil, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "there is no person", "anything else with nobody behind it is refused as before")
+
+	err = c.personalSecretsOK(ctx, "", pushes, asPerson, false)
+	require.Error(t, err, "a persona is somebody's account, which a turn with nobody cannot have")
+}

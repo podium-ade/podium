@@ -24,11 +24,10 @@ const (
 // OutboxPayload is what a retry hands the source again. It is the conductor's Outbound, flat,
 // so this package does not import the conductor's types.
 type OutboxPayload struct {
-	Type           string `json:"type"`
-	Text           string `json:"text"`
-	TaskID         string `json:"task_id,omitempty"`
-	Playbook       string `json:"playbook,omitempty"`
-	SourcePlaybook bool   `json:"source_playbook,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	TaskID   string `json:"task_id,omitempty"`
+	Playbook string `json:"playbook,omitempty"`
 	// CancelReason is the conductor's Outbound.CancelReason, kept so a retry after a restart
 	// is still recognised by the source as a stop's.
 	CancelReason string `json:"cancel_reason,omitempty"`

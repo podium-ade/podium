@@ -1,0 +1,30 @@
+# A review playbook that posts its own review, the way Podium once did on its own.
+#
+# Podium used to treat the review playbook's final message as a GitHub review: it parsed the
+# first line for a verdict and fenced `inline` notes for comments, and kept a status comment
+# above it. It does none of that now. The playbook posts with the GitHub token its task is
+# given, so everything about a review is in the prompt beside this file, where you can read
+# and change it. That prompt reproduces the old behaviour step by step.
+#
+# Copy this file and ../prompts/review.md into your profile, change `repos` to yours, and
+# start it from a routine: the "Review pull requests" template, with "The repository's review
+# playbook" doing the work. See ../README.md.
+system_prompt: file:../prompts/review.md
+
+# Reviews every repository the App is installed on that no other playbook names in its
+# `github_repos`, and is what "The repository's review playbook" resolves to there. Name
+# repositories in `github_repos` instead to review only those.
+github: true
+
+# The repository the workspace is laid out around. A review reads it; the token it is given
+# can also post on its pull requests, which is how the review gets there.
+repos:
+  - name: api
+    url: https://github.com/acme/api
+    default_branch: main
+
+# bash for git, gh and the tests; no edit or write to the repository: a review changes
+# nothing. The review and status comment are written to files under /tmp by bash.
+allowed_tools: [read, grep, glob, bash, webfetch]
+max_turns: 200
+timeout: 1h

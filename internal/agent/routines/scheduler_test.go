@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
 
@@ -32,6 +33,8 @@ type fakeStore struct {
 	personSpend map[string]float64
 	limits      store.RoutineLimits
 	notices     []string // login|detail
+	// delegations are each turn's tasks.
+	delegations map[string][]store.Delegation
 }
 
 func newFakeStore() *fakeStore {
@@ -39,8 +42,14 @@ func newFakeStore() *fakeStore {
 		routines: map[string]store.Routine{}, runs: map[string]store.RoutineRun{}, claimed: map[string]bool{},
 		turns: map[string]store.Turn{}, busy: map[string]bool{}, members: map[string]bool{"ana@acme.com": true},
 		idle: map[string]int{}, spend: map[string]float64{}, personSpend: map[string]float64{},
-		limits: store.DefaultRoutineLimits,
+		limits: store.DefaultRoutineLimits, delegations: map[string][]store.Delegation{},
 	}
+}
+
+func (f *fakeStore) DelegationsForTurn(_ context.Context, turnID string) ([]store.Delegation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.Delegation{}, f.delegations[turnID]...), nil
 }
 
 func (f *fakeStore) RoutineSpendSince(_ context.Context, id string, _ time.Time) (float64, error) {
@@ -254,6 +263,19 @@ func (r *fakeRunner) RunRoutine(_ context.Context, run chat.RoutineRun) error {
 		return r.err
 	}
 	r.runs = append(r.runs, run)
+	return nil
+}
+
+// fakePlaybooks is the conductor as it starts a routine's playbook.
+type fakePlaybooks struct {
+	mu   sync.Mutex
+	runs []conductor.RoutinePlaybookRun
+}
+
+func (p *fakePlaybooks) RunRoutinePlaybook(_ context.Context, run conductor.RoutinePlaybookRun) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.runs = append(p.runs, run)
 	return nil
 }
 
@@ -476,4 +498,69 @@ func TestAutoPauseTellsTheOwner(t *testing.T) {
 	assert.False(t, st.routines[r.ID].Enabled)
 	require.Len(t, st.notices, 1)
 	assert.Contains(t, st.notices[0], "no longer a Podium member")
+}
+
+// A routine that starts a playbook right away is handed to the conductor, not to its chat, and
+// a scheduler with nobody to start it fails the run saying so.
+func TestARoutineWithAPlaybookIsStartedByTheConductor(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 30, 0, time.UTC)
+	st, runner, playbooks := newFakeStore(), &fakeRunner{}, &fakePlaybooks{}
+	r := digest(now.Add(-30 * time.Second))
+	r.Playbook = "triage"
+	st.routines[r.ID] = r
+	s, err := New(Options{Store: st, Runner: runner, Playbooks: playbooks, Now: func() time.Time { return now },
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	require.NoError(t, err)
+	s.Tick(context.Background())
+
+	assert.Empty(t, runner.runs, "no assistant's turn")
+	require.Len(t, playbooks.runs, 1)
+	got := playbooks.runs[0]
+	assert.Equal(t, conductor.RoutinePlaybookRun{
+		RoutineID: r.ID, RunID: got.RunID, Playbook: "triage", Login: "ana@acme.com", ChatID: "chat_digest",
+	}, got)
+	assert.Equal(t, store.RoutineRunRunning, st.runs[got.RunID].Status)
+
+	st2 := newFakeStore()
+	r.NextRunAt = now.Add(-30 * time.Second)
+	st2.routines[r.ID] = r
+	newScheduler(t, st2, &fakeRunner{}, now).Tick(context.Background())
+	require.Len(t, st2.runs, 1)
+	for _, run := range st2.runs {
+		assert.Equal(t, store.RoutineRunFailed, run.Status)
+		assert.Contains(t, run.Summary, "cannot start a routine's playbook")
+	}
+}
+
+// A run that started a playbook is the task's: it settles once the task ends, as the task
+// ended, and costs what the task did.
+func TestARunThatStartedAPlaybookSettlesWithItsTask(t *testing.T) {
+	now := time.Date(2026, 11, 9, 9, 0, 30, 0, time.UTC)
+	cost := 0.5
+	for _, tc := range []struct {
+		name, task, want, summary string
+	}{
+		{"working", store.TurnRunning, store.RoutineRunRunning, ""},
+		{"done", store.TurnSucceeded, store.RoutineRunDone, ""},
+		{"stopped", store.TurnCancelled, store.RoutineRunDone, "Stopped before it finished."},
+		{"failed", store.TurnFailed, store.RoutineRunFailed, "The `triage` task ended failed."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			r := digest(now.Add(time.Hour))
+			r.Playbook = "triage"
+			st.routines[r.ID] = r
+			st.runs["rrun_1"] = store.RoutineRun{ID: "rrun_1", RoutineID: r.ID, Status: store.RoutineRunRunning, CreatedAt: now.Add(-time.Minute)}
+			st.turns["rrun_1"] = store.Turn{ID: "turn_1", Status: store.TurnSucceeded}
+			st.delegations["turn_1"] = []store.Delegation{{ID: "dlg_1", Playbook: "triage", Status: tc.task, CostUSD: &cost}}
+			newScheduler(t, st, &fakeRunner{}, now).Tick(context.Background())
+			run := st.runs["rrun_1"]
+			assert.Equal(t, tc.want, run.Status)
+			assert.Equal(t, tc.summary, run.Summary)
+			if tc.want != store.RoutineRunRunning {
+				require.NotNil(t, run.CostUSD)
+				assert.InDelta(t, 0.5, *run.CostUSD, 1e-9, "the task's cost is the run's")
+			}
+		})
+	}
 }

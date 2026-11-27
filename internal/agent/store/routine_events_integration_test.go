@@ -172,3 +172,265 @@ func TestWaitingEventsAreCappedAndPruned(t *testing.T) {
 	assert.Equal(t, "b", given[0].DeliveryID)
 	assert.Equal(t, "c", given[1].DeliveryID)
 }
+
+func githubDelivery(id, repo string, events ...string) GitHubDelivery {
+	payload, _ := json.Marshal(map[string]any{
+		"source": "github", "type": "workflow_run", "action": "completed",
+		"data": map[string]any{"repo": repo, "workflow": "CI"},
+	})
+	return GitHubDelivery{DeliveryID: id, Events: events, Repo: repo, Payload: payload, ReceivedAt: time.Now().UTC()}
+}
+
+func TestAGitHubDeliveryIsKeptForEachRoutineThatAsksForItUnderTheNameItAskedFor(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	onFailures := githubDraft() // workflow_run.failed, pull_request.opened; acme/api, acme/web, globex
+	failures, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onFailures)
+	require.NoError(t, err)
+	assert.Empty(t, failures.ChatID, "a routine on GitHub events opens its chat on its first run")
+	onCompleted := githubDraft()
+	onCompleted.Events, onCompleted.Teams = []string{"workflow_run.completed"}, nil
+	completed, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onCompleted)
+	require.NoError(t, err)
+	both := githubDraft()
+	both.Events, both.Teams = []string{"workflow_run.completed", "workflow_run.failed"}, []string{"globex"}
+	bothRoutine, err := s.CreateSystemRoutine(ctx, "admin@acme.com", both)
+	require.NoError(t, err)
+	linear, err := s.CreateSystemRoutine(ctx, "admin@acme.com", linearDraft())
+	require.NoError(t, err)
+
+	failed := []string{"workflow_run.failed", "workflow_run.completed"}
+	n, err := s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-1", "Acme/API", failed...))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "the routine on failures in acme/api and the one on every completion; not globex's")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-1", "acme/api", failed...))
+	require.NoError(t, err)
+	assert.Zero(t, n, "a redelivery is kept once")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-2", "globex/site", failed...))
+	require.NoError(t, err)
+	assert.Equal(t, 3, n, "an owner named reaches every repository of theirs")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-3", "acme/api", "workflow_run.completed"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "a run that passed reaches only the routine on every completion")
+	n, err = s.StoreGitHubRoutineEvents(ctx, githubDelivery("g-4", "acme/api", "Issue.create"))
+	require.NoError(t, err)
+	assert.Zero(t, n, "a Linear event name is no GitHub event")
+	n, err = s.StoreRoutineEvents(ctx, linearDelivery("g-5", "Issue.create", "ENG", time.Now()))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "a Linear delivery reaches the Linear routine alone")
+
+	pending, err := s.PendingRoutineEvents(ctx, []string{failures.ID, completed.ID, bothRoutine.ID, linear.ID})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{failures.ID: 2, completed.ID: 3, bothRoutine.ID: 1, linear.ID: 1}, pending)
+
+	// Each routine's row names the event it asked for, the most specific when it asked for both.
+	run, ok, err := s.ClaimRoutineRun(ctx, bothRoutine.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineEvents(ctx, run.ID, bothRoutine.ID, 20)
+	require.NoError(t, err)
+	got, err := s.RoutineEventsForRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "workflow_run.failed", got[0].Event)
+
+	run, ok, err = s.ClaimRoutineRun(ctx, completed.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineEvents(ctx, run.ID, completed.ID, 20)
+	require.NoError(t, err)
+	got, err = s.RoutineEventsForRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	for _, e := range got {
+		assert.Equal(t, "workflow_run.completed", e.Event)
+	}
+
+	waiting, err := s.RoutinesWithPendingEvents(ctx, 10)
+	require.NoError(t, err)
+	assert.Len(t, waiting, 2, "the routine on failures and the Linear one still have events waiting")
+}
+
+// "Who counts: People in Podium" asks whether the account that set an event off is somebody's here,
+// and only a routine with that condition makes the store ask.
+func TestOnlyPeopleInPodiumIsTheAccountSomebodyConnected(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	open := githubDraft()
+	open.Events, open.Teams = []string{GitHubCommandEvent}, nil
+	open.GitHubFilters = RoutineGitHubFilters{Commands: []string{"review"}}
+	anyone, err := s.CreateSystemRoutine(ctx, "admin@acme.com", open)
+	require.NoError(t, err)
+	closed := open
+	closed.GitHubFilters.PodiumPeopleOnly = true
+	members, err := s.CreateSystemRoutine(ctx, "admin@acme.com", closed)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "alice@acme.com", Provider: ProviderGitHub, ExternalID: "42", Handle: "alice"}))
+
+	asked := func(id, actorID string) GitHubDelivery {
+		d := githubDelivery(id, "acme/api", GitHubCommandEvent)
+		d.Facts = GitHubEventFacts{Actor: "someone", ActorID: actorID, Pull: true, Base: "main", Command: true, Commands: []string{"review"}}
+		return d
+	}
+	n, err := s.StoreGitHubRoutineEvents(ctx, asked("c-1", "42"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "alice connected that account")
+	n, err = s.StoreGitHubRoutineEvents(ctx, asked("c-2", "77"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "nobody connected this one: only the routine that asks anyone")
+	n, err = s.StoreGitHubRoutineEvents(ctx, asked("c-3", ""))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "an unknown account is nobody's")
+
+	pending, err := s.PendingRoutineEvents(ctx, []string{anyone.ID, members.ID})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{anyone.ID: 3, members.ID: 1}, pending)
+}
+
+func TestWhetherARoutineWantsACommitsFinishedChecksIsAskedBeforeReadingThem(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	checks := []string{"checks.failed", "checks.completed"}
+
+	want, err := s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "no routine at all")
+
+	_, err = s.CreateSystemRoutine(ctx, "admin@acme.com", githubDraft()) // workflow_run.failed…; acme/api, acme/web, globex
+	require.NoError(t, err)
+	want, err = s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "a routine on workflow runs alone")
+
+	onChecks := githubDraft()
+	onChecks.Events = []string{"checks.failed"}
+	routine, err := s.CreateSystemRoutine(ctx, "admin@acme.com", onChecks)
+	require.NoError(t, err)
+	for repo, expected := range map[string]bool{"Acme/API": true, "globex/site": true, "initech/app": false} {
+		want, err = s.GitHubRoutinesWant(ctx, repo, checks)
+		require.NoError(t, err)
+		assert.Equal(t, expected, want, repo)
+	}
+
+	_, err = s.SetRoutineEnabled(ctx, routine.ID, false, "", time.Time{})
+	require.NoError(t, err)
+	want, err = s.GitHubRoutinesWant(ctx, "acme/api", checks)
+	require.NoError(t, err)
+	assert.False(t, want, "a paused routine")
+}
+
+// A routine's conditions decide which deliveries it is kept: the review's triggers, made each
+// routine's own. Another routine on the same events without them is kept the same delivery.
+func TestARoutinesConditionsDecideWhichDeliveriesItIsKept(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	review := githubDraft()
+	review.Name, review.Events, review.Playbook = "Review pull requests", []string{"pull_request.opened"}, RoutineReviewPlaybook
+	review.GitHubFilters = RoutineGitHubFilters{
+		IgnoredPeople: []string{"mallory"}, IgnoreBots: true, SkipDrafts: true, ExcludedBranches: []string{"release/*"},
+	}
+	reviewer, err := s.CreateSystemRoutine(ctx, "admin@acme.com", review)
+	require.NoError(t, err)
+	assert.Equal(t, RoutineReviewPlaybook, reviewer.Playbook)
+	assert.Equal(t, review.GitHubFilters, reviewer.GitHubFilters, "kept as saved")
+	plain := githubDraft()
+	plain.Events = []string{"pull_request.opened"}
+	everyone, err := s.CreateSystemRoutine(ctx, "admin@acme.com", plain)
+	require.NoError(t, err)
+
+	keep := func(id string, facts GitHubEventFacts) int {
+		t.Helper()
+		n, err := s.StoreGitHubRoutineEvents(ctx, GitHubDelivery{
+			DeliveryID: id, Events: []string{"pull_request.opened"}, Repo: "acme/api",
+			Payload: []byte(`{"source":"github"}`), ReceivedAt: time.Now(), Facts: facts,
+		})
+		require.NoError(t, err)
+		return n
+	}
+	assert.Equal(t, 2, keep("d-1", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main"}))
+	assert.Equal(t, 1, keep("d-2", GitHubEventFacts{Actor: "mallory", Pull: true, Base: "main"}), "an ignored person")
+	assert.Equal(t, 1, keep("d-3", GitHubEventFacts{Actor: "renovate[bot]", ActorBot: true, Pull: true, Base: "main"}), "a bot")
+	assert.Equal(t, 1, keep("d-4", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main", Draft: true}), "a draft")
+	assert.Equal(t, 1, keep("d-5", GitHubEventFacts{Actor: "alice", Pull: true, Base: "release/2"}), "an excluded base")
+	assert.Equal(t, 0, keep("d-1", GitHubEventFacts{Actor: "alice", Pull: true, Base: "main"}), "kept once")
+	pending, err := s.PendingRoutineEvents(ctx, []string{reviewer.ID, everyone.ID})
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending[reviewer.ID])
+	assert.Equal(t, 5, pending[everyone.ID])
+
+	// Edited, the conditions are what was saved last.
+	review.GitHubFilters = RoutineGitHubFilters{}
+	review.Playbook = ""
+	edited, err := s.UpdateRoutine(ctx, reviewer.ID, "admin@acme.com", review)
+	require.NoError(t, err)
+	assert.True(t, edited.GitHubFilters.IsZero())
+	assert.Empty(t, edited.Playbook)
+	assert.Equal(t, 2, keep("d-6", GitHubEventFacts{Actor: "mallory", Pull: true, Base: "release/2", Draft: true}))
+}
+
+func TestASettingIsClaimedOnce(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	first, err := s.ClaimSetting(ctx, "once", map[string]bool{"made": true})
+	require.NoError(t, err)
+	assert.True(t, first)
+	again, err := s.ClaimSetting(ctx, "once", map[string]bool{"made": false})
+	require.NoError(t, err)
+	assert.False(t, again)
+	var got map[string]bool
+	require.NoError(t, s.GetSetting(ctx, "once", &got))
+	assert.True(t, got["made"], "the first claim's value stays")
+}
+
+func TestAPullRequestsAuthorWhoIsAPodiumPersonIsMadeAnEditorOfItsConversation(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	r, err := s.CreateSystemRoutine(ctx, "admin@acme.com", githubDraft()) // pull_request.opened in acme/api
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertIdentity(ctx, Identity{Login: "ana@acme.com", Provider: ProviderGitHub, ExternalID: "1001"}))
+	opened := func(id string, authorID int64) GitHubDelivery {
+		payload, _ := json.Marshal(map[string]any{
+			"source": "github", "type": "pull_request", "action": "opened",
+			"data": map[string]any{"repo": "acme/api", "number": 42, "author": "someone", "author_id": authorID},
+		})
+		return GitHubDelivery{
+			DeliveryID: id, Events: []string{"pull_request.opened"}, Repo: "acme/api", Payload: payload,
+			ReceivedAt: time.Now().UTC(), SubjectKey: "PullRequest:acme/api#42", SubjectTitle: "#42: Fix login",
+		}
+	}
+	for i, author := range []int64{1001, 2002, 0} { // ana; somebody Podium does not know; none read
+		n, err := s.StoreGitHubRoutineEvents(ctx, opened("pr-"+string(rune('a'+i)), author))
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+	}
+	run, ok, err := s.ClaimRoutineRun(ctx, r.ID, time.Now(), RoutineTriggerEvent, RoutineRunRunning)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = s.AttachRoutineSubjectEvents(ctx, run.ID, r.ID, "PullRequest:acme/api#42", 20)
+	require.NoError(t, err)
+	chat, _, err := s.EnsureConversation(ctx, "github:acme/api#42", "#42: Fix login")
+	require.NoError(t, err)
+
+	// A viewer's row from before — as a personal routine's owner gets — is raised.
+	_, err = s.JoinChat(ctx, chat.ID, "ana@acme.com", RoleViewer, GrantedByRoutine)
+	require.NoError(t, err)
+	require.NoError(t, s.NotePullRequestAuthors(ctx, run.ID, chat.ID))
+	role, err := s.ChatRole(ctx, chat.ID, "ana@acme.com")
+	require.NoError(t, err)
+	assert.Equal(t, RoleEditor, role, "the author may write in their pull request's conversation")
+
+	list, _, err := s.ListChats(ctx, "ana@acme.com", false, 50, "")
+	require.NoError(t, err)
+	var listed bool
+	for _, c := range list {
+		listed = listed || c.ID == chat.ID
+	}
+	assert.True(t, listed, "and it is among their chats")
+
+	require.NoError(t, s.NotePullRequestAuthors(ctx, run.ID, chat.ID), "noting again changes nothing")
+	role, err = s.ChatRole(ctx, chat.ID, "ana@acme.com")
+	require.NoError(t, err)
+	assert.Equal(t, RoleEditor, role)
+}

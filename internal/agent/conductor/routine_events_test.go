@@ -93,3 +93,45 @@ func TestARunsDividerSaysWhichLinearEventStartedIt(t *testing.T) {
 	assert.Equal(t, "Linear: cycle removed", eventDivider([]store.RoutineEvent{cycle}))
 	assert.Empty(t, eventDivider(nil))
 }
+
+func TestARunsDividerSaysWhichGitHubEventStartedIt(t *testing.T) {
+	failed := storedEvent(t, "workflow_run.failed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "workflow": "CI", "pull_requests": []any{map[string]any{"number": 42}},
+	}})
+	onBranch := storedEvent(t, "check_suite.completed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "app": "CircleCI", "head_branch": "main",
+	}})
+	merged := storedEvent(t, "pull_request.merged", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "number": 7,
+	}})
+	review := storedEvent(t, "pull_request_review.submitted", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "number": 7,
+	}})
+	issue := storedEvent(t, "issues.opened", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/web", "number": 3,
+	}})
+
+	assert.Equal(t, "GitHub: workflow “CI” failed on acme/api#42", eventDivider([]store.RoutineEvent{failed}))
+	assert.Equal(t, "GitHub: workflow “CI” failed on acme/api#42 and 1 more", eventDivider([]store.RoutineEvent{failed, merged}))
+	assert.Equal(t, "GitHub: checks “CircleCI” completed on acme/api@main", eventDivider([]store.RoutineEvent{onBranch}))
+	assert.Equal(t, "GitHub: acme/api#7 merged", eventDivider([]store.RoutineEvent{merged}))
+	assert.Equal(t, "GitHub: review submitted on acme/api#7", eventDivider([]store.RoutineEvent{review}))
+	assert.Equal(t, "GitHub: issue acme/web#3 opened", eventDivider([]store.RoutineEvent{issue}))
+	asked := storedEvent(t, store.GitHubCommandEvent, map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "number": 7, "commands": []any{"review"}, "asked_by": "mona",
+	}})
+	assert.Equal(t, "GitHub: /review on acme/api#7 by mona", eventDivider([]store.RoutineEvent{asked}))
+
+	checksFailed := storedEvent(t, "checks.failed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "checks": 5, "checks_failed": 2, "pull_requests": []any{map[string]any{"number": 42}},
+	}})
+	checksDone := storedEvent(t, "checks.completed", map[string]any{"source": "github", "data": map[string]any{
+		"repo": "acme/api", "checks": 5, "head_branch": "main",
+	}})
+	assert.Equal(t, "GitHub: all checks finished, 2 of 5 failed on acme/api#42", eventDivider([]store.RoutineEvent{checksFailed}))
+	assert.Equal(t, "GitHub: all checks finished on acme/api@main", eventDivider([]store.RoutineEvent{checksDone}))
+
+	b := BriefEvents([]store.RoutineEvent{failed})
+	require.Len(t, b, 1)
+	assert.Equal(t, "workflow run failed", b[0].Label)
+}

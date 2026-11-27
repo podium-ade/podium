@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { MemoryRouter } from "react-router";
 import { ConnectionsPanel } from "./ConnectionsPanel";
 import { ToastHost } from "../Toast";
 
@@ -11,7 +12,6 @@ const setSlackConnection = vi.fn();
 const clearSlackConnection = vi.fn();
 const setGitHubConnection = vi.fn();
 const clearGitHubConnection = vi.fn();
-const setGitHubWebhookFilters = vi.fn();
 const setLinearConnection = vi.fn();
 const clearLinearConnection = vi.fn();
 
@@ -25,7 +25,6 @@ vi.mock("../../lib/client", async () => {
       clearSlackConnection: (...a: unknown[]) => clearSlackConnection(...a),
       setGitHubConnection: (...a: unknown[]) => setGitHubConnection(...a),
       clearGitHubConnection: (...a: unknown[]) => clearGitHubConnection(...a),
-      setGitHubWebhookFilters: (...a: unknown[]) => setGitHubWebhookFilters(...a),
       setLinearConnection: (...a: unknown[]) => setLinearConnection(...a),
       clearLinearConnection: (...a: unknown[]) => clearLinearConnection(...a),
     },
@@ -83,9 +82,11 @@ function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ToastHost>
-        <ConnectionsPanel />
-      </ToastHost>
+      <MemoryRouter>
+        <ToastHost>
+          <ConnectionsPanel />
+        </ToastHost>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -97,7 +98,6 @@ describe("ConnectionsPanel", () => {
     clearSlackConnection.mockReset();
     setGitHubConnection.mockReset();
     clearGitHubConnection.mockReset();
-    setGitHubWebhookFilters.mockReset();
     setLinearConnection.mockReset();
     clearLinearConnection.mockReset();
     getConnections.mockResolvedValue(empty);
@@ -247,54 +247,13 @@ describe("ConnectionsPanel", () => {
     expect(clearLinearConnection).toHaveBeenCalledWith({});
   });
 
-  it("saves the triggers on their own", async () => {
-    getConnections.mockResolvedValue({
-      ...empty,
-      github: {
-        ...empty.github,
-        filters: {
-          allowedActors: ["alice"],
-          ignoredActors: [],
-          ignoreBots: false,
-          triggerPhrases: [],
-          replyMode: "bot_threads",
-          autoReview: true,
-          conversationReplies: false,
-          excludedBranches: ["dev"],
-        },
-      },
-    });
-    setGitHubWebhookFilters.mockResolvedValue({ github: empty.github });
+  it("has no triggers to set: it points to the review routine instead", async () => {
+    getConnections.mockResolvedValue(empty);
     mount();
     await userEvent.click(await screen.findByRole("button", { name: "Edit GitHub" }));
-    expect(screen.getByText("1 allowed, @mention.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Triggers/ }));
-
-    expect(screen.getByLabelText("Allowed people")).toHaveValue("alice");
-    expect(screen.getByRole("radio", { name: /Threads the App is in/ })).toBeChecked();
-
-    await userEvent.type(screen.getByLabelText("Allowed people"), "\nbob, carol");
-    await userEvent.type(screen.getByLabelText("Trigger phrases"), "/review{enter}take a look");
-    expect(screen.getByLabelText("Excluded branches")).toHaveValue("dev");
-    await userEvent.type(screen.getByLabelText("Excluded branches"), "{enter}feature/*{enter}/^v{{1,2}$/");
-    await userEvent.click(screen.getByRole("checkbox", { name: /Ignore bot accounts/ }));
-    await userEvent.click(screen.getByRole("radio", { name: /Never/ }));
-    await userEvent.click(screen.getByRole("checkbox", { name: /Review new pull requests/ }));
-    await userEvent.click(screen.getByRole("checkbox", { name: /Answer a reply on the conversation tab/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Save triggers" }));
-
-    expect(setGitHubWebhookFilters).toHaveBeenCalledWith({
-      filters: {
-        allowedActors: ["alice", "bob", "carol"],
-        ignoredActors: [],
-        ignoreBots: true,
-        triggerPhrases: ["/review", "take a look"],
-        replyMode: "always",
-        autoReview: false,
-        conversationReplies: true,
-        excludedBranches: ["dev", "feature/*", "/^v{1,2}$/"],
-      },
-    });
-    expect(setGitHubConnection).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Triggers/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("github-review-routine-note")).toHaveTextContent("when somebody writes /review, is a routine");
+    expect(screen.getByRole("link", { name: "Review pull requests" })).toHaveAttribute("href", "/agent/routines");
   });
+
 });

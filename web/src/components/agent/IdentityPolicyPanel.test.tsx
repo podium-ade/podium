@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
+import { MemoryRouter } from "react-router";
 import { IdentityPolicySchema } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { IdentityPolicyPanel } from "./IdentityPolicyPanel";
@@ -29,16 +30,17 @@ const defaults = {
   sharedModelKey: "app",
   slackOutsiders: "refuse",
   linearOutsiders: "refuse",
-  githubOutsiders: "review",
 };
 
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ToastHost>
-        <IdentityPolicyPanel />
-      </ToastHost>
+      <MemoryRouter>
+        <ToastHost>
+          <IdentityPolicyPanel />
+        </ToastHost>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -56,7 +58,7 @@ describe("IdentityPolicyPanel", () => {
   it("shows the policy and saves only a change", async () => {
     mount();
     expect(await screen.findByTestId("identity-linear")).toHaveTextContent("Theirs, else Podium");
-    expect(screen.getByTestId("identity-githubOutsiders")).toHaveTextContent("Review command only");
+    expect(screen.queryByTestId("identity-githubOutsiders")).not.toBeInTheDocument();
     const save = screen.getByTestId("identity-save");
     expect(save).toBeDisabled();
 

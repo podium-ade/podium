@@ -279,12 +279,15 @@ func appReader(ctx context.Context, app *github.Client, repo string) (githubRead
 	}, nil
 }
 
-// systemRoutineFor is the system routine whose chat g's turn is in.
+// systemRoutineFor is the system routine g's turn is a run of, in its own chat or in a conversation
+// it ran in, or the one whose chat a person wrote in.
 func (c *Conductor) systemRoutineFor(ctx context.Context, g turnGrant) (store.Routine, error) {
 	if c.store == nil || g.src == nil || g.src.Kind() != SourceChat {
 		return store.Routine{}, errors.New("this routine has no owner to read GitHub as")
 	}
-	r, err := c.store.RoutineByChat(ctx, g.ref)
+	// The run's own routine, wherever it runs: a run in a pull request's or a Linear issue's
+	// conversation is in no routine's chat, and is still its system routine's.
+	r, err := c.grantRoutine(ctx, g)
 	if err != nil || !r.System() {
 		return store.Routine{}, errors.New("this routine has no owner to read GitHub as")
 	}

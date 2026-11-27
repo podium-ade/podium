@@ -203,3 +203,12 @@ func BylineForTest(ctx context.Context, st *store.Store, provider, model, owner 
 	c := &Conductor{store: st, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	return c.bylineFor(ctx, provider, model, owner, claudePlan)
 }
+
+// SystemRoutineForTest is the system routine the turn token holds reads GitHub as the App for.
+func (c *Conductor) SystemRoutineForTest(ctx context.Context, token string) (store.Routine, error) {
+	g, ok := c.grantFor(ctx, token)
+	if !ok {
+		return store.Routine{}, ErrNoTurn
+	}
+	return c.systemRoutineFor(ctx, g)
+}

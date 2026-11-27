@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,7 +98,7 @@ func (l *liveConnections) build(cfg config.Config) (*agentslack.Source, *ghrevie
 	var gh *ghreview.Source
 	if cfg.GitHubSourceEnabled() {
 		var err error
-		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger)
+		gh, err = newGitHubSource(cfg, l.store, slack, l.webhooks, l.logger, l.githubRoutineEvents, l.githubRoutinesWant)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -580,6 +581,40 @@ func (l *liveConnections) LinearDataChange(ctx context.Context, d agentlinear.Da
 	})
 }
 
+// githubRoutineEvents keeps a GitHub App delivery for the routines that run on it. Like a Linear
+// data change, it is kept only where routines run, which is asked when it arrives.
+//
+// Reviewing a pull request when it opens is a routine's, so a conductor that runs none reviews
+// nothing on its own. A pull request opened or marked ready there says so, every time, rather
+// than being dropped as quietly as any other event no routine runs on.
+func (l *liveConnections) githubRoutineEvents(ctx context.Context, d store.GitHubDelivery) (int, error) {
+	if l.store == nil || !l.routinesRun {
+		if readyForReview(d.Events) {
+			l.logger.WarnContext(ctx, "github: a pull request is ready for review, but this conductor runs no "+
+				"routines (they need the web chat and a host runtime), so nothing reviews it; "+
+				"an @mention or /review on it still does",
+				"repo", d.Repo, "subject", d.SubjectKey, "delivery", d.DeliveryID, "events", d.Events)
+		}
+		return 0, nil
+	}
+	return l.store.StoreGitHubRoutineEvents(ctx, d)
+}
+
+// readyForReview reports whether a delivery's events are a pull request opened or marked ready:
+// what the "Review pull requests" routine runs on.
+func readyForReview(events []string) bool {
+	return slices.Contains(events, "pull_request.opened") || slices.Contains(events, "pull_request.ready_for_review")
+}
+
+// githubRoutinesWant is whether a routine here asks for one of events on repo, before a
+// commit's checks are read from GitHub for it.
+func (l *liveConnections) githubRoutinesWant(ctx context.Context, repo string, events []string) (bool, error) {
+	if l.store == nil || !l.routinesRun {
+		return false, nil
+	}
+	return l.store.GitHubRoutinesWant(ctx, repo, events)
+}
+
 // linearRevoked records on the saved app that Linear revoked it, so Settings → Connections
 // says so until it is saved again.
 func (l *liveConnections) linearRevoked(clientID string) func(context.Context) {
@@ -615,6 +650,7 @@ func (l *liveConnections) githubSource() *ghreview.Source {
 // Slack bound to a review.
 func newGitHubSource(
 	cfg config.Config, st *store.Store, slack *agentslack.Source, hooks *webhooks.Server, logger *slog.Logger,
+	routines ghreview.RoutineSink, routinesWant ghreview.RoutineWants,
 ) (*ghreview.Source, error) {
 	pem, err := cfg.GitHubAppPrivateKey()
 	if err != nil {
@@ -640,44 +676,14 @@ func newGitHubSource(
 		Listen:        cfg.GitHubWebhookListen,
 		Serve:         serve,
 		Slack:         bridge,
+		Routines:      routines,
+		RoutinesWant:  routinesWant,
 		Logger:        logger,
 		TaskURL: func(taskID string) string {
 			if taskID == "" {
 				return ""
 			}
 			return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
-		},
-		Filters: func(ctx context.Context) (ghreview.Filters, error) {
-			f, err := connections.LoadGitHubFilters(ctx, st)
-			if err != nil {
-				return ghreview.Filters{}, err
-			}
-			return ghreview.Filters{
-				AllowedActors:    f.AllowedActors,
-				IgnoredActors:    f.IgnoredActors,
-				IgnoreBots:       f.IgnoreBots,
-				TriggerPhrases:   f.TriggerPhrases,
-				ReplyMode:        f.ReplyMode,
-				NoAutoReview:     f.NoAutoReview,
-				ExcludedBranches: f.ExcludedBranches,
-
-				ConversationReplies: f.ConversationReplies,
-			}, nil
-		},
-		Reviews: ghreview.ReviewMemory{
-			Get: func(ctx context.Context, sourceKey string) (int64, error) {
-				sess, err := st.GetSessionByKey(ctx, sourceKey)
-				if errors.Is(err, store.ErrNotFound) {
-					return 0, nil
-				}
-				if err != nil {
-					return 0, err
-				}
-				return sess.GitHubReviewID, nil
-			},
-			Set: func(ctx context.Context, sourceKey string, reviewID int64) error {
-				return st.SetGitHubReviewID(ctx, sourceKey, reviewID)
-			},
 		},
 		Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
 			sess, err := st.GetSessionByKey(ctx, sourceKey)

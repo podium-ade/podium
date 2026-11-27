@@ -16,11 +16,12 @@ import {
   type Routine,
 } from "../../gen/podium/agent/v1/agent_pb";
 import {
-  isLinear,
   isSystem,
   money,
+  onEvents,
   draftOf,
   perTicket,
+  perTicketText,
   routineByIdKey,
   routineChatPath,
   routineKey,
@@ -57,7 +58,8 @@ type CardData = { routine: Routine } | null;
 /**
  * RoutineCard sits at the top of a routine's chat (chatId), or on the routine's own page
  * (routineId) when it has no chat — a routine on Linear events that runs in each ticket's
- * conversation never has one: when it runs, how it has been doing, and the controls. Its details
+ * conversation never has one, and one on events has none before its first run: when it runs, how
+ * it has been doing, and the controls. Its details
  * — the instruction, the standing notes, the recent runs and their history — open over what is
  * below rather than pushing it down, so the conversation never jumps. A personal routine is its
  * owner's alone; a system routine's card is shown to the admins who run it, marked as such.
@@ -188,7 +190,7 @@ export function RoutineCard({
   if (!r) return null;
   const busy = act.isPending;
   const system = isSystem(r);
-  const linear = isLinear(r);
+  const evented = onEvents(r);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} asChild>
@@ -209,14 +211,14 @@ export function RoutineCard({
               />
               <span className="min-w-0">
                 {runsText(r)}
-                {!linear && r.timezone && r.timezone !== "UTC" ? (
+                {!evented && r.timezone && r.timezone !== "UTC" ? (
                   <span className="font-normal text-faint">
                     {" "}
                     · {r.timezone}
                   </span>
                 ) : null}
                 {perTicket(r) ? (
-                  <span className="font-normal text-faint"> · in each ticket’s conversation</span>
+                  <span className="font-normal text-faint"> · {perTicketText(r)}</span>
                 ) : null}
               </span>
               {system ? <SystemBadge className="ml-0.5 shrink-0" /> : null}
@@ -255,8 +257,8 @@ export function RoutineCard({
                 <Square aria-hidden />
                 Stop run
               </Button>
-            ) : linear ? null : (
-              // A routine on Linear events runs when they arrive; there is nothing to run by hand.
+            ) : evented ? null : (
+              // A routine on events runs when they arrive; there is nothing to run by hand.
               <Button
                 size="xs"
                 variant="outline"

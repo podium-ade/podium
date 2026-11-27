@@ -1,14 +1,37 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { MessageSquare, MessagesSquare, Repeat, ShieldCheck, User, Webhook, Wrench, type LucideIcon } from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
+import {
+  GitPullRequest,
+  MessageSquare,
+  MessagesSquare,
+  Repeat,
+  ShieldCheck,
+  User,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { type RoutineDraft } from "../../gen/podium/agent/v1/agent_pb";
 import {
   browserZone,
   CI_FIXER,
+  CI_FIXER_ON_GITHUB,
+  REVIEW_ON_GITHUB,
+  REVIEW_PLAYBOOK,
+  COMMAND_EVENT,
+  checkCommand,
+  cleanCommand,
+  commandWord,
+  REVIEW_PLAYBOOK_LABEL,
+  GITHUB_CI,
+  GITHUB_EVENTS,
+  ciOutcome,
+  withOutcome,
+  GITHUB_GROUPS,
   LINEAR_ACTIONS,
   LINEAR_EVENTS,
   LINEAR_TYPES,
+  repoNames,
   teamKeys,
   type ChatMode,
   type Scope,
@@ -18,13 +41,24 @@ import { agent, errorMessage } from "../../lib/client";
 import { cn } from "../../lib/utils";
 import { DEFAULT_REPEAT, toCron } from "../../lib/schedule";
 import { useBrand } from "../../lib/brand";
+import { TagInput } from "../ui/tag-input";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
+import { GitHubGlyph, LinearGlyph } from "./BrandIcon";
 import { ScheduleField } from "./ScheduleField";
 import { TimezonePicker } from "./TimezonePicker";
 
@@ -47,6 +81,252 @@ export function SystemBadge({ className }: { className?: string }) {
 
 /** DEFAULT_ASSISTANT stands for "no personal assistant" in the picker, which cannot hold "". */
 const DEFAULT_ASSISTANT = "podium";
+// The "Who does the work" choice that is no playbook: the assistant's turn. A select item needs a
+// value, and no playbook can be named this.
+const ASSISTANT_WORK = "@assistant";
+
+/**
+ * reviewPlaybooks says which playbook the review choice starts: the one naming the pull
+ * request's repository under "Reviews pull requests in", else the one marked "Reviews pull
+ * requests". short sits beside the choice in the list; hint says it in full.
+ */
+function reviewPlaybooks(playbooks: { name: string; github: boolean; githubRepos: string[] }[]): {
+  short: string;
+  hint: string;
+} {
+  const fallback = playbooks.find((p) => p.github)?.name ?? "";
+  const named = playbooks.filter((p) => p.githubRepos.length > 0);
+  const tail = " It posts its review on the pull request. Which playbook reviews what is set on the Playbooks page.";
+  if (!fallback && named.length === 0) {
+    return {
+      short: "none set",
+      hint: "No playbook reviews pull requests yet, so a run would fail: mark one “Reviews pull requests”, or name repositories under “Reviews pull requests in”, on the Playbooks page.",
+    };
+  }
+  const parts = named.map((p) => `${p.name} for ${p.githubRepos.join(", ")}`);
+  if (fallback) parts.push(named.length > 0 ? `${fallback} for every other repository` : `${fallback} for every repository`);
+  const short = named.length === 0 ? fallback : fallback ? `${fallback} +${named.length}` : `${named.length} by repo`;
+  return {
+    short,
+    hint: `Each run starts the playbook that reviews the pull request’s repository right away: ${parts.join("; ")}.${
+      !fallback ? " A repository none names is not reviewed." : ""
+    }${tail}`,
+  };
+}
+
+/** cleanLogin is a GitHub login as typed, without the @ a mention puts before it. */
+function cleanLogin(v: string): string {
+  return v.trim().replace(/^@/, "");
+}
+
+// A GitHub login, with the [bot] an App's account carries: what the server accepts.
+const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$/;
+
+function checkLogin(v: string): string | undefined {
+  return LOGIN_RE.test(v) ? undefined : `“${v}” is not a GitHub username.`;
+}
+
+function CheckRow({
+  id,
+  checked,
+  onChange,
+  label,
+  detail,
+  testId,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+  detail: string;
+  testId?: string;
+}) {
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3">
+      <Checkbox
+        id={id}
+        data-testid={testId}
+        checked={checked}
+        onCheckedChange={(v) => onChange(v === true)}
+        className="mt-0.5"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm text-fg">{label}</span>
+        <span className="block text-xs leading-relaxed text-muted">{detail}</span>
+      </span>
+    </label>
+  );
+}
+
+/** TemplateButton is a routine to start from, on a blank new one. */
+function TemplateButton({
+  testId,
+  icon: Icon,
+  title,
+  detail,
+  onClick,
+}: {
+  testId: string;
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <Icon className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
+      <span className="grid gap-0.5">
+        <span className="font-medium text-fg">{title}</span>
+        <span className="text-xs text-muted">{detail}</span>
+      </span>
+    </button>
+  );
+}
+
+/** GitHubConditions are a routine on GitHub events' conditions, as the dialog edits them. */
+type GitHubConditions = {
+  allowedPeople: string[];
+  ignoredPeople: string[];
+  ignoreBots: boolean;
+  skipDrafts: boolean;
+  branches: string[];
+  podiumPeopleOnly: boolean;
+  /** The words the command event answers to, as the editor shows them: "/review". */
+  commands: string[];
+};
+
+/**
+ * GitHubConditionsField is whose events a routine on GitHub events is given, and about which pull
+ * requests: the GitHub App's triggers for its review, made each routine's own.
+ */
+function GitHubConditionsField({
+  value,
+  onChange,
+}: {
+  value: GitHubConditions;
+  onChange: (next: GitHubConditions) => void;
+}) {
+  const ids = {
+    allowed: useId(),
+    ignored: useId(),
+    podium: useId(),
+    bots: useId(),
+    drafts: useId(),
+    branches: useId(),
+  };
+  const set = (patch: Partial<GitHubConditions>) => onChange({ ...value, ...patch });
+  const brand = useBrand();
+  return (
+    <fieldset data-testid="routine-github-conditions" className="m-0 grid gap-4 rounded-lg border border-border p-4">
+      <legend className="px-1 text-sm font-medium">
+        Conditions <span className="font-normal text-muted">(optional)</span>
+      </legend>
+      <p className="-mt-1 text-xs leading-relaxed text-muted">
+        An event these turn away is never given to the routine. Who set it off is whoever opened, pushed, reviewed
+        or wrote the command; for CI, the pull request’s author.
+      </p>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.podium} className="text-sm font-medium">
+          Who counts
+        </label>
+        <Select
+          value={value.podiumPeopleOnly ? "podium" : "everyone"}
+          onValueChange={(v) => set({ podiumPeopleOnly: v === "podium" })}
+        >
+          <SelectTrigger id={ids.podium} data-testid="routine-who" aria-describedby={`${ids.podium}-hint`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="everyone">Everyone</SelectItem>
+            <SelectItem value="podium">{`People in ${brand}`}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p id={`${ids.podium}-hint`} data-testid="routine-who-hint" className="text-xs leading-relaxed text-muted">
+          {value.podiumPeopleOnly
+            ? `Only GitHub accounts someone connected to ${brand}. Anybody else’s events are turned away, commands included.`
+            : "Anybody whose events reach the App. On a public repository, anyone who can comment can ask with a command."}
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid content-start gap-1.5">
+          <label htmlFor={ids.allowed} className="text-sm font-medium">
+            Only these people
+          </label>
+          <TagInput
+            id={ids.allowed}
+            testId="routine-allowed-people"
+            values={value.allowedPeople}
+            onChange={(allowedPeople) => set({ allowedPeople })}
+            clean={cleanLogin}
+            validate={checkLogin}
+            noun="username"
+            mono
+            placeholder="GitHub username"
+          />
+        </div>
+        <div className="grid content-start gap-1.5">
+          <label htmlFor={ids.ignored} className="text-sm font-medium">
+            Never these people
+          </label>
+          <TagInput
+            id={ids.ignored}
+            testId="routine-ignored-people"
+            values={value.ignoredPeople}
+            onChange={(ignoredPeople) => set({ ignoredPeople })}
+            clean={cleanLogin}
+            validate={checkLogin}
+            noun="username"
+            mono
+            placeholder="GitHub username"
+          />
+        </div>
+      </div>
+      <div className="grid gap-3">
+        <CheckRow
+          id={ids.bots}
+          testId="routine-ignore-bots"
+          checked={value.ignoreBots}
+          onChange={(on) => set({ ignoreBots: on })}
+          label="Ignore bot accounts"
+          detail="Events Dependabot, Renovate or another App set off do not count."
+        />
+        <CheckRow
+          id={ids.drafts}
+          testId="routine-skip-drafts"
+          checked={value.skipDrafts}
+          onChange={(on) => set({ skipDrafts: on })}
+          label="Skip draft pull requests"
+          detail="A draft counts once it is marked ready for review, which is an event of its own. A command on a draft still counts: somebody asked."
+        />
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.branches} className="text-sm font-medium">
+          Ignore these base branches
+        </label>
+        <TagInput
+          id={ids.branches}
+          testId="routine-excluded-branches"
+          values={value.branches}
+          onChange={(branches) => set({ branches })}
+          commaSeparates={false}
+          noun="branch"
+          mono
+          placeholder="Branch name"
+          describedBy={`${ids.branches}-hint`}
+        />
+        <p id={`${ids.branches}-hint`} className="text-xs text-muted">
+          Pull requests into these branches don’t count. A name, a glob such as <code>release/*</code>, or a regular
+          expression between slashes; Enter adds it.
+        </p>
+      </div>
+    </fieldset>
+  );
+}
 
 const SCOPES: { scope: Scope; label: string; hint: string }[] = [
   {
@@ -62,9 +342,10 @@ const SCOPES: { scope: Scope; label: string; hint: string }[] = [
 ];
 
 /** TRIGGERS are the sources that can start a run. One more source is one more entry, and its fields under the picker. */
-const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: LucideIcon }[] = [
+const TRIGGERS: { trigger: Trigger; label: string; hint: string; icon: ComponentType<{ className?: string }> }[] = [
   { trigger: "schedule", label: "On a schedule", hint: "At set times, in a timezone.", icon: Repeat },
-  { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: Webhook },
+  { trigger: "linear", label: "On a Linear event", hint: "When an issue, comment or project changes.", icon: LinearGlyph },
+  { trigger: "github", label: "On a GitHub event", hint: "When CI finishes, or a pull request or issue changes.", icon: GitHubGlyph },
 ];
 
 /**
@@ -83,6 +364,27 @@ const CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIco
     label: "Each ticket’s conversation",
     hint: "A run joins the issue’s or project’s one conversation, where delegations, mentions and other routines are, and sees what was done on it before.",
     icon: MessagesSquare,
+  },
+];
+
+/**
+ * GITHUB_CHAT_MODES are where a routine on GitHub events runs. The pull request's chat comes
+ * first and is the default: its reviews, mentions and CI are one conversation, which is the
+ * context a run about it needs. A run about no pull request — a push to a branch, an issue —
+ * is in the routine's own chat either way.
+ */
+const GITHUB_CHAT_MODES: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[] = [
+  {
+    mode: "subject",
+    label: "The pull request’s chat",
+    hint: "A run about a pull request joins its chat, where its reviews and everything said about it are, and sees what was done on it before. Events about no pull request run in the routine’s own chat.",
+    icon: MessagesSquare,
+  },
+  {
+    mode: "routine",
+    label: "A new chat",
+    hint: "Every run is in one chat of the routine’s own, with its whole history in view. It is opened on the first run.",
+    icon: MessageSquare,
   },
 ];
 
@@ -106,7 +408,7 @@ function LinearEventsField({
   chatMode: ChatMode;
   onChatMode: (mode: ChatMode) => void;
 }) {
-  const ids = { events: useId(), teams: useId(), chatMode: useId() };
+  const ids = { events: useId(), teams: useId() };
   const connections = useQuery({
     queryKey: ["agent", "connections"],
     queryFn: () => agent.getConnections({}),
@@ -183,37 +485,239 @@ function LinearEventsField({
           Team keys, separated by commas. Leave empty for every team.
         </p>
       </div>
-      <div className="grid gap-1.5" role="group" aria-labelledby={ids.chatMode}>
-        <span id={ids.chatMode} className="text-sm font-medium">
-          Runs happen in
-        </span>
-        <ToggleGroup
-          type="single"
-          value={chatMode}
-          aria-label="Runs happen in"
-          onValueChange={(v) => v && onChatMode(v as ChatMode)}
-          className="grid w-full grid-cols-2 border-border bg-raised"
-        >
-          {CHAT_MODES.map((m) => (
-            <ToggleGroupItem
-              key={m.mode}
-              value={m.mode}
-              data-testid={`routine-chat-mode-${m.mode}`}
-              className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
-            >
-              <m.icon aria-hidden />
-              {m.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <p data-testid="routine-chat-mode-hint" className="text-xs leading-relaxed text-muted">
-          {CHAT_MODES.find((m) => m.mode === chatMode)?.hint}
-        </p>
-      </div>
+      <ChatModeField modes={CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
     </>
   );
 }
 
+/**
+ * ChatModeField is where a routine on events runs, among the modes its source offers: a
+ * ticket's or pull request's conversation, or a chat of the routine's own.
+ */
+function ChatModeField({
+  modes,
+  chatMode,
+  onChatMode,
+}: {
+  modes: { mode: ChatMode; label: string; hint: string; icon: LucideIcon }[];
+  chatMode: ChatMode;
+  onChatMode: (mode: ChatMode) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="grid gap-1.5" role="group" aria-labelledby={id}>
+      <span id={id} className="text-sm font-medium">
+        Runs happen in
+      </span>
+      <ToggleGroup
+        type="single"
+        value={chatMode}
+        aria-label="Runs happen in"
+        onValueChange={(v) => v && onChatMode(v as ChatMode)}
+        className="grid w-full grid-cols-2 border-border bg-raised"
+      >
+        {modes.map((m) => (
+          <ToggleGroupItem
+            key={m.mode}
+            value={m.mode}
+            data-testid={`routine-chat-mode-${m.mode}`}
+            className="h-8 text-sm text-muted data-[state=on]:bg-panel data-[state=on]:font-semibold data-[state=on]:text-fg data-[state=on]:shadow-xs"
+          >
+            <m.icon aria-hidden />
+            {m.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      <p data-testid="routine-chat-mode-hint" className="text-xs leading-relaxed text-muted">
+        {modes.find((m) => m.mode === chatMode)?.hint}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * GitHubEventsField is what a routine on GitHub events runs on: the events, grouped as CI, pull
+ * requests and issues, and optionally the repositories. The GitHub App's webhook delivers them,
+ * so the field says when it is not set up — the routine saves, and runs once it is. Under them
+ * is where its runs happen: the pull request's chat, by default, or a chat of its own.
+ */
+function GitHubEventsField({
+  events,
+  onEvents,
+  commands,
+  onCommands,
+  repos,
+  onRepos,
+  chatMode,
+  onChatMode,
+}: {
+  events: string[];
+  onEvents: (events: string[]) => void;
+  commands: string[];
+  onCommands: (commands: string[]) => void;
+  repos: string;
+  onRepos: (repos: string) => void;
+  chatMode: ChatMode;
+  onChatMode: (mode: ChatMode) => void;
+}) {
+  const ids = { events: useId(), repos: useId(), commands: useId() };
+  const connections = useQuery({
+    queryKey: ["agent", "connections"],
+    queryFn: () => agent.getConnections({}),
+    staleTime: 30_000,
+  });
+  const gh = connections.data?.github;
+  // Deliveries arrive only once the App has a webhook secret and a listen address.
+  const delivering = Boolean(gh?.configured && gh?.reviews);
+  const toggle = (event: string, on: boolean) =>
+    onEvents(GITHUB_EVENTS.map((e) => e.event).filter((e) => (e === event ? on : events.includes(e))));
+  return (
+    <>
+      <div className="grid gap-1.5" role="group" aria-labelledby={ids.events}>
+        <span id={ids.events} className="text-sm font-medium">
+          GitHub events
+        </span>
+        {/* One table, as Linear's: CI by finished or only failed, then the rest one switch each. */}
+        <div
+          data-testid="routine-github-events"
+          className="grid grid-cols-[minmax(0,1fr)_repeat(2,5.5rem)] overflow-hidden rounded-lg border border-border text-sm"
+        >
+          {GITHUB_GROUPS.map((group, i) => (
+            // contents: the group is a group to a screen reader and rows of the one grid to the eye.
+            <div key={group} role="group" aria-label={group} className="contents">
+              <span
+                aria-hidden
+                className={cn("bg-raised py-1.5 pl-3 text-xs font-medium text-muted", i > 0 && "border-t border-border")}
+              >
+                {group}
+              </span>
+              {group === "CI" ? (
+                <>
+                  <span aria-hidden className="bg-raised py-1.5 text-center text-xs text-muted">
+                    Finished
+                  </span>
+                  <span aria-hidden className="bg-raised py-1.5 text-center text-xs text-muted">
+                    Only if failed
+                  </span>
+                </>
+              ) : (
+                <span className={cn("col-span-2 bg-raised", i > 0 && "border-t border-border")} />
+              )}
+              {group === "CI"
+                ? GITHUB_CI.map((row) => {
+                    const outcome = ciOutcome(events, row);
+                    return (
+                      <Fragment key={row.completed}>
+                        <label
+                          htmlFor={`${ids.events}-${row.completed}`}
+                          className="grid gap-0.5 border-t border-border py-2 pl-3 text-fg"
+                        >
+                          {row.label}
+                          <span className="text-xs text-muted">{row.hint}</span>
+                        </label>
+                        <span className="flex items-center justify-center border-t border-border">
+                          <Checkbox
+                            id={`${ids.events}-${row.completed}`}
+                            data-testid={`routine-event-${row.completed}`}
+                            aria-label={`${row.label} finished`}
+                            checked={outcome !== "off"}
+                            onCheckedChange={(v) => onEvents(withOutcome(events, row, v === true ? "finished" : "off"))}
+                          />
+                        </span>
+                        <span className="flex items-center justify-center border-t border-border">
+                          <Checkbox
+                            data-testid={`routine-event-${row.failed}`}
+                            aria-label={`${row.label} only if failed`}
+                            checked={outcome === "failed"}
+                            onCheckedChange={(v) => onEvents(withOutcome(events, row, v === true ? "failed" : "finished"))}
+                          />
+                        </span>
+                      </Fragment>
+                    );
+                  })
+                : GITHUB_EVENTS.filter((e) => e.group === group).map((e) => (
+                    <Fragment key={e.event}>
+                      <label htmlFor={`${ids.events}-${e.event}`} className="border-t border-border py-2 pl-3 text-fg">
+                        {e.short ?? e.label}
+                      </label>
+                      <span className="flex items-center justify-center border-t border-border">
+                        <Checkbox
+                          id={`${ids.events}-${e.event}`}
+                          data-testid={`routine-event-${e.event}`}
+                          aria-label={e.label}
+                          checked={events.includes(e.event)}
+                          onCheckedChange={(v) => toggle(e.event, v === true)}
+                        />
+                      </span>
+                      <span className="border-t border-border" />
+                    </Fragment>
+                  ))}
+            </div>
+          ))}
+        </div>
+        <p
+          data-testid="routine-github-hint"
+          className={cn("text-xs leading-relaxed", connections.isSuccess && !delivering ? "text-warn" : "text-muted")}
+        >
+          {connections.isSuccess && !delivering ? (
+            <>
+              The GitHub App’s webhook is not set up, so no events arrive yet. Set it up under{" "}
+              <Link to="/org/settings/connections" className="underline underline-offset-2 hover:text-fg">
+                Connections
+              </Link>
+              .
+            </>
+          ) : (
+            "The App must be subscribed to the matching events in its GitHub settings: Workflow runs, Check suites, Pull requests, Pull request reviews, Issue comments, Pull request review comments or Issues. All checks finished needs Workflow runs or Check suites, and Statuses for CI that reports commit statuses. Each run is given the events that arrived since the last one."
+          )}
+        </p>
+      </div>
+      {events.includes(COMMAND_EVENT) ? (
+        <div className="grid gap-1.5">
+          <label htmlFor={ids.commands} className="text-sm font-medium">
+            Commands
+          </label>
+          <TagInput
+            id={ids.commands}
+            testId="routine-commands"
+            values={commands}
+            onChange={onCommands}
+            clean={cleanCommand}
+            validate={checkCommand}
+            noun="command"
+            mono
+            placeholder="/review"
+            describedBy={`${ids.commands}-hint`}
+          />
+          <p id={`${ids.commands}-hint`} className="text-xs text-muted">
+            A comment on a pull request asks with one when a line starts with it, <code>/review</code>, or with the
+            App’s @mention and the word. Enter adds it. A comment the routine answers is not also answered as a
+            mention.
+          </p>
+        </div>
+      ) : null}
+      <div className="grid gap-1.5">
+        <label htmlFor={ids.repos} className="text-sm font-medium">
+          Repositories{" "}
+          <span className="font-normal text-muted">(optional)</span>
+        </label>
+        <Input
+          id={ids.repos}
+          data-testid="routine-repos"
+          value={repos}
+          onChange={(e) => onRepos(e.target.value)}
+          placeholder="acme/api, acme"
+          aria-describedby={`${ids.repos}-hint`}
+        />
+        <p id={`${ids.repos}-hint`} className="text-xs text-muted">
+          owner/name, or an owner for all of its repositories, separated by commas. Leave empty for every repository
+          the App is installed on.
+        </p>
+      </div>
+      <ChatModeField modes={GITHUB_CHAT_MODES} chatMode={chatMode} onChatMode={onChatMode} />
+    </>
+  );
+}
 
 type SectionKey = "instruction" | "trigger" | "identity" | "limits";
 
@@ -296,12 +800,39 @@ export function RoutineDialog({
   );
   // Remounted by a template, so the schedule editor reads the schedule it was given afresh.
   const [scheduleKey, setScheduleKey] = useState(0);
-  const [trigger, setTrigger] = useState<Trigger>(initial.trigger === "linear" ? "linear" : "schedule");
+  const [trigger, setTrigger] = useState<Trigger>(
+    initial.trigger === "linear" || initial.trigger === "github" ? initial.trigger : "schedule",
+  );
   const linear = trigger === "linear";
-  const [events, setEvents] = useState<string[]>(initial.events ?? []);
-  const [teams, setTeams] = useState((initial.teams ?? []).join(", "));
-  const [chatMode, setChatMode] = useState<ChatMode>(initial.chatMode === "subject" ? "subject" : "routine");
+  const github = trigger === "github";
+  // Each source keeps its own events and filter, so switching between them never carries one
+  // source's events to the other, and switching back finds what was chosen.
+  const [linearEvents, setLinearEvents] = useState<string[]>(initial.trigger === "linear" ? (initial.events ?? []) : []);
+  const [teams, setTeams] = useState(initial.trigger === "linear" ? (initial.teams ?? []).join(", ") : "");
+  const [githubEvents, setGitHubEvents] = useState<string[]>(initial.trigger === "github" ? (initial.events ?? []) : []);
+  const [repos, setRepos] = useState(initial.trigger === "github" ? (initial.teams ?? []).join(", ") : "");
+  const events = linear ? linearEvents : github ? githubEvents : [];
+  const [chatMode, setChatMode] = useState<ChatMode>(
+    initial.trigger === "linear" && initial.chatMode === "subject" ? "subject" : "routine",
+  );
+  // A routine on GitHub events contributes to the pull request's chat unless it was saved to
+  // run in its own: that conversation is the context its reviews and CI share.
+  const [githubChatMode, setGitHubChatMode] = useState<ChatMode>(
+    initial.trigger === "github" && initial.chatMode === "routine" ? "routine" : "subject",
+  );
   const [timezone, setTimezone] = useState(initial.timezone || browserZone());
+  // The playbook a run starts right away; "" is the assistant's turn.
+  const [playbook, setPlaybook] = useState(initial.playbook ?? "");
+  const savedFilters = initial.trigger === "github" ? initial.githubFilters : undefined;
+  const [conditions, setConditions] = useState<GitHubConditions>({
+    allowedPeople: savedFilters?.allowedPeople ?? [],
+    ignoredPeople: savedFilters?.ignoredPeople ?? [],
+    ignoreBots: savedFilters?.ignoreBots ?? false,
+    skipDrafts: savedFilters?.skipDrafts ?? false,
+    branches: savedFilters?.excludedBranches ?? [],
+    podiumPeopleOnly: savedFilters?.podiumPeopleOnly ?? false,
+    commands: (savedFilters?.commands ?? []).map(cleanCommand),
+  });
   const [personalityId, setPersonalityId] = useState(
     initial.personalityId ?? "",
   );
@@ -310,7 +841,15 @@ export function RoutineDialog({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const ids = { assistant: useId(), zone: useId(), cap: useId(), scope: useId(), trigger: useId(), form: useId() };
+  const ids = {
+    assistant: useId(),
+    zone: useId(),
+    cap: useId(),
+    scope: useId(),
+    trigger: useId(),
+    form: useId(),
+    playbook: useId(),
+  };
   // The assistant is chosen when the routine is made: its chat is labelled with it for good.
   const voices = useQuery({
     queryKey: ["agent", "personalities"],
@@ -319,6 +858,26 @@ export function RoutineDialog({
     enabled: open && !lockAssistant && !system,
   });
   const assistants = voices.data?.personalities ?? [];
+  const playbookList = useQuery({
+    queryKey: ["agent", "playbooks"],
+    queryFn: () => agent.listPlaybooks({}),
+    staleTime: 30_000,
+    enabled: open,
+  });
+  // A playbook the routine names that the profile no longer has is still shown, so saving
+  // unchanged does not drop it silently; the server says it is gone.
+  const playbookNames = (playbookList.data?.playbooks ?? []).map((p) => p.name);
+  if (playbook && playbook !== REVIEW_PLAYBOOK && !playbookNames.includes(playbook)) playbookNames.push(playbook);
+  // Which playbook reviews which repository, so the review choice can say what it will start.
+  const profile = useQuery({
+    queryKey: ["agent", "profile"],
+    queryFn: () => agent.getProfile({}),
+    staleTime: 30_000,
+    enabled: open && github,
+  });
+  const reviewers = reviewPlaybooks(profile.data?.playbooks ?? []);
+  // The review playbook is a pull request's: only a routine on GitHub events knows one.
+  const work = playbook === REVIEW_PLAYBOOK && !github ? "" : playbook;
   const capValue = cap.trim() === "" ? 0 : Number(cap);
   const capProblem =
     cap.trim() !== "" && (!Number.isFinite(capValue) || capValue < 0)
@@ -326,11 +885,37 @@ export function RoutineDialog({
       : "";
 
   const useTemplate = () => {
+    // On GitHub events the run is given each failed workflow run, so the template waits for them
+    // instead of looking every few minutes.
+    if (github) {
+      setName(CI_FIXER_ON_GITHUB.name);
+      setInstruction(CI_FIXER_ON_GITHUB.instruction);
+      setNotes(CI_FIXER_ON_GITHUB.notes);
+      setGitHubEvents(CI_FIXER_ON_GITHUB.events);
+      return;
+    }
     setName(CI_FIXER.name);
     setInstruction(CI_FIXER.instruction);
     setNotes(CI_FIXER.notes);
     setSchedule(CI_FIXER.schedule);
     setScheduleKey((k) => k + 1);
+  };
+
+  // What the GitHub App once did on its own when a pull request opened: start the repository's
+  // reviewer, in the pull request's conversation, leaving drafts until they are marked ready.
+  const useReviewTemplate = () => {
+    setTrigger("github");
+    setName(REVIEW_ON_GITHUB.name);
+    setInstruction(REVIEW_ON_GITHUB.instruction);
+    setNotes("");
+    setGitHubEvents(REVIEW_ON_GITHUB.events);
+    setGitHubChatMode("subject");
+    setPlaybook(REVIEW_ON_GITHUB.playbook);
+    setConditions((c) => ({
+      ...c,
+      skipDrafts: REVIEW_ON_GITHUB.skipDrafts,
+      commands: REVIEW_ON_GITHUB.commands.map(cleanCommand),
+    }));
   };
 
   const save = async () => {
@@ -344,12 +929,13 @@ export function RoutineDialog({
           instruction: instruction.trim(),
           notes: notes.trim(),
           // One or the other, never both: the server refuses a draft that names a schedule and events.
-          schedule: linear ? "" : schedule.trim(),
+          schedule: linear || github ? "" : schedule.trim(),
           trigger,
-          events: linear ? events : [],
-          teams: linear ? teamKeys(teams) : [],
-          // A run on a schedule is about no ticket: the server refuses a ticket's conversation there.
-          chatMode: linear ? chatMode : "routine",
+          events,
+          // teams is the filter of whichever source it is: Linear team keys, or GitHub repositories.
+          teams: linear ? teamKeys(teams) : github ? repoNames(repos) : [],
+          // Only a Linear run is about a ticket: the server refuses a ticket's conversation elsewhere.
+          chatMode: linear ? chatMode : github ? githubChatMode : "routine",
           timezone: timezone.trim() || "UTC",
           personalityId: system
             ? ""
@@ -360,6 +946,20 @@ export function RoutineDialog({
           effort: initial.effort ?? "",
           repos: [],
           dailyCapUsd: capValue,
+          playbook: work,
+          githubFilters: github
+            ? {
+                $typeName: "podium.agent.v1.RoutineGitHubFilters",
+                allowedPeople: conditions.allowedPeople,
+                ignoredPeople: conditions.ignoredPeople,
+                ignoreBots: conditions.ignoreBots,
+                skipDrafts: conditions.skipDrafts,
+                excludedBranches: conditions.branches,
+                podiumPeopleOnly: conditions.podiumPeopleOnly,
+                // Only a routine on the command event answers commands.
+                commands: events.includes(COMMAND_EVENT) ? conditions.commands.map(commandWord) : [],
+              }
+            : undefined,
         },
         scope,
       );
@@ -442,13 +1042,18 @@ export function RoutineDialog({
       ? "Say what to do each run to save."
       : linear && events.length === 0
         ? "Choose at least one Linear event to save."
-        : capProblem
+        : github && events.length === 0
+          ? "Choose at least one GitHub event to save."
+          : github && events.includes(COMMAND_EVENT) && conditions.commands.length === 0
+            ? "Name the command it answers to save, such as /review."
+            : capProblem
           ? "Fix the spend cap to save."
           : "";
   // The menu marks a section whose choice is unfinished, not one nobody has reached yet: an
   // empty name on a new routine is said beside Save, and is not a mark on the menu.
   const troubled = new Set<SectionKey>();
-  if (linear && events.length === 0) troubled.add("trigger");
+  if ((linear || github) && events.length === 0) troubled.add("trigger");
+  if (github && events.includes(COMMAND_EVENT) && conditions.commands.length === 0) troubled.add("trigger");
   if (capProblem) troubled.add("limits");
 
   const timezoneField = (hint: string) => (
@@ -524,21 +1129,28 @@ export function RoutineDialog({
             description="What one run is told. A run that finds nothing to do stays quiet; one that does answers in the routine’s chat."
           >
             {system && !fixedScope && blank ? (
-              <button
-                type="button"
-                data-testid="routine-template-ci"
-                onClick={useTemplate}
-                className="group flex items-start gap-3 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-left text-sm outline-none transition-colors hover:border-muted hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <Wrench className="mt-0.5 size-4 shrink-0 text-muted group-hover:text-fg" aria-hidden />
-                <span className="grid gap-0.5">
-                  <span className="font-medium text-fg">Start from “Fix failing CI”</span>
-                  <span className="text-xs text-muted">
-                    Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up
-                    after 3 tries. It only proposes until you edit it to push.
-                  </span>
-                </span>
-              </button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <TemplateButton
+                  testId="routine-template-ci"
+                  icon={Wrench}
+                  title="Start from “Fix failing CI”"
+                  onClick={useTemplate}
+                  detail={
+                    github
+                      ? "Runs when a commit’s checks all finish with one failed, and proposes a fix on its pull request, giving up after 3 tries. It only proposes until you edit it to push."
+                      : "Finds failed checks on open pull requests and proposes a fix on each, once per commit, giving up after 3 tries. It only proposes until you edit it to push."
+                  }
+                />
+                {canChooseTrigger ? (
+                  <TemplateButton
+                    testId="routine-template-review"
+                    icon={GitPullRequest}
+                    title="Start from “Review pull requests”"
+                    onClick={useReviewTemplate}
+                    detail="Starts the review playbook when a pull request opens or is marked ready, and posts its review on the pull request."
+                  />
+                ) : null}
+              </div>
             ) : null}
             <label className="grid gap-1.5 text-sm font-medium">
               Name
@@ -565,6 +1177,46 @@ export function RoutineDialog({
                 className="min-h-40"
               />
             </label>
+            <div className="grid gap-1.5">
+              <label htmlFor={ids.playbook} className="text-sm font-medium">
+                Who does the work
+              </label>
+              <Select value={work || ASSISTANT_WORK} onValueChange={(v) => setPlaybook(v === ASSISTANT_WORK ? "" : v)}>
+                <SelectTrigger id={ids.playbook} data-testid="routine-playbook">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ASSISTANT_WORK}>The assistant decides</SelectItem>
+                  {github ? (
+                    <SelectItem value={REVIEW_PLAYBOOK} aside={reviewers.short}>
+                      {REVIEW_PLAYBOOK_LABEL}
+                    </SelectItem>
+                  ) : null}
+                  {playbookNames.length > 0 ? (
+                    <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Playbooks</SelectLabel>
+                        {playbookNames.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </>
+                  ) : null}
+                </SelectContent>
+              </Select>
+              <p data-testid="routine-playbook-hint" className="text-xs leading-relaxed text-muted">
+                {work === ""
+                  ? "Each run is an assistant’s turn: it reads the instruction and what started the run, then decides what to delegate, if anything."
+                  : work === REVIEW_PLAYBOOK
+                    ? reviewers.hint
+                    : `Each run starts ${work} right away, with the instruction and what started the run as its brief. No assistant’s turn decides first.${
+                        github ? " On a pull request, its answer is posted there." : ""
+                      }`}
+              </p>
+            </div>
             <label className="grid gap-1.5 text-sm font-medium">
               <span>
                 Standing notes <span className="font-normal text-muted">(optional)</span>
@@ -596,7 +1248,7 @@ export function RoutineDialog({
                 value={trigger}
                 aria-label="Runs"
                 onValueChange={(v) => v && setTrigger(v as Trigger)}
-                className="grid w-full items-stretch gap-2 border-0 bg-transparent p-0 sm:grid-cols-2"
+                className="grid w-full items-stretch gap-2 border-0 bg-transparent p-0 md:grid-cols-3"
               >
                 {TRIGGERS.map((t) => (
                   <ToggleGroupItem
@@ -606,7 +1258,7 @@ export function RoutineDialog({
                     className="h-auto flex-col items-start justify-start gap-0.5 rounded-lg border border-border bg-panel px-3 py-2.5 text-left whitespace-normal data-[state=on]:border-accent data-[state=on]:bg-raised"
                   >
                     <span className="flex items-center gap-2 text-sm font-semibold text-fg">
-                      <t.icon aria-hidden />
+                      <t.icon />
                       {t.label}
                     </span>
                     <span className="text-xs font-normal text-muted">{t.hint}</span>
@@ -616,13 +1268,27 @@ export function RoutineDialog({
             ) : null}
             {linear ? (
               <LinearEventsField
-                events={events}
-                onEvents={setEvents}
+                events={linearEvents}
+                onEvents={setLinearEvents}
                 teams={teams}
                 onTeams={setTeams}
                 chatMode={chatMode}
                 onChatMode={setChatMode}
               />
+            ) : github ? (
+              <>
+                <GitHubEventsField
+                  events={githubEvents}
+                  onEvents={setGitHubEvents}
+                  commands={conditions.commands}
+                  onCommands={(commands) => setConditions((c) => ({ ...c, commands }))}
+                  repos={repos}
+                  onRepos={setRepos}
+                  chatMode={githubChatMode}
+                  onChatMode={setGitHubChatMode}
+                />
+                <GitHubConditionsField value={conditions} onChange={setConditions} />
+              </>
             ) : (
               <>
                 <ScheduleField key={scheduleKey} value={schedule} onChange={setSchedule} system={system} />
@@ -711,12 +1377,13 @@ export function RoutineDialog({
                   className="pl-7 tabular-nums"
                 />
               </div>
+              {/* A routine on events has no schedule to read in a timezone, so none is asked for: its
+                  spend cap's day ends at midnight in the one it was made in, the browser's. */}
               <p id={`${ids.cap}-hint`} className={cn("text-xs", capProblem ? "text-warn" : "text-muted")}>
                 {capProblem ||
-                  "Reaching the cap pauses the routine until midnight in its timezone, and it starts again on its own."}
+                  `Reaching the cap pauses the routine until midnight in ${linear || github ? timezone || "UTC" : "its timezone"}, and it starts again on its own.`}
               </p>
             </div>
-            {linear ? timezoneField("The day the spend cap counts ends at midnight here.") : null}
           </Section>
             </div>
           </div>

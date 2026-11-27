@@ -304,6 +304,8 @@ type Routine struct {
 	Events               []string
 	Teams                []string
 	ChatMode             string
+	Playbook             string
+	GithubFilters        []byte
 }
 
 type RoutineEvent struct {

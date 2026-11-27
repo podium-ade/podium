@@ -94,10 +94,6 @@ type Outbound struct {
 type Speaker struct {
 	// Playbook is the playbook whose task said this.
 	Playbook string
-	// SourcePlaybook is true when Playbook is the one this source runs on its own: the
-	// github: true playbook on a pull request. A source posts that playbook's answer as the
-	// work it exists for — a review — and anybody else's as a reply.
-	SourcePlaybook bool
 }
 
 // InboundEvent is one thing a human said, normalised. A source produces these and nothing
@@ -171,17 +167,11 @@ type InboundEvent struct {
 	// humans a chat needs more than one of to be multiplayer. A source that cannot tell, or
 	// drops its bots before they get here (Slack), leaves it false.
 	AuthorBot bool
-	// Mentioned is true when the speaker addressed the bot explicitly — an @mention, a DM,
-	// a review command — rather than a reply the source decided to treat as one. Only a
+	// Mentioned is true when the speaker addressed the bot explicitly — an @mention or a
+	// DM — rather than a reply the source decided to treat as one. Only a
 	// mentioned message is answered with ReactionRefused: reacting to a reply nobody
 	// addressed to the bot would be noise.
 	Mentioned bool
-	// ReviewRequest is set on a GitHub review command (`@podium review [note]`, `/review
-	// [note]`): the instruction to run INSTEAD of Text when the speaker is not in Podium. It
-	// is built from nothing the speaker controls but a sanitized, injection-checked note, so
-	// it is safe to hand the review playbook on the App's credentials. Empty for anything
-	// else, and ignored for a speaker who is in Podium, who gets the full comment.
-	ReviewRequest string
 	// ExternalID is the message's identity on its own surface — a Slack ts, or a GitHub
 	// comment, review or delivery id with its kind in front — and ExternalURL is the link to
 	// it. The mirror records one row per ExternalID however many times the event arrives, and

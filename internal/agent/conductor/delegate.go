@@ -411,14 +411,14 @@ func (c *Conductor) delegate(
 				c.logger.ErrorContext(bg, "recording a delegation that never started failed",
 					"delegation_id", dlg.ID, "error", ferr)
 			}
-			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
+			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: playbookName},
 				Text: fmt.Sprintf("The `%s` task could not start: the task before it never let go of its workspace.", playbookName)})
 			return
 		}
 		if _, err := c.launch(bg, g, sess, playbook, dlg, choice, opts); err != nil {
 			c.logger.WarnContext(bg, "starting a delegation that waited for its workspace failed",
 				"delegation_id", dlg.ID, "error", err)
-			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(g.src, playbookName),
+			c.post(bg, g.src, g.ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: playbookName},
 				Text: fmt.Sprintf("The `%s` task could not start.", playbookName)})
 		}
 	}()
@@ -478,7 +478,7 @@ func (c *Conductor) launch(
 		taskID: dlg.TaskID,
 		text: fmt.Sprintf("Working on this in a `%s` task: %s",
 			playbookName, firstLine(dlg.Instruction, maxAnnouncedRunes)),
-		speaker: c.speakerFor(g.src, playbookName),
+		speaker: Speaker{Playbook: playbookName},
 	})
 
 	c.followDelegation(ctx, g.src, dlg, playbook, 0, byline)
@@ -781,11 +781,12 @@ func (c *Conductor) startDelegatedTask(
 	if login == "" && !c.isRoutineTurn(g.turnID) {
 		login = c.asker(ctx, g.src, sess)
 	}
-	persona, err := c.githubPersona(ctx, login, playbook, c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID)))
+	asPodium := c.runsAsPodium(ctx, login, c.routineRefOf(g.turnID))
+	persona, err := c.githubPersona(ctx, login, playbook, asPodium)
 	if err != nil {
 		return nil, Byline{}, err
 	}
-	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
+	if err := c.personalSecretsOK(ctx, login, playbook, persona, asPodium); err != nil {
 		return nil, Byline{}, err
 	}
 	choice.CredentialOwner = c.turnCredentialOwner(ctx, sess, login, choice.Agent, false)
@@ -862,7 +863,7 @@ func (c *Conductor) followDelegation(
 			// No placeholder: the conversation has nothing of this task's on screen to
 			// replace, so its progress arrives as its own messages.
 			taskID:  dlg.TaskID,
-			speaker: c.speakerFor(src, dlg.Playbook),
+			speaker: Speaker{Playbook: dlg.Playbook},
 			byline:  byline,
 		},
 		dlg:      dlg,

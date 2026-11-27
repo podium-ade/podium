@@ -39,7 +39,7 @@ func TestALinearRoutineRefusesWhatItCannotRunOn(t *testing.T) {
 		"no action":           func(d *RoutineDraft) { d.Events = []string{"Issue"} },
 		"a schedule as well":  func(d *RoutineDraft) { d.Schedule = "0 9 * * *" },
 		"a team that is text": func(d *RoutineDraft) { d.Teams = []string{"the web team"} },
-		"an unknown kind":     func(d *RoutineDraft) { d.Kind = "github" },
+		"an unknown kind":     func(d *RoutineDraft) { d.Kind = "slack" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := linearDraft()
@@ -94,4 +94,82 @@ func TestAPayloadTooLargeToKeepIsAStubThatSaysSo(t *testing.T) {
 	assert.Equal(t, "https://linear.example/acme/issue/ENG-1", stub["url"])
 	assert.Equal(t, true, stub["tooLarge"])
 	assert.NotContains(t, stub, "data")
+}
+
+func githubDraft() RoutineDraft {
+	return RoutineDraft{
+		Name: "Fix failing CI", Kind: RoutineKindGitHub, Timezone: "UTC",
+		Instruction: "Look at why each failed run failed.",
+		Events:      []string{"pull_request.opened", "WORKFLOW_RUN.failed", "workflow_run.failed"},
+		Teams:       []string{" Acme/API ", "https://github.com/acme/web.git", "acme/api", "Globex"},
+	}
+}
+
+func TestAGitHubRoutineNamesItsEventsAndRepositoriesOnceEach(t *testing.T) {
+	d, err := PrepareRoutine(githubDraft())
+	require.NoError(t, err)
+	assert.Equal(t, RoutineKindGitHub, d.Kind)
+	assert.Equal(t, []string{"workflow_run.failed", "pull_request.opened"}, d.Events, "in the order the UI lists them")
+	assert.Equal(t, []string{"acme/api", "acme/web", "globex"}, d.Teams, "lower case, a URL read as its repository, an owner kept")
+	assert.Equal(t, RoutineChatModeRoutine, d.ChatMode)
+	assert.Empty(t, d.Schedule)
+	assert.False(t, d.NextRunAt.IsZero())
+}
+
+func TestAGitHubRoutineRefusesWhatItCannotRunOn(t *testing.T) {
+	for name, edit := range map[string]func(*RoutineDraft){
+		"no events":                 func(d *RoutineDraft) { d.Events = nil },
+		"a Linear event":            func(d *RoutineDraft) { d.Events = []string{"Issue.create"} },
+		"an event nothing runs on":  func(d *RoutineDraft) { d.Events = []string{"star.created"} },
+		"a schedule as well":        func(d *RoutineDraft) { d.Schedule = "0 9 * * *" },
+		"an unknown chat mode":      func(d *RoutineDraft) { d.ChatMode = "thread" },
+		"a repository that is text": func(d *RoutineDraft) { d.Teams = []string{"the api repo"} },
+		"a path too deep":           func(d *RoutineDraft) { d.Teams = []string{"acme/api/tree/main"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := githubDraft()
+			edit(&d)
+			_, err := PrepareRoutine(d)
+			assert.ErrorIs(t, err, ErrInvalidRoutine)
+		})
+	}
+}
+
+func TestAGitHubTriggerIsSaidInWords(t *testing.T) {
+	assert.Equal(t, "On GitHub: workflow run failed, pull request merged (acme/api)",
+		DescribeGitHubTrigger([]string{"workflow_run.failed", "pull_request.merged"}, []string{"acme/api"}))
+	assert.Equal(t, "On GitHub", DescribeGitHubTrigger(nil, nil))
+
+	r := Routine{Kind: RoutineKindGitHub, Events: []string{"check_suite.failed"}}
+	assert.True(t, r.OnEvents())
+	assert.False(t, r.OnLinear())
+	assert.False(t, r.PerSubject())
+	assert.Equal(t, "On GitHub: check suite failed", r.When())
+	r.ChatMode = RoutineChatModeSubject
+	assert.True(t, r.PerSubject())
+	assert.Equal(t, "On GitHub: check suite failed · in each pull request's conversation", r.When(),
+		"switching where it runs is a change its history records")
+	assert.Equal(t, "review submitted", RoutineEventLabel("pull_request_review.submitted"))
+}
+
+func TestAGitHubRoutineMayRunInEachPullRequestsConversation(t *testing.T) {
+	d := githubDraft()
+	d.ChatMode = "SUBJECT"
+	out, err := PrepareRoutine(d)
+	require.NoError(t, err)
+	assert.Equal(t, RoutineChatModeSubject, out.ChatMode)
+}
+
+func TestAPullRequestIsAConversationKeyedAsItsReviewsAre(t *testing.T) {
+	assert.Equal(t, "PullRequest:Acme/api#42", GitHubPullSubject("Acme/api", 42))
+	assert.Equal(t, "github:Acme/api#42", ConversationKey("PullRequest:Acme/api#42"), "the review source's key, case kept")
+	assert.Equal(t, "github:Acme/api#42", GitHubPullKey("Acme/api", 42))
+	assert.True(t, IsGitHubConversation("github:Acme/api#42"))
+	assert.Equal(t, "linear:iss-1", ConversationKey("Issue:iss-1"), "Linear's are as before")
+	for _, key := range []string{"PullRequest:acme#1", "PullRequest:acme/api", "PullRequest:acme/api#0", "PullRequest:a/b/c#1", ""} {
+		assert.Empty(t, ConversationKey(key), key)
+	}
+	for _, key := range []string{"github:acme/api", "github:acme#2", "chat:abc", "linear:iss-1", "github:acme/api#x"} {
+		assert.False(t, IsGitHubConversation(key), key)
+	}
 }

@@ -185,7 +185,7 @@ func (q *Queries) DeleteUnstartedRoutineRun(ctx context.Context, id string) erro
 }
 
 const dueRoutines = `-- name: DueRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines
 where enabled and trigger_kind = 'schedule' and next_run_at <= $1
 order by next_run_at
 limit $2::int
@@ -241,6 +241,8 @@ func (q *Queries) DueRoutines(ctx context.Context, arg DueRoutinesParams) ([]Rou
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -253,7 +255,7 @@ func (q *Queries) DueRoutines(ctx context.Context, arg DueRoutinesParams) ([]Rou
 }
 
 const dueToResume = `-- name: DueToResume :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines
 where not enabled and paused_until is not null and paused_until <= $1
 order by paused_until
 limit $2::int
@@ -307,6 +309,8 @@ func (q *Queries) DueToResume(ctx context.Context, arg DueToResumeParams) ([]Rou
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -319,7 +323,7 @@ func (q *Queries) DueToResume(ctx context.Context, arg DueToResumeParams) ([]Rou
 }
 
 const getRoutine = `-- name: GetRoutine :one
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines where id = $1
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines where id = $1
 `
 
 func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
@@ -357,12 +361,14 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
 
 const getRoutineByChat = `-- name: GetRoutineByChat :one
-select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode from routines r
+select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode, r.playbook, r.github_filters from routines r
 where r.chat_id = $1
    or r.id = (select c.routine_id from chats c where c.id = $1)
 limit 1
@@ -406,6 +412,8 @@ func (q *Queries) GetRoutineByChat(ctx context.Context, chatID *string) (Routine
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
@@ -439,13 +447,14 @@ const insertRoutine = `-- name: InsertRoutine :one
 insert into routines (
   id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at,
   notes, personality_id, model, effort, enabled, chat_id, next_run_at, created_at, updated_at,
-  repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode
+  repos, daily_cap_usd, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 ) values (
   $1, $2, $3, $4, $5, $6, $7, $8,
   $9, $10, $11, $12, true, $13, $14, $8, $8,
-  $15::text[], $16, $17, $18, $19::text[], $20::text[], $21
+  $15::text[], $16, $17, $18, $19::text[], $20::text[], $21,
+  $22, $23::jsonb
 )
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type InsertRoutineParams struct {
@@ -470,6 +479,8 @@ type InsertRoutineParams struct {
 	Events        []string
 	Teams         []string
 	ChatMode      string
+	Playbook      string
+	GithubFilters []byte
 }
 
 // Routines (0043). A personal routine is its owner's alone: every read and write a person
@@ -500,6 +511,8 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (R
 		arg.Events,
 		arg.Teams,
 		arg.ChatMode,
+		arg.Playbook,
+		arg.GithubFilters,
 	)
 	var i Routine
 	err := row.Scan(
@@ -534,43 +547,55 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) (R
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
 
 const insertRoutineEvents = `-- name: InsertRoutineEvents :execrows
 insert into routine_events (routine_id, delivery_id, event, payload, received_at, subject_key, subject_title)
-select r.id, $1::text, $2::text, $3::jsonb, $4,
+select r.id, $1::text,
+       (select u.e from unnest($2::text[]) with ordinality as u(e, i)
+         where u.e = any(r.events) order by u.i limit 1),
+       $3::jsonb, $4,
        $5::text, $6::text
   from routines r
- where r.enabled and r.trigger_kind = 'linear' and $2::text = any(r.events)
-   and (cardinality(r.teams) = 0 or $7::text = any(r.teams))
+ where r.enabled and r.trigger_kind = $7::text and r.events && $2::text[]
+   and (cardinality(r.teams) = 0 or r.teams && $8::text[])
+   and ($9::text[] is null or r.id = any($9::text[]))
 on conflict (routine_id, delivery_id) do nothing
 `
 
 type InsertRoutineEventsParams struct {
 	DeliveryID   string
-	Event        string
+	Events       []string
 	Payload      []byte
 	ReceivedAt   time.Time
 	SubjectKey   *string
 	SubjectTitle *string
-	TeamKey      string
+	Kind         string
+	Scopes       []string
+	OnlyIds      []string
 }
 
-// InsertRoutineEvents stores one Linear delivery for every enabled routine that asks for its
-// event, in its team when the routine names teams. It is one statement, so the webhook that
-// calls it does one round trip whatever the number of routines. A delivery stored before is
-// not stored again.
+// InsertRoutineEvents stores one delivery for every enabled routine of @kind that asks for one
+// of its events, in its scope when the routine names one: a Linear team key, or a GitHub
+// repository or owner. @events is every name the delivery answers to, the most specific first
+// ("workflow_run.failed" before "workflow_run.completed"), and each routine's row keeps the
+// first it asked for. It is one statement, so the webhook that calls it does one round trip
+// whatever the number of routines. A delivery stored before is not stored again.
 func (q *Queries) InsertRoutineEvents(ctx context.Context, arg InsertRoutineEventsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertRoutineEvents,
 		arg.DeliveryID,
-		arg.Event,
+		arg.Events,
 		arg.Payload,
 		arg.ReceivedAt,
 		arg.SubjectKey,
 		arg.SubjectTitle,
-		arg.TeamKey,
+		arg.Kind,
+		arg.Scopes,
+		arg.OnlyIds,
 	)
 	if err != nil {
 		return 0, err
@@ -693,7 +718,7 @@ func (q *Queries) LastRoutineRuns(ctx context.Context, routineIds []string) ([]L
 }
 
 const listAllRoutines = `-- name: ListAllRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines order by scope desc, owner_login, name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines order by scope desc, owner_login, name, id
 `
 
 func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
@@ -737,6 +762,8 @@ func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -749,7 +776,7 @@ func (q *Queries) ListAllRoutines(ctx context.Context) ([]Routine, error) {
 }
 
 const listPersonalRoutines = `-- name: ListPersonalRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines where scope = 'personal' order by owner_login, name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines where scope = 'personal' order by owner_login, name, id
 `
 
 // ListPersonalRoutines is every person's routines, for the admin's metadata view.
@@ -794,6 +821,8 @@ func (q *Queries) ListPersonalRoutines(ctx context.Context) ([]Routine, error) {
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -898,7 +927,7 @@ func (q *Queries) ListRoutineRuns(ctx context.Context, arg ListRoutineRunsParams
 }
 
 const listRoutinesByOwner = `-- name: ListRoutinesByOwner :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines where owner_login = $1 order by name, id
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines where owner_login = $1 order by name, id
 `
 
 func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) ([]Routine, error) {
@@ -942,6 +971,8 @@ func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) (
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -954,7 +985,7 @@ func (q *Queries) ListRoutinesByOwner(ctx context.Context, ownerLogin *string) (
 }
 
 const listVisibleRoutines = `-- name: ListVisibleRoutines :many
-select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode from routines
+select id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters from routines
 where owner_login = $1 or ($2::bool and scope = 'system')
 order by scope desc, name, id
 `
@@ -1006,6 +1037,8 @@ func (q *Queries) ListVisibleRoutines(ctx context.Context, arg ListVisibleRoutin
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -1174,6 +1207,47 @@ func (q *Queries) ReportRoutineRun(ctx context.Context, arg ReportRoutineRunPara
 	return err
 }
 
+const routineEventCandidates = `-- name: RoutineEventCandidates :many
+select r.id, r.github_filters from routines r
+ where r.enabled and r.trigger_kind = $1::text and r.events && $2::text[]
+   and (cardinality(r.teams) = 0 or r.teams && $3::text[])
+ order by r.id
+`
+
+type RoutineEventCandidatesParams struct {
+	Kind   string
+	Events []string
+	Scopes []string
+}
+
+type RoutineEventCandidatesRow struct {
+	ID            string
+	GithubFilters []byte
+}
+
+// RoutineEventCandidates is every enabled routine of @kind that asks for one of @events in one
+// of @scopes, with the conditions a GitHub routine puts on whose events it is given: the
+// routines InsertRoutineEvents would keep a delivery for before those are asked.
+func (q *Queries) RoutineEventCandidates(ctx context.Context, arg RoutineEventCandidatesParams) ([]RoutineEventCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, routineEventCandidates, arg.Kind, arg.Events, arg.Scopes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RoutineEventCandidatesRow{}
+	for rows.Next() {
+		var i RoutineEventCandidatesRow
+		if err := rows.Scan(&i.ID, &i.GithubFilters); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const routineEventsForRun = `-- name: RoutineEventsForRun :many
 select id, routine_id, delivery_id, event, payload, received_at, run_id, subject_key, subject_title from routine_events where run_id = $1 order by received_at, id
 `
@@ -1226,6 +1300,49 @@ func (q *Queries) RoutineFailuresSince(ctx context.Context, arg RoutineFailuresS
 	return column_1, err
 }
 
+const routineRanInChat = `-- name: RoutineRanInChat :one
+select exists (select 1 from routine_runs where chat_id = $1::text)::bool
+`
+
+// RoutineRanInChat reports whether any routine's run happened in a chat that is not its own:
+// a pull request's conversation an admin may then read (docs/agent.md, "On a GitHub event").
+func (q *Queries) RoutineRanInChat(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRow(ctx, routineRanInChat, chatID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const routineRunPullAuthors = `-- name: RoutineRunPullAuthors :many
+select distinct (payload->'data'->>'author_id')::text as author_id
+from routine_events
+where run_id = $1::text
+  and coalesce(payload->'data'->>'author_id', '') not in ('', '0')
+`
+
+// RoutineRunPullAuthors is the GitHub account ids of the authors of the pull requests a run's
+// events are about, as the events kept them (author_id). An id is a number GitHub never reuses,
+// which is what an identity is proven by; a username is not.
+func (q *Queries) RoutineRunPullAuthors(ctx context.Context, runID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, routineRunPullAuthors, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var author_id string
+		if err := rows.Scan(&author_id); err != nil {
+			return nil, err
+		}
+		items = append(items, author_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const routineSpendSince = `-- name: RoutineSpendSince :one
 select (coalesce((select sum(t.cost_usd) from turns t
                     join routine_runs r on r.id = t.routine_run_id
@@ -1250,15 +1367,38 @@ func (q *Queries) RoutineSpendSince(ctx context.Context, arg RoutineSpendSincePa
 	return column_1, err
 }
 
+const routinesWantEvents = `-- name: RoutinesWantEvents :one
+select exists (
+  select 1 from routines r
+   where r.enabled and r.trigger_kind = $1::text and r.events && $2::text[]
+     and (cardinality(r.teams) = 0 or r.teams && $3::text[])
+)::bool
+`
+
+type RoutinesWantEventsParams struct {
+	Kind   string
+	Events []string
+	Scopes []string
+}
+
+// RoutinesWantEvents is whether any enabled routine of @kind asks for one of @events in one of
+// @scopes, so a delivery that costs GitHub API calls to read is read only when one would.
+func (q *Queries) RoutinesWantEvents(ctx context.Context, arg RoutinesWantEventsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, routinesWantEvents, arg.Kind, arg.Events, arg.Scopes)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const routinesWithPendingEvents = `-- name: RoutinesWithPendingEvents :many
-select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode from routines r
-where r.enabled and r.trigger_kind = 'linear'
+select r.id, r.scope, r.owner_login, r.name, r.schedule, r.timezone, r.instruction, r.instruction_updated_at, r.notes, r.proposed_note, r.personality_id, r.model, r.effort, r.enabled, r.paused_reason, r.state, r.state_updated_at, r.chat_id, r.next_run_at, r.last_run_at, r.idle_count, r.created_at, r.updated_at, r.repos, r.daily_cap_usd, r.paused_until, r.created_by, r.trigger_kind, r.events, r.teams, r.chat_mode, r.playbook, r.github_filters from routines r
+where r.enabled and r.trigger_kind in ('linear', 'github')
   and exists (select 1 from routine_events e where e.routine_id = r.id and e.run_id is null)
 order by r.id
 limit $1::int
 `
 
-// RoutinesWithPendingEvents is every enabled linear routine with an event waiting.
+// RoutinesWithPendingEvents is every enabled routine on events with an event waiting.
 func (q *Queries) RoutinesWithPendingEvents(ctx context.Context, pageLimit int32) ([]Routine, error) {
 	rows, err := q.db.Query(ctx, routinesWithPendingEvents, pageLimit)
 	if err != nil {
@@ -1300,6 +1440,8 @@ func (q *Queries) RoutinesWithPendingEvents(ctx context.Context, pageLimit int32
 			&i.Events,
 			&i.Teams,
 			&i.ChatMode,
+			&i.Playbook,
+			&i.GithubFilters,
 		); err != nil {
 			return nil, err
 		}
@@ -1405,7 +1547,7 @@ func (q *Queries) SetChatRoutine(ctx context.Context, arg SetChatRoutineParams) 
 
 const setRoutineChat = `-- name: SetRoutineChat :one
 update routines set chat_id = $1 where id = $2 and chat_id is null
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type SetRoutineChatParams struct {
@@ -1450,6 +1592,8 @@ func (q *Queries) SetRoutineChat(ctx context.Context, arg SetRoutineChatParams) 
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
@@ -1462,7 +1606,7 @@ set enabled = $1,
     next_run_at = $4,
     updated_at = $5
 where id = $6
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type SetRoutineEnabledParams struct {
@@ -1518,6 +1662,8 @@ func (q *Queries) SetRoutineEnabled(ctx context.Context, arg SetRoutineEnabledPa
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
@@ -1542,7 +1688,7 @@ const setRoutineNotes = `-- name: SetRoutineNotes :one
 update routines
 set notes = $1, proposed_note = $2, updated_at = $3
 where id = $4
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type SetRoutineNotesParams struct {
@@ -1592,6 +1738,8 @@ func (q *Queries) SetRoutineNotes(ctx context.Context, arg SetRoutineNotesParams
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
@@ -1644,7 +1792,7 @@ const setRoutineState = `-- name: SetRoutineState :one
 update routines
 set state = $1, state_updated_at = $2
 where id = $3
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type SetRoutineStateParams struct {
@@ -1688,6 +1836,8 @@ func (q *Queries) SetRoutineState(ctx context.Context, arg SetRoutineStateParams
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }
@@ -1805,10 +1955,12 @@ set name = $1,
     events = $13::text[],
     teams = $14::text[],
     chat_mode = $15,
-    next_run_at = $16,
+    playbook = $16,
+    github_filters = $17::jsonb,
+    next_run_at = $18,
     updated_at = $5
-where id = $17
-returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode
+where id = $19
+returning id, scope, owner_login, name, schedule, timezone, instruction, instruction_updated_at, notes, proposed_note, personality_id, model, effort, enabled, paused_reason, state, state_updated_at, chat_id, next_run_at, last_run_at, idle_count, created_at, updated_at, repos, daily_cap_usd, paused_until, created_by, trigger_kind, events, teams, chat_mode, playbook, github_filters
 `
 
 type UpdateRoutineParams struct {
@@ -1827,6 +1979,8 @@ type UpdateRoutineParams struct {
 	Events        []string
 	Teams         []string
 	ChatMode      string
+	Playbook      string
+	GithubFilters []byte
 	NextRunAt     time.Time
 	ID            string
 }
@@ -1850,6 +2004,8 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 		arg.Events,
 		arg.Teams,
 		arg.ChatMode,
+		arg.Playbook,
+		arg.GithubFilters,
 		arg.NextRunAt,
 		arg.ID,
 	)
@@ -1886,6 +2042,8 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 		&i.Events,
 		&i.Teams,
 		&i.ChatMode,
+		&i.Playbook,
+		&i.GithubFilters,
 	)
 	return i, err
 }

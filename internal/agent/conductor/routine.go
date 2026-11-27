@@ -76,11 +76,14 @@ type BriefRoutine struct {
 	// Linear is a routine that runs on Linear events instead of a schedule. Schedule then says
 	// which events, in words ("On Linear: issue created (ENG)").
 	Linear bool `json:"linear,omitempty"`
-	// ByHand is a run of a Linear routine somebody started from its card: it was given no
+	// GitHub is a routine that runs on GitHub events instead of a schedule. Schedule then says
+	// which events, in words ("On GitHub: workflow run failed (acme/api)").
+	GitHub bool `json:"github,omitempty"`
+	// ByHand is a run of a routine on events somebody started from its card: it was given no
 	// events.
 	ByHand bool `json:"by_hand,omitempty"`
-	// Events are the Linear events this run was given, oldest first. Everything in them was
-	// written by people in Linear; the runtime marks them as data, not instructions.
+	// Events are the Linear or GitHub events this run was given, oldest first. Everything in
+	// them was written by people there; the runtime marks them as data, not instructions.
 	Events []BriefRoutineEvent `json:"events,omitempty"`
 }
 
@@ -291,9 +294,9 @@ func (c *Conductor) briefRoutine(ctx context.Context, src Source, ev InboundEven
 	if r.LastRunAt != nil && r.InstructionUpdatedAt.After(*r.LastRunAt) {
 		b.InstructionChangedAt = BriefTimestamp(r.InstructionUpdatedAt)
 	}
-	if r.OnLinear() {
-		b.Linear = true
-		b.Schedule = store.DescribeLinearTrigger(r.Events, r.Teams)
+	if r.OnEvents() {
+		b.Linear, b.GitHub = r.OnLinear(), r.OnGitHub()
+		b.Schedule = store.DescribeEventTrigger(r.Kind, r.Events, r.Teams)
 		if ev.Routine != nil && ev.Routine.RunID != "" {
 			// The events are read by the run's id, here, so they reach the turn on whichever
 			// conductor runs it.

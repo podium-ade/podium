@@ -203,26 +203,6 @@ func (c *restClient) EditIssueComment(ctx context.Context, installID int64, owne
 		map[string]string{"body": body}, nil)
 }
 
-// CreateReview submits one pull-request review. event is APPROVE or COMMENT.
-// comments are the inline notes on that same review; GitHub requires the head
-// commit when any are set, and rejects the whole review if one line is not in
-// the diff. A body-only review sends no commit id.
-func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, repo string, number int, event, body, commit string, comments []pullComment) (Review, error) {
-	if event == "" {
-		event = eventComment
-	}
-	payload := map[string]any{"body": body, "event": event}
-	if len(comments) > 0 {
-		payload["commit_id"] = commit
-		payload["comments"] = comments
-	}
-	var out Review
-	err := c.do(ctx, installID, http.MethodPost,
-		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number),
-		payload, &out)
-	return out, err
-}
-
 // pullInfo is the pull request as the status comment and the inline notes need it.
 type pullInfo struct {
 	OK        bool
@@ -241,6 +221,8 @@ type pullInfo struct {
 	// Author is who opened the pull request: its login and account type ("User", "Bot").
 	Author     string
 	AuthorType string
+	// Draft is a pull request not yet marked ready for review.
+	Draft bool
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
@@ -253,6 +235,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Deletions           int    `json:"deletions"`
 		ChangedFiles        int    `json:"changed_files"`
 		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		Draft               bool   `json:"draft"`
 		User                User   `json:"user"`
 		Head                struct {
 			Ref  string `json:"ref"`
@@ -289,6 +272,7 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Locked:     fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
 		Author:     out.User.Login,
 		AuthorType: out.User.Type,
+		Draft:      out.Draft,
 	}, nil
 }
 

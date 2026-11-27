@@ -37,8 +37,19 @@ default_permissions:
   # Clone, push, and reading the repository for a transcript. The same App mints
   # installation tokens for turns.
   contents: write
+  # Reading CI: a workflow run's jobs and their logs, and every CI app's check suites. Routines
+  # that fix failing CI read them, and run on the workflow_run and check_suite events below.
+  actions: read
+  checks: read
+  statuses: read
 default_events:
   - issue_comment
   - pull_request
   - pull_request_review
   - pull_request_review_comment
+  # Only routines on GitHub events run on these (docs/agent.md, "On a GitHub event"). A
+  # delivery no routine asks for is dropped.
+  - workflow_run
+  - check_suite
+  - status
+  - issues

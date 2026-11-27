@@ -466,7 +466,7 @@ export const NOT_A_PERSON: Record<string, { label: string; hint: string }> = {
   },
   "github-app": {
     label: "GitHub App",
-    hint: "Automatic reviews, and review commands from people outside Podium. They run as the App, so nobody's account pays for them.",
+    hint: "GitHub turns nobody in Podium started. They run as the App, so nobody's account pays for them.",
   },
 };
 

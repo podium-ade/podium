@@ -29,6 +29,36 @@ func (q *Queries) ChatRole(ctx context.Context, arg ChatRoleParams) (string, err
 	return role, err
 }
 
+const grantChatEditor = `-- name: GrantChatEditor :execrows
+insert into chat_access (chat_id, login, role, granted_by, granted_at)
+values ($1, $2, 'editor', $3, $4)
+on conflict (chat_id, login) do update
+   set role = 'editor', granted_by = excluded.granted_by, granted_at = excluded.granted_at
+ where chat_access.role = 'viewer'
+`
+
+type GrantChatEditorParams struct {
+	ChatID    string
+	Login     string
+	GrantedBy string
+	GrantedAt time.Time
+}
+
+// GrantChatEditor makes login an editor of a chat: a new row, or a viewer's raised. An
+// editor's row is left as it is, granted_by included.
+func (q *Queries) GrantChatEditor(ctx context.Context, arg GrantChatEditorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, grantChatEditor,
+		arg.ChatID,
+		arg.Login,
+		arg.GrantedBy,
+		arg.GrantedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const joinChatAccess = `-- name: JoinChatAccess :execrows
 insert into chat_access (chat_id, login, role, granted_by, granted_at)
 values ($1, $2, $3, $4, $5)

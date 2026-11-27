@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,10 +27,12 @@ const (
 	RoutineScopeSystem   = "system"
 )
 
-// What starts a routine's runs: its schedule, or Linear events (routine_events.go).
+// What starts a routine's runs: its schedule, Linear events or GitHub events
+// (routine_events.go).
 const (
 	RoutineKindSchedule = "schedule"
 	RoutineKindLinear   = "linear"
+	RoutineKindGitHub   = "github"
 )
 
 // Where a routine's runs happen (0047). Every run of a routine on a schedule is in its one
@@ -44,7 +47,7 @@ const (
 const (
 	RoutineTriggerSchedule = "schedule"
 	RoutineTriggerManual   = "manual"
-	// RoutineTriggerEvent is a run of a linear routine, started by the events it was given.
+	// RoutineTriggerEvent is a run of a routine on events, started by the events it was given.
 	RoutineTriggerEvent = "event"
 )
 
@@ -75,15 +78,16 @@ type Routine struct {
 	Scope      string
 	OwnerLogin string
 	Name       string
-	// Kind is RoutineKindSchedule or RoutineKindLinear: what starts its runs.
+	// Kind is RoutineKindSchedule, RoutineKindLinear or RoutineKindGitHub: what starts its runs.
 	Kind string
 	// Schedule is a five-field cron expression, read in Timezone. Empty for a linear routine,
 	// which keeps Timezone for its daily spend cap.
 	Schedule string
 	Timezone string
-	// Events are the Linear events a linear routine runs on, "Issue.create" each, and Teams
-	// the Linear team keys it is limited to, empty for every team. Both are empty for a
-	// routine on a schedule.
+	// Events are the events a routine on events runs on: Linear's ("Issue.create") or
+	// GitHub's ("workflow_run.failed"). Teams is what it is limited to, empty for everything:
+	// Linear team keys, or GitHub repositories ("owner/name") and owners. Both are empty for
+	// a routine on a schedule.
 	Events []string
 	Teams  []string
 	// ChatMode is RoutineChatModeRoutine or RoutineChatModeSubject: whether a linear routine's
@@ -120,9 +124,22 @@ type Routine struct {
 	PausedUntil *time.Time
 	// CreatedBy is who set it up.
 	CreatedBy string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// Playbook is the playbook a run starts right away, "" for the assistant's turn.
+	// RoutineReviewPlaybook is a pull request's repository's reviewer.
+	Playbook string
+	// GitHubFilters are a routine on GitHub events' conditions on whose events it is given.
+	GitHubFilters RoutineGitHubFilters
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
+
+// RoutineReviewPlaybook is the Playbook naming the reviewer of the repository a routine's pull
+// request is in: the playbook naming it in github_repos, else the github: true one. Only a
+// routine on GitHub events may name it.
+const RoutineReviewPlaybook = "@review"
+
+// MaxRoutinePlaybookRunes caps a routine's playbook name.
+const MaxRoutinePlaybookRunes = 200
 
 // System reports whether the routine runs as nobody, configured by admins.
 func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
@@ -130,9 +147,17 @@ func (r Routine) System() bool { return r.Scope == RoutineScopeSystem }
 // OnLinear reports whether the routine runs on Linear events rather than a schedule.
 func (r Routine) OnLinear() bool { return r.Kind == RoutineKindLinear }
 
-// PerSubject reports whether the routine's runs on Linear events each happen in the chat of
-// what the events are about, rather than all in its own chat.
-func (r Routine) PerSubject() bool { return r.OnLinear() && r.ChatMode == RoutineChatModeSubject }
+// OnGitHub reports whether the routine runs on GitHub events rather than a schedule.
+func (r Routine) OnGitHub() bool { return r.Kind == RoutineKindGitHub }
+
+// OnEvents reports whether the routine runs on events — Linear's or GitHub's — rather than a
+// schedule: it has no next run, nothing to run by hand, and runs with the events it is given.
+func (r Routine) OnEvents() bool { return r.OnLinear() || r.OnGitHub() }
+
+// PerSubject reports whether the routine's runs on events each happen in the conversation of
+// what the events are about — a Linear issue's or project's, a pull request's — rather than all
+// in its own chat.
+func (r Routine) PerSubject() bool { return r.OnEvents() && r.ChatMode == RoutineChatModeSubject }
 
 // When is what starts the routine's runs as its history records it: the cron expression, or
 // the Linear events in words. Nothing parses it.
@@ -140,11 +165,14 @@ func (r Routine) PerSubject() bool { return r.OnLinear() && r.ChatMode == Routin
 // Running in each ticket's conversation is part of it, so that switching it is a change the
 // history records.
 func (r Routine) When() string {
+	if r.PerSubject() && r.OnGitHub() {
+		return DescribeGitHubTrigger(r.Events, r.Teams) + " · in each pull request's conversation"
+	}
 	if r.PerSubject() {
 		return DescribeLinearTrigger(r.Events, r.Teams) + " · in each ticket's conversation"
 	}
-	if r.OnLinear() {
-		return DescribeLinearTrigger(r.Events, r.Teams)
+	if r.OnEvents() {
+		return DescribeEventTrigger(r.Kind, r.Events, r.Teams)
 	}
 	return r.Schedule
 }
@@ -153,8 +181,9 @@ func (r Routine) When() string {
 // worked out by the caller, which owns the cron arithmetic.
 type RoutineDraft struct {
 	Name string
-	// Kind is RoutineKindSchedule (or empty, which is the same) or RoutineKindLinear. A linear
-	// draft names Events and, optionally, Teams, and no Schedule.
+	// Kind is RoutineKindSchedule (or empty, which is the same), RoutineKindLinear or
+	// RoutineKindGitHub. A draft on events names Events and, optionally, Teams, and no
+	// Schedule.
 	Kind     string
 	Schedule string
 	Events   []string
@@ -172,6 +201,10 @@ type RoutineDraft struct {
 	Repos       []string
 	DailyCapUSD *float64
 	NextRunAt   time.Time
+	// Playbook and GitHubFilters: see Routine. Whether the playbook exists is the caller's to
+	// check, which holds the profile.
+	Playbook      string
+	GitHubFilters RoutineGitHubFilters
 }
 
 // RoutineRun is one firing of a routine.
@@ -203,6 +236,7 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	out.PersonalityID = strings.TrimSpace(in.PersonalityID)
 	out.Model = strings.TrimSpace(in.Model)
 	out.Effort = strings.TrimSpace(in.Effort)
+	out.Playbook = strings.TrimSpace(in.Playbook)
 	repos, err := cleanRepos(in.Repos)
 	if err != nil {
 		return RoutineDraft{}, err
@@ -210,6 +244,23 @@ func PrepareRoutine(in RoutineDraft) (RoutineDraft, error) {
 	out.Repos = repos
 	if err := prepareTrigger(&out); err != nil {
 		return RoutineDraft{}, err
+	}
+	if out.Kind != RoutineKindGitHub {
+		if !in.GitHubFilters.IsZero() {
+			return RoutineDraft{}, fmt.Errorf("%w: only a routine on GitHub events has conditions on whose events it is given", ErrInvalidRoutine)
+		}
+		if out.Playbook == RoutineReviewPlaybook {
+			return RoutineDraft{}, fmt.Errorf("%w: the repository's reviewer is for a routine on GitHub events, which knows the repository", ErrInvalidRoutine)
+		}
+	}
+	if out.GitHubFilters, err = NormalizeGitHubFilters(in.GitHubFilters); err != nil {
+		return RoutineDraft{}, err
+	}
+	if slices.Contains(out.Events, GitHubCommandEvent) && len(out.GitHubFilters.Commands) == 0 {
+		return RoutineDraft{}, fmt.Errorf("%w: a routine on a command names the command it answers to, such as /review", ErrInvalidRoutine)
+	}
+	if utf8.RuneCountInString(out.Playbook) > MaxRoutinePlaybookRunes {
+		return RoutineDraft{}, fmt.Errorf("%w: the playbook name is longer than %d characters", ErrInvalidRoutine, MaxRoutinePlaybookRunes)
 	}
 	if in.DailyCapUSD != nil {
 		if *in.DailyCapUSD < 0 {
@@ -305,7 +356,7 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		return Routine{}, err
 	}
 	var chatID *string
-	if d.Kind != RoutineKindLinear {
+	if d.Kind == RoutineKindSchedule {
 		chat, err := s.createChat(ctx, owner, d.Name, d.PersonalityID, personalityDisplay)
 		if err != nil {
 			return Routine{}, fmt.Errorf("create routine: open its chat: %w", err)
@@ -335,6 +386,8 @@ func (s *Store) CreateRoutine(ctx context.Context, owner string, draft RoutineDr
 		Events:        d.Events,
 		Teams:         d.Teams,
 		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 	})
 	if err == nil && chatID != nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: *chatID, RoutineID: &row.ID})
@@ -363,7 +416,7 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 		return Routine{}, err
 	}
 	var chatID *string
-	if d.Kind != RoutineKindLinear {
+	if d.Kind == RoutineKindSchedule {
 		id, err := s.createSystemRoutineChat(ctx, d.Name, actor)
 		if err != nil {
 			return Routine{}, fmt.Errorf("create system routine: open its chat: %w", err)
@@ -376,25 +429,27 @@ func (s *Store) CreateSystemRoutine(ctx context.Context, actor string, draft Rou
 		repos = []string{}
 	}
 	row, err := s.q.InsertRoutine(ctx, db.InsertRoutineParams{
-		ID:          ids.New("rtn"),
-		Scope:       RoutineScopeSystem,
-		Name:        d.Name,
-		Schedule:    d.Schedule,
-		Timezone:    d.Timezone,
-		Instruction: d.Instruction,
-		CreatedAt:   now,
-		Notes:       d.Notes,
-		Model:       d.Model,
-		Effort:      d.Effort,
-		ChatID:      chatID,
-		NextRunAt:   d.NextRunAt.UTC(),
-		Repos:       repos,
-		DailyCapUsd: d.DailyCapUSD,
-		CreatedBy:   actor,
-		TriggerKind: d.Kind,
-		Events:      d.Events,
-		Teams:       d.Teams,
-		ChatMode:    d.ChatMode,
+		ID:            ids.New("rtn"),
+		Scope:         RoutineScopeSystem,
+		Name:          d.Name,
+		Schedule:      d.Schedule,
+		Timezone:      d.Timezone,
+		Instruction:   d.Instruction,
+		CreatedAt:     now,
+		Notes:         d.Notes,
+		Model:         d.Model,
+		Effort:        d.Effort,
+		ChatID:        chatID,
+		NextRunAt:     d.NextRunAt.UTC(),
+		Repos:         repos,
+		DailyCapUsd:   d.DailyCapUSD,
+		CreatedBy:     actor,
+		TriggerKind:   d.Kind,
+		Events:        d.Events,
+		Teams:         d.Teams,
+		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 	})
 	if err == nil && chatID != nil {
 		err = s.q.SetChatRoutine(ctx, db.SetChatRoutineParams{ID: *chatID, RoutineID: &row.ID})
@@ -652,6 +707,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 		Events:        d.Events,
 		Teams:         d.Teams,
 		ChatMode:      d.ChatMode,
+		Playbook:      d.Playbook,
+		GithubFilters: githubFiltersJSON(d.GitHubFilters),
 		NextRunAt:     d.NextRunAt.UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
@@ -665,8 +722,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, id, actor string, draft Routi
 	if revised(before, r) {
 		s.recordRevision(ctx, r, actor)
 	}
-	if r.ChatID == "" && !r.OnLinear() {
-		// A routine moved from Linear events to a schedule runs in its own chat, which it may
+	if r.ChatID == "" && !r.OnEvents() {
+		// A routine moved from events to a schedule runs in its own chat, which it may
 		// never have needed until now.
 		if chatID, _, err := s.EnsureRoutineChat(ctx, r); err == nil {
 			r.ChatID = chatID
@@ -1046,6 +1103,8 @@ func routineFromRow(r db.Routine) Routine {
 		DailyCapUSD:          r.DailyCapUsd,
 		PausedUntil:          utcPtr(r.PausedUntil),
 		CreatedBy:            r.CreatedBy,
+		Playbook:             r.Playbook,
+		GitHubFilters:        githubFiltersFrom(r.GithubFilters),
 		CreatedAt:            r.CreatedAt.UTC(),
 		UpdatedAt:            r.UpdatedAt.UTC(),
 	}

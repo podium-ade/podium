@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,14 +39,10 @@ const (
 	reviewedNote     = "Review posted."
 	reviewFailedText = "The review did not finish."
 	replyFailedText  = "❌ I could not answer that."
-	// statusMarker hides in the rendered comment and is how a later turn finds
-	// the one status comment after a restart. The visible line is the title.
-	statusMarker       = "<!-- podium-review-status -->"
-	statusInProgress   = "Review in progress"
-	statusApproved     = "Approved"
-	statusChanges      = "Changes requested"
-	statusReviewed     = "Reviewed"
-	statusDidNotFinish = "Review did not finish"
+	// statusMarker is in the status comment the conductor once posted for a review. It
+	// posts none now, but an old one on a pull request is still scaffolding, not something
+	// anybody said.
+	statusMarker = "<!-- podium-review-status -->"
 )
 
 // ErrBoundToOther is a Slack thread that is already reviewing a different pull request.
@@ -110,21 +105,16 @@ type SourceOptions struct {
 	Logger        *slog.Logger
 	HTTPClient    *http.Client
 	Clock         func() time.Time
-	// Reviews remembers the pull-request review this session submitted. Nil keeps it in
-	// memory for the life of the process, which is what the tests do.
-	Reviews ReviewMemory
-	// Filters is read on every delivery. Nil is the default Filters.
-	Filters FilterLookup
+	// Routines keeps each verified delivery for the routines that run on GitHub events
+	// (routine_events.go). Nil keeps nothing: this conductor runs no routines.
+	Routines RoutineSink
+	// RoutinesWant is asked before a commit's checks are read from GitHub for routines on
+	// "all checks finished" (commit_checks.go). Nil reads every commit that finishes.
+	RoutinesWant RoutineWants
 	// Serve, when set, serves the webhook handler on a listener the caller owns: the
 	// conductor's, which puts another app's webhooks on the same address when the two are
 	// configured alike. It blocks until ctx ends, like Run. Nil binds Listen here.
 	Serve func(ctx context.Context, listen, path string, h http.Handler) error
-}
-
-// ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
-type ReviewMemory struct {
-	Get func(ctx context.Context, sourceKey string) (int64, error)
-	Set func(ctx context.Context, sourceKey string, reviewID int64) error
 }
 
 // Source is the GitHub App integration.
@@ -136,7 +126,6 @@ type Source struct {
 	serve         func(ctx context.Context, listen, path string, h http.Handler) error
 	webhookSecret string
 	session       SessionLookup
-	reviews       ReviewMemory
 	surfaces      Surfaces
 	slack         SlackBridge
 	// deliverer owes each copy fanned out to a bound Slack thread through the conductor's
@@ -146,7 +135,15 @@ type Source struct {
 	taskURL   func(string) string
 	now       func() time.Time
 
-	filters FilterLookup
+	// routines keeps deliveries for the routines on GitHub events; nil keeps none.
+	routines     RoutineSink
+	routinesWant RoutineWants
+	// checking is the commits whose checks are being read for routines, keyed repo@sha, and
+	// whether another finish on one came in meanwhile. checksWG is those reads, and
+	// checksSettle how long each waits first (commit_checks.go).
+	checking     map[string]bool
+	checksWG     sync.WaitGroup
+	checksSettle time.Duration
 
 	slug      string
 	mentionRE *regexp.Regexp
@@ -155,16 +152,6 @@ type Source struct {
 	seen map[string]time.Time
 	// turns is per-ref bookkeeping for edits other than progress, keyed by the triggering ref.
 	turns map[string]*turnState
-	// reviewIDs is the submitted review for a pull request, keyed by source key. It is the
-	// process cache of Reviews, so a second final in this process knows the last review even
-	// when the save has not landed yet.
-	reviewIDs map[string]int64
-	// statusIDs is the one pull-request comment that says the review is running
-	// or finished. statusTitles is the title last written there, so a progress
-	// line does not edit it again. pulls caches the summary those comments show.
-	statusIDs    map[string]int64
-	statusTitles map[string]string
-	pulls        map[string]pullInfo
 	// threadBots is whether the App started an inline review thread, keyed by the
 	// thread's first comment. Who started a thread never changes.
 	threadBots map[int64]bool
@@ -226,18 +213,15 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		serve:         opts.Serve,
 		webhookSecret: opts.WebhookSecret,
 		session:       opts.Session,
-		reviews:       opts.Reviews,
 		surfaces:      opts.Surfaces,
 		slack:         opts.Slack,
 		taskURL:       taskURL,
 		now:           now,
-		filters:       opts.Filters,
+		routines:      opts.Routines,
+		routinesWant:  opts.RoutinesWant,
+		checksSettle:  checksSettle,
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
-		reviewIDs:     map[string]int64{},
-		statusIDs:     map[string]int64{},
-		statusTitles:  map[string]string{},
-		pulls:         map[string]pullInfo{},
 		threadBots:    map[int64]bool{},
 		roles:         map[string]knownRole{},
 		threadJoined:  map[int64]bool{},
@@ -534,59 +518,20 @@ func mergeTranscripts(a, b []conductor.BriefEntry) []conductor.BriefEntry {
 	return out
 }
 
-// Post says something new. Who says it decides where it goes.
+// Post says something new: a reply to whoever asked, from the assistant, a playbook or the
+// conductor itself. It goes where they asked: the review thread a reply came from, the
+// conversation tab, or only the Slack thread when Slack is where the question was. Progress
+// is not posted. Bound Slack threads still hear every answer.
 //
-// The review playbook's work is the review: one status comment, then one submitted review
-// under it. Its progress is not posted and is not edited into that comment, and a failure
-// changes the status comment's title rather than adding a comment.
-//
-// Everybody else — the assistant, another playbook, the conductor itself — is replying to
-// whoever asked. That reply goes where they asked it: the review thread a reply came from,
-// the conversation tab, or only the Slack thread when Slack is where the question was.
-// Progress is not posted for them either. Bound Slack threads still hear every answer.
+// Nobody's answer is a review. A playbook that reviews posts its review itself, with the
+// GitHub token its task is given (gh pr review, or the reviews API), and a status comment too
+// if its prompt asks for one: what a review is and how it reads is the playbook's to say.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	p, err := ParseRef(ref)
 	if err != nil {
 		return "", err
 	}
-	if out.SourcePlaybook {
-		return s.postReviewWork(ctx, p, out)
-	}
 	return s.postReply(ctx, p, out)
-}
-
-func (s *Source) postReviewWork(ctx context.Context, p Parsed, out conductor.Outbound) (string, error) {
-	switch out.Type {
-	case conductor.OutFailure:
-		s.showStatus(ctx, p, statusDidNotFinish, false)
-		if s.fanoutSlack(out) {
-			s.postSlack(ctx, p, out)
-		}
-		return "", nil
-	case conductor.OutProgress:
-		return s.showStatus(ctx, p, statusInProgress, true), nil
-	case conductor.OutFinal:
-		event := s.reviewAction(ctx, p, out.Text)
-		s.showStatus(ctx, p, statusTitle(event), true)
-		id, gerr := s.postReview(ctx, p, out.Text)
-		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
-			s.logger.WarnContext(ctx, "github: posting the review failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
-		}
-		s.postSlack(ctx, p, out)
-		if id != "" {
-			return id, nil
-		}
-		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
-			return "", gerr
-		}
-		return "", nil
-	case conductor.OutQuestion:
-		s.postSlack(ctx, p, out)
-		return "", nil
-	default:
-		return "", nil
-	}
 }
 
 func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound) (string, error) {
@@ -595,7 +540,7 @@ func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound
 	case conductor.OutFinal:
 		// Replies to the review's own threads go into those threads. What is left is the
 		// answer, which is posted where the question was asked.
-		if p.Kind != KindSlack {
+		if asked(p) == "github" {
 			rest, notes := splitThreadNotes(body)
 			if len(notes) > 0 {
 				body = withThreadNotes(rest, s.replyInThreads(ctx, p, notes))
@@ -616,7 +561,7 @@ func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound
 	if s.fanoutSlack(out) {
 		s.postSlack(ctx, p, out)
 	}
-	if p.Kind == KindSlack {
+	if p.Kind == KindSlack || asked(p) == "podium" {
 		return "", nil
 	}
 	id, gerr := s.postGitHub(ctx, p, body)
@@ -626,6 +571,21 @@ func (s *Source) postReply(ctx context.Context, p Parsed, out conductor.Outbound
 		return "", gerr
 	}
 	return id, nil
+}
+
+// asked is where the question a reply answers was asked. A pull request's ref with no comment
+// is RefForKey's: a turn of its conversation nobody on GitHub started — a routine's run, or a
+// message written in its chat in Podium. Its answer stays in Podium, where it was asked, and
+// the pull request gets only what a playbook or a routine posts there itself.
+func asked(p Parsed) string {
+	switch {
+	case p.Kind == KindSlack:
+		return "slack"
+	case p.Kind == KindPullRequest && p.CommentID == 0:
+		return "podium"
+	default:
+		return "github"
+	}
 }
 
 // replyInThreads posts each note in the thread of the review's inline comment at its
@@ -679,427 +639,6 @@ func (s *Source) threadAt(comments []Comment, path string, line int) int64 {
 		}
 	}
 	return root
-}
-
-func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string, error) {
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return "", err
-	}
-	key := SourceKey(p.Owner, p.Repo, p.Number)
-	// Every answer is a review of its own, so each round stays on the pull request beside
-	// the ones before it, and its commit is where the next round starts from. The status
-	// comment above them is the one that changes.
-	summary, notes := splitInline(body)
-	event := s.reviewAction(ctx, p, body)
-	created, err := s.submitReview(ctx, install, p, event, summary, notes)
-	if err != nil {
-		return "", err
-	}
-	if created.ID <= 0 {
-		return "", errors.New("github: the review was submitted without an id")
-	}
-	s.replaceReview(key, created.ID)
-	if s.reviews.Set != nil {
-		if err := s.reviews.Set(ctx, key, created.ID); err != nil {
-			s.logger.WarnContext(ctx, "github: recording the review id failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "review", created.ID, "error", err)
-		}
-	}
-	return strconv.FormatInt(created.ID, 10), nil
-}
-
-// reviewAction is the GitHub event for this answer. An approval that a later
-// answer no longer stands behind becomes a request for changes.
-//
-// A pull request this App opened is reviewed but never approved: the App vouching for its
-// own work is not a review, and a branch protection rule counting it would let Podium merge
-// what nobody looked at. Nor does it request changes there, which GitHub refuses from a pull
-// request's own author. Its verdict is still in the review's words; the event is a comment.
-func (s *Source) reviewAction(ctx context.Context, p Parsed, body string) string {
-	event := reviewEvent(body)
-	if event == eventApprove {
-		if s.ownPull(ctx, p) {
-			return eventComment
-		}
-		return event
-	}
-	id, err := s.reviewID(ctx, SourceKey(p.Owner, p.Repo, p.Number))
-	if err != nil || id == 0 {
-		return event
-	}
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return event
-	}
-	if s.reviewState(ctx, install, p, id) == "APPROVED" && !s.ownPull(ctx, p) {
-		return eventRequestChanges
-	}
-	return event
-}
-
-// ownPull reports whether this App opened the pull request. A pull request that cannot be
-// read counts as the App's own, for the same reason a missing verdict line is a comment: a
-// review must not approve by accident.
-func (s *Source) ownPull(ctx context.Context, p Parsed) bool {
-	info := s.pullInfo(ctx, p)
-	if !info.OK {
-		return true
-	}
-	return s.isAppUser(info.Author, info.AuthorType)
-}
-
-func statusTitle(event string) string {
-	switch event {
-	case eventApprove:
-		return statusApproved
-	case eventRequestChanges:
-		return statusChanges
-	default:
-		return statusReviewed
-	}
-}
-
-// showStatus writes the one pull-request comment. create posts it when this
-// pull request does not have one yet. A failure does not create one: there is
-// nothing to retitle, and a new comment would only say that Podium stopped.
-// The returned id is empty when no comment was written.
-func (s *Source) showStatus(ctx context.Context, p Parsed, title string, create bool) string {
-	key := SourceKey(p.Owner, p.Repo, p.Number)
-	id := s.knownStatus(ctx, p)
-	if id == 0 && !create {
-		return ""
-	}
-	if id > 0 {
-		s.mu.Lock()
-		current := s.statusTitles[key]
-		s.mu.Unlock()
-		if current == title {
-			return strconv.FormatInt(id, 10)
-		}
-	}
-	info := s.pullInfo(ctx, p)
-	body := statusComment(title, p.Owner, p.Repo, info)
-	if id == 0 {
-		install, err := s.installation(ctx, p)
-		if err != nil {
-			if !errors.Is(err, ErrNotInstalled) {
-				s.logger.WarnContext(ctx, "github: posting the status comment failed",
-					"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-			}
-			return ""
-		}
-		c, err := s.client.CreateIssueComment(ctx, install, p.Owner, p.Repo, p.Number, body)
-		if err != nil {
-			s.logger.WarnContext(ctx, "github: posting the status comment failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-			return ""
-		}
-		s.rememberStatus(key, c.ID, title)
-		return strconv.FormatInt(c.ID, 10)
-	}
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return strconv.FormatInt(id, 10)
-	}
-	if err := s.client.EditIssueComment(ctx, install, p.Owner, p.Repo, id, body); err != nil {
-		s.logger.WarnContext(ctx, "github: updating the status comment failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		return strconv.FormatInt(id, 10)
-	}
-	s.mu.Lock()
-	s.statusTitles[key] = title
-	s.mu.Unlock()
-	return strconv.FormatInt(id, 10)
-}
-
-func (s *Source) knownStatus(ctx context.Context, p Parsed) int64 {
-	key := SourceKey(p.Owner, p.Repo, p.Number)
-	s.mu.Lock()
-	id := s.statusIDs[key]
-	s.mu.Unlock()
-	if id > 0 {
-		return id
-	}
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return 0
-	}
-	comments, err := s.client.ListIssueComments(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		s.logger.WarnContext(ctx, "github: reading the status comment failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		return 0
-	}
-	for _, c := range comments {
-		if strings.Contains(c.Body, statusMarker) {
-			s.rememberStatus(key, c.ID, "")
-			return c.ID
-		}
-	}
-	return 0
-}
-
-func (s *Source) rememberStatus(key string, id int64, title string) {
-	if id <= 0 {
-		return
-	}
-	s.mu.Lock()
-	s.statusIDs[key] = id
-	if title != "" {
-		s.statusTitles[key] = title
-	}
-	s.mu.Unlock()
-}
-
-// pullInfo reads the pull request for the status comment. A failed read keeps the
-// summary already shown, so a later title change does not wipe it.
-func (s *Source) pullInfo(ctx context.Context, p Parsed) pullInfo {
-	key := SourceKey(p.Owner, p.Repo, p.Number)
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return s.cachedPull(key)
-	}
-	info, err := s.client.Pull(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		s.logger.WarnContext(ctx, "github: reading the pull request summary failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		return s.cachedPull(key)
-	}
-	info.OK = true
-	s.mu.Lock()
-	s.pulls[key] = info
-	s.mu.Unlock()
-	return info
-}
-
-func (s *Source) cachedPull(key string) pullInfo {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.pulls[key]
-}
-
-// statusComment is the one conversation comment. The title and the lead change
-// when the review finishes. The pull-request summary under them is rewritten
-// from the same fields, so the card stays one comment.
-func statusComment(title, owner, repo string, info pullInfo) string {
-	alert, lead := statusLead(title)
-	var b strings.Builder
-	b.WriteString(statusMarker)
-	b.WriteString("\n\n> [!")
-	b.WriteString(alert)
-	b.WriteString("]\n> **")
-	b.WriteString(title)
-	b.WriteString("**\n>\n> ")
-	b.WriteString(lead)
-	if !info.OK {
-		return b.String()
-	}
-	if info.Title != "" {
-		b.WriteString("\n\n### ")
-		b.WriteString(oneLine(info.Title))
-	}
-	if line := branchLine(owner, repo, info); line != "" {
-		b.WriteString("\n\n")
-		b.WriteString(line)
-	}
-	b.WriteString("\n\n")
-	b.WriteString(statTable(info))
-	if href := compareURL(owner, repo, info.Base, info.Head); href != "" {
-		b.WriteString("\n\n[View the diff](")
-		b.WriteString(href)
-		b.WriteString(")")
-	}
-	return b.String()
-}
-
-// statusLead is the GitHub alert and the one sentence under the title.
-// NOTE is blue and labeled Note, WARNING is amber and labeled Warning, CAUTION
-// is red and labeled Caution. The green alert is labeled Tip, so an approval
-// stays a Note. The review under the comment is what says Approved.
-func statusLead(title string) (alert, lead string) {
-	switch title {
-	case statusInProgress:
-		return "NOTE", "Podium is reading this pull request. The review will be posted below."
-	case statusApproved:
-		return "NOTE", "Approved. The full review is below."
-	case statusChanges:
-		return "WARNING", "Changes requested. The full review is below."
-	case statusDidNotFinish:
-		return "CAUTION", "This review stopped before it was posted."
-	default:
-		return "NOTE", "Reviewed. The full review is below."
-	}
-}
-
-func branchLine(owner, repo string, info pullInfo) string {
-	var parts []string
-	if info.Head != "" || info.Base != "" {
-		head := linkedCode(info.Head, treeURL(owner, repo, info.Head))
-		base := linkedCode(info.Base, treeURL(owner, repo, info.Base))
-		parts = append(parts, head+" → "+base)
-	}
-	if info.SHA != "" {
-		short := info.SHA
-		if len(short) > 7 {
-			short = short[:7]
-		}
-		parts = append(parts, linkedCode(short, commitURL(owner, repo, info.SHA)))
-	}
-	return strings.Join(parts, " · ")
-}
-
-func statTable(info pullInfo) string {
-	return "| Files | Additions | Deletions | Commits |\n" +
-		"| ---: | ---: | ---: | ---: |\n" +
-		"| " + groupedInt(info.Files) +
-		" | +" + groupedInt(info.Additions) +
-		" | −" + groupedInt(info.Deletions) +
-		" | " + groupedInt(info.Commits) + " |"
-}
-
-func treeURL(owner, repo, ref string) string {
-	if owner == "" || repo == "" || ref == "" {
-		return ""
-	}
-	return "https://github.com/" + owner + "/" + repo + "/tree/" + escapeRef(ref)
-}
-
-func commitURL(owner, repo, sha string) string {
-	if owner == "" || repo == "" || sha == "" {
-		return ""
-	}
-	return "https://github.com/" + owner + "/" + repo + "/commit/" + url.PathEscape(sha)
-}
-
-func compareURL(owner, repo, base, head string) string {
-	if owner == "" || repo == "" || base == "" || head == "" {
-		return ""
-	}
-	return "https://github.com/" + owner + "/" + repo + "/compare/" + escapeRef(base) + "..." + escapeRef(head)
-}
-
-func escapeRef(ref string) string {
-	parts := strings.Split(ref, "/")
-	for i, part := range parts {
-		parts[i] = url.PathEscape(part)
-	}
-	return strings.Join(parts, "/")
-}
-
-func linkedCode(label, href string) string {
-	span := codeSpan(label)
-	if href == "" {
-		return span
-	}
-	return "[" + span + "](" + href + ")"
-}
-
-func codeSpan(s string) string {
-	fence := "`"
-	if strings.Contains(s, "`") {
-		fence = "``"
-	}
-	return fence + s + fence
-}
-
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-func groupedInt(n int) string {
-	sign := ""
-	if n < 0 {
-		sign = "−"
-		n = -n
-	}
-	s := strconv.Itoa(n)
-	var b strings.Builder
-	for i := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteByte(s[i])
-	}
-	return sign + b.String()
-}
-
-// reviewState is the GitHub state of the review this session last submitted.
-// Empty means the list failed or the id was not in it.
-func (s *Source) reviewState(ctx context.Context, install int64, p Parsed, id int64) string {
-	reviews, err := s.client.ListReviews(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		s.logger.WarnContext(ctx, "github: reading the stored review failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "review", id, "error", err)
-		return ""
-	}
-	for _, rev := range reviews {
-		if rev.ID == id {
-			return rev.State
-		}
-	}
-	return ""
-}
-
-// submitReview posts one review. Inline notes ride on it. GitHub rejects the
-// whole submission when a note is not on the diff, and the review is then
-// posted again with those notes in the summary so the approval still lands.
-func (s *Source) submitReview(ctx context.Context, install int64, p Parsed, event, summary string, notes []inlineNote) (Review, error) {
-	comments := commentsOf(notes)
-	commit := ""
-	if len(comments) > 0 {
-		sha, err := s.client.PullHeadSHA(ctx, install, p.Owner, p.Repo, p.Number)
-		if err != nil {
-			s.logger.WarnContext(ctx, "github: no head commit for inline comments; leaving them in the summary",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-			comments = nil
-			summary = summaryWithNotes(summary, notes)
-		} else {
-			commit = sha
-		}
-	}
-	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summary, commit, comments)
-	// GitHub refuses the whole review when one note is not on the diff. That
-	// refusal is an API error. A truncated body or a dropped connection is not,
-	// and submitting again would post a second review for a failure that was
-	// not about the notes.
-	var refused *APIError
-	if err != nil && len(comments) > 0 && errors.As(err, &refused) {
-		s.logger.WarnContext(ctx, "github: inline comments rejected; submitting the review without them",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		created, err = s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summaryWithNotes(summary, notes), "", nil)
-	}
-	return created, err
-}
-
-func (s *Source) reviewID(ctx context.Context, key string) (int64, error) {
-	s.mu.Lock()
-	id := s.reviewIDs[key]
-	s.mu.Unlock()
-	if id > 0 || s.reviews.Get == nil {
-		return id, nil
-	}
-	id, err := s.reviews.Get(ctx, key)
-	if err != nil || id <= 0 {
-		return 0, err
-	}
-	s.rememberReview(key, id)
-	return id, nil
-}
-
-func (s *Source) rememberReview(key string, id int64) {
-	s.mu.Lock()
-	if s.reviewIDs[key] == 0 {
-		s.reviewIDs[key] = id
-	}
-	s.mu.Unlock()
-}
-
-// replaceReview points the session at its latest review, the one a follow-up starts from.
-func (s *Source) replaceReview(key string, id int64) {
-	s.mu.Lock()
-	s.reviewIDs[key] = id
-	s.mu.Unlock()
 }
 
 func (s *Source) postGitHub(ctx context.Context, p Parsed, body string) (string, error) {

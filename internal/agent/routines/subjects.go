@@ -34,6 +34,23 @@ const ConversationPreamble = "This run is a turn in the conversation of the Line
 	"events ask for nothing new, finish idle; when a running task should know about them, add to that " +
 	"task instead of starting another.\n\n"
 
+// PullRequestPreamble is ConversationPreamble for a run in a pull request's conversation: the
+// chat its reviews, the people who mentioned the App on it and every web message about it are in.
+const PullRequestPreamble = "This run is a turn in the conversation of the pull request its events are " +
+	"about. Earlier turns on it — its reviews, people who mentioned you on it or wrote in its chat, other " +
+	"routines' runs, and the tasks any of them started — are in the conversation above, and tasks still " +
+	"running are in your brief. Do not redo work that is done or start work that is already running: when " +
+	"the events ask for nothing new, finish idle; when a running task should know about them, add to that " +
+	"task instead of starting another.\n\n"
+
+// preambleFor is what a run in the conversation key is told first.
+func preambleFor(key string) string {
+	if store.IsGitHubConversation(key) {
+		return PullRequestPreamble
+	}
+	return ConversationPreamble
+}
+
 // perSubject reports whether r's events run in each ticket's conversation on this scheduler.
 func (s *Scheduler) perSubject(r store.Routine) bool {
 	return s.subjects != nil && r.PerSubject()
@@ -60,11 +77,11 @@ func (s *Scheduler) fireSubjects(ctx context.Context, r store.Routine, now time.
 			return
 		}
 		var busy bool
-		if key := store.LinearConversationKey(sub.Key); key != "" {
+		if key := store.ConversationKey(sub.Key); key != "" {
 			busy, err = s.keyBusy(ctx, key)
 		} else {
-			// Events about a cycle, a label or nothing in particular run in the routine's
-			// own chat, which may not be open yet.
+			// Events about a cycle, a label, a push to a branch or nothing in particular run
+			// in the routine's own chat, which may not be open yet.
 			busy, err = s.busy(ctx, r)
 		}
 		if err != nil {
@@ -76,7 +93,7 @@ func (s *Scheduler) fireSubjects(ctx context.Context, r store.Routine, now time.
 			continue
 		}
 		if _, err := s.startEventRun(ctx, r, now, &sub); err != nil && !errors.Is(err, errClaimed) {
-			s.logger.InfoContext(ctx, "a routine's Linear events did not run", "routine_id", r.ID,
+			s.logger.InfoContext(ctx, "a routine's events did not run", "routine_id", r.ID,
 				"subject", sub.Key, "reason", err)
 		}
 		// One run of the routine at a time, whether or not this one started.
@@ -84,16 +101,18 @@ func (s *Scheduler) fireSubjects(ctx context.Context, r store.Routine, now time.
 	}
 }
 
-// subjectConversation is the chat of the conversation sub's run goes in, opened now when the
-// issue has none, and records it on the run. The routine's owner is recorded as somebody who
-// touched the issue, which is what lets them read the conversation their routine ran in.
+// subjectConversation is the chat of the conversation sub's run goes in — a Linear issue's or
+// project's, or a pull request's — opened now when it has none, and records it on the run. The
+// routine's owner is recorded as somebody who may read it (store.NoteRoutineReader): as having
+// touched the issue, or with a viewer's row on the pull request's chat. A pull request's author
+// who is a Podium person is made an editor of it (store.NotePullRequestAuthors).
 func (s *Scheduler) subjectConversation(ctx context.Context, r store.Routine, run store.RoutineRun, key, title string) (string, error) {
-	chat, created, err := s.subjects.EnsureLinearConversation(ctx, key, title)
+	chat, created, err := s.subjects.EnsureConversation(ctx, key, title)
 	if err != nil {
 		return "", err
 	}
 	if created {
-		s.logger.InfoContext(ctx, "opened a Linear conversation for a routine's run", "routine_id", r.ID,
+		s.logger.InfoContext(ctx, "opened a conversation for a routine's run", "routine_id", r.ID,
 			"source_key", key, "chat_id", chat.ID)
 	}
 	if err := s.subjects.SetRoutineRunChat(ctx, run.ID, chat.ID); err != nil {
@@ -101,10 +120,13 @@ func (s *Scheduler) subjectConversation(ctx context.Context, r store.Routine, ru
 		s.logger.WarnContext(ctx, "recording the conversation of a routine run failed", "run_id", run.ID, "error", err)
 	}
 	if r.OwnerLogin != "" {
-		if err := s.subjects.RecordLinearPeople(ctx, key, []store.LinearPerson{
-			{Login: r.OwnerLogin, Via: store.LinearViaRoutine},
-		}, s.now()); err != nil {
-			s.logger.WarnContext(ctx, "recording a routine's owner on its issue failed", "run_id", run.ID, "error", err)
+		if err := s.subjects.NoteRoutineReader(ctx, key, chat.ID, r.OwnerLogin); err != nil {
+			s.logger.WarnContext(ctx, "recording a routine's owner on its conversation failed", "run_id", run.ID, "error", err)
+		}
+	}
+	if store.IsGitHubConversation(key) {
+		if err := s.subjects.NotePullRequestAuthors(ctx, run.ID, chat.ID); err != nil {
+			s.logger.WarnContext(ctx, "recording a pull request's author on its conversation failed", "run_id", run.ID, "error", err)
 		}
 	}
 	return chat.ID, nil

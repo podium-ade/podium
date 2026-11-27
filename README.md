@@ -218,6 +218,7 @@ own (one `profile.yaml`, one file per playbook) and re-read it from the UI. No r
 - [docs/cli.md](docs/cli.md): every command, its exit codes and its streams
 - [examples/](examples): a task with a sidecar, secrets, limits, artifacts
 - [examples/agent/](examples/agent): the starter profile a fresh install runs
+- [examples/review/](examples/review): a review playbook that posts its own review, status comment and inline notes
 - [profile/](profile): the playbook that develops this repository
 
 **Running it**

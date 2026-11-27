@@ -131,7 +131,7 @@ type deliverySetter interface {
 func payloadOf(out Outbound) store.OutboxPayload {
 	return store.OutboxPayload{
 		Type: out.Type, Text: out.Text, TaskID: out.TaskID,
-		Playbook: out.Playbook, SourcePlaybook: out.SourcePlaybook,
+		Playbook:     out.Playbook,
 		CancelReason: out.CancelReason,
 		Author:       out.Author, AuthorAvatar: out.AuthorAvatar,
 		BylineModel: out.Byline.Model, BylineCredential: out.Byline.Credential,
@@ -141,7 +141,7 @@ func payloadOf(out Outbound) store.OutboxPayload {
 func outboundOf(p store.OutboxPayload) Outbound {
 	return Outbound{
 		Type: p.Type, Text: p.Text, TaskID: p.TaskID, CancelReason: p.CancelReason,
-		Speaker: Speaker{Playbook: p.Playbook, SourcePlaybook: p.SourcePlaybook},
+		Speaker: Speaker{Playbook: p.Playbook},
 		Author:  p.Author, AuthorAvatar: p.AuthorAvatar,
 		Byline: Byline{Model: p.BylineModel, Credential: p.BylineCredential},
 	}

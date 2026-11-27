@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+const claimSetting = `-- name: ClaimSetting :execrows
+insert into settings (key, value, updated_at) values ($1, $2, $3)
+on conflict (key) do nothing
+`
+
+type ClaimSettingParams struct {
+	Key       string
+	Value     []byte
+	UpdatedAt time.Time
+}
+
+// ClaimSetting writes a setting only when it was never written: whoever writes it first has it.
+func (q *Queries) ClaimSetting(ctx context.Context, arg ClaimSettingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimSetting, arg.Key, arg.Value, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSetting = `-- name: DeleteSetting :exec
 delete from settings where key = $1
 `

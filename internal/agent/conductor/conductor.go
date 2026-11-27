@@ -919,6 +919,10 @@ func (c *Conductor) acceptConversation(
 //
 // A delegation hangs off a turn, so the event gets one. It records that the event was handled
 // here, ran no model and cost nothing, and it is finished once the task has started.
+//
+// A routine that starts its playbook right away runs here too (RunRoutinePlaybook): its turn is
+// linked to the run, so the scheduler settles it, and the task runs as the routine runs — its
+// owner, or nobody for a system routine.
 func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *profiles.Profile, ev InboundEvent) {
 	_, sess, ok := c.acceptConversation(ctx, src, profile, &ev)
 	if !ok {
@@ -933,10 +937,16 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 	}
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: ev.Playbook},
 			Text: "Something went wrong on my side before I could start. Nothing ran."})
 		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return
+	}
+	login := ""
+	if ev.Routine != nil {
+		c.noteRoutineTurn(ctx, turn.ID, ev)
+		defer c.forgetRoutineTurn(turn.ID)
+		login = c.turnLogin(ctx, src, sess, ev)
 	}
 	status := store.TurnSucceeded
 	_, err = c.delegate(ctx, turnGrant{
@@ -945,12 +955,13 @@ func (c *Conductor) acceptAutomatic(ctx context.Context, src Source, profile *pr
 		ref:       ev.Ref,
 		src:       src,
 		playbooks: []string{ev.Playbook},
+		login:     login,
 	}, ev.Playbook, ev.Text, DelegateOptions{Wait: true})
 	if err != nil {
 		status = store.TurnFailed
 		c.logger.WarnContext(ctx, "starting the source's own playbook failed",
 			"session_id", sess.ID, "playbook", ev.Playbook, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, ev.Playbook),
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: ev.Playbook},
 			Text: fmt.Sprintf("I could not start the `%s` playbook.", ev.Playbook)})
 	}
 	none, free := 0, 0.0
@@ -1013,7 +1024,7 @@ func (c *Conductor) runDirect(ctx context.Context, src Source, sess store.Sessio
 			text = fmt.Sprintf("A `%s` task is still working on this. Wait for its answer, "+
 				"or ask without /%s and I will pass it on.", name, name)
 		}
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: c.speakerFor(src, name), Text: text})
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Speaker: Speaker{Playbook: name}, Text: text})
 	}
 	none, free := 0, 0.0
 	if err := c.store.FinishTurn(ctx, turn.ID, status, &none, &free, ""); err != nil {
@@ -1234,7 +1245,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// acknowledgement a human is actually waiting for and a source's write path is rate
 	// limited: every call ahead of it is a second of silence after somebody spoke.
 	placeholder := c.post(ctx, src, ev.Ref, Outbound{
-		Type: OutProgress, Text: Placeholder, Speaker: c.speakerFor(src, j.playbook.Name),
+		Type: OutProgress, Text: Placeholder, Speaker: Speaker{Playbook: j.playbook.Name},
 	})
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
 		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
@@ -1349,9 +1360,10 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	persona, err := c.githubPersona(ctx, login, j.playbook, c.runsAsPodium(ctx, login, ev.Routine))
+	asPodium := c.runsAsPodium(ctx, login, ev.Routine)
+	persona, err := c.githubPersona(ctx, login, j.playbook, asPodium)
 	if err == nil {
-		_, err = userSecretRefs(login, j.playbook.UserSecrets)
+		err = c.personalSecretsOK(ctx, login, j.playbook, persona, asPodium)
 	}
 	if err != nil {
 		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
@@ -1387,7 +1399,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	run := &turnRun{
-		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder, speaker: c.speakerFor(src, j.playbook.Name)},
+		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder, speaker: Speaker{Playbook: j.playbook.Name}},
 		sess:        sess,
 		job:         j,
 		turn:        turn,
@@ -1535,22 +1547,6 @@ func playbookNames(menu []DelegablePlaybook) []string {
 // a conversation, a delegated issue is a piece of work. conversational decides it per event.
 func aConversation(kind string) bool {
 	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
-}
-
-// speakerFor is who a run's output is from: the playbook, and whether it is the one src
-// runs on its own. The assistant passes "" and is the zero Speaker.
-func (c *Conductor) speakerFor(src Source, playbook string) Speaker {
-	if playbook == "" {
-		return Speaker{}
-	}
-	// A pull request's menu offers only the review playbook for its own repository, so any
-	// review playbook speaking on one is that one.
-	own := false
-	if src != nil && src.Kind() == SourceGitHub {
-		p, ok := c.profiles.Current().Playbooks[playbook]
-		own = ok && p.Reviews()
-	}
-	return Speaker{Playbook: playbook, SourcePlaybook: own}
 }
 
 // rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
@@ -2239,6 +2235,39 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	return out, nil
 }
 
+// personalSecretsOK reports whether a turn for login can have the personal secrets playbook
+// names. persona is githubPersona's answer for the same turn: nil is the App writing to
+// GitHub, which stands in for the connected GitHub account a playbook names as
+// profiles.GitHubTokenSecret — that one never reaches a task (userSecretRefsOrEmpty), and the
+// App's push needs nobody's. Any other personal secret needs the person the turn is for.
+//
+// A run as Podium (a system routine's, asPodium) always acts as the system: it has no person
+// and never borrows one, so a playbook that needs one of somebody's own secrets is refused
+// with what to change. The error is written for the routine's admins.
+func (c *Conductor) personalSecretsOK(
+	ctx context.Context, login string, playbook profiles.Playbook, persona *BriefGit, asPodium bool,
+) error {
+	refs := playbook.UserSecrets
+	if persona == nil {
+		refs = slices.DeleteFunc(slices.Clone(refs), func(ref spec.SecretRef) bool {
+			return ref.Name == profiles.GitHubTokenSecret
+		})
+	}
+	_, err := userSecretRefs(login, refs)
+	if err == nil || !asPodium {
+		return err
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, fmt.Sprintf("%q", ref.Name))
+	}
+	name := displayNameFor("", c.branding(ctx))
+	return fmt.Errorf("this is a system routine's run, which acts as %s and has nobody's personal secrets, "+
+		"and the playbook %q needs %s of the person who asked (user_secrets). Give the playbook a company "+
+		"secret of that name under secrets: instead, or run the routine as a person",
+		name, playbook.Name, strings.Join(names, ", "))
+}
+
 // userSecretRefsOrEmpty is what a task spec attaches. A connected GitHub account is not
 // among them: the turn redeems a capability for a token scoped to it instead.
 func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef {
@@ -2670,7 +2699,7 @@ func (c *Conductor) recoverWork(ctx context.Context, startup bool) {
 		j := playbookJob(c.profiles.Current().Playbooks[sess.Playbook])
 		run := &turnRun{
 			sink: &sink{
-				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: c.speakerFor(src, sess.Playbook),
+				c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID, speaker: Speaker{Playbook: sess.Playbook},
 				// The row records the model and not whose credential the turn started on.
 				byline: bylineOfBackend(turn.Backend),
 			},

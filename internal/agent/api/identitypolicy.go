@@ -49,7 +49,6 @@ func (s *AgentService) SetIdentityPolicy(
 		SharedModelKey:  in.GetSharedModelKey(),
 		SlackOutsiders:  in.GetSlackOutsiders(),
 		LinearOutsiders: in.GetLinearOutsiders(),
-		GitHubOutsiders: in.GetGithubOutsiders(),
 	})
 	if err != nil {
 		return nil, storeError(err)
@@ -57,7 +56,7 @@ func (s *AgentService) SetIdentityPolicy(
 	s.auditSubject(ctx, login, AuditIdentityPolicy, "identity", map[string]any{
 		"linear": p.Linear, "github_write": p.GitHubWrite, "github_read": p.GitHubRead,
 		"model_key": p.ModelKey, "shared_model_key": p.SharedModelKey, "slack_outsiders": p.SlackOutsiders,
-		"linear_outsiders": p.LinearOutsiders, "github_outsiders": p.GitHubOutsiders,
+		"linear_outsiders": p.LinearOutsiders,
 	})
 	return connect.NewResponse(&agentv1.SetIdentityPolicyResponse{Policy: identityPolicyToProto(p)}), nil
 }
@@ -71,6 +70,5 @@ func identityPolicyToProto(p store.IdentityPolicy) *agentv1.IdentityPolicy {
 		SharedModelKey:  p.SharedModelKey,
 		SlackOutsiders:  p.SlackOutsiders,
 		LinearOutsiders: p.LinearOutsiders,
-		GithubOutsiders: p.GitHubOutsiders,
 	}
 }
