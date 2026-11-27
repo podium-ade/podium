@@ -91,13 +91,14 @@ export const LINEAR_EVENTS: { event: string; label: string }[] = LINEAR_TYPES.fl
   LINEAR_ACTIONS.map((a) => ({ event: `${t.type}.${a.action}`, label: `${t.label} ${a.label}` })),
 );
 
-/** teamKeys reads the Teams field: comma- or space-separated keys, upper case, each once. */
-export function teamKeys(text: string): string[] {
-  const keys = text
-    .split(/[\s,]+/)
-    .map((k) => k.trim().toUpperCase())
-    .filter((k) => k !== "");
-  return [...new Set(keys)];
+/** cleanTeamKey is one Linear team key as the Teams field keeps it: trimmed, upper case. */
+export function cleanTeamKey(v: string): string {
+  return v.trim().toUpperCase();
+}
+
+/** checkTeamKey is why a team key cannot be added, or nothing: a key is one word. */
+export function checkTeamKey(v: string): string | undefined {
+  return /^[A-Z0-9_-]+$/.test(v) ? undefined : `“${v}” is not a team key, such as ENG.`;
 }
 
 /**
@@ -232,15 +233,29 @@ export function withOutcome(events: string[], row: CIRow, to: CIOutcome): string
 export const GITHUB_GROUPS: GitHubGroup[] = ["CI", "Pull requests", "Issues"];
 
 /**
- * repoNames reads the Repositories field: owner/name or a whole owner each, comma- or
- * space-separated, lower case, each once.
+ * cleanRepo is one repository as a field of them keeps it: trimmed, lower case, read from a
+ * pasted GitHub link too ("https://github.com/acme/api" is acme/api).
  */
-export function repoNames(text: string): string[] {
-  const names = text
-    .split(/[\s,]+/)
-    .map((n) => n.trim().toLowerCase())
-    .filter((n) => n !== "");
-  return [...new Set(names)];
+export function cleanRepo(v: string): string {
+  return v
+    .trim()
+    .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "")
+    .replace(/\.git$|\/+$/g, "")
+    .toLowerCase();
+}
+
+const REPO_PART = "[a-z0-9_.-]+";
+const REPO_RE = new RegExp(`^${REPO_PART}/${REPO_PART}$`);
+const OWNER_RE = new RegExp(`^${REPO_PART}$`);
+
+/** checkRepo is why owner/name cannot be added, or nothing. */
+export function checkRepo(v: string): string | undefined {
+  return REPO_RE.test(v) ? undefined : `“${v}” is not a repository: write it owner/name.`;
+}
+
+/** checkRepoOrOwner is checkRepo that also takes an owner alone, for all of its repositories. */
+export function checkRepoOrOwner(v: string): string | undefined {
+  return REPO_RE.test(v) || OWNER_RE.test(v) ? undefined : `“${v}” is not a repository or an owner.`;
 }
 
 /**

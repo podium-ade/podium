@@ -224,6 +224,48 @@ describe("PlaybookEditor", () => {
     expect(screen.queryByLabelText("Offered on pull requests to")).toBeNull();
   });
 
+  it("keeps node labels, Slack channels and reviewed repositories as tags, and refuses what they cannot hold", async () => {
+    mount({
+      playbook: create(PlaybookDefinitionSchema, {
+        name: "coder",
+        image: "podium-agent-runtime:dev",
+        systemPrompt: "Code.",
+        allowedTools: ["read"],
+        labels: ["linux"],
+        slackChannels: ["C01ABCDEF"],
+        githubRepos: ["acme/api"],
+        editable: true,
+      }),
+    });
+    const remove = (name: string) => screen.getByRole("button", { name });
+    expect(remove("Remove label linux")).toBeInTheDocument();
+    expect(remove("Remove channel C01ABCDEF")).toBeInTheDocument();
+    expect(remove("Remove repository acme/api")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Node labels"), "gpu, backend=sandbox{enter}");
+    await userEvent.type(screen.getByLabelText("Node labels"), "two words{enter}");
+    expect(screen.getByText(/“two words” is not a label/)).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("Node labels"));
+
+    await userEvent.type(screen.getByLabelText("Slack channels"), "#general{enter}");
+    expect(screen.getByText(/Use the channel’s id, not its name/)).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("Slack channels"));
+    await userEvent.type(screen.getByLabelText("Slack channels"), "c02xyz{enter}");
+
+    await userEvent.type(screen.getByLabelText("Reviews pull requests in"), "acme{enter}");
+    expect(screen.getByText(/“acme” is not a repository: write it owner\/name/)).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("Reviews pull requests in"));
+    await userEvent.type(screen.getByLabelText("Reviews pull requests in"), "https://github.com/Acme/Billing{enter}");
+    await userEvent.click(remove("Remove repository acme/api"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      labels: ["linux", "gpu", "backend=sandbox"],
+      slackChannels: ["C01ABCDEF", "C02XYZ"],
+      githubRepos: ["acme/billing"],
+    });
+  });
+
   it("sends the repositories a playbook reviews, and offers it to nobody else by role", async () => {
     mount();
     await userEvent.type(screen.getByLabelText("Playbook name"), "api-review");

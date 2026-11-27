@@ -21,6 +21,7 @@ import {
   SANDBOX_PROVIDERS,
   sidecarProblem,
 } from "../../lib/sandboxProviders";
+import { checkRepo, cleanRepo } from "../../lib/routines";
 import { problemText } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -170,14 +171,14 @@ export function PlaybookEditor({
   const [choice, setChoice] = useState<AgentChoice>(() =>
     playbook ? { agent: playbook.agent, model: playbook.model, effort: playbook.effort } : INHERIT,
   );
-  const [labels, setLabels] = useState((playbook?.labels ?? []).join(", "));
+  const [labels, setLabels] = useState<string[]>(() => [...(playbook?.labels ?? [])]);
   const [priority, setPriority] = useState(String(playbook?.priority ?? 0));
-  const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
+  const [channels, setChannels] = useState<string[]>(() => [...(playbook?.slackChannels ?? [])]);
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [linearTeams, setLinearTeams] = useState<string[]>(() => [...(playbook?.linearTeams ?? [])]);
   const [linearLabels, setLinearLabels] = useState<string[]>(() => [...(playbook?.linearLabels ?? [])]);
   const [github, setGithub] = useState(playbook?.github ?? false);
-  const [githubRepos, setGithubRepos] = useState((playbook?.githubRepos ?? []).join(", "));
+  const [githubRepos, setGithubRepos] = useState<string[]>(() => [...(playbook?.githubRepos ?? [])]);
   const [githubRequires, setGithubRequires] = useState(playbook?.githubRequires ?? "");
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
@@ -246,7 +247,7 @@ export function PlaybookEditor({
     model: choice.model.trim(),
     agent: choice.agent,
     effort: choice.effort,
-    labels: splitList(labels),
+    labels,
     priority: Number(priority) || 0,
     resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
     secrets: secretRows
@@ -259,13 +260,13 @@ export function PlaybookEditor({
       .filter((r) => r.a.trim() !== "" || r.b.trim() !== "")
       .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
     git: persona,
-    slackChannels: splitList(channels),
+    slackChannels: channels,
     linear,
     linearTeams,
     linearLabels,
     github,
-    githubRepos: splitList(githubRepos),
-    githubRequires: github || splitList(githubRepos).length > 0 ? "" : githubRequires,
+    githubRepos,
+    githubRequires: github || githubRepos.length > 0 ? "" : githubRequires,
     interactive,
     docker,
     browser,
@@ -532,14 +533,17 @@ export function PlaybookEditor({
             <Field
               id={`${uid}-labels`}
               label="Node labels"
-              hint="Comma separated. A turn only runs on a node with them; leave it empty to run anywhere."
+              hint="A turn only runs on a node with all of them; leave it empty to run anywhere."
             >
-              <Input
+              <TagInput
+                noun="label"
                 id={`${uid}-labels`}
-                value={labels}
-                onChange={(e) => setLabels(e.target.value)}
-                placeholder="linux, amd64"
-                className="font-mono text-xs"
+                testId="playbook-node-labels"
+                values={labels}
+                onChange={setLabels}
+                validate={checkNodeLabel}
+                mono
+                placeholder="linux"
               />
             </Field>
             <Field
@@ -965,12 +969,16 @@ export function PlaybookEditor({
             label="Slack channels"
             hint="Channel ids this playbook is the default for. Two playbooks may not claim one channel."
           >
-            <Input
+            <TagInput
+              noun="channel"
               id={`${uid}-channels`}
-              value={channels}
-              onChange={(e) => setChannels(e.target.value)}
+              testId="playbook-slack-channels"
+              values={channels}
+              onChange={setChannels}
+              clean={(v) => v.trim().toUpperCase()}
+              validate={checkSlackChannel}
+              mono
               placeholder="C01ABCDEF"
-              className="font-mono text-xs"
             />
           </Field>
 
@@ -1134,17 +1142,22 @@ export function PlaybookEditor({
           <Field
             id={`${uid}-github-repos`}
             label="Reviews pull requests in"
-            hint="Repositories, owner/name and comma-separated, whose pull requests this playbook reviews in place of the default one. A repository may be named by one playbook only."
+            hint="Repositories, owner/name, whose pull requests this playbook reviews in place of the default one. A repository may be named by one playbook only."
           >
-            <Input
+            <TagInput
+              noun="repository"
               id={`${uid}-github-repos`}
-              value={githubRepos}
-              onChange={(e) => setGithubRepos(e.target.value)}
-              placeholder="acme/api, acme/billing"
+              testId="playbook-github-repos"
+              values={githubRepos}
+              onChange={setGithubRepos}
+              clean={cleanRepo}
+              validate={checkRepo}
+              mono
+              placeholder="owner/name"
             />
           </Field>
 
-          {github || splitList(githubRepos).length > 0 ? null : (
+          {github || githubRepos.length > 0 ? null : (
             <Field
               id={`${uid}-github-requires`}
               label="Offered on pull requests to"
@@ -1674,9 +1687,16 @@ function splitLines(text: string): string[] {
     .filter(Boolean);
 }
 
-function splitList(text: string): string[] {
-  return text
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** checkNodeLabel is why a node label cannot be added, or nothing: a label is one word. */
+function checkNodeLabel(v: string): string | undefined {
+  return /\s/.test(v) ? `“${v}” is not a label: one word, such as linux or backend=sandbox.` : undefined;
+}
+
+/**
+ * checkSlackChannel is why a Slack channel cannot be added, or nothing. It is the channel's id;
+ * a name with # in front is what people type first, and it names no channel here.
+ */
+function checkSlackChannel(v: string): string | undefined {
+  if (v.startsWith("#")) return `Use the channel’s id, not its name: in Slack, the channel’s details end with it.`;
+  return /^[A-Z0-9]+$/.test(v) ? undefined : `“${v}” is not a Slack channel id, such as C01ABCDEF.`;
 }

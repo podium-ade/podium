@@ -20,6 +20,13 @@ const listRoutineRevisions = vi.fn();
 const listRoutineRuns = vi.fn();
 const getConnections = vi.fn();
 
+/** chips are the values a tag field holds, as its remove buttons name them. */
+function chips(testId: string): string[] {
+  return within(screen.getByTestId(testId))
+    .queryAllByRole("button", { name: /^Remove / })
+    .map((b) => (b.getAttribute("aria-label") ?? "").split(" ").pop() ?? "");
+}
+
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
   return {
@@ -33,6 +40,7 @@ vi.mock("../../lib/client", async () => {
       listRoutineRevisions: (...a: unknown[]) => listRoutineRevisions(...a),
       listRoutineRuns: (...a: unknown[]) => listRoutineRuns(...a),
       getConnections: (...a: unknown[]) => getConnections(...a),
+      listLinearCatalog: async () => ({ teams: [{ key: "ENG", name: "Engineering" }], labels: [] }),
       listPersonalities: async () => ({ personalities: [] }),
       listPlaybooks: async () => ({ playbooks: [{ name: "podium-dev" }, { name: "triage" }] }),
       getProfile: async () => ({
@@ -277,7 +285,10 @@ describe("RoutineDialog", () => {
 
     await userEvent.click(screen.getByTestId("routine-event-Comment.create"));
     await userEvent.click(screen.getByTestId("routine-event-Issue.create"));
-    await userEvent.type(screen.getByTestId("routine-teams"), "eng, web eng");
+    await userEvent.type(screen.getByLabelText(/^Teams/), "eng, web, eng{enter}");
+    expect(chips("routine-teams")).toEqual(["ENG", "WEB"]);
+    await userEvent.type(screen.getByLabelText(/^Teams/), "eng web{enter}");
+    expect(screen.getByText("“ENG WEB” is not a team key, such as ENG.")).toBeInTheDocument();
     expect(screen.getByText("Leave empty for every team.", { exact: false })).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("routine-save"));
 
@@ -293,6 +304,24 @@ describe("RoutineDialog", () => {
         "personal",
       ),
     );
+  });
+
+  it("offers the connected workspace's teams as the Linear routine's teams", async () => {
+    getConnections.mockResolvedValue({ linear: { configured: true } });
+    mount(
+      <RoutineDialog
+        open
+        title="Routine"
+        lockAssistant
+        canChooseTrigger
+        initial={{ name: "Triage", instruction: "Label it.", trigger: "linear", events: ["Issue.create"] }}
+        onClose={() => {}}
+        onSave={vi.fn()}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText(/^Teams/), "en");
+    await userEvent.click(await screen.findByRole("option", { name: /ENG · Engineering/ }));
+    expect(chips("routine-teams")).toEqual(["ENG"]);
   });
 
   it("offers each ticket's conversation for a routine on Linear events, and says what each choice means", async () => {
@@ -395,7 +424,8 @@ describe("RoutineDialog", () => {
 
     await userEvent.click(screen.getByTestId("routine-event-check_suite.failed"));
     await userEvent.click(screen.getByTestId("routine-event-workflow_run.failed"));
-    await userEvent.type(screen.getByTestId("routine-repos"), "Acme/API, acme  acme/api");
+    await userEvent.type(screen.getByLabelText(/^Repositories/), "https://github.com/Acme/API, acme, acme/api{enter}");
+    expect(chips("routine-repos")).toEqual(["acme/api", "acme"]);
     await userEvent.click(screen.getByTestId("routine-save"));
 
     await waitFor(() =>
@@ -442,7 +472,7 @@ describe("RoutineDialog", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("routine-trigger-github"));
-    expect(screen.getByTestId("routine-repos")).toHaveValue("");
+    expect(chips("routine-repos")).toEqual([]);
     expect(screen.getByTestId("routine-save")).toBeDisabled();
     await userEvent.click(screen.getByTestId("routine-event-issues.opened"));
     await userEvent.click(screen.getByTestId("routine-save"));
@@ -457,7 +487,7 @@ describe("RoutineDialog", () => {
     // Back on Linear, what was chosen there is as it was.
     await userEvent.click(screen.getByTestId("routine-trigger-linear"));
     expect(screen.getByTestId("routine-event-Issue.create")).toHaveAttribute("data-state", "checked");
-    expect(screen.getByTestId("routine-teams")).toHaveValue("ENG");
+    expect(chips("routine-teams")).toEqual(["ENG"]);
   });
 
   it("opens a routine on GitHub events with its events and repositories", async () => {
@@ -481,7 +511,7 @@ describe("RoutineDialog", () => {
     );
     expect(screen.getByTestId("routine-trigger-github")).toHaveAttribute("data-state", "on");
     expect(screen.getByTestId("routine-event-workflow_run.failed")).toHaveAttribute("data-state", "checked");
-    expect(screen.getByTestId("routine-repos")).toHaveValue("acme/api, acme");
+    expect(chips("routine-repos")).toEqual(["acme/api", "acme"]);
     expect(screen.getByTestId("routine-chat-mode-routine")).toHaveAttribute("data-state", "on");
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>
@@ -529,7 +559,7 @@ describe("RoutineDialog", () => {
         onSave={onSave}
       />,
     );
-    expect(screen.getByTestId("routine-teams")).toHaveValue("ENG");
+    expect(chips("routine-teams")).toEqual(["ENG"]);
     await userEvent.click(screen.getByTestId("routine-trigger-schedule"));
     await userEvent.click(screen.getByTestId("routine-save"));
     await waitFor(() =>
